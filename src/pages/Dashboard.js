@@ -1,0 +1,897 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+    Building, Truck, HardHat, Users, CheckCircle, Wrench,
+    ShieldAlert, Bell, Badge, TrendingUp, TrendingDown,
+    Filter, Info, AlertTriangle, Clock, X, Loader
+} from 'lucide-react';
+// REMOVIDO: Imports do Firebase Firestore
+import apiClient from '../services/apiClient'; // Importa apiClient (necessário para InactivityAlertModal)
+
+// Importa o componente de proteção
+import ProtectedComponent from '../components/ProtectedComponent';
+// REMOVIDO: useAuth (não diretamente necessário aqui, permissões vêm via props se preciso)
+
+// ===================================================================================
+// COMPONENTE: MODAL DE INATIVIDADE (Usa apiClient)
+// ===================================================================================
+const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient, setAlertMessage }) => { // Recebe apiClient e setAlertMessage
+    const [prolongDays, setProlongDays] = useState(7);
+    const [observation, setObservation] = useState(alert.observation || '');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const { obra, operator, vehicle } = alert; // Dados já processados
+
+    // Função para marcar como observado (USA API)
+    const handleObserve = async () => {
+        if (!observation) {
+            setAlertMessage("Por favor, adicione uma observação antes de marcar como observado.");
+            return;
+        }
+        setIsSaving(true);
+        try {
+            await apiClient.updateInactivityAlert(alert.id, {
+                status: 'Observado',
+                observation,
+                dismissedAt: new Date().toISOString(),
+            });
+            setAlertMessage("Alerta marcado como observado."); // Adiciona feedback
+            onObserve(); // Fecha modal e pode recarregar dados
+        } catch (error) {
+            console.error("Erro ao marcar como observado via API:", error);
+            setAlertMessage(error.message || "Falha ao marcar como observado.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Função para prorrogar (USA API)
+    const handleProlong = async () => {
+        const days = parseInt(prolongDays, 10);
+        if (isNaN(days) || days <= 0) {
+            setAlertMessage("Por favor, insira um número de dias válido maior que zero.");
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            const newAlertUntilDate = new Date();
+            newAlertUntilDate.setDate(newAlertUntilDate.getDate() + days);
+
+            await apiClient.updateInactivityAlert(alert.id, {
+                status: 'Prolongado',
+                observation: observation || `Prolongado por ${days} dia(s).`, // Adiciona observação padrão se vazia
+                prolongedUntil: newAlertUntilDate.toISOString(),
+                prolongedByDays: days,
+            });
+            setAlertMessage(`Alerta prolongado por ${days} dia(s).`); // Adiciona feedback
+            onProlong(); // Fecha modal e pode recarregar dados
+        } catch (error) {
+            console.error("Erro ao prorrogar alerta via API:", error);
+            setAlertMessage(error.message || "Falha ao prorrogar alerta.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Renderização do modal (ajustada para usar new Date())
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+                {/* Cabeçalho */}
+                <div className="p-6 border-b flex justify-between items-center">
+                    <div>
+                        <h2 className="text-xl font-bold">Alerta de Inatividade</h2>
+                        <p className="text-gray-600 font-semibold">{vehicle?.registroInterno} - {vehicle?.modelo}</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={20}/></button>
+                </div>
+                {/* Corpo */}
+                <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                    {/* Mensagem */}
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-50 text-yellow-800 border border-yellow-200">
+                        <Info size={24} className="flex-shrink-0"/>
+                        <p className="font-medium text-sm">Este veículo está alocado em obra ({obra?.nome || 'N/A'}) e não foi abastecido nos últimos 7 dias.</p>
+                    </div>
+                    {/* Detalhes */}
+                    <p className="text-sm"><strong>Último Abastecimento:</strong> {alert.lastRefuelingDate ? new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
+                    <p className="text-sm"><strong>Obra Atual:</strong> {obra?.nome || 'Não especificada'}</p>
+                    <p className="text-sm"><strong>Operador Designado:</strong> {operator?.nome || 'Não especificado'}</p>
+
+                    {/* Observação */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Observação *</label>
+                        <textarea
+                            value={observation}
+                            onChange={e => setObservation(e.target.value)}
+                            rows="3"
+                            className="w-full p-2 border rounded mt-1 bg-gray-50 focus:ring-yellow-500 focus:border-yellow-500 text-sm"
+                            placeholder="Ex: 'em espera devido a tempo chuvoso'"
+                            required // Observação é obrigatória para observar
+                        />
+                    </div>
+
+                    {/* Prolongar */}
+                    <div className="flex items-end gap-2 pt-2 border-t border-gray-200">
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700">Prolongar Aviso por (dias)</label>
+                            <input
+                                type="number"
+                                value={prolongDays}
+                                onChange={e => setProlongDays(e.target.value)}
+                                min="1"
+                                className="w-full p-2 border rounded mt-1 bg-gray-50 focus:ring-yellow-500 focus:border-yellow-500 text-sm"
+                            />
+                        </div>
+                        <button onClick={handleProlong} disabled={isSaving || !prolongDays || prolongDays <= 0} className="px-3 py-2 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 disabled:bg-blue-300 flex items-center gap-1 text-sm">
+                            {isSaving ? <Loader size={16} className="animate-spin"/> : <Clock size={16}/>}
+                            {isSaving ? '...' : 'Prolongar'}
+                        </button>
+                    </div>
+                </div>
+                {/* Rodapé */}
+                <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
+                    <button onClick={handleObserve} disabled={isSaving || !observation} className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-green-300 flex items-center gap-1 text-sm">
+                         {isSaving ? <Loader size={16} className="animate-spin"/> : <CheckCircle size={16}/>}
+                        {isSaving ? '...' : 'Marcar Observado'}
+                    </button>
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm" disabled={isSaving}>Fechar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// ===================================================================================
+// COMPONENTE: RANKING DE CONSUMO (Usa props, ajustado para API data)
+// ===================================================================================
+const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups = {} }) => { // Adiciona valores padrão
+    const [selectedType, setSelectedType] = useState('todos');
+    const [selectedVehicleId, setSelectedVehicleId] = useState('');
+
+    // Gera lista de tipos (sem mudanças)
+    const vehicleTypes = useMemo(() => {
+        if (!Array.isArray(vehicles)) return ['todos'];
+        const types = new Set(vehicles.map(v => v.tipo).filter(Boolean));
+        return ['todos', ...Array.from(types).sort()];
+    }, [vehicles]);
+
+    // Calcula rankings (Usa new Date() e props)
+    const rankings = useMemo(() => {
+        if (!Array.isArray(vehicles) || !Array.isArray(refuelings) || !vehicleGroups || Object.keys(vehicleGroups).length === 0) {
+             return { all: [], best: [], worst: [] };
+        }
+
+        // Filtra veículos pelo tipo
+        const filteredVehicles = selectedType === 'todos'
+            ? vehicles
+            : vehicles.filter(v => v.tipo === selectedType);
+
+        // Calcula média
+        const vehicleAverages = filteredVehicles.map(vehicle => {
+            const history = (refuelings || [])
+                .filter(r => r.vehicleId === vehicle.id && r.status === 'Concluída')
+                // Ordena por data (string ISO da API) crescente
+                .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+            if (history.length < 2) return null;
+
+            // Determina unidade (Km/L ou L/Hr)
+            let unit = 'Km/L';
+            const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
+            if (vehicle.mediaCalculo === 'horimetro' || vehicleGroup === 'Máquinas Pesadas' || (vehicleGroup === 'Caminhões' && vehicle.mediaCalculo !== 'odometro')) {
+                unit = 'L/Hr';
+            }
+
+            const firstRefuel = history[0];
+            const lastRefuel = history[history.length - 1];
+            const totalLiters = history.slice(1).reduce((sum, item) => sum + (parseFloat(item.litrosAbastecidos) || 0), 0);
+            let startReading = 0, endReading = 0;
+
+            // Define leituras
+            if (unit === 'Km/L') {
+                startReading = parseFloat(firstRefuel.odometro || 0);
+                endReading = parseFloat(lastRefuel.odometro || 0);
+            } else { // L/Hr
+                 const getHorimetro = (refuel) => parseFloat(refuel.horimetroDigital ?? refuel.horimetroAnalogico ?? refuel.horimetro ?? 0);
+                 startReading = getHorimetro(firstRefuel);
+                 endReading = getHorimetro(lastRefuel);
+            }
+
+            const totalReadingDiff = endReading - startReading;
+            let overallAverage = null;
+
+            // Calcula média
+            if (unit === 'Km/L') {
+                if (totalLiters > 0 && totalReadingDiff > 0) overallAverage = totalReadingDiff / totalLiters;
+            } else { // L/Hr
+                if (totalReadingDiff > 0 && totalLiters > 0) overallAverage = totalLiters / totalReadingDiff;
+            }
+
+            return overallAverage !== null && isFinite(overallAverage) ? { ...vehicle, average: overallAverage, unit } : null;
+        }).filter(Boolean);
+
+        // Ordena para rankings
+        const sortedAverages = [...vehicleAverages].sort((a, b) => {
+            if (a.unit === 'L/Hr') return a.average - b.average; // Menor L/Hr é melhor
+            return b.average - a.average; // Maior Km/L é melhor
+        });
+
+        const best = sortedAverages.slice(0, 5);
+        const worst = [...sortedAverages].reverse().slice(0, 5); // Pega os 5 piores
+
+        return { all: vehicleAverages, best, worst };
+    }, [vehicles, refuelings, vehicleGroups, selectedType]);
+
+    // Encontra dados do veículo selecionado (sem mudanças)
+    const selectedVehicleData = useMemo(() => {
+        return rankings.all.find(v => v.id === selectedVehicleId);
+    }, [rankings.all, selectedVehicleId]);
+
+    // Renderiza listas (sem mudanças)
+    const renderRankList = (data, title, icon, colorClass) => (
+        <div>
+            <h3 className={`font-semibold text-md mb-2 flex items-center gap-2 ${colorClass}`}>
+                {icon} {title}
+            </h3>
+            <ul className="space-y-1 text-sm">
+                {data.length > 0 ? data.map(v => (
+                    <li key={v.id} className="flex justify-between p-2 bg-gray-50 rounded border border-gray-100">
+                        <span className="truncate" title={`${v.registroInterno} - ${v.modelo}`}>{v.registroInterno} - {v.modelo}</span>
+                        <span className="font-bold flex-shrink-0 ml-2">{v.average.toFixed(2)} {v.unit}</span>
+                    </li>
+                )) : <p className="text-xs text-gray-500 px-2 py-4 text-center">Dados insuficientes.</p>}
+            </ul>
+        </div>
+    );
+
+    // Renderização do componente (sem mudanças)
+    return (
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
+            {/* Cabeçalho */}
+            <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                <h2 className="text-xl font-bold text-gray-900">Ranking de Consumo</h2>
+                <div className="flex items-center gap-2">
+                    <Filter size={16} className="text-gray-500" />
+                    <select
+                        value={selectedType}
+                        onChange={e => { setSelectedType(e.target.value); setSelectedVehicleId(''); }}
+                        className="p-1 border rounded-lg bg-gray-50 text-sm focus:ring-yellow-500 focus:border-yellow-500"
+                    >
+                        {vehicleTypes.map(type => (
+                            <option key={type} value={type}>{type === 'todos' ? 'Todos os Tipos' : type}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            {/* Select Comparação */}
+            {selectedType !== 'todos' && rankings.all.length > 0 && (
+                <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700">Comparar outros ({selectedType}):</label>
+                    <select
+                        value={selectedVehicleId}
+                        onChange={e => setSelectedVehicleId(e.target.value)}
+                        className="w-full p-2 border rounded-lg mt-1 bg-gray-50 text-sm focus:ring-yellow-500 focus:border-yellow-500"
+                    >
+                        <option value="">Selecione para detalhes</option>
+                        {rankings.all
+                            .sort((a, b) => a.unit === 'L/Hr' ? a.average - b.average : b.average - a.average)
+                            .map(v => (
+                            <option key={v.id} value={v.id}>
+                                {v.registroInterno} - {v.modelo} ({v.average.toFixed(2)} {v.unit})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+
+            {/* Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 {/* Rankings */}
+                <div className="space-y-4">
+                    {renderRankList(rankings.best, 'Melhores Médias', <TrendingUp size={18}/>, 'text-green-600')}
+                    {renderRankList(rankings.worst, 'Piores Médias', <TrendingDown size={18}/>, 'text-red-600')}
+                </div>
+                {/* Detalhes */}
+                {selectedVehicleData ? (
+                    <div className="p-4 bg-gray-100 rounded-lg shadow-inner border border-gray-200 self-start">
+                        <h3 className="font-semibold text-md mb-2 flex items-center gap-2">
+                            <Truck size={16} className="text-gray-600"/> Detalhes - {selectedVehicleData.registroInterno}
+                        </h3>
+                        <ul className="space-y-1 text-xs text-gray-700">
+                            <li className="flex justify-between items-center py-1 border-b border-gray-200"><span className="font-medium text-gray-600">Modelo:</span><span>{selectedVehicleData.modelo}</span></li>
+                             <li className="flex justify-between items-center py-1 border-b border-gray-200"><span className="font-medium text-gray-600">Tipo:</span><span>{selectedVehicleData.tipo}</span></li>
+                             <li className="flex justify-between items-center py-1 border-b border-gray-200"><span className="font-medium text-gray-600">Placa:</span><span>{selectedVehicleData.placa || 'N/A'}</span></li>
+                            <li className="flex justify-between items-center py-1 mt-2"><span className="font-medium text-gray-600">Média Calculada:</span><span className={`font-bold text-lg ${selectedVehicleData.unit === 'L/Hr' ? 'text-red-700' : 'text-green-700'}`}>{selectedVehicleData.average.toFixed(2)} {selectedVehicleData.unit}</span></li>
+                        </ul>
+                    </div>
+                ) : selectedType !== 'todos' && rankings.all.length > 0 && (
+                     <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 self-start text-center text-sm text-blue-700">Selecione um veículo na lista acima.</div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+// ===================================================================================
+// COMPONENTE: PAINEL DE PROGRESSO DA OBRA (Usa props, ajustado para API data)
+// ===================================================================================
+const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipmentTypesForHours = [] }) => { // Adiciona valores padrão
+    const [selectedObraId, setSelectedObraId] = useState('');
+
+    // Filtra obras ativas com dados (sem mudanças)
+    const activeObrasWithContractData = useMemo(() => {
+        if (!Array.isArray(obras)) return [];
+        return obras.filter(obra => {
+            if (obra.status !== 'ativa') return false;
+            const currentContractType = obra.contractType || 'horas';
+            if (currentContractType === 'horas') {
+                const totalContratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
+                return totalContratado > 0;
+            } else if (currentContractType === 'metrosQuadrados') {
+                const totalKmContratado = (obra.sectors || []).reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0);
+                return totalKmContratado > 0;
+            } else if (currentContractType === 'prancha') {
+                 return (parseFloat(obra.kmContratadoPrancha) || 0) > 0;
+            }
+            return false;
+        }).sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [obras]);
+
+     // Função auxiliar para calcular executado (Usa new Date() e props)
+    const calculateExecuted = useMemo(() => (obra) => { // Envolve em useMemo para referência estável
+        let totalExecutadoHoras = 0;
+        let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha || 0);
+        let horasExecutadasPorTipo = {};
+        // Garante que equipmentTypesForHours é array
+        const equipmentTypes = Array.isArray(equipmentTypesForHours) ? equipmentTypesForHours : [];
+        equipmentTypes.forEach(type => { horasExecutadasPorTipo[type] = 0; });
+        // Adiciona Caminhão se não estiver presente
+        if (!horasExecutadasPorTipo['Caminhão']) horasExecutadasPorTipo['Caminhão'] = 0;
+
+        // Garante que historicoVeiculos é array
+        (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(hist => {
+            const vehicle = vehicles.find(v => v.id === hist.veiculoId);
+            if (!vehicle) return;
+            // Garante que vehicleGroups é objeto
+            const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
+            const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
+            const equipType = equipmentTypes.find(t => vehicle.tipo === t);
+
+            // Prioriza horímetro do histórico (details)
+            let startReading = parseFloat(hist.details?.horimetroEntrada ?? hist.details?.odometroEntrada ?? 0);
+            let endReading = parseFloat(hist.details?.horimetroSaida ?? hist.details?.odometroSaida ?? 0);
+            let useOdometroForPrancha = false;
+
+            // Se não saiu, pega leitura atual do veículo
+            if (!hist.endDate) { // Usa endDate da API
+                if (vehicleGroup === 'Máquinas Pesadas') {
+                     endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                     // Garante startReading correspondente se endReading for válido
+                     if (endReading > 0 && hist.details?.horimetroEntrada == null) startReading = 0;
+                } else if (vehicleGroup === 'Caminhões') {
+                     // Para prancha, usa odômetro
+                    if (obra.contractType === 'prancha') {
+                         endReading = parseFloat(vehicle.odometro || 0);
+                         startReading = parseFloat(hist.details?.odometroEntrada || 0); // Compara odômetro com odômetro
+                         useOdometroForPrancha = true;
+                    } else { // Outros contratos de caminhão, usa horímetro
+                         endReading = parseFloat(vehicle.horimetro || 0);
+                         startReading = parseFloat(hist.details?.horimetroEntrada || 0); // Compara horímetro com horímetro
+                         if (endReading > 0 && hist.details?.horimetroEntrada == null) startReading = 0;
+                    }
+                } else { // Veículos Leves
+                    endReading = parseFloat(vehicle.odometro || 0);
+                    startReading = parseFloat(hist.details?.odometroEntrada || 0);
+                    if (endReading > 0 && hist.details?.odometroEntrada == null) startReading = 0;
+                }
+            }
+
+            // Calcula diferença
+            if (endReading >= startReading) {
+                 const diff = endReading - startReading;
+                 if (useOdometroForPrancha) {
+                     totalExecutadoKmPrancha += diff;
+                 } else if (equipType && obra.contractType !== 'prancha' && vehicleGroup !== 'Veículos Leves') {
+                      horasExecutadasPorTipo[equipType] = (horasExecutadasPorTipo[equipType] || 0) + diff;
+                 }
+                 // Contabiliza horas de caminhão (não prancha) mesmo se 'Caminhão' não estiver em equipmentTypesForHours
+                 else if (vehicleGroup === 'Caminhões' && !useOdometroForPrancha && obra.contractType !== 'prancha') {
+                     horasExecutadasPorTipo['Caminhão'] = (horasExecutadasPorTipo['Caminhão'] || 0) + diff;
+                 }
+            }
+        });
+
+        // Adiciona horas manuais de caminhão (não prancha)
+        const truckManualHours = parseFloat(obra.horasAdicionaisCaminhao || 0);
+        if (horasExecutadasPorTipo['Caminhão'] !== undefined && obra.contractType !== 'prancha') {
+             horasExecutadasPorTipo['Caminhão'] += truckManualHours;
+        }
+
+        totalExecutadoHoras = Object.values(horasExecutadasPorTipo).reduce((sum, h) => sum + (h || 0), 0);
+
+        return {
+             totalHoras: totalExecutadoHoras,
+             totalKmPrancha: totalExecutadoKmPrancha,
+             porTipo: horasExecutadasPorTipo,
+        };
+    }, [vehicles, vehicleGroups, equipmentTypesForHours]); // Dependências da função interna
+
+    // Calcula progresso total (Usa calculateExecuted)
+    const allObrasProgress = useMemo(() => {
+        if (!activeObrasWithContractData || !vehicles) {
+            return { totalContracted: 0, totalExecuted: 0, unit: 'hrs' };
+        }
+        let totalContratado = 0, totalExecutado = 0, primaryUnit = 'hrs';
+
+        activeObrasWithContractData.forEach(obra => {
+            const currentContractType = obra.contractType || 'horas';
+            const executed = calculateExecuted(obra); // Usa a função memoizada
+
+            if (currentContractType === 'horas') {
+                totalContratado += Object.values(obra.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
+                totalExecutado += executed.totalHoras;
+                primaryUnit = 'hrs';
+            } else if (currentContractType === 'metrosQuadrados') {
+                 // Garante que sectors é array
+                const sectors = Array.isArray(obra.sectors) ? obra.sectors : [];
+                totalContratado += sectors.reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0);
+                totalExecutado += sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0); // Usa kmConcluido da API
+                primaryUnit = 'm²';
+             } else if (currentContractType === 'prancha') {
+                 totalContratado += parseFloat(obra.kmContratadoPrancha || 0);
+                 totalExecutado += executed.totalKmPrancha;
+                 primaryUnit = 'km';
+            }
+        });
+        return { totalContracted: totalContratado || 0, totalExecuted: totalExecutado || 0, unit: primaryUnit };
+    }, [activeObrasWithContractData, vehicles, calculateExecuted]);
+
+    // Calcula dados da obra selecionada (Usa calculateExecuted)
+    const obraData = useMemo(() => {
+        if (!selectedObraId || !activeObrasWithContractData || !vehicles) return null;
+        const obra = activeObrasWithContractData.find(o => o.id === selectedObraId);
+        if (!obra) return null;
+
+        const currentContractType = obra.contractType || 'horas';
+        const executed = calculateExecuted(obra); // Usa a função memoizada
+        // Garante que equipmentTypesForHours é array
+        const equipmentTypes = Array.isArray(equipmentTypesForHours) ? equipmentTypesForHours : [];
+        // Garante que allEquipmentTypes inclua 'Caminhão'
+        const allEquipmentTypes = [...new Set([...equipmentTypes, 'Caminhão'])];
+
+        if (currentContractType === 'horas') {
+            const horasContratadas = obra.horasContratadasPorTipo || {};
+            const totalContratado = Object.values(horasContratadas).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
+            const breakdownMap = {};
+            allEquipmentTypes.forEach(type => {
+                breakdownMap[type] = {
+                    tipo: type,
+                    contratado: parseFloat(horasContratadas[type] || 0),
+                    executado: parseFloat((executed.porTipo[type] || 0).toFixed(1)),
+                };
+            });
+            return { type: 'horas', nome: obra.nome, totalContratado, totalExecutado: executed.totalHoras, unit: 'hrs', breakdown: Object.values(breakdownMap) };
+        } else if (currentContractType === 'metrosQuadrados') {
+             // Garante que sectors é array
+            const sectors = Array.isArray(obra.sectors) ? obra.sectors : [];
+            const totalKmContratado = sectors.reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0);
+            const totalKmConcluido = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0); // Usa da API
+            return { type: 'metrosQuadrados', nome: obra.nome, totalKmContratado, totalKmConcluido, unit: 'm²', sectors: sectors.map(s => ({...s, kmContratado: parseFloat(s.kmContratado || 0), kmConcluido: parseFloat(s.kmConcluido || 0)})) };
+         } else if (currentContractType === 'prancha') {
+             const totalKmContratado = parseFloat(obra.kmContratadoPrancha || 0);
+             return { type: 'prancha', nome: obra.nome, totalKmContratado, totalKmConcluido: executed.totalKmPrancha, unit: 'km' };
+        }
+        return null;
+    }, [selectedObraId, activeObrasWithContractData, vehicles, calculateExecuted, equipmentTypesForHours]);
+
+    // ProgressBar (sem mudanças)
+    const ProgressBar = ({ value, max, color = 'bg-yellow-400' }) => {
+        const numericValue = parseFloat(value) || 0;
+        const numericMax = parseFloat(max) || 0;
+        const percentage = numericMax > 0 ? (numericValue / numericMax) * 100 : 0;
+        const displayPercentage = Math.min(percentage, 100).toFixed(0);
+
+        return (
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden my-1">
+                <div
+                    className={`${color} h-4 rounded-full text-gray-900 text-[10px] flex items-center justify-center font-bold transition-width duration-500 ease-in-out`}
+                    style={{ width: `${displayPercentage}%` }}
+                 >
+                    {percentage > 15 ? `${displayPercentage}%` : ''}
+                </div>
+            </div>
+        );
+    };
+
+    // Calcula progresso individual (Usa calculateExecuted)
+    const individualObrasProgress = useMemo(() => {
+        if (!activeObrasWithContractData || !vehicles) return [];
+        return activeObrasWithContractData.map(obra => {
+            const currentContractType = obra.contractType || 'horas';
+            let totalContratado = 0, totalExecutado = 0, unit = 'hrs';
+            const executed = calculateExecuted(obra); // Usa função memoizada
+
+            if (currentContractType === 'horas') {
+                totalContratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
+                totalExecutado = executed.totalHoras;
+                unit = 'hrs';
+            } else if (currentContractType === 'metrosQuadrados') {
+                const sectors = Array.isArray(obra.sectors) ? obra.sectors : [];
+                totalContratado = sectors.reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0);
+                totalExecutado = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0);
+                unit = 'm²';
+             } else if (currentContractType === 'prancha') {
+                 totalContratado = parseFloat(obra.kmContratadoPrancha || 0);
+                 totalExecutado = executed.totalKmPrancha;
+                 unit = 'km';
+            }
+
+            const percentage = totalContratado > 0 ? (totalExecutado / totalContratado) * 100 : 0;
+            return { id: obra.id, nome: obra.nome, totalContratado, totalExecutado, percentage: percentage || 0, unit };
+        }).sort((a,b) => b.percentage - a.percentage);
+    }, [activeObrasWithContractData, vehicles, calculateExecuted]);
+
+    // Renderização (sem mudanças significativas, apenas ajustes de texto/unidade)
+    return (
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
+            {/* Cabeçalho */}
+            <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                <h2 className="text-xl font-bold text-gray-900">Progresso da Obra</h2>
+                <select
+                     onChange={(e) => setSelectedObraId(e.target.value)}
+                     value={selectedObraId}
+                     className="p-1 border rounded-lg bg-gray-50 text-sm focus:ring-yellow-500 focus:border-yellow-500"
+                 >
+                    <option value="">Visão Geral</option>
+                    {activeObrasWithContractData.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                </select>
+            </div>
+
+            {/* Conteúdo */}
+            {!obras || !vehicles ? (
+                 <p className="text-center text-gray-500 py-10">Carregando...</p>
+            ) : !selectedObraId ? ( // Visão Geral
+                <div className="space-y-4">
+                    {/* Progresso Total */}
+                    <div className="bg-gray-100 p-3 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-semibold text-gray-800 mb-1">Progresso Total (Obras Ativas)</h3>
+                        <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
+                            <span>Progresso Geral</span>
+                             <span>{allObrasProgress.totalExecuted.toFixed(1)} / {allObrasProgress.totalContracted.toFixed(1)} {allObrasProgress.unit}</span>
+                        </div>
+                        <ProgressBar value={allObrasProgress.totalExecuted} max={allObrasProgress.totalContracted} color="bg-green-500" />
+                    </div>
+                    {/* Progresso Individual */}
+                    <div>
+                        <h3 className="text-sm font-semibold text-gray-800 mb-1 pt-1">Progresso por Obra</h3>
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+                            {individualObrasProgress.length > 0 ? individualObrasProgress.map(obraProg => {
+                                const barColor = obraProg.percentage < 75 ? 'bg-blue-500' : obraProg.percentage < 95 ? 'bg-yellow-500' : 'bg-red-500';
+                                const progressText = `${obraProg.totalExecuted.toFixed(1)} ${obraProg.unit}`;
+                                const contractedText = `${obraProg.totalContratado.toFixed(1)} ${obraProg.unit}`;
+
+                                return (
+                                    <div key={obraProg.id} className="mb-1">
+                                         <span className="text-[11px] font-medium text-gray-700 block mb-0.5">{obraProg.nome}</span>
+                                        <div className="w-full bg-gray-200 rounded-full h-4 relative overflow-hidden border border-gray-300">
+                                            <div className={`h-full ${barColor} rounded-full`} style={{ width: `${Math.min(obraProg.percentage, 100)}%` }}></div>
+                                            <div className="absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold text-black mix-blend-difference invert">
+                                                <span className="truncate">{progressText}</span>
+                                                <span className="absolute left-1/2 -translate-x-1/2">{obraProg.percentage.toFixed(0)}%</span>
+                                                <span className="truncate">{contractedText}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            }) : <p className="text-xs text-gray-500 text-center py-4 italic">Nenhuma obra ativa com dados.</p>}
+                        </div>
+                    </div>
+                    <p className="text-xs text-gray-500 italic pt-1 text-center">Selecione uma obra para detalhes.</p>
+                </div>
+            ) : selectedObraId && obraData ? ( // Detalhes da Obra
+                <div className="space-y-3">
+                    <div>
+                        <div className="flex justify-between mb-0.5 text-xs font-medium">
+                            <span>Progresso Total ({obraData.unit})</span>
+                            <span>
+                                {(obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido).toFixed(1)} /
+                                {(obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado).toFixed(1)} {obraData.unit}
+                            </span>
+                        </div>
+                        <ProgressBar value={obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido} max={obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado} />
+                    </div>
+                    {/* Detalhes Horas */}
+                    {obraData.type === 'horas' && obraData.breakdown && (
+                        <div className="space-y-1 pt-1 border-t border-gray-200">
+                            <h3 className="text-xs font-semibold text-gray-700">Detalhes por Equipamento:</h3>
+                            {obraData.breakdown.filter(e => e.contratado > 0 || e.executado > 0).length > 0 ? (
+                                obraData.breakdown.filter(e => e.contratado > 0 || e.executado > 0)
+                                    .sort((a,b) => a.tipo.localeCompare(b.tipo))
+                                    .map(entry => (
+                                        <div key={entry.tipo}>
+                                            <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
+                                                <span>{entry.tipo}</span>
+                                                <span>{entry.executado.toFixed(1)} / {entry.contratado.toFixed(1)} hrs</span>
+                                            </div>
+                                            <ProgressBar value={entry.executado} max={entry.contratado} color="bg-blue-400" />
+                                        </div>
+                                ))
+                            ) : <p className="text-xs text-gray-500 italic">Sem horas contratadas/executadas.</p>}
+                        </div>
+                    )}
+                    {/* Detalhes m² */}
+                    {obraData.type === 'metrosQuadrados' && obraData.sectors && (
+                        <div className="space-y-1 pt-1 border-t border-gray-200">
+                            <h3 className="text-xs font-semibold text-gray-700">Progresso por Setor ({obraData.unit}):</h3>
+                            {obraData.sectors.length > 0 ? obraData.sectors.map(sector => (
+                                <div key={sector.name}>
+                                    <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
+                                        <span>{sector.name || 'Setor s/ nome'}</span>
+                                        <span>{sector.kmConcluido.toFixed(1)} / {sector.kmContratado.toFixed(1)} {obraData.unit}</span>
+                                    </div>
+                                    <ProgressBar value={sector.kmConcluido} max={sector.kmContratado} color="bg-green-400" />
+                                </div>
+                            )) : <p className="text-xs text-gray-500 italic">Nenhum setor definido.</p>}
+                        </div>
+                    )}
+                     {/* Detalhes Prancha */}
+                     {obraData.type === 'prancha' && (
+                         <div className="pt-1 border-t border-gray-200">
+                             <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
+                                 <span>Deslocamento Prancha ({obraData.unit})</span>
+                                 <span>{obraData.totalKmConcluido.toFixed(1)} / {obraData.totalKmContratado.toFixed(1)} {obraData.unit}</span>
+                             </div>
+                             <ProgressBar value={obraData.totalKmConcluido} max={obraData.totalKmContratado} color="bg-indigo-400" />
+                         </div>
+                     )}
+                </div>
+            ) : <p className="text-gray-500 text-center py-10 italic">Selecione uma obra ou verifique os dados de contrato.</p>}
+        </div>
+    );
+};
+
+// ===================================================================================
+// COMPONENTE PRINCIPAL DO DASHBOARD (Usa props e apiClient)
+// ===================================================================================
+const Dashboard = ({
+    navigate,
+    vehicles = [], obras = [], revisions = [], refuelings = [], employees = [], fines = [],
+    // inactivityAlerts = [], // Recebe via props do App.js
+    vehicleGroups = {}, equipmentTypesForHours = [],
+    apiClient, // Recebe via props
+    setAlertMessage, // Recebe via props
+    reloadData // Recebe via props (se necessário)
+}) => {
+    const [selectedInactivityAlert, setSelectedInactivityAlert] = useState(null);
+     // Busca alertas de inatividade da API dentro do Dashboard
+     const [inactivityAlerts, setInactivityAlerts] = useState([]);
+     const [loadingAlerts, setLoadingAlerts] = useState(true);
+
+     useEffect(() => {
+         const fetchInactivityAlerts = async () => {
+             setLoadingAlerts(true);
+             try {
+                 const alertsData = await apiClient.getInactivityAlerts();
+                 setInactivityAlerts(alertsData || []);
+             } catch (error) {
+                 console.error("Erro ao buscar alertas de inatividade:", error);
+                 // Não mostrar alerta para erro de busca de alertas, apenas logar
+                 setInactivityAlerts([]); // Define como vazio em caso de erro
+             } finally {
+                 setLoadingAlerts(false);
+             }
+         };
+         fetchInactivityAlerts();
+         // Recarrega alertas a cada 5 minutos (opcional)
+         const intervalId = setInterval(fetchInactivityAlerts, 5 * 60 * 1000);
+         return () => clearInterval(intervalId); // Limpa intervalo ao desmontar
+     }, [apiClient]);
+
+
+    // Calcula os alertas combinados (Usa new Date() e props)
+    const alerts = useMemo(() => {
+        // Alertas de 'possuiAviso' (vem processado de App.js)
+        const vehicleAlerts = (vehicles || []).filter(v => v?.possuiAviso).map(v => ({
+            id: `vehicle-${v.id}`,
+            type: 'Aviso Veículo',
+            vehicle: v,
+            text: v.avisoTexto || 'Verificar veículo',
+            isDanger: (v.avisoTexto || '').includes('Vencida!') || v.canCirculate === false, // Adiciona canCirculate
+        }));
+
+        // Alertas CNH
+        const now = new Date();
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(now.getDate() + 30);
+        const cnhAlerts = (employees || []).map(emp => {
+            if (emp.cnhVencimento) {
+                try {
+                    // Adiciona hora para evitar problemas de fuso
+                    const vencimento = new Date(emp.cnhVencimento + 'T12:00:00Z');
+                    if (!isNaN(vencimento)) {
+                        if (vencimento < now) {
+                            return { id: `cnh-${emp.id}`, type: 'CNH', employee: emp, text: `Vencida em ${vencimento.toLocaleDateString('pt-BR')}`, isDanger: true };
+                        } else if (vencimento <= thirtyDaysFromNow) {
+                            return { id: `cnh-${emp.id}`, type: 'CNH', employee: emp, text: `Vence em ${vencimento.toLocaleDateString('pt-BR')}`, isDanger: false };
+                        }
+                    }
+                } catch { /* Ignora data inválida */ }
+            }
+            return null;
+        }).filter(Boolean);
+
+        // Alertas de Inatividade (processados localmente com dados da API)
+         const processedInactivityAlerts = (inactivityAlerts || []).map(alert => {
+             const vehicle = vehicles.find(v => v.id === alert.vehicleId);
+             const obra = obras.find(o => o.id === alert.obraId);
+             const operator = employees.find(e => e.id === alert.operatorId);
+
+             if (!vehicle || !obra || !operator) return null; // Pula se dados não encontrados
+
+             const isProlongedActive = alert.status === 'Prolongado' && new Date(alert.prolongedUntil) > now;
+             if (alert.status === 'Observado' || isProlongedActive) return null; // Não exibe
+
+             return {
+                 ...alert,
+                 id: `inactive-${alert.id}`,
+                 type: 'Inatividade',
+                 vehicle, obra, operator, // Passa objetos completos
+                 isDanger: true,
+             };
+         }).filter(Boolean);
+
+        // Combina e ordena
+        const combinedAlerts = [...vehicleAlerts, ...cnhAlerts, ...processedInactivityAlerts]
+            .sort((a, b) => (b.isDanger - a.isDanger)); // Perigosos primeiro
+
+        return combinedAlerts;
+    }, [vehicles, employees, inactivityAlerts, obras]); // Dependências atualizadas
+
+    // Calcula estatísticas (sem mudanças)
+    const stats = useMemo(() => {
+        const validVehicles = Array.isArray(vehicles) ? vehicles : [];
+        const validObras = Array.isArray(obras) ? obras : [];
+        const validFines = Array.isArray(fines) ? fines : [];
+
+        const processedVehicles = validVehicles.map(v => ({
+            ...v,
+            // Garante um status, priorizando o da API ou 'Disponível' como fallback
+            status: v?.status || 'Disponível'
+        }));
+
+        const activeObrasCount = validObras.filter(o => o?.status === 'ativa').length;
+        const maintenanceStatuses = ['Em Manutenção', 'Aguardando Manutenção'];
+
+        return {
+            totalVehicles: processedVehicles.length,
+            totalObras: activeObrasCount,
+            vehiclesInObra: processedVehicles.filter(v => v.status === 'Em Obra').length,
+            vehiclesInOperation: processedVehicles.filter(v => v.status === 'Em Operação').length,
+            availableVehicles: processedVehicles.filter(v => v.status === 'Disponível').length,
+            vehiclesInMaintenance: processedVehicles.filter(v => maintenanceStatuses.includes(v.status)).length,
+            pendingFines: validFines.filter(f => f?.status === 'Pendente').length,
+        };
+    }, [vehicles, obras, fines]);
+
+    // Manipuladores do modal de inatividade
+    const handleInactivityAlertClick = (alert) => setSelectedInactivityAlert(alert);
+    const handleInactivityModalClose = () => setSelectedInactivityAlert(null);
+    const handleAlertAction = () => {
+        // Fecha o modal e recarrega os dados para atualizar a lista de alertas
+        setSelectedInactivityAlert(null);
+        if (reloadData) reloadData(); // Chama reloadData se disponível
+        else console.warn("Função reloadData não disponível para atualizar alertas.");
+    };
+
+    // StatCard (sem mudanças)
+    const StatCard = ({ title, value, icon, iconBgColor, iconTextColor, onClick }) => (
+        <div onClick={onClick} className="p-3 bg-white rounded-lg shadow-md flex items-center gap-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 border border-gray-100">
+            <div className={`p-2 rounded-full ${iconBgColor} ${iconTextColor} shadow-sm`}><div className="w-5 h-5">{icon}</div></div>
+            <div>
+                <p className="text-xl font-bold text-gray-800">{value ?? '0'}</p>
+                <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{title}</p>
+            </div>
+        </div>
+    );
+
+    // Renderização do Dashboard
+    return (
+        <ProtectedComponent requiredPermission="viewer">
+            <div className="space-y-5">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
+
+                {/* Grid de Estatísticas */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <StatCard title="Total Frota" value={stats.totalVehicles} icon={<Truck size={20}/>} iconBgColor="bg-yellow-100" iconTextColor="text-yellow-700" onClick={() => navigate('vehicles')} />
+                    <StatCard title="Obras Ativas" value={stats.totalObras} icon={<Building size={20}/>} iconBgColor="bg-gray-100" iconTextColor="text-gray-700" onClick={() => navigate('obras', { status: 'ativa' })} />
+                    <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={<HardHat size={20}/>} iconBgColor="bg-green-100" iconTextColor="text-green-700" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
+                    <StatCard title="Em Operação" value={stats.vehiclesInOperation} icon={<Users size={20}/>} iconBgColor="bg-blue-100" iconTextColor="text-blue-700" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
+                    <StatCard title="Disponíveis" value={stats.availableVehicles} icon={<CheckCircle size={20}/>} iconBgColor="bg-teal-100" iconTextColor="text-teal-700" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
+                    <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={<Wrench size={20}/>} iconBgColor="bg-red-100" iconTextColor="text-red-700" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
+                    <StatCard title="Multas Pend." value={stats.pendingFines} icon={<ShieldAlert size={20}/>} iconBgColor="bg-orange-100" iconTextColor="text-orange-700" onClick={() => navigate('fines', { status: 'Pendente' })} />
+                </div>
+
+                {/* Grid Principal */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    {/* Alertas */}
+                    <div className="lg:col-span-1 bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200">
+                        <h2 className="text-lg font-bold text-gray-900 mb-3">Alertas e Avisos</h2>
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
+                            {loadingAlerts ? (
+                                <div className="flex justify-center items-center h-20"><Loader className="animate-spin text-gray-400"/></div>
+                            ) : alerts.length > 0 ? alerts.map(alert => {
+                                let bgColor = 'bg-yellow-50 border-yellow-200';
+                                let textColor = 'text-yellow-800';
+                                let iconColor = 'text-yellow-600';
+                                let Icon = Info;
+                                if (alert.type === 'CNH') { Icon = Badge; bgColor = 'bg-blue-50 border-blue-200'; textColor = 'text-blue-800'; iconColor = 'text-blue-600'; }
+                                if (alert.type === 'Inatividade') { Icon = Clock; bgColor = 'bg-purple-50 border-purple-200'; textColor = 'text-purple-800'; iconColor = 'text-purple-600'; }
+                                if (alert.isDanger) { Icon = AlertTriangle; bgColor = 'bg-red-50 border-red-200'; textColor = 'text-red-800'; iconColor = 'text-red-600'; }
+
+                                return (
+                                <div
+                                    key={alert.id}
+                                    className={`p-2.5 rounded-lg flex items-start gap-2 ${bgColor} border cursor-pointer hover:shadow-sm transition-shadow duration-150`}
+                                    onClick={() => {
+                                        if (alert.type === 'Inatividade') handleInactivityAlertClick(alert);
+                                        else if (alert.vehicle) navigate('vehicles', { search: alert.vehicle.registroInterno }); // Navega e filtra
+                                        else if (alert.employee) navigate('employees', { search: alert.employee.nome }); // Navega e filtra
+                                    }}
+                                >
+                                    <div className={`mt-0.5 flex-shrink-0 ${iconColor}`}><Icon size={16}/></div>
+                                    <div className="flex-1">
+                                        <p className={`font-semibold text-xs ${textColor}`}>
+                                            {alert.vehicle ? `${alert.vehicle.registroInterno}` : alert.employee?.nome}
+                                        </p>
+                                        <p className="text-[10px] text-gray-600">{alert.type}</p>
+                                        <p className={`text-[11px] font-medium ${textColor}`}>
+                                            {alert.text ||
+                                             (alert.status === 'Observado' ? 'Observado' :
+                                              (alert.status === 'Prolongado' && alert.prolongedUntil ? `Prolongado até ${new Date(alert.prolongedUntil).toLocaleDateString('pt-BR')}` :
+                                               (alert.lastRefuelingDate ? `Últ. Abast.: ${new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR')}` : ''))
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                                );
+                            }) : <p className="text-gray-500 text-sm text-center py-10 italic">Nenhum alerta.</p>}
+                        </div>
+                    </div>
+                    {/* Progresso Obra */}
+                    <div className="lg:col-span-2">
+                        <ObraProgressBI
+                            obras={obras}
+                            vehicles={vehicles}
+                            vehicleGroups={vehicleGroups}
+                            equipmentTypesForHours={equipmentTypesForHours}
+                        />
+                    </div>
+                </div>
+
+                {/* Ranking Consumo */}
+                <FuelEfficiencyRanking
+                     vehicles={vehicles}
+                     refuelings={refuelings}
+                     vehicleGroups={vehicleGroups}
+                 />
+            </div>
+
+             {/* Modal Inatividade */}
+            {selectedInactivityAlert && (
+                <InactivityAlertModal
+                    alert={selectedInactivityAlert}
+                    onClose={handleInactivityModalClose}
+                    onObserve={handleAlertAction}
+                    onProlong={handleAlertAction}
+                    apiClient={apiClient}
+                    setAlertMessage={setAlertMessage} // Passa setAlertMessage para o modal
+                />
+            )}
+        </ProtectedComponent>
+    );
+};
+
+export default Dashboard;
