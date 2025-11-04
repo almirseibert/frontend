@@ -238,7 +238,7 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
                 {data.length > 0 ? data.map(v => (
                     <li key={v.id} className="flex justify-between p-2 bg-gray-50 rounded border border-gray-100">
                         <span className="truncate" title={`${v.registroInterno} - ${v.modelo}`}>{v.registroInterno} - {v.modelo}</span>
-                        <span className="font-bold flex-shrink-0 ml-2">{v.average.toFixed(2)} {v.unit}</span>
+                        <span className="font-bold flex-shrink-0 ml-2">{(v.average || 0).toFixed(2)} {v.unit}</span>
                     </li>
                 )) : <p className="text-xs text-gray-500 px-2 py-4 text-center">Dados insuficientes.</p>}
             </ul>
@@ -279,7 +279,7 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
                             .sort((a, b) => a.unit === 'L/Hr' ? a.average - b.average : b.average - a.average)
                             .map(v => (
                             <option key={v.id} value={v.id}>
-                                {v.registroInterno} - {v.modelo} ({v.average.toFixed(2)} {v.unit})
+                                {v.registroInterno} - {v.modelo} ({(v.average || 0).toFixed(2)} {v.unit})
                             </option>
                         ))}
                     </select>
@@ -343,7 +343,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
      // Função auxiliar para calcular executado (Usa new Date() e props)
     const calculateExecuted = useMemo(() => (obra) => { // Envolve em useMemo para referência estável
         let totalExecutadoHoras = 0;
-        let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha || 0);
+        // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
+        let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha) || 0;
         let horasExecutadasPorTipo = {};
         // Garante que equipmentTypesForHours é array
         const equipmentTypes = Array.isArray(equipmentTypesForHours) ? equipmentTypesForHours : [];
@@ -441,8 +442,9 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                 totalExecutado += sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0); // Usa kmConcluido da API
                 primaryUnit = 'm²';
              } else if (currentContractType === 'prancha') {
-                 totalContratado += parseFloat(obra.kmContratadoPrancha || 0);
-                 totalExecutado += executed.totalKmPrancha;
+                 // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
+                 totalContratado += parseFloat(obra.kmContratadoPrancha) || 0;
+                 totalExecutado += executed.totalKmPrancha; // Já é seguro
                  primaryUnit = 'km';
             }
         });
@@ -481,7 +483,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
             const totalKmConcluido = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0); // Usa da API
             return { type: 'metrosQuadrados', nome: obra.nome, totalKmContratado, totalKmConcluido, unit: 'm²', sectors: sectors.map(s => ({...s, kmContratado: parseFloat(s.kmContratado || 0), kmConcluido: parseFloat(s.kmConcluido || 0)})) };
          } else if (currentContractType === 'prancha') {
-             const totalKmContratado = parseFloat(obra.kmContratadoPrancha || 0);
+             // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
+             const totalKmContratado = parseFloat(obra.kmContratadoPrancha) || 0;
              return { type: 'prancha', nome: obra.nome, totalKmContratado, totalKmConcluido: executed.totalKmPrancha, unit: 'km' };
         }
         return null;
@@ -524,8 +527,9 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                 totalExecutado = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0);
                 unit = 'm²';
              } else if (currentContractType === 'prancha') {
-                 totalContratado = parseFloat(obra.kmContratadoPrancha || 0);
-                 totalExecutado = executed.totalKmPrancha;
+                 // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
+                 totalContratado = parseFloat(obra.kmContratadoPrancha) || 0;
+                 totalExecutado = executed.totalKmPrancha; // Já é seguro
                  unit = 'km';
             }
 
@@ -560,7 +564,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                         <h3 className="text-sm font-semibold text-gray-800 mb-1">Progresso Total (Obras Ativas)</h3>
                         <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
                             <span>Progresso Geral</span>
-                             <span>{allObrasProgress.totalExecuted.toFixed(1)} / {allObrasProgress.totalContracted.toFixed(1)} {allObrasProgress.unit}</span>
+                             {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
+                             <span>{(allObrasProgress.totalExecuted || 0).toFixed(1)} / {(allObrasProgress.totalContracted || 0).toFixed(1)} {allObrasProgress.unit}</span>
                         </div>
                         <ProgressBar value={allObrasProgress.totalExecuted} max={allObrasProgress.totalContracted} color="bg-green-500" />
                     </div>
@@ -570,8 +575,9 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                         <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
                             {individualObrasProgress.length > 0 ? individualObrasProgress.map(obraProg => {
                                 const barColor = obraProg.percentage < 75 ? 'bg-blue-500' : obraProg.percentage < 95 ? 'bg-yellow-500' : 'bg-red-500';
-                                const progressText = `${obraProg.totalExecuted.toFixed(1)} ${obraProg.unit}`;
-                                const contractedText = `${obraProg.totalContratado.toFixed(1)} ${obraProg.unit}`;
+                                // CORREÇÃO: Adiciona fallback (|| 0) para segurança
+                                const progressText = `${(obraProg.totalExecutado || 0).toFixed(1)} ${obraProg.unit}`;
+                                const contractedText = `${(obraProg.totalContratado || 0).toFixed(1)} ${obraProg.unit}`;
 
                                 return (
                                     <div key={obraProg.id} className="mb-1">
@@ -580,7 +586,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                                             <div className={`h-full ${barColor} rounded-full`} style={{ width: `${Math.min(obraProg.percentage, 100)}%` }}></div>
                                             <div className="absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold text-black mix-blend-difference invert">
                                                 <span className="truncate">{progressText}</span>
-                                                <span className="absolute left-1/2 -translate-x-1/2">{obraProg.percentage.toFixed(0)}%</span>
+                                                {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
+                                                <span className="absolute left-1/2 -translate-x-1/2">{(obraProg.percentage || 0).toFixed(0)}%</span>
                                                 <span className="truncate">{contractedText}</span>
                                             </div>
                                         </div>
@@ -597,8 +604,9 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                         <div className="flex justify-between mb-0.5 text-xs font-medium">
                             <span>Progresso Total ({obraData.unit})</span>
                             <span>
-                                {(obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido).toFixed(1)} /
-                                {(obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado).toFixed(1)} {obraData.unit}
+                                {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
+                                {((obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido) || 0).toFixed(1)} /
+                                {((obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado) || 0).toFixed(1)} {obraData.unit}
                             </span>
                         </div>
                         <ProgressBar value={obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido} max={obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado} />
@@ -614,7 +622,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                                         <div key={entry.tipo}>
                                             <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
                                                 <span>{entry.tipo}</span>
-                                                <span>{entry.executado.toFixed(1)} / {entry.contratado.toFixed(1)} hrs</span>
+                                                {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
+                                                <span>{(entry.executado || 0).toFixed(1)} / {(entry.contratado || 0).toFixed(1)} hrs</span>
                                             </div>
                                             <ProgressBar value={entry.executado} max={entry.contratado} color="bg-blue-400" />
                                         </div>
@@ -630,7 +639,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                                 <div key={sector.name}>
                                     <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
                                         <span>{sector.name || 'Setor s/ nome'}</span>
-                                        <span>{sector.kmConcluido.toFixed(1)} / {sector.kmContratado.toFixed(1)} {obraData.unit}</span>
+                                        {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
+                                        <span>{(sector.kmConcluido || 0).toFixed(1)} / {(sector.kmContratado || 0).toFixed(1)} {obraData.unit}</span>
                                     </div>
                                     <ProgressBar value={sector.kmConcluido} max={sector.kmContratado} color="bg-green-400" />
                                 </div>
@@ -642,7 +652,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                          <div className="pt-1 border-t border-gray-200">
                              <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
                                  <span>Deslocamento Prancha ({obraData.unit})</span>
-                                 <span>{obraData.totalKmConcluido.toFixed(1)} / {obraData.totalKmContratado.toFixed(1)} {obraData.unit}</span>
+                                 {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
+                                 <span>{(obraData.totalKmConcluido || 0).toFixed(1)} / {(obraData.totalKmContratado || 0).toFixed(1)} {obraData.unit}</span>
                              </div>
                              <ProgressBar value={obraData.totalKmConcluido} max={obraData.totalKmContratado} color="bg-indigo-400" />
                          </div>
