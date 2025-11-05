@@ -69,6 +69,7 @@ const ObrasPage = ({
     [obras, filter]);
 
     // Cálculo de progresso (ajustado para datas da API e estrutura)
+    // *** CORREÇÃO: historicoVeiculos agora é lido corretamente ***
     const calculateProgress = useMemo(() => {
         const progressData = {};
         (obras || []).forEach(obra => {
@@ -86,7 +87,7 @@ const ObrasPage = ({
                     const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo)); // Usa ?.
                     if (vehicleGroup === 'Veículos Leves') return; // Ignora leves para cálculo de horas
 
-                    // Prioriza horímetro, depois odometro (baseado nos dados do histórico)
+                    // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
                     let startReading = h.horimetroEntrada ?? h.odometroEntrada ?? 0;
                     let endReading = h.horimetroSaida ?? h.odometroSaida;
 
@@ -540,13 +541,15 @@ const FinishObraModal = ({ obra, onClose, apiClient, reloadData, setAlertMessage
 };
 
 // --- Modal de Edição de Alocação Ativa (usa apiClient via onSave) ---
+// *** CORREÇÃO: Lê de h.dataEntrada, h.employeeId, etc. (nível superior) ***
 const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [], onClose, onSave, apiClient, setAlertMessage, reloadData, obraId }) => {
     // Estado inicial ajustado para datas e prioridade de horímetro
     const [editedData, setEditedData] = useState({
-        dataEntrada: assignment?.startDate ? new Date(assignment.startDate).toISOString().split('T')[0] : '', // Usa startDate
-        employeeId: assignment?.details?.employeeId || '', // Pega de details
-        // Prioriza horimetro, depois odometro (ambos de details)
-        leituraEntrada: assignment?.details?.horimetroEntrada ?? assignment?.details?.odometroEntrada ?? '',
+        // *** CORREÇÃO: usa dataEntrada (do obras_historico_veiculos) ***
+        dataEntrada: assignment?.dataEntrada ? new Date(assignment.dataEntrada).toISOString().split('T')[0] : '',
+        employeeId: assignment?.employeeId || '', // Pega de details
+        // *** CORREÇÃO: Prioriza horimetro, depois odometro (ambos do nível superior) ***
+        leituraEntrada: assignment?.horimetroEntrada ?? assignment?.odometroEntrada ?? '',
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -565,7 +568,8 @@ const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [],
 
         setIsSaving(true);
         try {
-            await onSave(vehicle.id, editedData); // Chama a função de salvar passada pelo ObraDetailModal
+            // *** CORREÇÃO: Passa o 'assignment.id' (ID único do histórico) como identificador ***
+            await onSave(vehicle.id, assignment.id, editedData); // Chama a função de salvar passada pelo ObraDetailModal
             // reloadData(); // reloadData é chamado dentro de onSave
             onClose(); // Fecha este modal
         } catch (error) {
@@ -619,15 +623,18 @@ const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [],
 
 
 // --- Modal de Edição de Histórico Passado (usa apiClient via onSave) ---
+// *** CORREÇÃO: Lê de h.dataEntrada, h.horimetroEntrada, etc. (nível superior) ***
 const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], onClose, onSave, apiClient, setAlertMessage, reloadData, obraId }) => {
     // Estado inicial ajustado para datas e leituras
     const [editedData, setEditedData] = useState({
         // Adiciona T12:00:00 para evitar problemas de fuso horário no input date
-        dataEntrada: assignment?.startDate ? new Date(assignment.startDate).toISOString().split('T')[0] : '', // Usa startDate
-        dataSaida: assignment?.endDate ? new Date(assignment.endDate).toISOString().split('T')[0] : '', // Usa endDate
-        employeeId: assignment?.details?.employeeId || '', // Pega de details
-        leituraEntrada: assignment?.details?.horimetroEntrada ?? assignment?.details?.odometroEntrada ?? '', // Prioriza horimetro
-        leituraSaida: assignment?.details?.horimetroSaida ?? assignment?.details?.odometroSaida ?? '', // Prioriza horimetro
+        // *** CORREÇÃO: usa dataEntrada, dataSaida (do obras_historico_veiculos) ***
+        dataEntrada: assignment?.dataEntrada ? new Date(assignment.dataEntrada).toISOString().split('T')[0] : '',
+        dataSaida: assignment?.dataSaida ? new Date(assignment.dataSaida).toISOString().split('T')[0] : '',
+        employeeId: assignment?.employeeId || '',
+        // *** CORREÇÃO: usa horimetroEntrada, etc. (do obras_historico_veiculos) ***
+        leituraEntrada: assignment?.horimetroEntrada ?? assignment?.odometroEntrada ?? '',
+        leituraSaida: assignment?.horimetroSaida ?? assignment?.odometroSaida ?? '',
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -655,10 +662,9 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
         }
 
         setIsSaving(true);
-        // Passa a dataEntrada original (startDate) como identificador
-        const originalStartDateISO = new Date(assignment.startDate).toISOString();
+        // *** CORREÇÃO: Passa o 'assignment.id' (ID único do histórico) como identificador ***
         try {
-            await onSave(vehicle.id, originalStartDateISO, editedData); // Chama a função do ObraDetailModal
+            await onSave(vehicle.id, assignment.id, editedData); // Chama a função do ObraDetailModal
             // reloadData(); // reloadData é chamado dentro de onSave
             onClose(); // Fecha este modal
         } catch (error) {
@@ -744,18 +750,20 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null); // Guarda a entrada do histórico PASSADO
 
     // Separa veículos ativos/passados (sem mudanças)
+    // *** CORREÇÃO: usa dataSaida (nível superior) em vez de endDate ***
     const { activeVehicles, pastVehicles } = useMemo(() => {
         const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []; // Garante array
-        const active = historico.filter(h => !h.endDate) // Usa endDate
+        const active = historico.filter(h => !h.dataSaida) // Usa dataSaida
             .map(h => ({ ...h, vehicleRegistroInterno: vehicles.find(v => v.id === h.veiculoId)?.registroInterno || 'N/A' }))
             .sort((a, b) => (a.vehicleRegistroInterno || '').localeCompare(b.vehicleRegistroInterno || ''));
-        const past = historico.filter(h => h.endDate) // Usa endDate
+        const past = historico.filter(h => h.dataSaida) // Usa dataSaida
              .map(h => ({ ...h, vehicleRegistroInterno: vehicles.find(v => v.id === h.veiculoId)?.registroInterno || 'N/A' }))
-             .sort((a, b) => new Date(b.endDate) - new Date(a.endDate)); // Ordena por data de saída
+             .sort((a, b) => new Date(b.dataSaida) - new Date(a.dataSaida)); // Ordena por data de saída
         return { activeVehicles: active, pastVehicles: past };
     }, [obra, vehicles]);
 
     // Cálculo de progresso (usa estados locais para campos editáveis)
+    // *** CORREÇÃO: Lê de h.horimetroEntrada, h.dataSaida, etc. (nível superior) ***
      const progressData = useMemo(() => {
         const data = { contratado: {}, concluido: {}, totalContratado: 0, totalConcluido: 0, totalKmContratado: 0, totalKmConcluido: 0, totalHorasCaminhoes: 0, totalHorasMaquinas: 0 };
         const currentContractType = obra.contractType || 'horas';
@@ -777,11 +785,12 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
                 if (vehicleGroup === 'Veículos Leves') return;
 
-                let startReading = parseFloat(h.details?.horimetroEntrada ?? h.details?.odometroEntrada ?? 0); // Prioriza horimetro de details
-                let endReading = parseFloat(h.details?.horimetroSaida ?? h.details?.odometroSaida ?? 0); // Prioriza horimetro de details
+                // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
+                let startReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
+                let endReading = parseFloat(h.horimetroSaida ?? h.odometroSaida ?? 0);
 
-                // Se não houver data de saída (endDate), usa a leitura atual do veículo
-                if (!h.endDate) {
+                // Se não houver data de saída (dataSaida), usa a leitura atual do veículo
+                if (!h.dataSaida) {
                      // Verifica se há leitura editada no estado local `updatingReadings`
                      const updatedReadingStr = updatingReadings[h.veiculoId];
                      if (updatedReadingStr !== undefined && updatedReadingStr !== '') {
@@ -793,7 +802,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                             endReading = parseFloat(vehicle.horimetro) || 0;
                          }
                          // Se for tipo 'odometro' (ex: leve ativo), pega do veículo (embora leves sejam ignorados aqui)
-                         else if (h.details?.odometroEntrada != null) {
+                         else if (h.odometroEntrada != null) {
                               endReading = parseFloat(vehicle.odometro) || 0;
                          }
                      }
@@ -842,14 +851,13 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const handleSectorKmChange = (sectorName, value) => setEditedSectorsKm(prev => ({ ...prev, [sectorName]: value }));
 
     // Função para salvar edição da alocação ATIVA (chama API)
-    const handleSaveAssignmentEdit = async (vehicleId, editedData) => {
+    // *** CORREÇÃO: Passa 'historyEntryId' (PK da tabela) em vez de vehicleId ***
+    const handleSaveAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         setIsSaving(true);
         try {
-            // A API /obras/:obraId/historico/:vehicleId/active (exemplo) deve lidar com:
-            // 1. Encontrar a entrada ativa correta no historicoVeiculos da obra.
-            // 2. Atualizar startDate, employeeId, employeeName, leituraEntrada (horimetro/odometro).
-            // 3. Se employeeId mudou, atualizar 'alocadoEm' do funcionário antigo e novo.
-            await apiClient.updateObraActiveAssignment(obra.id, vehicleId, editedData); // Rota hipotética
+            // *** CORREÇÃO: Chama nova rota 'updateObraHistoryEntry' do apiClient ***
+            // Esta rota (PUT /api/obras/historico/:historyId) foi adicionada ao obraController/obraRoutes
+            await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
             setAlertMessage("Alocação ativa atualizada com sucesso!");
             reloadData(); // Recarrega todos os dados
             setIsEditAssignmentModalOpen(false); // Fecha modal de edição
@@ -863,14 +871,12 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     };
 
     // Função para salvar edição do histórico PASSADO (chama API)
-    const handleSavePastAssignmentEdit = async (vehicleId, originalStartDateISO, editedData) => {
+    // *** CORREÇÃO: Passa 'historyEntryId' (PK da tabela) ***
+    const handleSavePastAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         setIsSaving(true);
         try {
-            // A API /obras/:obraId/historico/:vehicleId/:startDate (exemplo) deve lidar com:
-            // 1. Encontrar a entrada correta no historicoVeiculos usando vehicleId e startDate.
-            // 2. Atualizar startDate, endDate, employeeId, employeeName, leituras (horimetro/odometro).
-            // (Não precisa atualizar 'alocadoEm' de funcionários para histórico passado)
-            await apiClient.updateObraPastAssignment(obra.id, vehicleId, originalStartDateISO, editedData); // Rota hipotética
+            // *** CORREÇÃO: Chama nova rota 'updateObraHistoryEntry' do apiClient ***
+            await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData); // Rota hipotética
             setAlertMessage("Histórico atualizado com sucesso!");
             reloadData(); // Recarrega todos os dados
             setIsEditPastAssignmentModalOpen(false); // Fecha modal de edição
@@ -1109,12 +1115,13 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     </ProtectedComponent>
 
                     {/* Veículos Ativos */}
+                    {/* *** CORREÇÃO: Lê de h.dataEntrada, h.horimetroEntrada, h.employeeName (nível superior) *** */}
                     <div>
                         <h3 className="text-base font-semibold mb-2 text-gray-800">Veículos Ativos na Obra</h3>
                          <div className="space-y-2">
                             {activeVehicles.length > 0 ? activeVehicles.map(h => {
                                 const vehicle = vehicles.find(v => v.id === h.veiculoId);
-                                if (!vehicle) return <div key={h.veiculoId || h.startDate} className="p-2 bg-red-50 text-red-700 text-xs rounded">Veículo ID {h.veiculoId} não encontrado.</div>;
+                                if (!vehicle) return <div key={h.veiculoId || h.dataEntrada} className="p-2 bg-red-50 text-red-700 text-xs rounded">Veículo ID {h.veiculoId} não encontrado.</div>;
 
                                 const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
                                 let currentReading = 0;
@@ -1130,7 +1137,8 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                     readingLabel = 'Odômetro';
                                 }
 
-                                const initialReading = parseFloat(h.details?.horimetroEntrada ?? h.details?.odometroEntrada ?? 0);
+                                // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
+                                const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
                                 const readingInState = updatingReadings[h.veiculoId];
                                 const readingToCalculate = (readingInState !== undefined && readingInState !== '') ? (parseFloat(readingInState) || 0) : currentReading;
                                 const partialReading = (readingToCalculate >= initialReading) ? (readingToCalculate - initialReading) : 0;
@@ -1146,9 +1154,11 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                             </div>
                                             {/* Alocação */}
                                             <div className="sm:col-span-1">
-                                                <p><strong>Início:</strong> {h.startDate ? new Date(h.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
+                                                {/* *** CORREÇÃO: Usa h.dataEntrada *** */}
+                                                <p><strong>Início:</strong> {h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
                                                 <p><strong>Leitura Inicial:</strong> {initialReading.toFixed(1) || 'N/A'}</p>
-                                                <p><strong>Operador:</strong> {h.details?.employeeName || 'N/A'}</p>
+                                                {/* *** CORREÇÃO: Usa h.employeeName *** */}
+                                                <p><strong>Operador:</strong> {h.employeeName || 'N/A'}</p>
                                             </div>
                                             {/* Leitura Atual (Editável) */}
                                              <ProtectedComponent requiredPermission="editor">
@@ -1182,25 +1192,31 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     </div>
 
                     {/* Histórico */}
+                    {/* *** CORREÇÃO: Lê de h.dataEntrada, h.horimetroEntrada, h.employeeName (nível superior) *** */}
                     <div>
                         <h3 className="text-base font-semibold mb-2 text-gray-800">Histórico de Veículos na Obra</h3>
                         <div className="space-y-1 max-h-60 overflow-y-auto pr-1 custom-scrollbar border rounded-md p-2 bg-gray-50">
                             {pastVehicles.length > 0 ? pastVehicles.map(h => {
                                 const vehicle = vehicles.find(v => v.id === h.veiculoId);
                                 const isHourBased = vehicleGroups['Máquinas Pesadas']?.includes(vehicle?.tipo) || vehicleGroups['Caminhões']?.includes(vehicle?.tipo);
-                                const initialReading = parseFloat(h.details?.horimetroEntrada ?? h.details?.odometroEntrada ?? 0);
-                                const finalReading = parseFloat(h.details?.horimetroSaida ?? h.details?.odometroSaida ?? 0);
+                                // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
+                                const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
+                                const finalReading = parseFloat(h.horimetroSaida ?? h.odometroSaida ?? 0);
                                 const totalReading = (finalReading >= initialReading) ? (finalReading - initialReading) : 0;
                                 const readingLabel = isHourBased ? 'Horas' : 'Km';
                                 return (
-                                    <div key={`${h.veiculoId}-${h.startDate}`} className="p-2 bg-white rounded border text-xs">
+                                    // *** CORREÇÃO: Usa h.id (PK da tabela) como chave ***
+                                    <div key={h.id} className="p-2 bg-white rounded border text-xs">
                                         <div className="grid grid-cols-1 sm:grid-cols-5 gap-x-2 gap-y-0.5 items-center">
-                                            <div className="font-semibold sm:col-span-1">{h.vehicleRegistroInterno} <span className="text-gray-500 font-normal">({vehicle?.modelo})</span></div>
-                                            <div className="sm:col-span-1">Início: {h.startDate ? new Date(h.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
-                                            <div className="sm:col-span-1">Fim: {h.endDate ? new Date(h.endDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
+                                            <div className="font-semibold sm:col-span-1">{h.registroInterno} <span className="text-gray-500 font-normal">({vehicle?.modelo})</span></div>
+                                            {/* *** CORREÇÃO: Usa h.dataEntrada *** */}
+                                            <div className="sm:col-span-1">Início: {h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
+                                            {/* *** CORREÇÃO: Usa h.dataSaida *** */}
+                                            <div className="sm:col-span-1">Fim: {h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
                                             <div className="sm:col-span-1">Total: <span className="font-bold">{totalReading.toFixed(1)} {readingLabel}</span> <span className="text-gray-500">({initialReading.toFixed(1)} - {finalReading.toFixed(1)})</span></div>
                                             <div className="flex justify-end items-center sm:col-span-1 gap-1">
-                                                 <span className="text-gray-600 truncate" title={h.details?.employeeName || 'Sem operador'}>Op: {h.details?.employeeName || 'N/A'}</span>
+                                                 {/* *** CORREÇÃO: Usa h.employeeName *** */}
+                                                 <span className="text-gray-600 truncate" title={h.employeeName || 'Sem operador'}>Op: {h.employeeName || 'N/A'}</span>
                                                 <ProtectedComponent requiredPermission="editor">
                                                     <button onClick={() => openEditPastAssignmentModal(h)} className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full" title="Editar Histórico"><Edit size={12} /></button>
                                                 </ProtectedComponent>
