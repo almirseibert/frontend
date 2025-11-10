@@ -20,7 +20,7 @@ import RefuelingPage from './pages/RefuelingPage';
 import ComboioPage from './pages/ComboioPage';
 import ExpensesPage from './pages/ExpensesPage';
 import EmployeesPage from './pages/EmployeesPage';
-// import ReportsPage from './pages/ReportsPage'; // Descomente se/quando criar
+import ReportsPage from './pages/ReportsPage'; // Descomente se/quando criar
 import FinesPage from './pages/FinesPage';
 import VehiclePage from './pages/VehiclePage';
 import RevisionsPage from './pages/RevisionsPage';
@@ -435,7 +435,7 @@ const AppContent = () => {
             case 'expenses': return <ExpensesPage {...commonProps} />;
             case 'employees': return <EmployeesPage {...commonProps} />;
             case 'fines': return <FinesPage {...commonProps} />;
-            // case 'reports': return <ReportsPage {...commonProps} />; // Descomente quando criar
+            case 'reports': return <ReportsPage {...commonProps} />; // Descomente quando criar
             case 'admin': return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <AccessDenied />; 
             default: return <Dashboard {...commonProps} />; // Volta pro Dashboard como padrão
         }
@@ -497,7 +497,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
         { id: 'expenses', label: 'Despesas', icon: <DollarSign size={20} /> },
         { id: 'employees', label: 'Funcionários', icon: <User size={20} /> },
         { id: 'fines', label: 'Multas', icon: <ShieldAlert size={20} /> },
-        // { id: 'reports', label: 'Relatórios', icon: <FileText size={20} /> }, // Descomente quando criar
+        { id: 'reports', label: 'Relatórios', icon: <FileText size={20} /> }, // Descomente quando criar
     ];
     
     return (
