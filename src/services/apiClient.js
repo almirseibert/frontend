@@ -95,7 +95,15 @@ const apiClient = {
     createObra: async (data) => apiFetch('/obras', { method: 'POST', body: JSON.stringify(data) }),
     updateObra: async (id, data) => apiFetch(`/obras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteObra: async (id) => apiFetch(`/obras/${id}`, { method: 'DELETE' }),
-    finishObra: async (id) => apiFetch(`/obras/${id}/finish`, { method: 'PUT' }), // Mapeado da rota
+    finishObra: async (id, data) => apiFetch(`/obras/${id}/finish`, { method: 'PUT', body: JSON.stringify(data) }), // Corrigido para aceitar 'data'
+
+    // --- NOVO: Função que faltava para editar histórico de obra ---
+    updateObraHistoryEntry: async (obraId, historyId, data) => {
+        return apiFetch(`/obras/${obraId}/historico/${historyId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
 
     // --- Funcionários ---
     getEmployees: async () => apiFetch('/employees'),
@@ -132,7 +140,7 @@ const apiClient = {
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'POST', body: JSON.stringify(data) }),
+    confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), // Corrigido para PUT
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
 
     // --- Transações do Comboio ---
@@ -188,8 +196,11 @@ const apiClient = {
     getUsers: async () => apiFetch('/users'), // Assumindo que admin pode listar usuários
 
     // --- Mensagens de Atualização (Admin) ---
-    getUpdates: async () => apiFetch('/updates'), // Assumindo GET público ou admin
-    saveUpdateMessage: async (data) => apiFetch('/admin/update-message', { method: 'PUT', body: JSON.stringify(data) }),
+    // *** CORREÇÕES PARA 'UPDATES' ***
+    getUpdates: async () => apiFetch('/updates'), // Corresponde a GET /api/updates
+    createUpdate: async (data) => apiFetch('/updates', { method: 'POST', body: JSON.stringify(data) }), // Corresponde a POST /api/updates
+    deleteUpdate: async (id) => apiFetch(`/updates/${id}`, { method: 'DELETE' }), // Corresponde a DELETE /api/updates/:id
+    // A função 'saveUpdateMessage' foi removida/renomeada para 'createUpdate'
 
     // --- Funções Administrativas ---
     adminGetRegistrationRequests: async () => apiFetch('/admin/registration-requests'),
@@ -200,4 +211,3 @@ const apiClient = {
 };
 
 export default apiClient;
-

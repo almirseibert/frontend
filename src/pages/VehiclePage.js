@@ -1287,7 +1287,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
 const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClose, setAlertMessage, apiClient, reloadData, vehicles = [], vehicleGroups = {} }) => {
     // Verifica se o veículo está atualmente alocado em obra
     const currentObraAllocation = (Array.isArray(vehicle.history) ? vehicle.history : [])
-                                    .find(h => h.type === 'obra' && !h.endDate);
+                                    .find(h => (h.type === 'obra' || h.historyType === 'obra') && !h.endDate && !h.dataSaida);
 
     // Estado inicial dos campos
     const [obraId, setObraId] = useState(currentObraAllocation ? vehicle.obraAtualId : '');
