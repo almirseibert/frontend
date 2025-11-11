@@ -12,7 +12,7 @@ import apiClient from '../services/apiClient'; // Importa apiClient
 
 // Importa componentes necessários
 import ProtectedComponent from '../components/ProtectedComponent'; // Ajuste o caminho se necessário
-import { useAuth } from '../contexts/AuthContext'; // Para obter dados do usuário
+// import { useAuth } from '../contexts/AuthContext'; // Removido, user vem via props
 
 // ===================================================================================
 // PÁGINA DE DESPESAS (ATUALIZADA PARA API)
@@ -140,12 +140,13 @@ const ExpensesPage = ({
             return;
         }
 
+        // *** CORREÇÃO DO BUG .toFixed() APLICADA AQUI TAMBÉM ***
         const headers = ['Data', 'Descrição', 'Categoria', 'Valor (R$)', 'Criado Por'];
         const rows = obraExpenses.map(exp => [
             exp.createdAt ? new Date(exp.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', // Formata data da API
             exp.description || '',
             exp.category || 'N/A',
-            (exp.amount || 0).toFixed(2),
+            parseFloat(exp.amount || 0).toFixed(2), // Converte para número antes de formatar
             exp.createdBy?.userEmail || 'N/A' // Acessa email dentro de createdBy
         ]);
 
@@ -246,14 +247,24 @@ const ExpensesPage = ({
                                      {' - '}
                                      <span className="font-semibold">{exp.category || 'Outros'}</span>
                                      {' - '}
-                                     <span className="font-bold text-red-600">R$ {(exp.amount || 0).toFixed(2)}</span>
+                                     {/* *** AQUI ESTÁ A CORREÇÃO DO CRASH ***
+                                        O 'amount' (e.g., 150.50) vem do banco como STRING "150.50".
+                                        Tentar usar .toFixed() em uma string causa o crash.
+                                        Usamos parseFloat() para converter de volta para NÚMERO.
+                                     */}
+                                     <span className="font-bold text-red-600">R$ {parseFloat(exp.amount || 0).toFixed(2)}</span>
                                      {exp.createdBy?.userEmail && ` (por ${exp.createdBy.userEmail.split('@')[0]})`}
                                 </p>
                             </div>
                              {/* Botões de Ação */}
                             <div className="flex gap-1 flex-shrink-0 self-start sm:self-center">
                                 <ProtectedComponent requiredPermission="editor">
-                                    <button onClick={() => { setEditingExpense(exp); setDescription(exp.description); setAmount(exp.amount.toString()); setCategory(exp.category || 'Outros'); setSelectedObra(exp.obraId); window.scrollTo(0, 0); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition"><Edit size={14}/></button>
+                                    {/* *** CORREÇÃO DO BUG DE EDIÇÃO ***
+                                        Ao editar, o 'amount' (número) precisa virar string para o formulário.
+                                        A lógica antiga 'exp.amount.toString()' quebra se 'amount' for string.
+                                        Convertemos para número primeiro e DEPOIS para string.
+                                    */}
+                                    <button onClick={() => { setEditingExpense(exp); setDescription(exp.description); setAmount(parseFloat(exp.amount || 0).toString().replace('.', ',')); setCategory(exp.category || 'Outros'); setSelectedObra(exp.obraId); window.scrollTo(0, 0); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition"><Edit size={14}/></button>
                                 </ProtectedComponent>
                                 <ProtectedComponent requiredPermission="admin">
                                     <button onClick={() => openDeleteModal(exp.id)} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-full transition"><Trash2 size={14}/></button>
