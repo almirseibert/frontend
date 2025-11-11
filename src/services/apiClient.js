@@ -124,8 +124,12 @@ const apiClient = {
     completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) }), // Mapeado da rota
 
     // --- Despesas ---
+    // *** FUNÇÕES ADICIONADAS AQUI ***
     getExpenses: async () => apiFetch('/expenses'),
-    // Adicione create/update/delete para expenses se necessário
+    createExpense: async (data) => apiFetch('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+    updateExpense: async (id, data) => apiFetch(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteExpense: async (id) => apiFetch(`/expenses/${id}`, { method: 'DELETE' }),
+    // *** FIM DAS FUNÇÕES ADICIONADAS ***
 
     // --- Parceiros (Postos) ---
     getPartners: async () => apiFetch('/partners'),
