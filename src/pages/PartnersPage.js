@@ -283,16 +283,23 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
                 await apiClient.updatePartner(partner.id, dataToSave);
                 setAlertMessage(`Posto ${formData.razaoSocial} atualizado!`);
             } else {
-                // *** CORREÇÃO ERRO 500 ***
-                // Adiciona estrutura de preços vazia que o backend espera ao criar
-                dataToSave.fuel_prices = {
+                // *** REMOVENDO O "REMENDO" ***
+                // Agora que o backend foi corrigido para aceitar o campo 'cidade'
+                // e ignorar campos extras, podemos remover o 'delete'
+                // e enviar o objeto completo.
+                
+                const dataForCreation = { ...dataToSave };
+
+                // Adiciona a estrutura de preços que o endpoint de criação espera
+                dataForCreation.fuel_prices = {
                     'Diesel S10': 0,
                     'Diesel S500': 0,
                     'Arla': 0,
                     'Gasolina Comum': 0,
                     'Gasolina Aditivada': 0
                 };
-                await apiClient.createPartner(dataToSave);
+                
+                await apiClient.createPartner(dataForCreation);
                 setAlertMessage(`Posto ${formData.razaoSocial} cadastrado!`);
             }
             reloadData();
