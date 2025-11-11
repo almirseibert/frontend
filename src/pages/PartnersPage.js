@@ -283,14 +283,16 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
                 await apiClient.updatePartner(partner.id, dataToSave);
                 setAlertMessage(`Posto ${formData.razaoSocial} atualizado!`);
             } else {
-                // *** REMOVENDO O "REMENDO" ***
-                // Agora que o backend foi corrigido para aceitar o campo 'cidade'
-                // e ignorar campos extras, podemos remover o 'delete'
-                // e enviar o objeto completo.
+                // *** AQUI ESTÁ A CORREÇÃO (ERRO 500) ***
+                // O backend espera um ID gerado pelo cliente (string),
+                // pois a coluna 'id' é varchar(255) e NOT NULL.
                 
                 const dataForCreation = { ...dataToSave };
 
-                // Adiciona a estrutura de preços que o endpoint de criação espera
+                // 1. Gerar um ID único (UUID)
+                dataForCreation.id = crypto.randomUUID();
+
+                // 2. Adiciona a estrutura de preços que o endpoint de criação espera
                 dataForCreation.fuel_prices = {
                     'Diesel S10': 0,
                     'Diesel S500': 0,
