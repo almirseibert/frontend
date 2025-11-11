@@ -9,7 +9,9 @@ import {
     Droplet,
     Truck,
     Fuel, // Importado do antigo
-    Printer // Importado do antigo
+    Printer, // Importado do antigo
+    ChevronDown, // Para ordenação
+    ChevronUp // Para ordenação
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf'; // Importado do antigo
@@ -42,6 +44,10 @@ const PartnersPage = ({
     const [partnerForReport, setPartnerForReport] = useState(null);
     const [partnerForPrices, setPartnerForPrices] = useState(null); // Adicionado
 
+    // *** NOVOS ESTADOS PARA FILTRO E ORDENAÇÃO ***
+    const [filterText, setFilterText] = useState('');
+    const [sortConfig, setSortConfig] = useState({ key: 'razaoSocial', direction: 'ascending' });
+
     // Funções de Modal (combinadas)
     const openModal = (p = null) => { setEditingPartner(p); setIsModalOpen(true); };
     const openDeleteModal = (id) => { setItemToDelete({ id }); setIsDeleteModalOpen(true); };
@@ -64,8 +70,54 @@ const PartnersPage = ({
         }
     };
 
-    // Ordenação (do antigo arquivo)
-    const sortedPartners = useMemo(() => [...(partners || [])].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
+    // *** NOVA LÓGICA DE FILTRO E ORDENAÇÃO ***
+    const filteredAndSortedPartners = useMemo(() => {
+        let filteredItems = [...(partners || [])];
+
+        // 1. Filtrar
+        if (filterText) {
+            filteredItems = filteredItems.filter(partner =>
+                (partner.razaoSocial || '').toLowerCase().includes(filterText.toLowerCase()) ||
+                (partner.cidade || '').toLowerCase().includes(filterText.toLowerCase())
+            );
+        }
+
+        // 2. Ordenar
+        if (sortConfig.key) {
+            filteredItems.sort((a, b) => {
+                const aValue = a[sortConfig.key] || '';
+                const bValue = b[sortConfig.key] || '';
+                
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return filteredItems;
+    }, [partners, filterText, sortConfig]);
+
+    // Função para atualizar a ordenação
+    const requestSort = (key) => {
+        let direction = 'ascending';
+        if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+            direction = 'descending';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    // Helper para ícone de ordenação
+    const getSortIcon = (key) => {
+        if (sortConfig.key !== key) return null;
+        if (sortConfig.direction === 'ascending') {
+            return <ChevronUp size={14} className="ml-1" />;
+        }
+        return <ChevronDown size={14} className="ml-1" />;
+    };
+
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -79,30 +131,51 @@ const PartnersPage = ({
                 </ProtectedComponent>
             </div>
 
-            {/* Lista de Postos (Layout do ANTIGO arquivo) */}
+            {/* *** NOVO FILTRO DE PESQUISA *** */}
+            <div className="mb-4">
+                <input
+                    type="text"
+                    placeholder="Filtrar por nome ou cidade..."
+                    value={filterText}
+                    onChange={(e) => setFilterText(e.target.value)}
+                    className="w-full p-2 border rounded-lg shadow-sm"
+                />
+            </div>
+
+            {/* Lista de Postos (Layout do ANTIGO arquivo - MODIFICADO) */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                {/* Cabeçalho Tabela Desktop */}
-                <div className="hidden md:grid grid-cols-6 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
-                    <div className="col-span-2">Razão Social / Endereço</div>
-                    <div>CNPJ</div>
+                {/* Cabeçalho Tabela Desktop (MODIFICADO) */}
+                <div className="hidden md:grid grid-cols-7 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
+                    <div className="col-span-2 cursor-pointer flex items-center" onClick={() => requestSort('razaoSocial')}>
+                        Razão Social / Endereço {getSortIcon('razaoSocial')}
+                    </div>
+                    <div className="cursor-pointer flex items-center" onClick={() => requestSort('cidade')}>
+                        Cidade {getSortIcon('cidade')}
+                    </div>
+                    <div>WhatsApp</div>
                     <div>Contato</div>
                     <div className="col-span-2 text-center">Ações</div>
                 </div>
 
-                {/* Linhas */}
-                {sortedPartners.map(partner => (
-                    <div key={partner.id} className="grid grid-cols-1 md:grid-cols-6 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm">
+                {/* Linhas (MODIFICADO) */}
+                {filteredAndSortedPartners.map(partner => (
+                    <div key={partner.id} className="grid grid-cols-1 md:grid-cols-7 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm">
                         {/* Col 1: Nome/Endereço */}
                         <div className="md:col-span-2">
                             <p className="font-bold text-gray-900">{partner.razaoSocial}</p>
                             <p className="text-xs text-gray-500 mt-0.5">{partner.endereco}</p>
                         </div>
-                         {/* Col 2: CNPJ */}
+                         {/* Col 2: Cidade (NOVO) */}
                         <div>
-                            <span className="font-medium text-gray-500 md:hidden">CNPJ: </span>
-                            {partner.cnpj}
+                            <span className="font-medium text-gray-500 md:hidden">Cidade: </span>
+                            {partner.cidade}
                         </div>
-                         {/* Col 3: Contato */}
+                         {/* Col 3: WhatsApp (Trocado por CNPJ) */}
+                        <div>
+                             <span className="font-medium text-gray-500 md:hidden">WhatsApp: </span>
+                             {partner.whatsapp}
+                        </div>
+                         {/* Col 4: Contato */}
                         <div>
                              <span className="font-medium text-gray-500 md:hidden">Contato: </span>
                              <span className="block truncate" title={`${partner.contatoResponsavel || ''} ${partner.telefone ? `(${partner.telefone})` : ''}`}>
@@ -110,7 +183,7 @@ const PartnersPage = ({
                              </span>
                         </div>
                         
-                        {/* Col 4: Ações (Botões do ANTIGO arquivo + Excluir do NOVO) */}
+                        {/* Col 5: Ações (Botões do ANTIGO arquivo + Excluir do NOVO) */}
                         <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center mt-2 md:mt-0">
                             <button onClick={() => openReportModal(partner)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition-colors" title="Relatório de Abastecimentos"><FileText size={14} /></button>
                             <ProtectedComponent requiredPermission="editor">
@@ -173,12 +246,13 @@ const PartnersPage = ({
 // --- Modal de Adicionar/Editar Posto (Copiado do ANTIGO arquivo) ---
 // Este modal tem todos os campos de dados (contato, email, etc.)
 const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, reloadData }) => {
-    // Estado inicial
+    // Estado inicial (MODIFICADO)
     const [formData, setFormData] = useState({
         razaoSocial: partner?.razaoSocial || '',
         cnpj: partner?.cnpj || '',
         inscricaoEstadual: partner?.inscricaoEstadual || '',
         endereco: partner?.endereco || '',
+        cidade: partner?.cidade || '', // *** NOVO CAMPO ***
         telefone: partner?.telefone || '',
         whatsapp: partner?.whatsapp || '',
         email: partner?.email || '',
@@ -191,7 +265,7 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // Submissão (Usa apiClient)
+    // Submissão (Usa apiClient) (MODIFICADO)
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!formData.razaoSocial) { // Simplificado, apenas razão social obrigatória
@@ -208,6 +282,15 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
                 await apiClient.updatePartner(partner.id, dataToSave);
                 setAlertMessage(`Posto ${formData.razaoSocial} atualizado!`);
             } else {
+                // *** CORREÇÃO ERRO 500 ***
+                // Adiciona estrutura de preços vazia que o backend espera ao criar
+                dataToSave.fuel_prices = {
+                    'Diesel S10': 0,
+                    'Diesel S500': 0,
+                    'Arla': 0,
+                    'Gasolina Comum': 0,
+                    'Gasolina Aditivada': 0
+                };
                 await apiClient.createPartner(dataToSave);
                 setAlertMessage(`Posto ${formData.razaoSocial} cadastrado!`);
             }
@@ -237,6 +320,10 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
                         <div><label className="block font-medium text-gray-700">CNPJ</label><input name="cnpj" value={formData.cnpj} onChange={handleChange} placeholder="00.000.000/0000-00" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">Inscrição Estadual</label><input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} placeholder="Inscrição Estadual" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div className="md:col-span-2"><label className="block font-medium text-gray-700">Endereço Completo</label><input name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, Número, Bairro, Cidade - UF" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        
+                        {/* *** NOVO CAMPO CIDADE *** */}
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Cidade</label><input name="cidade" value={formData.cidade} onChange={handleChange} placeholder="Cidade - UF" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        
                         <div><label className="block font-medium text-gray-700">Telefone</label><input name="telefone" value={formData.telefone} onChange={handleChange} placeholder="(00) 0000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">WhatsApp</label><input name="whatsapp" value={formData.whatsapp} onChange={handleChange} placeholder="(00) 90000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">E-mail</label><input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="contato@posto.com" className="mt-1 p-2 border rounded w-full bg-white" /></div>
@@ -258,11 +345,13 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
 
 // --- Modal de Preços de Combustível (Do ANTIGO arquivo, mas ADAPTADO para os campos do NOVO) ---
 const FuelPriceModal = ({ user, partner, onClose, setAlertMessage, apiClient, reloadData }) => {
-    // Estado para preços (campos do NOVO backend)
+    // Estado para preços (campos do NOVO backend) (MODIFICADO)
     const [prices, setPrices] = useState({
         'Diesel S10': partner?.fuel_prices?.['Diesel S10']?.toString().replace('.', ',') || '',
         'Diesel S500': partner?.fuel_prices?.['Diesel S500']?.toString().replace('.', ',') || '',
         'Arla': partner?.fuel_prices?.['Arla']?.toString().replace('.', ',') || '',
+        'Gasolina Comum': partner?.fuel_prices?.['Gasolina Comum']?.toString().replace('.', ',') || '', // *** NOVO ***
+        'Gasolina Aditivada': partner?.fuel_prices?.['Gasolina Aditivada']?.toString().replace('.', ',') || '', // *** NOVO ***
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -309,9 +398,11 @@ const FuelPriceModal = ({ user, partner, onClose, setAlertMessage, apiClient, re
                         <h2 className="text-xl font-bold">Valores de Combustíveis</h2>
                         <p className="text-gray-600 text-sm">{partner.razaoSocial}</p>
                     </div>
+                    {/* *** CORREÇÃO: Botão de fechar estava faltando *** */}
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={20}/></button>
                  </div>
-                 {/* Formulário (Campos do NOVO backend) */}
+                 {/* *** CORREÇÃO: <form> movido para envolver o conteúdo *** */}
+                 {/* Formulário (Campos do NOVO backend) (MODIFICADO) */}
                 <form onSubmit={handleSave}>
                     <div className="p-6 pt-4">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -326,6 +417,17 @@ const FuelPriceModal = ({ user, partner, onClose, setAlertMessage, apiClient, re
                             <div>
                                 <label className="block text-xs font-medium text-gray-700">Arla (R$)</label>
                                 <input name="Arla" value={prices['Arla']} onChange={handlePriceChange} type="text" inputMode="decimal" placeholder="0,00" className="w-full p-2 border rounded mt-1 text-sm"/>
+                            </div>
+                        </div>
+                        {/* *** NOVOS CAMPOS DE COMBUSTÍVEL *** */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                             <div>
+                                <label className="block text-xs font-medium text-gray-700">Gasolina Comum (R$)</label>
+                                <input name="Gasolina Comum" value={prices['Gasolina Comum']} onChange={handlePriceChange} type="text" inputMode="decimal" placeholder="0,00" className="w-full p-2 border rounded mt-1 text-sm"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700">Gasolina Aditivada (R$)</label>
+                                <input name="Gasolina Aditivada" value={prices['Gasolina Aditivada']} onChange={handlePriceChange} type="text" inputMode="decimal" placeholder="0,00" className="w-full p-2 border rounded mt-1 text-sm"/>
                             </div>
                         </div>
                     </div>
