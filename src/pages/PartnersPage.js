@@ -196,7 +196,8 @@ const PartnersPage = ({
                         </div>
                     </div>
                 ))}
-                {sortedPartners.length === 0 && (
+                {/* CORREÇÃO DO ERRO DE DEPLOY: A variável 'sortedPartners' não existe mais. Deve ser 'filteredAndSortedPartners'. */}
+                {filteredAndSortedPartners.length === 0 && (
                     <p className="p-6 text-center text-gray-500 italic">Nenhum posto cadastrado.</p>
                 )}
             </div>
