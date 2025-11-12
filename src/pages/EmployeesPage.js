@@ -100,6 +100,10 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
                 await apiClient.updateEmployee(employee.id, dataToSave);
                 setAlertMessage('Funcionário atualizado com sucesso!');
             } else {
+                // *** CORREÇÃO DO ERRO 500 ***
+                // Gera um ID (string) no frontend, pois o banco de dados (varchar) espera por ele.
+                dataToSave.id = crypto.randomUUID();
+                
                 // Chama API para CRIAR
                 await apiClient.createEmployee(dataToSave);
                 setAlertMessage('Funcionário adicionado com sucesso!');
@@ -569,6 +573,9 @@ const EmployeesPage = ({
                         errorMessages.push(`Linha ${successCount + errorCount}: Nome ou Registro Interno ausente.`);
                         continue;
                     }
+                    
+                    // *** CORREÇÃO: Adiciona ID aqui também para importação ***
+                    employeeData.id = crypto.randomUUID();
 
                     try {
                         await apiClient.createEmployee(employeeData);
@@ -711,7 +718,7 @@ const EmployeesPage = ({
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('nome')}>Nome / Registro <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('funcao')}>Função <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('cidade')}>Cidade <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
-                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
+                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={1E2} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 text-center">Ações</th>
                             </tr>
                         </thead>
