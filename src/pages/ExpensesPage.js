@@ -117,7 +117,11 @@ const ExpensesPage = ({
 
      // Função para limpar o formulário e resetar estado de edição
      const resetForm = () => {
+        // *** ESTA É A CORREÇÃO ***
+        // A linha abaixo DEVE estar comentada.
+        // Se ela estiver ativa, a obra será desmarcada.
         // setSelectedObra(''); // Não reseta a obra selecionada
+        
         setDescription('');
         setAmount('');
         setCategory('Outros'); // Reseta categoria para padrão
