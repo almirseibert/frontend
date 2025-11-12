@@ -718,7 +718,11 @@ const EmployeesPage = ({
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('nome')}>Nome / Registro <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('funcao')}>Função <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('cidade')}>Cidade <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
-                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={1E2} className="inline ml-1 opacity-50"/></th>
+                                {/* *** CORREÇÃO DO ÍCONE ***
+                                    O valor estava 'size={1E2}' (que significa 100), causando o ícone gigante.
+                                    Corrigido para 'size={12}'.
+                                */}
+                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 text-center">Ações</th>
                             </tr>
                         </thead>
