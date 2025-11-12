@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react'; // 1. Importa o useEffect
 // REMOVIDO: Imports do Firebase Firestore
 import {
     Download,
@@ -27,7 +27,10 @@ const ExpensesPage = ({
     reloadData         // Função para recarregar dados (via props do App.js)
 }) => {
     // Estados da UI
-    const [selectedObra, setSelectedObra] = useState(''); // ID da obra selecionada no filtro/formulário
+    // *** 2. CORREÇÃO: Lê a última obra selecionada do sessionStorage ***
+    const [selectedObra, setSelectedObra] = useState(
+        sessionStorage.getItem('expensesPage_selectedObra') || ''
+    );
     const [description, setDescription] = useState('');   // Descrição no formulário
     const [amount, setAmount] = useState('');             // Valor no formulário
     const [editingExpense, setEditingExpense] = useState(null); // Guarda a despesa sendo editada
@@ -41,6 +44,17 @@ const ExpensesPage = ({
         // Garante que obras é um array antes de ordenar
         return [...(obras || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
+
+    // *** 3. CORREÇÃO: Salva a obra selecionada no sessionStorage ***
+    useEffect(() => {
+        // Sempre que 'selectedObra' mudar, salvamos no sessionStorage.
+        if (selectedObra) {
+            sessionStorage.setItem('expensesPage_selectedObra', selectedObra);
+        } else {
+            // Se o usuário selecionar "Selecione...", limpamos o storage.
+            sessionStorage.removeItem('expensesPage_selectedObra');
+        }
+    }, [selectedObra]); // Roda sempre que a obra selecionada mudar
 
     // Handler para Adicionar ou Atualizar Despesa (USA API)
     const handleAddOrUpdateExpense = async (e) => {
@@ -74,7 +88,7 @@ const ExpensesPage = ({
             }
             // Limpa formulário e recarrega dados
             resetForm();
-            reloadData();
+            reloadData(); // <-- Isso recria o componente, mas o sessionStorage vai salvar a seleção.
         } catch (error) {
             console.error("Erro ao salvar despesa via API:", error);
             setAlertMessage(error.message || 'Falha ao salvar a despesa.');
@@ -96,7 +110,7 @@ const ExpensesPage = ({
             // Chama API para DELETAR
             await apiClient.deleteExpense(itemToDelete);
             setAlertMessage('Despesa excluída com sucesso.');
-            reloadData(); // Recarrega dados
+            reloadData(); // <-- Isso também recria o componente.
         } catch (error) {
             console.error("Erro ao excluir despesa via API:", error);
             setAlertMessage(error.message || 'Falha ao excluir despesa.');
@@ -117,9 +131,7 @@ const ExpensesPage = ({
 
      // Função para limpar o formulário e resetar estado de edição
      const resetForm = () => {
-        // *** ESTA É A CORREÇÃO ***
-        // A linha abaixo DEVE estar comentada.
-        // Se ela estiver ativa, a obra será desmarcada.
+        // Esta função está correta. Ela NÃO mexe mais no 'selectedObra'.
         // setSelectedObra(''); // Não reseta a obra selecionada
         
         setDescription('');
@@ -219,7 +231,7 @@ const ExpensesPage = ({
                                  </button>
                              )}
                             <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2 text-sm">
-                                {isSaving ? <><Loader className="animate-spin" size={16}/> Salvando...</> : (editingExpense ? <><Edit size={16}/> Salvar</> : <><PlusCircle size={16}/> Adicionar</>)}
+                                {ISaving ? <><Loader className="animate-spin" size={16}/> Salvando...</> : (editingExpense ? <><Edit size={16}/> Salvar</> : <><PlusCircle size={16}/> Adicionar</>)}
                             </button>
                         </div>
                     </form>
