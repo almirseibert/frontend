@@ -425,7 +425,8 @@ const FinesPage = ({
                                         </div>
                                     </td>
                                     {/* Infração */}
-                                    <td className="px-6 py-4">
+                                    {/* *** MELHORIA: Adicionado 'max-w-sm' para forçar a quebra (truncate) *** */}
+                                    <td className="px-6 py-4 max-w-sm">
                                         <div className="font-medium text-gray-800 truncate" title={fine.descricao}>{fine.descricao || 'N/A'}</div>
                                         <div className="text-xs text-gray-500">
                                             {/* *** CORREÇÃO DA DATA APLICADA *** */}
@@ -434,11 +435,13 @@ const FinesPage = ({
                                          {fine.local && <div className="text-xs text-gray-500 truncate" title={fine.local}>Local: {fine.local}</div>}
                                     </td>
                                     {/* Valor */}
-                                    <td className="px-6 py-4 text-right font-bold text-red-600">
+                                    {/* *** MELHORIA: Adicionado 'whitespace-nowrap' *** */}
+                                    <td className="px-6 py-4 text-right font-bold text-red-600 whitespace-nowrap">
                                         R$ {(parseFloat(fine.valor) || 0).toFixed(2)}
                                     </td>
                                      {/* Status */}
-                                    <td className="px-6 py-4">
+                                    {/* *** MELHORIA: Adicionado 'whitespace-nowrap' *** */}
+                                    <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${getStatusBadge(fine.status)}`}>
                                             {fine.status || 'N/A'}
                                         </span>
@@ -450,7 +453,8 @@ const FinesPage = ({
                                          )}
                                     </td>
                                      {/* Ações */}
-                                    <td className="px-6 py-4 text-center">
+                                    {/* *** MELHORIA: Adicionado 'whitespace-nowrap' *** */}
+                                    <td className="px-6 py-4 text-center whitespace-nowrap">
                                         <div className="flex justify-center items-center gap-1">
                                             <ProtectedComponent requiredPermission="editor">
                                                 <button onClick={() => openModal(fine)} title="Editar" className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition"><Edit size={16} /></button>
