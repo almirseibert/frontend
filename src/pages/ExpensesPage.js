@@ -231,7 +231,8 @@ const ExpensesPage = ({
                                  </button>
                              )}
                             <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2 text-sm">
-                                {ISaving ? <><Loader className="animate-spin" size={16}/> Salvando...</> : (editingExpense ? <><Edit size={16}/> Salvar</> : <><PlusCircle size={16}/> Adicionar</>)}
+                                {/* *** AQUI ESTAVA O ERRO: ISaving -> isSaving *** */}
+                                {isSaving ? <><Loader className="animate-spin" size={16}/> Salvando...</> : (editingExpense ? <><Edit size={16}/> Salvar</> : <><PlusCircle size={16}/> Adicionar</>)}
                             </button>
                         </div>
                     </form>
