@@ -194,16 +194,19 @@ const EmployeeHistoryModal = ({ employee, obras, onClose }) => {
             // Garante que historicoVeiculos é um array
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(h => {
                 if (h.details?.employeeId === employee.id) { // Verifica employeeId dentro de details
-                    // Converte strings ISO para Date para formatar
-                    const dataEntrada = h.startDate ? new Date(h.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
-                    const dataSaida = h.endDate ? new Date(h.endDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Presente';
+                    
+                    // *** CORREÇÃO DO PERÍODO: Mudar de startDate/endDate para dataEntrada/dataSaida ***
+                    // O backend (obraController) envia 'dataEntrada' e 'dataSaida'
+                    const dataEntrada = h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
+                    const dataSaida = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Presente';
+                    
                     history.push({
                         obraNome: obra.nome || 'Obra sem nome',
                         veiculo: `${h.details?.vehicleRegistroInterno || 'Veículo N/A'}`,
                         dataEntrada,
                         dataSaida,
                         // Adiciona data de entrada como Date para ordenação
-                        entryDateObj: h.startDate ? new Date(h.startDate) : new Date(0)
+                        entryDateObj: h.dataEntrada ? new Date(h.dataEntrada) : new Date(0) // *** CORREÇÃO AQUI TAMBÉM ***
                     });
                 }
             });
@@ -366,8 +369,9 @@ const EmployeesPage = ({
 
         (obras || []).forEach(obra => {
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(historyEntry => {
-                // Verifica se a alocação está ativa (sem endDate)
-                const isCurrentAllocation = !historyEntry.endDate;
+                // Verifica se a alocação está ativa (sem dataSaida)
+                // *** CORREÇÃO: Usa dataSaida ao invés de endDate ***
+                const isCurrentAllocation = !historyEntry.dataSaida; 
                 if (isCurrentAllocation && historyEntry.details?.employeeId) {
                     const employeeId = historyEntry.details.employeeId;
                     if (!allocations.has(employeeId)) {
@@ -404,10 +408,11 @@ const EmployeesPage = ({
                 // Verifica histórico de obras
                 (obras || []).forEach(obra => {
                     const latestHistoryEntry = (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [])
-                        .filter(h => h.details?.employeeId === emp.id && h.endDate) // Com data de saída
-                        .sort((a, b) => new Date(b.endDate).getTime() - new Date(a.endDate).getTime())[0]; // Ordena
+                        // *** CORREÇÃO: Usa dataSaida ao invés de endDate ***
+                        .filter(h => h.details?.employeeId === emp.id && h.dataSaida) // Com data de saída
+                        .sort((a, b) => new Date(b.dataSaida).getTime() - new Date(a.dataSaida).getTime())[0]; // Ordena
                     if (latestHistoryEntry) {
-                        const deallocDate = new Date(latestHistoryEntry.endDate);
+                        const deallocDate = new Date(latestHistoryEntry.dataSaida);
                         if (!lastDeallocationDate || deallocDate > lastDeallocationDate) {
                             lastDeallocationDate = deallocDate;
                         }
@@ -718,10 +723,6 @@ const EmployeesPage = ({
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('nome')}>Nome / Registro <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('funcao')}>Função <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('cidade')}>Cidade <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
-                                {/* *** CORREÇÃO DO ÍCONE ***
-                                    O valor estava 'size={1E2}' (que significa 100), causando o ícone gigante.
-                                    Corrigido para 'size={12}'.
-                                */}
                                 <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/></th>
                                 <th className="px-6 py-3 text-center">Ações</th>
                             </tr>
@@ -731,12 +732,26 @@ const EmployeesPage = ({
                                 const allocatedVehicles = employeeAllocations.get(employee.id) || [];
                                 const isAllocated = allocatedVehicles.length > 0;
                                 let allocationStatus = 'Disponível';
-                                let allocationDetails = '';
+                                
+                                // *** CORREÇÃO: Lógica de exibição dos veículos alocados (Limite de 4 + "...") ***
+                                let allocationDetails = ''; // O que aparece na tela
+                                let fullAllocationTitle = ''; // O que aparece no tooltip
+                                
                                 if (employee.status === 'inativo') {
                                     allocationStatus = 'Inativo';
                                 } else if (isAllocated) {
-                                     allocationStatus = 'Alocado';
-                                     allocationDetails = allocatedVehicles.map(v => v.registroInterno).join(', ');
+                                    allocationStatus = 'Alocado';
+                                    
+                                    const vehicleNames = allocatedVehicles.map(v => v.registroInterno);
+                                    fullAllocationTitle = vehicleNames.join(', '); // O tooltip sempre mostra todos
+
+                                    if (vehicleNames.length > 4) {
+                                        // Limita a 4 e adiciona "..."
+                                        allocationDetails = vehicleNames.slice(0, 4).join(', ') + ' ...';
+                                    } else {
+                                        // Mostra todos se for 4 ou menos
+                                        allocationDetails = fullAllocationTitle;
+                                    }
                                 }
 
                                 const hasPendingFine = employeesWithPendingFines.has(employee.id);
@@ -770,8 +785,9 @@ const EmployeesPage = ({
                                             <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${statusColor}`}>
                                                 {allocationStatus}
                                             </span>
+                                            {/* *** CORREÇÃO: Aplica as variáveis (com limite) e o tooltip (completo) *** */}
                                             {isAllocated && allocationDetails &&
-                                                 <p className="text-[11px] text-gray-500 mt-1 truncate" title={`Alocado em: ${allocationDetails}`}>
+                                                 <p className="text-[11px] text-gray-500 mt-1 truncate" title={`Alocado em: ${fullAllocationTitle}`}>
                                                      {`Em: ${allocationDetails}`}
                                                  </p>}
                                             {isInactiveAlert &&
