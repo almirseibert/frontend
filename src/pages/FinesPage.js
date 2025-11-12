@@ -5,7 +5,8 @@ import {
     Edit,
     Trash2,
     X,
-    Loader // Adicionado
+    Loader,
+    ChevronsUpDown // *** ADICIONADO para classificação ***
 } from 'lucide-react';
 import apiClient from '../services/apiClient'; // Importa apiClient
 
@@ -14,7 +15,26 @@ import ProtectedComponent from '../components/ProtectedComponent'; // Ajuste o c
 import { useAuth } from '../contexts/AuthContext'; // Para obter dados do usuário
 
 // ===================================================================================
-// MODAL PARA EDITAR/ADICIONAR MULTA (ATUALIZADO PARA API)
+// FUNÇÃO AUXILIAR PARA FORMATAR DATAS
+// ===================================================================================
+/**
+ * Formata uma string de data (ex: '2025-11-12') para o formato 'dd/mm/aaaa'.
+ * @param {string} dateString - A string de data do banco de dados (MySQL DATE type).
+ * @returns {string} - A data formatada ou 'N/A'.
+ */
+const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    // O BD envia 'YYYY-MM-DD'. new Date() interpreta isso como UTC.
+    // Usamos timeZone: 'UTC' para formatar a data 'como está',
+    // ignorando o fuso horário local do navegador (que causaria "Invalid Date" ou dia -1).
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Data Inválida';
+    return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+};
+
+
+// ===================================================================================
+// MODAL PARA EDITAR/ADICIONAR MULTA (Sem alterações, já estava OK)
 // ===================================================================================
 const FineModal = ({
     user,              // Usuário logado
@@ -203,6 +223,18 @@ const FinesPage = ({
     const [editingFine, setEditingFine] = useState(null);
     const [itemToDelete, setItemToDelete] = useState(null); // Guarda o ID
     const [filters, setFilters] = useState({ search: '', status: 'Pendente' }); // Filtro padrão 'Pendente'
+    
+    // *** ADICIONADO: Estado de Classificação ***
+    const [sortConfig, setSortConfig] = useState({ key: 'dataInfração', direction: 'descending' });
+
+    // *** ADICIONADO: Função de Classificação ***
+    const requestSort = (key) => {
+        let direction = 'ascending';
+        if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+            direction = 'descending';
+        }
+        setSortConfig({ key, direction });
+    };
 
     // Handler para filtros
     const handleFilterChange = (e) => {
@@ -236,10 +268,12 @@ const FinesPage = ({
         }
     };
 
-    // Filtra multas (Usa props e new Date())
-    const filteredFines = useMemo(() => {
+    // *** ATUALIZADO: Filtra E Classifica multas ***
+    const processedFines = useMemo(() => {
         if (!Array.isArray(fines)) return [];
-        return fines.filter(fine => {
+        
+        // 1. Filtra
+        let filtered = fines.filter(fine => {
             const searchLower = filters.search.toLowerCase();
             // Garante que campos existem
             const searchMatch = !searchLower ||
@@ -249,10 +283,49 @@ const FinesPage = ({
                 (fine.descricao || '').toLowerCase().includes(searchLower);
             const statusMatch = filters.status === 'todos' || fine.status === filters.status;
             return searchMatch && statusMatch;
-        })
-        // Ordena por data da infração (API string)
-        .sort((a,b) => (b.dataInfração || '').localeCompare(a.dataInfração || ''));
-    }, [fines, filters]);
+        });
+        
+        // 2. Classifica
+        if (sortConfig.key) {
+            filtered.sort((a, b) => {
+                let valA, valB;
+                
+                // Define as chaves de classificação
+                switch (sortConfig.key) {
+                    case 'vehicle':
+                        valA = a.vehicleInfo?.registroInterno || '';
+                        valB = b.vehicleInfo?.registroInterno || '';
+                        break;
+                    case 'employee':
+                         valA = a.employeeInfo?.nome || '';
+                         valB = b.employeeInfo?.nome || '';
+                        break;
+                    case 'valor':
+                        valA = a.valor || 0;
+                        valB = b.valor || 0;
+                        break;
+                    case 'dataInfração':
+                         valA = a.dataInfração || '';
+                         valB = b.dataInfração || '';
+                         break;
+                    default:
+                        valA = a[sortConfig.key] || '';
+                        valB = b[sortConfig.key] || '';
+                }
+                
+                let comparison = 0;
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    comparison = valA - valB;
+                } else {
+                    comparison = String(valA).localeCompare(String(valB), 'pt-BR', { sensitivity: 'base' });
+                }
+                
+                return sortConfig.direction === 'ascending' ? comparison : -comparison;
+            });
+        }
+
+        return filtered;
+    }, [fines, filters, sortConfig]); // Adiciona sortConfig como dependência
 
     // Badge de status
     const getStatusBadge = (status) => {
@@ -306,32 +379,57 @@ const FinesPage = ({
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left text-gray-600 min-w-[700px]">
+                         {/* *** CABEÇALHO ATUALIZADO *** */}
                          <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
                             <tr>
-                                <th className="px-6 py-3">Veículo / Condutor</th>
-                                <th className="px-6 py-3">Infração</th>
-                                <th className="px-6 py-3 text-right">Valor</th>
-                                <th className="px-6 py-3">Status</th>
+                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('vehicle')}>
+                                    Veículo
+                                    <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/>
+                                </th>
+                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('employee')}>
+                                    Condutor
+                                    <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/>
+                                </th>
+                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('dataInfração')}>
+                                    Infração
+                                    <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/>
+                                </th>
+                                <th className="px-6 py-3 text-right cursor-pointer hover:bg-gray-100" onClick={() => requestSort('valor')}>
+                                    Valor
+                                    <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/>
+                                </th>
+                                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('status')}>
+                                    Status
+                                    <ChevronsUpDown size={12} className="inline ml-1 opacity-50"/>
+                                </th>
                                 <th className="px-6 py-3 text-center">Ações</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredFines.map(fine => (
+                            {/* *** CORPO DA TABELA ATUALIZADO *** */}
+                            {processedFines.map(fine => (
                                 <tr key={fine.id} className="bg-white border-b hover:bg-gray-50 transition-colors duration-150">
-                                    {/* Veículo / Condutor */}
+                                    {/* Veículo */}
                                     <td className="px-6 py-4">
                                         <div className="font-medium text-gray-900">
-                                            {fine.vehicleInfo?.registroInterno || 'N/A'} - {fine.vehicleInfo?.placa || 'N/A'}
+                                            {fine.vehicleInfo?.registroInterno || 'N/A'}
                                         </div>
                                         <div className="text-xs text-gray-500">
-                                            Condutor: {fine.employeeInfo?.nome || 'N/A'}
+                                            {fine.vehicleInfo?.placa || 'N/A'}
+                                        </div>
+                                    </td>
+                                    {/* Condutor */}
+                                    <td className="px-6 py-4">
+                                        <div className="font-medium text-gray-900 truncate" title={fine.employeeInfo?.nome}>
+                                            {fine.employeeInfo?.nome || 'N/A'}
                                         </div>
                                     </td>
                                     {/* Infração */}
                                     <td className="px-6 py-4">
-                                        <div className="font-medium text-gray-800">{fine.descricao || 'N/A'}</div>
+                                        <div className="font-medium text-gray-800 truncate" title={fine.descricao}>{fine.descricao || 'N/A'}</div>
                                         <div className="text-xs text-gray-500">
-                                            Data: {fine.dataInfração ? new Date(fine.dataInfração + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A'}
+                                            {/* *** CORREÇÃO DA DATA APLICADA *** */}
+                                            Data: {formatDate(fine.dataInfração)}
                                         </div>
                                          {fine.local && <div className="text-xs text-gray-500 truncate" title={fine.local}>Local: {fine.local}</div>}
                                     </td>
@@ -346,7 +444,8 @@ const FinesPage = ({
                                         </span>
                                          {fine.status === 'Pendente' && fine.dataVencimento && (
                                              <div className="text-[11px] text-gray-500 mt-1">
-                                                 Vence: {new Date(fine.dataVencimento + 'T12:00:00Z').toLocaleDateString('pt-BR')}
+                                                 {/* *** CORREÇÃO DA DATA APLICADA *** */}
+                                                 Vence: {formatDate(fine.dataVencimento)}
                                              </div>
                                          )}
                                     </td>
@@ -364,8 +463,8 @@ const FinesPage = ({
                                 </tr>
                             ))}
                             {/* Vazio */}
-                            {filteredFines.length === 0 && (
-                                <tr><td colSpan="5" className="text-center p-6 text-gray-500 italic">Nenhuma multa encontrada.</td></tr>
+                            {processedFines.length === 0 && (
+                                <tr><td colSpan="6" className="text-center p-6 text-gray-500 italic">Nenhuma multa encontrada.</td></tr>
                             )}
                         </tbody>
                     </table>
