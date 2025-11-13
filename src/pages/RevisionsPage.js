@@ -165,7 +165,7 @@ const RevisionsPage = ({
             {/* Modais */}
             {editingRevision && <ScheduleRevisionModal user={user} vehicle={editingRevision} onClose={() => setEditingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} />}
             {completingRevision && <CompleteRevisionModal user={user} vehicle={completingRevision} onClose={() => setCompletingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} />}
-            {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} />}
+            {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} vehicleGroups={vehicleGroups} />}
         </div>
     );
 };
@@ -459,7 +459,7 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 };
 
 // Modal de Histórico (Usa prop 'revision.historico', ajusta datas)
-const RevisionHistoryModal = ({ vehicle, onClose }) => {
+const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
     // Garante que vehicle e revision existam
     if (!vehicle || !vehicle.revision) return null;
     // Pega o histórico do objeto revision (que veio da API)
