@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'; // Importa useEffect
-import apiClient from '../services/apiClient'; // Importa apiClient
+// import apiClient from '../services/apiClient'; // Comentado pois vem via props
 import {
     Edit,
     Clock,
@@ -47,7 +47,7 @@ const RevisionsPage = ({
         });
     }, [vehicles, revisions, searchTerm]);
 
-    // Obtém a leitura principal (ajustado para API data e fallback)
+    // Obtém a leitura principal (sem mudanças)
     const getLeituraPrincipal = (vehicle) => {
         const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
         const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle?.tipo));
@@ -65,7 +65,7 @@ const RevisionsPage = ({
         return `${parseFloat(leitura).toFixed(1)} Km`; // Formata com 1 decimal
     };
 
-     // Formata data da próxima revisão (usa new Date() com UTC)
+     // Formata data da próxima revisão (sem mudanças)
      const formatNextRevisionDate = (dateString) => {
          if (!dateString) return 'N/A';
          try {
@@ -112,8 +112,23 @@ const RevisionsPage = ({
                 {combinedData.map(item => {
                     // Garante que item e item.revision existam
                     if (!item || !item.revision) return null;
+
+                    // --- CORREÇÃO LISTAGEM (Início) ---
+                    // Determina qual leitura de REVISÃO usar
+                    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
+                    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(item?.tipo));
+                    const isHourBased = (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões');
+                    
+                    // Pega a leitura correta (Horimetro ou Odometro)
+                    const nextReadingValue = isHourBased 
+                        ? item.revision.proximaRevisaoHorimetro 
+                        : item.revision.proximaRevisaoOdometro;
+
                     const nextDateStr = formatNextRevisionDate(item.revision.proximaRevisaoData);
-                    const nextReadingStr = formatNextRevisionReading(item.revision.proximaRevisaoOdometro, item.tipo);
+                    // Passa o valor correto (seja ele Hr ou Km) para a função de formatação
+                    const nextReadingStr = formatNextRevisionReading(nextReadingValue, item.tipo); 
+                    // --- CORREÇÃO LISTAGEM (Fim) ---
+
                     const hasScheduledRevision = nextDateStr !== 'N/A' || nextReadingStr !== 'N/A';
 
                     return (
@@ -157,30 +172,26 @@ const RevisionsPage = ({
 
 // Modal para concluir revisão (Usa apiClient)
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
-    // CORREÇÃO: Hooks movidos para o topo, antes do early return.
-    const [currentReadingInput, setCurrentReadingInput] = useState(''); // Inicializa vazio
+    // Hooks movidos para o topo
+    const [currentReadingInput, setCurrentReadingInput] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
     // Garante que vehicle e revision existam
     const revision = vehicle?.revision;
 
     // Determina leitura atual e label
-    // Esta lógica foi MOVIDA para ANTES do early return, para que o useEffect possa usá-la.
     const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
     let currentReadingValue = 0;
     let readingLabel = 'Leitura Atual';
-     // Define a chave da leitura principal com base no grupo/configuração
-     let readingKey = 'odometro'; // Default
+    let readingKey = 'odometro'; // Default
+    // --- CORREÇÃO: Determina se é Horímetro ---
+    const isHourBased = (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões');
 
-    if (vehicle) { // Só calcula se o veículo existir
-        if (vehicleGroup === 'Máquinas Pesadas') {
+    if (vehicle) {
+        if (isHourBased) {
             currentReadingValue = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
             readingLabel = 'Horímetro Atual (Hr)';
             readingKey = vehicle.possuiHorimetroDigital ? 'horimetroDigital' : (vehicle.possuiHorimetroAnalogico ? 'horimetroAnalogico' : 'horimetro');
-        } else if (vehicleGroup === 'Caminhões') {
-            currentReadingValue = vehicle.horimetro ?? 0; // Prioriza horímetro
-            readingLabel = 'Horímetro Atual (Hr)';
-            readingKey = 'horimetro';
         } else { // Veículos Leves
             currentReadingValue = vehicle.odometro ?? 0;
             readingLabel = 'Odômetro Atual (Km)';
@@ -188,13 +199,12 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         }
     }
 
-    // CORREÇÃO: Efeito para definir o valor inicial, MOVIDO para antes do early return.
+    // Efeito para definir o valor inicial
     useEffect(() => {
-        // Define o estado inicial baseado no valor calculado
         setCurrentReadingInput(currentReadingValue.toString());
-    }, [currentReadingValue]); // Depende do valor calculado
+    }, [currentReadingValue]); 
 
-    // Early return agora é seguro, pois os Hooks estão acima
+    // Early return
     if (!vehicle || !revision) return null; 
 
 
@@ -204,50 +214,42 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             setAlertMessage("Insira a leitura atual válida.");
             return;
         }
-         // Validação: Leitura atual >= Leitura agendada (se houver)
-         const scheduledReading = revision?.proximaRevisaoOdometro || 0;
-         if (scheduledReading > 0 && readingFloat < scheduledReading) {
-             setAlertMessage(`Leitura atual (${readingFloat}) < Leitura agendada (${scheduledReading}).`);
-             return;
-         }
-          // Validação: Leitura atual >= Leitura do veículo (prevenção de erro)
-         // Permite leitura ligeiramente menor para correções (ex: 500.5 vs 500.6)
-         if (readingFloat < (currentReadingValue - 0.1) ) { 
-             setAlertMessage(`Leitura atual informada (${readingFloat}) é menor que a leitura registrada no veículo (${currentReadingValue}). Verifique a leitura.`);
-             return;
-         }
 
+        // Validação: Leitura atual vs Leitura agendada (se houver)
+        // --- CORREÇÃO: Pega a leitura agendada correta (Odometro ou Horimetro) ---
+        const scheduledReading = (isHourBased ? revision?.proximaRevisaoHorimetro : revision?.proximaRevisaoOdometro) || 0;
+        if (scheduledReading > 0 && readingFloat < scheduledReading) {
+            setAlertMessage(`Leitura atual (${readingFloat}) < Leitura agendada (${scheduledReading}).`);
+            return;
+        }
+
+        // Validação: Leitura atual vs Leitura do veículo (prevenção de erro)
+        if (readingFloat < (currentReadingValue - 0.1) ) { 
+            setAlertMessage(`Leitura atual informada (${readingFloat}) é menor que a leitura registrada no veículo (${currentReadingValue}). Verifique a leitura.`);
+            return;
+        }
 
         setIsSaving(true);
-        // Prepara dados para o histórico (backend adiciona ao array)
+        // Prepara dados para o histórico
         const historyEntry = {
             leituraRealizada: readingFloat,
-            realizadaEm: new Date().toISOString(), // Data atual ISO UTC
-            realizadaPor: user?.email || 'Sistema', // Email do usuário logado
-            descricao: revision.descricao || 'Revisão Padrão', // Pega a descrição atual
+            realizadaEm: new Date().toISOString(), 
+            realizadaPor: user?.email || 'Sistema',
+            descricao: revision.descricao || 'Revisão Padrão',
         };
 
         try {
-            // Chama API para concluir (passa vehicleId e dados do histórico)
-            // O backend adiciona ao 'historico' e limpa 'proximaRevisao...'
-            // O endpoint 'completeRevision' no apiClient precisa aceitar (id, data)
-            // Vamos assumir que o apiClient.completeRevision foi ajustado para:
-            // completeRevision: (vehicleId, data) => apiFetch(`/revisions/${vehicleId}/complete`, { method: 'POST', body: JSON.stringify(data) })
-            // Se o seu apiClient.completeRevision espera apenas (data), ajuste esta chamada:
-            // await apiClient.completeRevision({ vehicleId: revision.vehicleId, ...historyEntry });
-            
-            // Vou usar o formato que estava no apiClient.js (que espera vehicleId e data)
-            // A implementação anterior estava `apiClient.completeRevision(revision.vehicleId, historyEntry)`
-            // No entanto, o apiClient.js mostra: `completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) })`
-            // ISSO É UMA INCONSISTÊNCIA.
-            
-            // Vamos CORRIGIR A CHAMADA para bater com o apiClient.js:
+            // --- CORREÇÃO CONCLUIR (Início) ---
+            // Adiciona a informação da unidade (Km/Hr) para o backend
             const dataParaApi = {
                 vehicleId: revision.vehicleId,
-                ...historyEntry
+                ...historyEntry,
+                isHourBased: isHourBased // Envia se é Horímetro
             };
-            await apiClient.completeRevision(dataParaApi);
+            // --- CORREÇÃO CONCLUIR (Fim) ---
 
+            // Chama API (o apiClient.js aceita um objeto 'dataParaApi')
+            await apiClient.completeRevision(dataParaApi);
 
             setAlertMessage('Revisão concluída!');
             reloadData(); // Recarrega dados globais
@@ -260,7 +262,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         }
     };
 
-    // Renderização do Modal
+    // Renderização do Modal (sem mudanças)
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
@@ -280,7 +282,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                         </label>
                         <input
                             type="number"
-                            step="any" // Permite decimais
+                            step="any"
                             value={currentReadingInput}
                             onChange={e => setCurrentReadingInput(e.target.value)}
                             className="w-full p-2 border rounded-lg bg-gray-50"
@@ -304,10 +306,10 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 
 // Modal para agendar revisão (Usa apiClient)
 const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
-    // CORREÇÃO: Hooks movidos para o topo.
+    // Hooks movidos para o topo
     const [formData, setFormData] = useState({
         proximaRevisaoData: '',
-        proximaRevisaoOdometro: '',
+        leituraUnica: '', // Campo único para Km ou Hr
         avisoAntecedenciaDias: '',
         avisoAntecedenciaKmHr: '',
         descricao: '',
@@ -318,26 +320,31 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     const revision = vehicle?.revision;
 
     // Lógica da unidade
-    // MOVIDO para antes do early return, para o useEffect
     const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
     const readingUnit = isHourBased ? 'Hr' : 'Km';
 
-    // CORREÇÃO: Efeito para definir o formData, MOVIDO para antes do early return
+    // Efeito para definir o formData
     useEffect(() => {
-        // Só define o form se a 'revision' existir
         if (revision) {
+            // --- CORREÇÃO AGENDAMENTO (Início) ---
+            // Define o valor do campo 'leituraUnica' com base no tipo de veículo
+            const leituraAgendada = isHourBased 
+                ? (revision.proximaRevisaoHorimetro?.toString() || '') 
+                : (revision.proximaRevisaoOdometro?.toString() || '');
+            // --- CORREÇÃO AGENDAMENTO (Fim) ---
+
             setFormData({
-                proximaRevisaoData: revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData + 'T12:00:00Z').toISOString().split('T')[0] : '', // Adiciona T12Z para input date
-                proximaRevisaoOdometro: revision.proximaRevisaoOdometro?.toString() || '', // Garante string
+                proximaRevisaoData: revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData + 'T12:00:00Z').toISOString().split('T')[0] : '', 
+                leituraUnica: leituraAgendada, // Usa o campo único
                 avisoAntecedenciaDias: revision.avisoAntecedenciaDias?.toString() || '',
                 avisoAntecedenciaKmHr: revision.avisoAntecedenciaKmHr?.toString() || '',
                 descricao: revision.descricao || '',
             });
         }
-    }, [revision]); // Depende do objeto revision
+    }, [revision, isHourBased]); // Adiciona isHourBased como dependência
 
-    // Early return agora é seguro
+    // Early return
     if (!vehicle || !revision) return null;
 
     const handleChange = (e) => {
@@ -348,38 +355,41 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     // Salvar (Usa apiClient)
     const handleSave = async (e) => {
         e.preventDefault();
-         if (!formData.proximaRevisaoData && !formData.proximaRevisaoOdometro) {
+         if (!formData.proximaRevisaoData && !formData.leituraUnica) { // Valida campo único
              setAlertMessage("Preencha a Data ou a Leitura da próxima revisão.");
              return;
          }
+         
          // Validação Leitura vs Leitura Atual
-         const proxLeitura = parseFloat(formData.proximaRevisaoOdometro) || 0;
+         const proxLeitura = parseFloat(formData.leituraUnica) || 0; // Usa campo único
          let currentReadingValue = 0;
          if (isHourBased) {
              currentReadingValue = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
          } else {
              currentReadingValue = parseFloat(vehicle.odometro ?? 0);
          }
-         // Permite agendar leitura menor que a atual (ex: resetou contador), mas avisa
+         
          if (proxLeitura > 0 && proxLeitura <= currentReadingValue) {
              console.warn(`A próxima leitura (${proxLeitura}) é menor ou igual à leitura atual (${currentReadingValue}). Salvando mesmo assim.`);
-             // setAlertMessage(`Aviso: A próxima leitura (${proxLeitura}) é menor ou igual à atual (${currentReadingValue}).`);
-             // Não retorna, permite salvar.
          }
 
-
         setIsSaving(true);
-        // Prepara dados para API
+
+        // --- CORREÇÃO AGENDAMENTO (Início) ---
+        // Prepara dados para API, separando Km e Hr
         const dataToUpdate = {
-            proximaRevisaoData: formData.proximaRevisaoData || null, // Envia null se vazio
-            proximaRevisaoOdometro: parseFloat(formData.proximaRevisaoOdometro) || null, // Envia null se 0 ou inválido
+            proximaRevisaoData: formData.proximaRevisaoData || null,
+            // Envia o valor para a chave correta e zera a outra
+            proximaRevisaoOdometro: !isHourBased ? proxLeitura : null, 
+            proximaRevisaoHorimetro: isHourBased ? proxLeitura : null,
             avisoAntecedenciaDias: parseInt(formData.avisoAntecedenciaDias, 10) || null,
-            avisoAntecedenciaKmHr: parseFloat(formData.avisoAntecedenciaKmHr) || null, // Pode ser decimal
-            descricao: formData.descricao || null, // Envia null se vazio
+            avisoAntecedenciaKmHr: parseFloat(formData.avisoAntecedenciaKmHr) || null,
+            descricao: formData.descricao || null,
         };
+        // --- CORREÇÃO AGENDAMENTO (Fim) ---
+
         try {
-            // Chama API para ATUALIZAR o plano
-            // O apiClient.updateRevisionPlan espera (id, data), onde ID é o vehicleId
+            // O backend (updateRevisionPlan) já aceita chaves dinâmicas
             await apiClient.updateRevisionPlan(revision.vehicleId, dataToUpdate); // Usa vehicleId
             setAlertMessage("Agendamento salvo!");
             reloadData(); // Recarrega dados
@@ -410,14 +420,23 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             <input type="date" name="proximaRevisaoData" value={formData.proximaRevisaoData} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" />
                         </div>
                         <div>
+                            {/* CORREÇÃO: Label e Name usam a unidade correta */}
                             <label className="block font-medium text-gray-700 mb-1">Próxima Revisão ({readingUnit})</label>
-                            <input type="number" step="any" name="proximaRevisaoOdometro" value={formData.proximaRevisaoOdometro} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" placeholder="Leitura"/>
+                            <input 
+                                type="number" 
+                                step="any" 
+                                name="leituraUnica" // Usa o campo único
+                                value={formData.leituraUnica} // Usa o campo único
+                                onChange={handleChange} 
+                                className="w-full p-2 border rounded-lg bg-gray-50" 
+                                placeholder="Leitura"/>
                         </div>
                         <div>
                             <label className="block font-medium text-gray-700 mb-1">Avisar (Dias antes)</label>
                             <input type="number" name="avisoAntecedenciaDias" value={formData.avisoAntecedenciaDias} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" placeholder="Ex: 7"/>
                         </div>
                         <div>
+                            {/* CORREÇÃO: Label usa a unidade correta */}
                             <label className="block font-medium text-gray-700 mb-1">Avisar ({readingUnit} antes)</label>
                             <input type="number" step="any" name="avisoAntecedenciaKmHr" value={formData.avisoAntecedenciaKmHr} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" placeholder="Ex: 500"/>
                         </div>
@@ -451,10 +470,18 @@ const RevisionHistoryModal = ({ vehicle, onClose }) => {
         if (!dateString) return 'N/A';
         try {
             // Mostra data local baseada no timestamp ISO
-            // CORREÇÃO: Usar UTC para exibir a data que veio do banco (assumindo que o banco guarda em UTC)
             return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         } catch (e) { return 'Inválida'; }
     };
+
+    // --- CORREÇÃO HISTÓRICO (Início) ---
+    // Determina a unidade (Km ou Hr) para exibir a leitura correta do histórico
+    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
+    const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicle.tipo));
+    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
+    const historyUnit = isHourBased ? 'Hr' : 'Km';
+    // --- CORREÇÃO HISTÓRICO (Fim) ---
+
 
     // Renderização do Modal
     return (
@@ -473,17 +500,24 @@ const RevisionHistoryModal = ({ vehicle, onClose }) => {
                     {history.length > 0 ? (
                         <ul className="space-y-3">
                             {/* Ordena histórico (mais recente primeiro) */}
-                            {[...history].sort((a,b) => new Date(b.realizadaEm) - new Date(a.realizadaEm)).map((h, index) => (
+                            {[...history].sort((a,b) => new Date(b.realizadaEm) - new Date(a.realizadaEm)).map((h, index) => {
+                                // --- CORREÇÃO HISTÓRICO (Início) ---
+                                // Mostra a leitura correta (odometro ou horimetro)
+                                const leituraRealizada = isHourBased ? h.horimetro : h.odometro;
+                                // --- CORREÇÃO HISTÓRICO (Fim) ---
+
+                                return (
                                 <li key={index} className="p-3 bg-gray-50 rounded-lg border text-sm">
                                     <p className="font-semibold">{h.descricao || 'Revisão Padrão'}</p>
                                     <p className="text-xs text-gray-600 mt-1">
                                         Realizada em: {formatHistoryDate(h.realizadaEm)} por {h.realizadaPor || 'N/A'}
                                     </p>
                                     <p className="text-xs text-gray-600">
-                                        Leitura Realizada: {h.leituraRealizada != null ? parseFloat(h.leituraRealizada).toFixed(1) : 'N/A'} {/* Formata leitura */}
+                                        {/* CORREÇÃO: Mostra a leitura e unidade corretas */}
+                                        Leitura Realizada: {leituraRealizada != null ? `${parseFloat(leituraRealizada).toFixed(1)} ${historyUnit}` : 'N/A'}
                                     </p>
                                 </li>
-                            ))}
+                            )})}
                         </ul>
                     ) : (
                         <p className="text-gray-500 text-center italic py-10">Nenhum histórico de revisão encontrado.</p>
@@ -499,4 +533,3 @@ const RevisionHistoryModal = ({ vehicle, onClose }) => {
 };
 
 export default RevisionsPage;
-
