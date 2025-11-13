@@ -420,14 +420,14 @@ const FinesPage = ({
                                     </td>
                                     {/* Condutor */}
                                     {/* *** MELHORIA: Adicionado 'max-w-xs' para forçar a quebra (truncate) *** */}
-                                    <td className="px-4 py-4 max-w-8">
+                                    <td className="px-4 py-4 max-w-16">
                                         <div className="font-medium text-gray-900 truncate" title={fine.employeeInfo?.nome}>
                                             {fine.employeeInfo?.nome || 'N/A'}
                                         </div>
                                     </td>
                                     {/* Infração */}
                                     {/* *** MELHORIA: Mantido 'max-w-sm' para forçar a quebra (truncate) *** */}
-                                    <td className="px-4 py-4 max-w-8">
+                                    <td className="px-4 py-4 max-w-16">
                                         <div className="font-medium text-gray-800 truncate" title={fine.descricao}>{fine.descricao || 'N/A'}</div>
                                         <div className="text-xs text-gray-500">
                                             {/* *** CORREÇÃO DA DATA APLICADA *** */}
