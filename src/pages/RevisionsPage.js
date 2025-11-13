@@ -335,7 +335,13 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             // --- CORREÇÃO AGENDAMENTO (Fim) ---
 
             setFormData({
-                proximaRevisaoData: revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData + 'T12:00:00Z').toISOString().split('T')[0] : '', 
+                // --- CORREÇÃO (Linha 338) ---
+                // Remove a concatenação de 'T12:00:00Z'.
+                // new Date() consegue tratar tanto '2025-11-10' (string de data)
+                // quanto '2025-11-10T15:00:00Z' (string de timestamp).
+                // A concatenação quebrava o segundo caso (timestamp completo).
+                proximaRevisaoData: revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData).toISOString().split('T')[0] : '', 
+                // --- Fim da Correção ---
                 leituraUnica: leituraAgendada, // Usa o campo único
                 avisoAntecedenciaDias: revision.avisoAntecedenciaDias?.toString() || '',
                 avisoAntecedenciaKmHr: revision.avisoAntecedenciaKmHr?.toString() || '',
