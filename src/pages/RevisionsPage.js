@@ -1,13 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react'; 
-import apiClient from '../services/apiClient'; 
+import React, { useState, useMemo, useEffect } from 'react';
+import apiClient from '../services/apiClient';
 import {
     Edit,
     Clock,
     CheckCircle,
     X,
-    Loader 
+    Loader
 } from 'lucide-react';
 
+// Importa o componente de proteção
 import ProtectedComponent from '../components/ProtectedComponent';
 
 // --- Função Auxiliar de Data (Nova) ---
@@ -19,13 +20,13 @@ const isValidDbDate = (dateString) => {
 
 // --- Componente Principal ---
 const RevisionsPage = ({
-    user, vehicles = [], revisions = [], 
-    setAlertMessage, vehicleGroups = {}, apiClient, reloadData 
+    user, vehicles = [], revisions = [],
+    setAlertMessage, vehicleGroups = {}, apiClient, reloadData
 }) => {
     // Estados da UI (sem mudanças)
-    const [editingRevision, setEditingRevision] = useState(null); 
-    const [completingRevision, setCompletingRevision] = useState(null); 
-    const [historyModalVehicle, setHistoryModalVehicle] = useState(null); 
+    const [editingRevision, setEditingRevision] = useState(null); // Guarda { ...vehicle, revision }
+    const [completingRevision, setCompletingRevision] = useState(null); // Guarda { ...vehicle, revision }
+    const [historyModalVehicle, setHistoryModalVehicle] = useState(null); // Guarda { ...vehicle, revision }
     const [searchTerm, setSearchTerm] = useState('');
 
     // Combina dados de veículos e revisões (usa props)
@@ -36,19 +37,16 @@ const RevisionsPage = ({
         const sortedVehicles = [...validVehicles].sort((a, b) => (a?.registroInterno || '').localeCompare(b?.registroInterno || ''));
 
         return sortedVehicles.map(vehicle => {
-            if (!vehicle) return null; 
-            
-            // --- CORREÇÃO LISTAGEM (Legado/Novo) ---
+            if (!vehicle) return null;
+
             // O backend (getAllRevisionPlans) agora *sempre* envia o `vehicleId` correto.
-            // Esta lógica não precisa mais da verificação dupla (r.id === vehicle.id)
-            // porque o backend já "normalizou" os dados.
             const revision = validRevisions.find(r => r.vehicleId === vehicle.id) || { vehicleId: vehicle.id, historico: [] };
-            
+
             return { ...vehicle, revision };
         }).filter(item => {
-            if (!item) return false; 
+            if (!item) return false;
             const searchLower = searchTerm.toLowerCase();
-            return !searchLower || 
+            return !searchLower ||
                    (item.placa || '').toLowerCase().includes(searchLower) ||
                    (item.registroInterno || '').toLowerCase().includes(searchLower) ||
                    (item.marca || '').toLowerCase().includes(searchLower) ||
@@ -56,30 +54,10 @@ const RevisionsPage = ({
         });
     }, [vehicles, revisions, searchTerm]);
 
-    // Obtém a leitura principal (ajustado para API data e fallback)
-    const getLeituraPrincipal = (vehicle) => {
-        const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-        const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle?.tipo));
-        
-        // Regras de Negócio (13/11/2025)
-        if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
-            // Prioriza Digital > Analógico > Horímetro padrão
-            const leitura = vehicle?.horimetroDigital ?? vehicle?.horimetroAnalogico ?? vehicle?.horimetro ?? 0;
-            return `${parseFloat(leitura).toFixed(1)} Hr`; 
-        }
-        
-        // "Caminhões de Trecho" (tipo "Caminhões Prancha") e "Veículos Leves"
-        // (Assume que "Caminhões Prancha" está no grupo "Caminhões de Trecho" no App.js)
-        const leitura = vehicle?.odometro ?? 0;
-        return `${parseFloat(leitura).toFixed(1)} Km`; 
-    };
-
      // Formata data da próxima revisão (usa new Date() com UTC e validação)
      const formatNextRevisionDate = (dateString) => {
-         // --- CORREÇÃO (Validação) ---
          if (!isValidDbDate(dateString)) return 'N/A';
          try {
-             // Usa new Date(dateString) que trata '2025-11-10' e '2025-11-10T15:00:00Z'
              return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
          } catch (e) { return 'Inválida'; }
      };
@@ -91,7 +69,6 @@ const RevisionsPage = ({
         const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
         const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicleType));
         
-        // Regras de Negócio (13/11/2025)
         let reading, unit;
         if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
             reading = revision.proximaRevisaoHorimetro;
@@ -135,24 +112,101 @@ const RevisionsPage = ({
                 {combinedData.map(item => {
                     if (!item || !item.revision) return null;
                     
-                    // Passa o objeto revision inteiro e o tipo do veículo
-                    const nextDateStr = formatNextRevisionDate(item.revision.proximaRevisaoData);
-                    const nextReadingStr = formatNextRevisionReading(item.revision, item.tipo);
+                    const { revision, ...vehicle } = item;
+
+                    // --- MELHORIA (Highlight de Linha) ---
                     
+                    // 1. Determina tipo de leitura
+                    const vehicleGroup = Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo));
+                    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
+                    const readingUnit = isHourBased ? 'Hr' : 'Km';
+
+                    // 2. Pega Leitura Atual (como número e string)
+                    let currentReading = 0;
+                    if (isHourBased) {
+                        currentReading = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
+                    } else {
+                        currentReading = vehicle.odometro ?? 0;
+                    }
+                    const currentReadingStr = `${parseFloat(currentReading).toFixed(1)} ${readingUnit}`;
+
+                    // 3. Pega Leitura e Data Agendada
+                    const plannedReading = (isHourBased ? revision.proximaRevisaoHorimetro : revision.proximaRevisaoOdometro) || 0;
+                    const plannedDateStr = revision.proximaRevisaoData;
+
+                    // 4. Pega Limites de Aviso (com defaults)
+                    const warningDays = revision.avisoAntecedenciaDias || 30;
+                    const warningReading = revision.avisoAntecedenciaKmHr || (isHourBased ? 50 : 500);
+
+                    // 5. Calcula Status
+                    let isOverdue = false;
+                    let isWarning = false;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0); // Normaliza para meia-noite
+
+                    // Verifica Data
+                    if (isValidDbDate(plannedDateStr)) {
+                        try {
+                            // new Date('AAAA-MM-DD') cria data em UTC
+                            const plannedDate = new Date(plannedDateStr); 
+                            // Adiciona 1 dia para a lógica (ex: vence dia 10, dia 10 não é vencido)
+                            const diffTime = plannedDate.getTime() - today.getTime();
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            if (diffDays <= 0) { // Venceu (hoje ou no passado)
+                                isOverdue = true;
+                            } else if (diffDays <= warningDays) { // Dentro da janela de aviso
+                                isWarning = true;
+                            }
+                        } catch (e) { /* ignora data inválida */ }
+                    }
+
+                    // Verifica Leitura (só se não estiver vencido por data)
+                    if (plannedReading > 0 && currentReading > 0) {
+                        const diffReading = plannedReading - currentReading;
+
+                        if (diffReading <= 0) { // Leitura estourou
+                            isOverdue = true; 
+                        } else if (diffReading <= warningReading) { // Dentro da janela de aviso
+                            isWarning = true;
+                        }
+                    }
+
+                    // 6. Define a classe da linha
+                    let rowBgClass = 'bg-white hover:bg-gray-50'; // Default
+                    if (isOverdue) {
+                        rowBgClass = 'bg-red-50 hover:bg-red-100'; // Vermelho (Vencido)
+                    } else if (isWarning) {
+                        rowBgClass = 'bg-yellow-50 hover:bg-yellow-100'; // Amarelo (Alerta)
+                    }
+                    // --- FIM MELHORIA (Highlight de Linha) ---
+
+
+                    // --- MELHORIA (Ícone Histórico Verde) ---
+                    const hasHistory = revision.historico && revision.historico.length > 0;
+                    const historyIconClass = hasHistory 
+                        ? 'text-green-600 hover:text-green-700' // Verde
+                        : 'text-gray-400 hover:text-blue-600'; // Padrão
+                    // --- FIM MELHORIA (Ícone Histórico Verde) ---
+
+                    const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
+                    const nextReadingStr = formatNextRevisionReading(revision, vehicle.tipo);
                     const hasScheduledRevision = nextDateStr !== 'N/A' || nextReadingStr !== 'N/A';
-                    
-                    // O backend já traduziu 'tipo' para 'descricao'
-                    const description = item.revision.descricao || '-'; 
+                    const description = revision.descricao || '-'; 
 
                     return (
-                        <div key={item.id} className="grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm">
+                        <div 
+                            key={vehicle.id} 
+                            // Aplica a classe de highlight na linha
+                            className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm ${rowBgClass}`}
+                        >
                             {/* Veículo */}
                             <div className="md:col-span-2">
-                                <p className="font-bold text-gray-900">{item.registroInterno} - {item.marca} {item.modelo}</p>
-                                <p className="text-xs text-gray-500">{item.placa}</p>
+                                <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
+                                <p className="text-xs text-gray-500">{vehicle.placa}</p>
                             </div>
-                            {/* Leitura Atual */}
-                            <div className="text-left md:text-right font-semibold text-blue-600">{getLeituraPrincipal(item)}</div>
+                            {/* Leitura Atual (usa a string calculada) */}
+                            <div className="text-left md:text-right font-semibold text-blue-600">{currentReadingStr}</div>
                              {/* Próxima Data */}
                             <div className="text-left md:text-center">{nextDateStr}</div>
                              {/* Próxima Leitura */}
@@ -165,7 +219,14 @@ const RevisionsPage = ({
                                     <button onClick={() => setEditingRevision(item)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition-colors" title="Agendar/Editar"><Edit size={14} /></button>
                                      {hasScheduledRevision && <button onClick={() => setCompletingRevision(item)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full transition-colors" title="Concluir"><CheckCircle size={14} /></button>}
                                 </ProtectedComponent>
-                                <button onClick={() => setHistoryModalVehicle(item)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition-colors" title="Histórico"><Clock size={14} /></button>
+                                <button 
+                                    onClick={() => setHistoryModalVehicle(item)} 
+                                    // Aplica a classe do ícone verde
+                                    className={`p-1.5 hover:bg-gray-100 rounded-full transition-colors ${historyIconClass}`} 
+                                    title="Histórico"
+                                >
+                                    <Clock size={14} />
+                                </button>
                             </div>
                         </div>
                     );
@@ -187,6 +248,10 @@ const RevisionsPage = ({
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
     const [currentReadingInput, setCurrentReadingInput] = useState(''); 
     const [isSaving, setIsSaving] = useState(false);
+    // --- MELHORIA (Observações) ---
+    // Adiciona estado para o campo de observações/detalhes
+    const [detalhes, setDetalhes] = useState('');
+    // --- FIM MELHORIA (Observações) ---
 
     const revision = vehicle?.revision;
 
@@ -209,7 +274,13 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 
     useEffect(() => {
         setCurrentReadingInput(currentReadingValue.toString());
-    }, [currentReadingValue]); 
+        // --- MELHORIA (Observações) ---
+        // Pré-preenche o campo de detalhes com a descrição planejada
+        if (revision) {
+            setDetalhes(revision.descricao || '');
+        }
+        // --- FIM MELHORIA (Observações) ---
+    }, [currentReadingValue, revision]); // Adiciona 'revision' à dependência
 
     if (!vehicle || !revision) return null; 
 
@@ -234,8 +305,10 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 
         setIsSaving(true);
         
-        // O backend espera 'descricao' (que vem do 'tipo' do plano)
-        const description = revision.descricao || 'Revisão Padrão';
+        // --- MELHORIA (Observações) ---
+        // Usa o estado 'detalhes' (que o usuário pode editar) em vez da descrição fixa
+        const description = detalhes || 'Revisão Padrão';
+        // --- FIM MELHORIA (Observações) ---
 
         const dataParaApi = {
             vehicleId: revision.vehicleId, // O backend já normalizou o vehicleId
@@ -243,7 +316,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             leituraRealizada: readingFloat,
             realizadaEm: new Date().toISOString(), 
             realizadaPor: user?.email || 'Sistema', 
-            descricao: description, // Envia a descrição
+            descricao: description, // Envia os detalhes editados
         };
 
         try {
@@ -273,8 +346,9 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                 {/* Corpo */}
                 <div className="p-6 space-y-4 text-sm">
                     <p><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
-                    {/* O backend já traduziu 'tipo' para 'descricao' */}
-                    <p><strong>Serviço Agendado:</strong> {revision?.descricao || 'N/A'}</p>
+                    {/* Texto alterado para 'Serviço Planejado' */}
+                    <p><strong>Serviço Planejado:</strong> {revision?.descricao || 'N/A'}</p>
+                    
                     {/* Input Leitura Atual */}
                     <div>
                         <label className="block font-medium text-gray-700 mb-1">
@@ -290,6 +364,22 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                         />
                         <p className="text-xs text-gray-500 mt-1">Informe a leitura no momento da conclusão da revisão.</p>
                     </div>
+
+                    {/* --- MELHORIA (Observações) --- */}
+                    <div>
+                        <label className="block font-medium text-gray-700 mb-1">
+                            Serviços Realizados / Observações
+                        </label>
+                        <textarea
+                            value={detalhes}
+                            onChange={e => setDetalhes(e.target.value)}
+                            rows={3}
+                            className="w-full p-2 border rounded-lg bg-gray-50"
+                            placeholder="Ex: Troca de óleo e filtros realizada na filial Lajeado."
+                        />
+                    </div>
+                    {/* --- FIM MELHORIA (Observações) --- */}
+
                 </div>
                 {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
@@ -464,7 +554,6 @@ const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
     const history = Array.isArray(vehicle.revision.historico) ? vehicle.revision.historico : [];
 
     const formatHistoryDate = (dateString) => {
-        // --- CORREÇÃO (Validação) ---
         if (!isValidDbDate(dateString)) return 'N/A';
         try {
             return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
