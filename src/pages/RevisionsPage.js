@@ -5,7 +5,8 @@ import {
     Clock,
     CheckCircle,
     X,
-    Loader
+    Loader,
+    ShieldWarning // Ícone para o aviso de liberação
 } from 'lucide-react';
 
 // Importa o componente de proteção
@@ -23,13 +24,13 @@ const RevisionsPage = ({
     user, vehicles = [], revisions = [],
     setAlertMessage, vehicleGroups = {}, apiClient, reloadData
 }) => {
-    // Estados da UI (sem mudanças)
-    const [editingRevision, setEditingRevision] = useState(null); // Guarda { ...vehicle, revision }
-    const [completingRevision, setCompletingRevision] = useState(null); // Guarda { ...vehicle, revision }
-    const [historyModalVehicle, setHistoryModalVehicle] = useState(null); // Guarda { ...vehicle, revision }
+    // Estados da UI
+    const [editingRevision, setEditingRevision] = useState(null);
+    const [completingRevision, setCompletingRevision] = useState(null);
+    const [historyModalVehicle, setHistoryModalVehicle] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Combina dados de veículos e revisões (usa props)
+    // Combina dados de veículos e revisões
     const combinedData = useMemo(() => {
         const validVehicles = Array.isArray(vehicles) ? vehicles : [];
         const validRevisions = Array.isArray(revisions) ? revisions : [];
@@ -54,7 +55,7 @@ const RevisionsPage = ({
         });
     }, [vehicles, revisions, searchTerm]);
 
-     // Formata data da próxima revisão (usa new Date() com UTC e validação)
+     // Formata data da próxima revisão
      const formatNextRevisionDate = (dateString) => {
          if (!isValidDbDate(dateString)) return 'N/A';
          try {
@@ -62,7 +63,7 @@ const RevisionsPage = ({
          } catch (e) { return 'Inválida'; }
      };
 
-     // Formata próxima leitura (ajustado para Odometro/Horimetro)
+     // Formata próxima leitura (Odometro/Horimetro)
      const formatNextRevisionReading = (revision, vehicleType) => {
         if (!revision) return 'N/A';
         
@@ -70,6 +71,7 @@ const RevisionsPage = ({
         const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicleType));
         
         let reading, unit;
+        // Regras de Negócio (13/11/2025)
         if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
             reading = revision.proximaRevisaoHorimetro;
             unit = 'Hr';
@@ -147,27 +149,25 @@ const RevisionsPage = ({
                     // Verifica Data
                     if (isValidDbDate(plannedDateStr)) {
                         try {
-                            // new Date('AAAA-MM-DD') cria data em UTC
                             const plannedDate = new Date(plannedDateStr); 
-                            // Adiciona 1 dia para a lógica (ex: vence dia 10, dia 10 não é vencido)
                             const diffTime = plannedDate.getTime() - today.getTime();
                             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                             
-                            if (diffDays <= 0) { // Venceu (hoje ou no passado)
+                            if (diffDays <= 0) {
                                 isOverdue = true;
-                            } else if (diffDays <= warningDays) { // Dentro da janela de aviso
+                            } else if (diffDays <= warningDays) {
                                 isWarning = true;
                             }
                         } catch (e) { /* ignora data inválida */ }
                     }
 
-                    // Verifica Leitura (só se não estiver vencido por data)
+                    // Verifica Leitura
                     if (plannedReading > 0 && currentReading > 0) {
                         const diffReading = plannedReading - currentReading;
 
-                        if (diffReading <= 0) { // Leitura estourou
+                        if (diffReading <= 0) {
                             isOverdue = true; 
-                        } else if (diffReading <= warningReading) { // Dentro da janela de aviso
+                        } else if (diffReading <= warningReading) {
                             isWarning = true;
                         }
                     }
@@ -197,7 +197,6 @@ const RevisionsPage = ({
                     return (
                         <div 
                             key={vehicle.id} 
-                            // Aplica a classe de highlight na linha
                             className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm ${rowBgClass}`}
                         >
                             {/* Veículo */}
@@ -205,7 +204,7 @@ const RevisionsPage = ({
                                 <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
                                 <p className="text-xs text-gray-500">{vehicle.placa}</p>
                             </div>
-                            {/* Leitura Atual (usa a string calculada) */}
+                            {/* Leitura Atual */}
                             <div className="text-left md:text-right font-semibold text-blue-600">{currentReadingStr}</div>
                              {/* Próxima Data */}
                             <div className="text-left md:text-center">{nextDateStr}</div>
@@ -221,7 +220,6 @@ const RevisionsPage = ({
                                 </ProtectedComponent>
                                 <button 
                                     onClick={() => setHistoryModalVehicle(item)} 
-                                    // Aplica a classe do ícone verde
                                     className={`p-1.5 hover:bg-gray-100 rounded-full transition-colors ${historyIconClass}`} 
                                     title="Histórico"
                                 >
@@ -248,14 +246,19 @@ const RevisionsPage = ({
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
     const [currentReadingInput, setCurrentReadingInput] = useState(''); 
     const [isSaving, setIsSaving] = useState(false);
-    // --- MELHORIA (Observações) ---
-    // Adiciona estado para o campo de observações/detalhes
     const [detalhes, setDetalhes] = useState('');
-    // --- FIM MELHORIA (Observações) ---
+
+    // --- MELHORIA (Senha de Liberação) ---
+    const [showOverride, setShowOverride] = useState(false); // Controla exibição do campo de senha
+    const [overridePassword, setOverridePassword] = useState(''); // Armazena a senha digitada
+    const [overrideMessage, setOverrideMessage] = useState(''); // Mensagem de aviso
+    // Senha Provisória
+    const LIBERATION_PASSWORD = 'MAKADMIN'; 
+    // --- FIM MELHORIA ---
 
     const revision = vehicle?.revision;
 
-    // Regras de Negócio (13/11/2025)
+    // Regras de Negócio
     const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
     
@@ -272,57 +275,38 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         }
     }
 
+
     useEffect(() => {
         setCurrentReadingInput(currentReadingValue.toString());
-        // --- MELHORIA (Observações) ---
-        // Pré-preenche o campo de detalhes com a descrição planejada
         if (revision) {
             setDetalhes(revision.descricao || '');
         }
-        // --- FIM MELHORIA (Observações) ---
-    }, [currentReadingValue, revision]); // Adiciona 'revision' à dependência
+        // Reseta o estado de override ao reabrir o modal
+        setShowOverride(false);
+        setOverridePassword('');
+        setOverrideMessage('');
+    }, [currentReadingValue, revision]);
 
     if (!vehicle || !revision) return null; 
 
-    const handleComplete = async () => {
-        const readingFloat = parseFloat(currentReadingInput);
-        if (currentReadingInput === '' || isNaN(readingFloat)) {
-            setAlertMessage("Insira a leitura atual válida.");
-            return;
-        }
-
-         // Validação Leitura vs Leitura Agendada
-         const scheduledReading = (isHourBased ? revision?.proximaRevisaoHorimetro : revision?.proximaRevisaoOdometro) || 0;
-         if (scheduledReading > 0 && readingFloat < scheduledReading) {
-             setAlertMessage(`Leitura atual (${readingFloat}) < Leitura agendada (${scheduledReading}).`);
-             return;
-         }
-         // Validação Leitura vs Leitura Atual do Veículo
-         if (readingFloat < (currentReadingValue - 0.1) ) { 
-             setAlertMessage(`Leitura atual informada (${readingFloat}) é menor que a leitura registrada no veículo (${currentReadingValue}). Verifique a leitura.`);
-             return;
-         }
-
+    // Separa a lógica de salvar em uma função reutilizável
+    const performSave = async () => {
         setIsSaving(true);
         
-        // --- MELHORIA (Observações) ---
-        // Usa o estado 'detalhes' (que o usuário pode editar) em vez da descrição fixa
         const description = detalhes || 'Revisão Padrão';
-        // --- FIM MELHORIA (Observações) ---
+        const readingFloat = parseFloat(currentReadingInput);
 
         const dataParaApi = {
-            vehicleId: revision.vehicleId, // O backend já normalizou o vehicleId
-            isHourBased: isHourBased, // Informa o backend onde salvar (odometro/horimetro)
+            vehicleId: revision.vehicleId, 
+            isHourBased: isHourBased, 
             leituraRealizada: readingFloat,
             realizadaEm: new Date().toISOString(), 
             realizadaPor: user?.email || 'Sistema', 
-            descricao: description, // Envia os detalhes editados
+            descricao: description, 
         };
 
         try {
-            // A API /revisions/complete espera (data)
             await apiClient.completeRevision(dataParaApi);
-
             setAlertMessage('Revisão concluída!');
             reloadData(); 
             onClose();
@@ -333,6 +317,52 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             setIsSaving(false);
         }
     };
+
+    // Função do botão "Concluir Revisão" (valida)
+    const handleComplete = async () => {
+        const readingFloat = parseFloat(currentReadingInput);
+        if (currentReadingInput === '' || isNaN(readingFloat)) {
+            setAlertMessage("Insira a leitura atual válida.");
+            return;
+        }
+
+         const scheduledReading = (isHourBased ? revision?.proximaRevisaoHorimetro : revision?.proximaRevisaoOdometro) || 0;
+         
+         // --- MELHORIA (Senha de Liberação) ---
+         // 1. Validação Leitura vs Leitura Agendada
+         if (scheduledReading > 0 && readingFloat < scheduledReading) {
+             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Agendada (${scheduledReading}). Para salvar, insira a senha de liberação.`);
+             setShowOverride(true); // Mostra o campo de senha
+             return; // Para a execução
+         }
+         // 2. Validação Leitura vs Leitura Atual do Veículo
+         if (readingFloat < (currentReadingValue - 0.1) ) { 
+             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Registrada no Veículo (${currentReadingValue}). Para salvar, insira a senha de liberação.`);
+             setShowOverride(true); // Mostra o campo de senha
+             return; // Para a execução
+         }
+         // --- FIM MELHORIA ---
+
+        // Se passou em ambas as validações, salva direto
+        await performSave();
+    };
+
+    // --- MELHORIA (Senha de Liberação) ---
+    // Função do botão "Confirmar Liberação"
+    const handleOverrideSave = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
+
+        if (overridePassword !== LIBERATION_PASSWORD) {
+            setAlertMessage('Senha de liberação incorreta.');
+            setIsSaving(false);
+            return;
+        }
+
+        // Senha correta, prossegue com o salvamento
+        await performSave();
+    };
+    // --- FIM MELHORIA ---
 
     // Renderização do Modal
     return (
@@ -346,7 +376,6 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                 {/* Corpo */}
                 <div className="p-6 space-y-4 text-sm">
                     <p><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
-                    {/* Texto alterado para 'Serviço Planejado' */}
                     <p><strong>Serviço Planejado:</strong> {revision?.descricao || 'N/A'}</p>
                     
                     {/* Input Leitura Atual */}
@@ -359,13 +388,14 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             step="any" 
                             value={currentReadingInput}
                             onChange={e => setCurrentReadingInput(e.target.value)}
-                            className="w-full p-2 border rounded-lg bg-gray-50"
+                            disabled={showOverride}
+                            className={`w-full p-2 border rounded-lg ${showOverride ? 'bg-gray-200' : 'bg-gray-50'}`}
                             required
                         />
                         <p className="text-xs text-gray-500 mt-1">Informe a leitura no momento da conclusão da revisão.</p>
                     </div>
 
-                    {/* --- MELHORIA (Observações) --- */}
+                    {/* Input Observações */}
                     <div>
                         <label className="block font-medium text-gray-700 mb-1">
                             Serviços Realizados / Observações
@@ -374,19 +404,57 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             value={detalhes}
                             onChange={e => setDetalhes(e.target.value)}
                             rows={3}
-                            className="w-full p-2 border rounded-lg bg-gray-50"
+                            disabled={showOverride}
+                            className={`w-full p-2 border rounded-lg ${showOverride ? 'bg-gray-200' : 'bg-gray-50'}`}
                             placeholder="Ex: Troca de óleo e filtros realizada na filial Lajeado."
                         />
                     </div>
-                    {/* --- FIM MELHORIA (Observações) --- */}
+
+                    {/* --- MELHORIA (Senha de Liberação) --- */}
+                    {showOverride && (
+                        <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
+                            <div className="flex">
+                                <div className="flex-shrink-0">
+                                    <ShieldWarning className="h-5 w-5 text-yellow-500" />
+                                </div>
+                                <div className="ml-3">
+                                    <p className="font-bold text-yellow-800">Liberação Necessária</p>
+                                    <p className="text-sm text-yellow-700 mb-2">{overrideMessage}</p>
+                                    
+                                    <label htmlFor="liberationPassword" className="block font-medium text-gray-700 mb-1">Senha de Liberação</label>
+                                    <input
+                                        id="liberationPassword"
+                                        type="password"
+                                        value={overridePassword}
+                                        onChange={e => setOverridePassword(e.target.value)}
+                                        className="w-full p-2 border rounded-lg bg-white"
+                                        autoFocus
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* --- FIM MELHORIA --- */}
 
                 </div>
                 {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
-                    <button onClick={handleComplete} disabled={isSaving} className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-green-300 flex items-center justify-center gap-2 text-sm">
-                        {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir Revisão'}
-                    </button>
+                    
+                    {/* --- MELHORIA (Botão Condicional) --- */}
+                    {!showOverride ? (
+                        // Botão Padrão
+                        <button onClick={handleComplete} disabled={isSaving} className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-green-300 flex items-center justify-center gap-2 text-sm">
+                            {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir Revisão'}
+                        </button>
+                    ) : (
+                        // Botão de Liberação
+                        <button onClick={handleOverrideSave} disabled={isSaving} className="px-4 py-2 bg-yellow-500 text-black font-semibold rounded-lg hover:bg-yellow-600 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm">
+                            {isSaving ? <><Loader className="animate-spin" size={18}/> Confirmando...</> : 'Confirmar Liberação'}
+                        </button>
+                    )}
+                    {/* --- FIM MELHORIA --- */}
+
                 </div>
             </div>
         </div>
@@ -397,7 +465,6 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 // Modal para agendar revisão (Usa apiClient)
 const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
     
-    // Regras de Negócio (13/11/2025)
     const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
     const readingUnit = isHourBased ? 'Hr' : 'Km';
@@ -405,7 +472,7 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     // Estado inicial
     const [formData, setFormData] = useState({
         proximaRevisaoData: '',
-        leituraUnica: '', // Campo unificado para Horímetro ou Odômetro
+        leituraUnica: '', // Campo unificado
         avisoAntecedenciaDias: '',
         avisoAntecedenciaKmHr: '',
         descricao: '',
@@ -414,31 +481,27 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     
     const revision = vehicle?.revision;
 
-    // Efeito para carregar dados do agendamento (CORRIGIDO)
+    // Efeito para carregar dados do agendamento
     useEffect(() => {
         if (revision) {
-            // Define a leitura agendada (seja horimetro ou odometro)
             const leituraAgendada = (isHourBased 
                 ? (revision.proximaRevisaoHorimetro?.toString() || '') 
                 : (revision.proximaRevisaoOdometro?.toString() || ''));
 
-            // --- CORREÇÃO (Linha 338) ---
-            // Valida a data antes de tentar usá-la
             const dbDate = revision.proximaRevisaoData;
             const dataValidaFormatada = isValidDbDate(dbDate) 
                 ? new Date(dbDate).toISOString().split('T')[0] 
                 : '';
-            // --- Fim da Correção ---
 
             setFormData({
                 proximaRevisaoData: dataValidaFormatada,
                 leituraUnica: leituraAgendada,
                 avisoAntecedenciaDias: revision.avisoAntecedenciaDias?.toString() || '',
                 avisoAntecedenciaKmHr: revision.avisoAntecedenciaKmHr?.toString() || '',
-                descricao: revision.descricao || '', // Backend já traduziu 'tipo' para 'descricao'
+                descricao: revision.descricao || '', 
             });
         }
-    }, [revision, isHourBased]); // Depende do objeto revision e do tipo de leitura
+    }, [revision, isHourBased]);
 
     if (!vehicle || !revision) return null;
 
@@ -447,7 +510,7 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // Salvar (Usa apiClient)
+    // Salvar
     const handleSave = async (e) => {
         e.preventDefault();
          if (!formData.proximaRevisaoData && !formData.leituraUnica) {
@@ -455,7 +518,6 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
              return;
          }
          
-         // Validação Leitura vs Leitura Atual
          const proxLeitura = parseFloat(formData.leituraUnica) || 0;
          let currentReadingValue = 0;
          if (isHourBased) {
@@ -470,17 +532,15 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 
         setIsSaving(true);
         
-        // Prepara dados para API (envia campos separados)
         const dataToUpdate = {
             proximaRevisaoData: formData.proximaRevisaoData || null, 
             proximaRevisaoOdometro: !isHourBased ? (parseFloat(formData.leituraUnica) || null) : null,
             proximaRevisaoHorimetro: isHourBased ? (parseFloat(formData.leituraUnica) || null) : null,
             avisoAntecedenciaDias: parseInt(formData.avisoAntecedenciaDias, 10) || null,
             avisoAntecedenciaKmHr: parseFloat(formData.avisoAntecedenciaKmHr) || null,
-            descricao: formData.descricao || null, // Backend vai traduzir para 'tipo'
+            descricao: formData.descricao || null,
         };
         try {
-            // O backend (updateRevisionPlan) espera o vehicleId
             await apiClient.updateRevisionPlan(revision.vehicleId, dataToUpdate); 
             setAlertMessage("Agendamento salvo!");
             reloadData(); 
@@ -540,17 +600,15 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     );
 };
 
-// Modal de Histórico (CORRIGIDO)
+// Modal de Histórico
 const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
     if (!vehicle || !vehicle.revision) return null;
     
-    // Regras de Negócio (13/11/2025)
     const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
     const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicle.tipo));
     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
     const readingUnit = isHourBased ? 'Hr' : 'Km';
 
-    // O backend (getAllRevisionPlans) já injetou o 'historico' correto
     const history = Array.isArray(vehicle.revision.historico) ? vehicle.revision.historico : [];
 
     const formatHistoryDate = (dateString) => {
