@@ -6,7 +6,7 @@ import {
     CheckCircle,
     X,
     Loader,
-    ShieldAlert // Ícone para o aviso de liberação (substitui ShieldWarning)
+    ShieldAlert // Ícone para o aviso de liberação
 } from 'lucide-react';
 
 // Importa o componente de proteção
@@ -248,13 +248,11 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     const [isSaving, setIsSaving] = useState(false);
     const [detalhes, setDetalhes] = useState('');
 
-    // --- MELHORIA (Senha de Liberação) ---
-    const [showOverride, setShowOverride] = useState(false); // Controla exibição do campo de senha
+    // --- (Senha de Liberação) ---
+    const [showOverride, setShowOverride] = useState(false); 
     const [overridePassword, setOverridePassword] = useState(''); // Armazena a senha digitada
-    const [overrideMessage, setOverrideMessage] = useState(''); // Mensagem de aviso
-    // Senha Provisória
-    const LIBERATION_PASSWORD = 'MAKADMIN'; 
-    // --- FIM MELHORIA ---
+    const [overrideMessage, setOverrideMessage] = useState(''); 
+    // --- FIM ---
 
     const revision = vehicle?.revision;
 
@@ -290,7 +288,8 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     if (!vehicle || !revision) return null; 
 
     // Separa a lógica de salvar em uma função reutilizável
-    const performSave = async () => {
+    // --- ALTERAÇÃO: Recebe a senha de liberação ---
+    const performSave = async (liberationPassword = null) => {
         setIsSaving(true);
         
         const description = detalhes || 'Revisão Padrão';
@@ -303,6 +302,8 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             realizadaEm: new Date().toISOString(), 
             realizadaPor: user?.email || 'Sistema', 
             descricao: description, 
+            // --- ALTERAÇÃO: Envia a senha para o backend ---
+            overridePassword: liberationPassword 
         };
 
         try {
@@ -312,6 +313,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             onClose();
         } catch (error) {
             console.error("Erro ao concluir revisão:", error);
+            // --- ALTERAÇÃO: Exibe a mensagem de erro vinda do backend (ex: "Senha incorreta") ---
             setAlertMessage(error.message || "Falha ao concluir a revisão.");
         } finally {
             setIsSaving(false);
@@ -328,41 +330,38 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 
          const scheduledReading = (isHourBased ? revision?.proximaRevisaoHorimetro : revision?.proximaRevisaoOdometro) || 0;
          
-         // --- MELHORIA (Senha de Liberação) ---
          // 1. Validação Leitura vs Leitura Agendada
          if (scheduledReading > 0 && readingFloat < scheduledReading) {
-             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Agendada (${scheduledReading}). Para salvar, insira a senha de liberação.`);
+             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Agendada (${scheduledReading}). Para salvar, insira sua senha de acesso.`);
              setShowOverride(true); // Mostra o campo de senha
              return; // Para a execução
          }
          // 2. Validação Leitura vs Leitura Atual do Veículo
          if (readingFloat < (currentReadingValue - 0.1) ) { 
-             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Registrada no Veículo (${currentReadingValue}). Para salvar, insira a senha de liberação.`);
+             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Registrada no Veículo (${currentReadingValue}). Para salvar, insira sua senha de acesso.`);
              setShowOverride(true); // Mostra o campo de senha
              return; // Para a execução
          }
-         // --- FIM MELHORIA ---
 
-        // Se passou em ambas as validações, salva direto
-        await performSave();
+        // Se passou em ambas as validações, salva direto (sem senha)
+        await performSave(null);
     };
 
-    // --- MELHORIA (Senha de Liberação) ---
+    // --- (Senha de Liberação) ---
     // Função do botão "Confirmar Liberação"
     const handleOverrideSave = async () => {
         if (isSaving) return;
-        setIsSaving(true);
-
-        if (overridePassword !== LIBERATION_PASSWORD) {
-            setAlertMessage('Senha de liberação incorreta.');
-            setIsSaving(false);
+        
+        if (!overridePassword) {
+            setAlertMessage('Por favor, insira sua senha de acesso para liberar.');
             return;
         }
 
-        // Senha correta, prossegue com o salvamento
-        await performSave();
+        // --- ALTERAÇÃO: Não verifica a senha aqui. Apenas envia para o backend ---
+        // O backend fará a verificação.
+        await performSave(overridePassword);
     };
-    // --- FIM MELHORIA ---
+    // --- FIM ---
 
     // Renderização do Modal
     return (
@@ -410,19 +409,18 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                         />
                     </div>
 
-                    {/* --- MELHORIA (Senha de Liberação) --- */}
+                    {/* --- (Senha de Liberação) --- */}
                     {showOverride && (
                         <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
                             <div className="flex">
                                 <div className="flex-shrink-0">
-                                    {/* CORREÇÃO DO ÍCONE */}
                                     <ShieldAlert className="h-5 w-5 text-yellow-500" />
                                 </div>
                                 <div className="ml-3">
                                     <p className="font-bold text-yellow-800">Liberação Necessária</p>
                                     <p className="text-sm text-yellow-700 mb-2">{overrideMessage}</p>
                                     
-                                    <label htmlFor="liberationPassword" className="block font-medium text-gray-700 mb-1">Senha de Liberação</label>
+                                    <label htmlFor="liberationPassword" className="block font-medium text-gray-700 mb-1">Sua Senha de Acesso</label>
                                     <input
                                         id="liberationPassword"
                                         type="password"
@@ -435,14 +433,14 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             </div>
                         </div>
                     )}
-                    {/* --- FIM MELHORIA --- */}
+                    {/* --- FIM --- */}
 
                 </div>
                 {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
                     
-                    {/* --- MELHORIA (Botão Condicional) --- */}
+                    {/* --- (Botão Condicional) --- */}
                     {!showOverride ? (
                         // Botão Padrão
                         <button onClick={handleComplete} disabled={isSaving} className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-green-300 flex items-center justify-center gap-2 text-sm">
@@ -454,7 +452,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             {isSaving ? <><Loader className="animate-spin" size={18}/> Confirmando...</> : 'Confirmar Liberação'}
                         </button>
                     )}
-                    {/* --- FIM MELHORIA --- */}
+                    {/* --- FIM --- */}
 
                 </div>
             </div>
