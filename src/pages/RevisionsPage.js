@@ -6,7 +6,7 @@ import {
     CheckCircle,
     X,
     Loader,
-    ShieldWarning // Ícone para o aviso de liberação
+    ShieldAlert // Ícone para o aviso de liberação (substitui ShieldWarning)
 } from 'lucide-react';
 
 // Importa o componente de proteção
@@ -415,7 +415,8 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                         <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
                             <div className="flex">
                                 <div className="flex-shrink-0">
-                                    <ShieldWarning className="h-5 w-5 text-yellow-500" />
+                                    {/* CORREÇÃO DO ÍCONE */}
+                                    <ShieldAlert className="h-5 w-5 text-yellow-500" />
                                 </div>
                                 <div className="ml-3">
                                     <p className="font-bold text-yellow-800">Liberação Necessária</p>
