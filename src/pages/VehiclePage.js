@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import apiClient from '../services/apiClient'; // Importa apiClient
-// import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Firebase Storage removido
 import {
     HardHat,
     Users,
@@ -17,25 +16,62 @@ import {
     TrafficCone,
     CheckCircle,
     Info,
-    Loader, // Adicionado Loader
-    ImageOff, // Ícone para imagem faltando
-    AlertTriangle // <-- ÍCONE ADICIONADO
+    Loader, 
+    ImageOff, 
+    AlertTriangle,
+    Camera // <-- Ícone para upload de foto
 } from 'lucide-react';
 
-import ProtectedComponent from '../components/ProtectedComponent'; // Ajuste o caminho
-// Importa modais do App.js ou de onde foram definidos
-// ATENÇÃO: ConfirmationModal não é mais exportado do App.js, mas mantemos aqui caso seja usado em outro lugar.
-// A lógica do App.js sugere que ele é passado como prop.
-// import { PasswordConfirmationModal, ConfirmationModal } from '../App';
+import ProtectedComponent from '../components/ProtectedComponent'; 
+
+// --- Função Auxiliar: Novas Regras de Leitura (14/11/2025) ---
+/**
+ * Retorna a informação de leitura principal com base nas novas regras de negócio.
+ * @param {object} vehicle - O objeto do veículo.
+ * @param {object} vehicleGroups - O mapeamento de grupos (ex: { 'Máquinas Pesadas': ['TRATOR'] }).
+ * @returns {object} { label, value, type, unit }
+ */
+const getPrincipalReadingInfo = (vehicle, vehicleGroups = {}) => {
+    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
+    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle?.tipo));
+    
+    // Regra Específica: "Caminhões Prancha" são parte do grupo "Caminhões de Trecho" e usam Odômetro
+    const isPrancha = vehicle?.tipo === 'Caminhões Prancha';
+
+    if (vehicleGroup === 'Máquinas Pesadas') {
+        return {
+            label: 'Horímetro',
+            // Regra: Digital tem preferência sobre Analógico, que tem preferência sobre o campo 'horimetro' legado
+            value: vehicle?.horimetroDigital ?? vehicle?.horimetroAnalogico ?? vehicle?.horimetro ?? 0,
+            type: 'horimetro',
+            unit: 'Hr'
+        };
+    } else if (vehicleGroup === 'Caminhões' && !isPrancha) {
+        // Regra: Caminhões (exceto Prancha) usam APENAS Horímetro
+        return {
+            label: 'Horímetro',
+            value: vehicle?.horimetro ?? 0,
+            type: 'horimetro',
+            unit: 'Hr'
+        };
+    } else {
+        // Regra: Veículos Leves, Caminhões Prancha e outros usam Odômetro
+        return {
+            label: 'Odômetro',
+            value: vehicle?.odometro ?? 0,
+            type: 'odometro',
+            unit: 'Km'
+        };
+    }
+};
+
 
 // --- PÁGINA DE VEÍCULOS ---
-// Props atualizadas: removido Firebase/Storage, adicionado apiClient, reloadData
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
-    // Lista de tipos de veículos (pode vir do backend no futuro)
+    
     const vehicleTypes = useMemo(() => [...new Set(vehicles.map(v => v.tipo).filter(Boolean))].sort(), [vehicles]);
 
     // Estados dos Modais
-    // ... (estados dos modais sem mudança) ...
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isObraAllocationModalOpen, setIsObraAllocationModalOpen] = useState(false);
     const [isOperationalModalOpen, setIsOperationalModalOpen] = useState(false);
@@ -43,10 +79,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
-    const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false); // Mantém estado único
+    const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false); 
 
     // Estados para dados dos Modais
-    // ... (estados de dados dos modais sem mudança) ...
     const [itemToDelete, setItemToDelete] = useState(null);
     const [editingVehicle, setEditingVehicle] = useState(null);
     const [vehicleForObraAllocation, setVehicleForObraAllocation] = useState(null);
@@ -57,56 +92,47 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [vehicleForMaintenance, setVehicleForMaintenance] = useState(null);
 
     // Estados de Filtro e Ordenação
-    // ... (filtros e ordenação sem mudança) ...
     const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos' });
-    const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' }); // Ordena por registro por padrão
+    const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' }); 
 
-    // Aplica filtro inicial (mantido)
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
     const handleFilterChange = (e) => { const { name, value } = e.target; setFilters(prev => ({ ...prev, [name]: value })); };
 
-    // Veículos processados com status consistente (mantido, mas confia mais no status da API)
-    // ... (processedVehicles sem mudança) ...
+    // Veículos processados (Usa a nova função de leitura)
     const processedVehicles = useMemo(() => {
         return (vehicles || []).map(v => {
-            // Prioriza o status da API, mas tem fallback
             let currentStatus = v.status;
-            if (!currentStatus) { // Fallback se status estiver vazio/null
+            if (!currentStatus) { 
                 if (v.obraAtualId) currentStatus = 'Em Obra';
                 else if (v.operationalAssignment) currentStatus = 'Em Operação';
-                else if (v.maintenanceLocation) currentStatus = 'Em Manutenção'; // Assumindo que maintenanceLocation indica manutenção
+                else if (v.maintenanceLocation) currentStatus = 'Em Manutenção'; 
                 else currentStatus = 'Disponível';
             }
-             // Adiciona a obra ao objeto para facilitar a exibição
              const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
-             // Adiciona a leitura principal
-             const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-             const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(v.tipo));
-             let vehicleReading = 'N/A';
-             if (vehicleGroup === 'Máquinas Pesadas') vehicleReading = v.horimetroDigital ?? v.horimetroAnalogico ?? v.horimetro ?? 'N/A';
-             else if (vehicleGroup === 'Caminhões') vehicleReading = v.horimetro ?? v.odometro ?? 'N/A'; // Prioriza horímetro para exibição rápida
-             else vehicleReading = v.odometro ?? 'N/A'; // Leves
+             
+             // --- ATUALIZAÇÃO O/H ---
+             // Usa a nova função helper
+             const readingInfo = getPrincipalReadingInfo(v, vehicleGroups);
+             const vehicleReading = `${parseFloat(readingInfo.value).toFixed(1)} ${readingInfo.unit}`;
+             // --- FIM ATUALIZAÇÃO ---
 
             return { ...v, status: currentStatus, obra, vehicleReading };
-        }).filter(Boolean); // Remove nulos se houver
+        }).filter(Boolean);
     }, [vehicles, obras, vehicleGroups]);
 
-    // Ordena os veículos processados
-    // ... (sortedVehicles sem mudança) ...
+    // Ordena os veículos processados (sem mudança)
     const sortedVehicles = useMemo(() => {
         let sortableItems = [...processedVehicles];
         if (sortConfig.key !== null) {
             sortableItems.sort((a, b) => {
-                const valA = a[sortConfig.key] ?? ''; // Usa ?? para fallback
+                const valA = a[sortConfig.key] ?? ''; 
                 const valB = b[sortConfig.key] ?? '';
-                // Ordenação numérica para leituras
                 if (sortConfig.key === 'vehicleReading' || sortConfig.key === 'odometro' || sortConfig.key === 'horimetro') {
-                     const numA = parseFloat(valA.toString().split(' ')[0]) || 0; // Pega só o número
+                     const numA = parseFloat(valA.toString().split(' ')[0]) || 0; 
                      const numB = parseFloat(valB.toString().split(' ')[0]) || 0;
                      const comparison = numA - numB;
                      return sortConfig.direction === 'ascending' ? comparison : -comparison;
                 }
-                // Ordenação de string para outros campos
                 const comparison = String(valA).toLowerCase().localeCompare(String(valB).toLowerCase());
                 return sortConfig.direction === 'ascending' ? comparison : -comparison;
             });
@@ -124,50 +150,45 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         setSortConfig({ key, direction });
     };
 
-    // Calcula status da revisão (mantido, ajustado para API data)
-    // ... (getRevisionStatus sem mudança) ...
+    // Calcula status da revisão (Usa a nova função de leitura)
     const getRevisionStatus = (vehicle) => {
-        const revision = (revisions || []).find(r => r.vehicleId === vehicle.id); // Usa vehicleId
-        if (!revision) return { status: 'ok', text: '' }; // Retorna objeto
+        const revision = (revisions || []).find(r => r.vehicleId === vehicle.id); 
+        if (!revision) return { status: 'ok', text: '' }; 
 
         const now = new Date();
-        // Usa new Date() para converter string da API
         const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
 
-        const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-        const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
-        let currentReading = 0;
-        // Usa ?? para fallback seguro
-        if(vehicleGroup === 'Máquinas Pesadas') currentReading = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
-        else if(vehicleGroup === 'Caminhões') currentReading = vehicle.horimetro ?? 0; // Prioriza horímetro para revisão de caminhão
-        else currentReading = vehicle.odometro ?? 0;
-
-        const proximoOdometro = revision.proximaRevisaoOdometro || 0;
+        // --- ATUALIZAÇÃO O/H ---
+        const { value: currentReading, type: readingType } = getPrincipalReadingInfo(vehicle, vehicleGroups);
+        const proximaLeitura = (readingType === 'horimetro') 
+            ? (revision.proximaRevisaoHorimetro || 0) 
+            : (revision.proximaRevisaoOdometro || 0);
+        // --- FIM ATUALIZAÇÃO ---
+        
         const avisoKmHr = revision.avisoAntecedenciaKmHr || 0;
         const avisoDias = revision.avisoAntecedenciaDias || 0;
 
         // Verifica vencidos primeiro
-        if (proximoOdometro > 0 && currentReading >= proximoOdometro) return { status: 'danger', text: 'Leitura Vencida' };
+        if (proximaLeitura > 0 && currentReading >= proximaLeitura) return { status: 'danger', text: 'Leitura Vencida' };
         if (proximaData && now >= proximaData) return { status: 'danger', text: 'Data Vencida' };
 
         // Verifica próximos do vencimento
-        if (proximoOdometro > 0 && avisoKmHr > 0 && currentReading >= proximoOdometro - avisoKmHr) return { status: 'warning', text: 'Leitura Próxima' };
+        if (proximaLeitura > 0 && avisoKmHr > 0 && currentReading >= proximaLeitura - avisoKmHr) return { status: 'warning', text: 'Leitura Próxima' };
         if (proximaData && avisoDias > 0) {
             const warningDate = new Date(proximaData);
-            warningDate.setDate(warningDate.getDate() - avisoDias); // Subtrai dias
+            warningDate.setDate(warningDate.getDate() - avisoDias); 
             if (now >= warningDate) return { status: 'warning', text: 'Data Próxima' };
         }
 
-        return { status: 'ok', text: '' }; // Tudo OK
+        return { status: 'ok', text: '' };
     };
 
 
     // Memoiza veículos com multas pendentes (mantido)
-    // ... (vehiclesWithPendingFines sem mudança) ...
     const vehiclesWithPendingFines = useMemo(() => {
         const vehicleIds = new Set();
-        (fines || []).forEach(fine => { // Garante que fines é array
-            if (fine.status === 'Pendente') {
+        (fines || []).forEach(fine => { 
+            if (fine.paymentStatus === 'Pendente') { // Corrigido de fine.status para fine.paymentStatus (baseado no FinesPage)
                 vehicleIds.add(fine.vehicleId);
             }
         });
@@ -175,10 +196,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     }, [fines]);
 
     // Define classe da linha baseado em canCirculate e revisão (mantido)
-    // ... (getVehicleRowClass sem mudança) ...
     const getVehicleRowClass = (vehicle) => {
         if (vehicle.canCirculate === false) {
-            return 'bg-red-100 border-l-4 border-red-500'; // Destaque maior para não circular
+            return 'bg-red-100 border-l-4 border-red-500'; 
         }
         const revisionInfo = getRevisionStatus(vehicle);
         const revisionStatusClasses = { ok: '', warning: 'bg-yellow-50', danger: 'bg-red-50' };
@@ -186,9 +206,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // Filtra os veículos ordenados (mantido)
-    // ... (filteredVehicles sem mudança) ...
     const filteredVehicles = useMemo(() => sortedVehicles.filter(v => {
-         // Garante que groups é um objeto
         const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
         const searchMatch = (v.placa || '').toLowerCase().includes(filters.search.toLowerCase()) ||
                             (v.registroInterno || '').toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -196,12 +214,28 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                             (v.modelo || '').toLowerCase().includes(filters.search.toLowerCase());
         const typeMatch = filters.type === 'todos' || v.tipo === filters.type;
         const statusMatch = filters.status === 'todos' || v.status === filters.status;
-        const groupMatch = filters.group === 'todos' || (groups[filters.group] && groups[filters.group].includes(v.tipo));
+        
+        // --- ATUALIZAÇÃO O/H (Filtro de Grupo) ---
+        let groupMatch = false;
+        if (filters.group === 'todos') {
+            groupMatch = true;
+        } else if (filters.group === 'Caminhões de Trecho') {
+            // Regra especial para "Caminhões de Trecho"
+            groupMatch = v.tipo === 'Caminhões Prancha';
+        } else if (groups[filters.group]) {
+            // Regra normal para outros grupos
+            groupMatch = groups[filters.group].includes(v.tipo);
+            // Garante que "Caminhões Prancha" não apareça em "Caminhões"
+            if (filters.group === 'Caminhões' && v.tipo === 'Caminhões Prancha') {
+                groupMatch = false;
+            }
+        }
+        // --- FIM ATUALIZAÇÃO ---
+
         return searchMatch && typeMatch && statusMatch && groupMatch;
     }), [sortedVehicles, filters, vehicleGroups]);
 
     // Funções para abrir modais (mantidas)
-    // ... (funções openModal, etc. sem mudança) ...
     const openModal = (v = null) => { setEditingVehicle(v); setIsModalOpen(true); };
     const openObraAllocationModal = (v) => { setVehicleForObraAllocation(v); setIsObraAllocationModalOpen(true); };
     const openOperationalModal = (v) => { setVehicleForOperational(v); setIsOperationalModalOpen(true); };
@@ -210,8 +244,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const openDetailModal = (v) => { setVehicleForDetail(v); setIsDetailModalOpen(true); };
     const openFinesModal = (v) => { setVehicleForFines(v); setIsFinesModalOpen(true); };
 
-    // Abre modal de manutenção (verifica alocação antes)
-    // ... (handleMaintenanceClick sem mudança) ...
+    // Abre modal de manutenção (mantido)
     const handleMaintenanceClick = (vehicle) => {
         if (vehicle.obraAtualId || vehicle.operationalAssignment) {
             setAlertMessage('Este veículo está alocado. Desaloque-o primeiro para enviá-lo para manutenção.');
@@ -222,14 +255,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // Função de exclusão (adaptada para API)
-    // ... (handleDelete sem mudança) ...
     const handleDelete = async () => {
         if (!itemToDelete) return;
         try {
-            // Chama a API para excluir (backend deve lidar com revisões relacionadas)
             await apiClient.deleteVehicle(itemToDelete.id);
             setAlertMessage('Veículo excluído com sucesso.');
-            reloadData(); // Recarrega os dados
+            reloadData(); 
         } catch (error) {
             console.error("Erro ao excluir veículo:", error);
             setAlertMessage(error.response?.data?.message || 'Falha ao excluir o veículo.');
@@ -239,84 +270,58 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         }
     };
 
-    // Upload CSV (adaptado para API, com aviso de ineficiência)
-    // ... (handleFileUpload sem mudança) ...
+    // Upload CSV (mantido)
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (file) {
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const text = e.target.result;
-                const lines = text.split(/[\r\n]+/).filter(line => line.trim() !== ''); // Trata quebras de linha Windows/Unix
+                const lines = text.split(/[\r\n]+/).filter(line => line.trim() !== ''); 
                 if (lines.length < 2) {
                     setAlertMessage("Arquivo CSV vazio ou inválido (precisa de cabeçalho e pelo menos uma linha de dados).");
                     return;
                 }
-                // Processa cabeçalhos (remove aspas e espaços extras)
                 const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-                // Mapeia nomes do CSV para nomes da API (ajuste conforme necessário)
                 const headerMapping = {
-                    'registroInterno': 'registroInterno', // Exemplo, ajuste os nomes
+                    'registroInterno': 'registroInterno', 
                     'Placa': 'placa',
                     'Marca': 'marca',
                     'Modelo': 'modelo',
                     'Tipo': 'tipo',
-                    'Odometro': 'odometro', // Nome no CSV
-                    'Horimetro': 'horimetro', // Nome no CSV
-                    // Adicione outros mapeamentos...
+                    'Odometro': 'odometro', 
+                    'Horimetro': 'horimetro', 
                 };
-                 // Pega as chaves da API que estão no mapeamento
                 const apiHeaders = headers.map(h => headerMapping[h]).filter(Boolean);
-
                 const data = lines.slice(1).map(line => {
-                    // Trata valores com vírgula dentro de aspas (simplificado)
                      const values = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(v => v.trim().replace(/^"|"$/g, '')) || [];
                      if (values.length !== headers.length) {
                          console.warn("Linha com número incorreto de colunas:", line);
-                         return null; // Ignora linhas mal formatadas
+                         return null; 
                      }
                     return headers.reduce((obj, header, index) => {
-                         const apiKey = headerMapping[header]; // Pega a chave da API correspondente
-                         if (apiKey) { // Só inclui se houver mapeamento
+                         const apiKey = headerMapping[header]; 
+                         if (apiKey) { 
                              let value = values[index] || '';
-                             // Converte números (assumindo ponto decimal)
                              if (['odometro', 'horimetro', 'horimetroDigital', 'horimetroAnalogico', 'fuelCapacity', 'consumoMedioFabricante'].includes(apiKey)) {
                                  value = parseFloat(value.replace(',', '.')) || 0;
                              }
-                              // Converte booleanos (exemplo)
-                              // if (['canCirculate', 'isComboioVehicle'].includes(apiKey)) {
-                              //    value = value.toLowerCase() === 'true' || value === '1';
-                              // }
-                              // Converte datas (exemplo)
-                              // if (['validadeTacografo'].includes(apiKey) && value) {
-                              //     try { value = new Date(value).toISOString().split('T')[0]; } catch { value = null; }
-                              // }
                              obj[apiKey] = value;
                          }
                         return obj;
                     }, {});
-                }).filter(Boolean); // Remove linhas nulas (mal formatadas)
+                }).filter(Boolean); 
 
                 if (data.length === 0) {
                      setAlertMessage("Nenhum dado válido encontrado no arquivo CSV.");
                      return;
                  }
-
-
                 setAlertMessage(`Importando ${data.length} veículos... Isso pode levar um tempo.`);
                 let successCount = 0;
                 let errorCount = 0;
-
-                // **Ineficiente:** Chama a API para cada veículo individualmente
                 for (const item of data) {
                     try {
-                        // Adiciona campos padrão que podem não estar no CSV
-                        const payload = {
-                            ...item,
-                            status: 'Disponível', // Status padrão
-                            // history: [], // Backend deve inicializar
-                            canCirculate: item.canCirculate !== undefined ? item.canCirculate : true, // Garante valor inicial
-                        };
+                        const payload = { ...item, status: 'Disponível', canCirculate: item.canCirculate !== undefined ? item.canCirculate : true };
                         await apiClient.createVehicle(payload);
                         successCount++;
                     } catch (error) {
@@ -325,60 +330,46 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     }
                 }
                 setAlertMessage(`${successCount} veículos importados com sucesso. ${errorCount} falharam.`);
-                if (successCount > 0) reloadData(); // Recarrega se houve sucesso
+                if (successCount > 0) reloadData(); 
             };
-            reader.onerror = () => {
-                setAlertMessage("Erro ao ler o arquivo CSV.");
-            };
+            reader.onerror = () => { setAlertMessage("Erro ao ler o arquivo CSV."); };
             reader.readAsText(file);
         }
-         // Limpa o input para permitir o re-upload do mesmo arquivo
         event.target.value = null;
     };
 
 
     // Exportar CSV (mantido)
-    // ... (exportToCSV sem mudança) ...
     const exportToCSV = () => {
         if (filteredVehicles.length === 0) {
              setAlertMessage("Nenhum veículo para exportar com os filtros atuais.");
              return;
          }
-        // Define as colunas a serem exportadas (ajuste conforme necessário)
         const headers = ['registroInterno', 'placa', 'marca', 'modelo', 'tipo', 'odometro', 'horimetro', 'horimetroDigital', 'horimetroAnalogico', 'status', 'localizacaoAtual', 'canCirculate', 'validadeTacografo', 'validadeAET_DAER', 'validadeAET_DNIT'];
         const rows = filteredVehicles.map(v => headers.map(header => {
             let value = v[header];
-            // Formata datas para YYYY-MM-DD
             if (['validadeTacografo', 'validadeAET_DAER', 'validadeAET_DNIT'].includes(header) && value) {
                  try { return new Date(value).toISOString().split('T')[0]; } catch { return ''; }
              }
-             // Garante que booleanos sejam 'true'/'false'
-             if (typeof value === 'boolean') {
-                 return value ? 'true' : 'false';
-             }
-            return value ?? ''; // Usa ?? para tratar null/undefined
+             if (typeof value === 'boolean') { return value ? 'true' : 'false'; }
+            return value ?? ''; 
         }));
-
-        // Cria o conteúdo CSV
         let csvContent = "data:text/csv;charset=utf-8,"
             + headers.join(',') + "\n"
-            + rows.map(e => e.map(i => `"${String(i).replace(/"/g, '""')}"`).join(",")).join("\n"); // Trata aspas dentro dos valores
-
-        // Cria e clica no link de download
+            + rows.map(e => e.map(i => `"${String(i).replace(/"/g, '""')}"`).join(",")).join("\n"); 
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
         link.setAttribute("download", "veiculos.csv");
-        document.body.appendChild(link); // Necessário para Firefox
+        document.body.appendChild(link); 
         link.click();
-        document.body.removeChild(link); // Limpa o link
+        document.body.removeChild(link);
     };
 
     // ... (Renderização principal - JSX) ...
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             {/* Cabeçalho e Botões */}
-            {/* ... (JSX do Cabeçalho sem mudança) ... */}
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
                 <h1 className="text-3xl font-bold text-gray-800">Gerenciamento de Veículos</h1>
                 <ProtectedComponent requiredPermission="editor">
@@ -393,50 +384,43 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 </ProtectedComponent>
             </div>
 
-             {/* Filtros */}
-             {/* ... (JSX dos Filtros sem mudança) ... */}
+             {/* Filtros (Atualizado com novo grupo) */}
             <div className="mb-6 p-4 bg-white rounded-lg shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                 <input type="text" name="search" placeholder="Buscar Placa, Registro, Marca..." value={filters.search} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500" />
-                 {/* Garante que vehicleGroups é um objeto */}
                 <select name="group" value={filters.group} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
                     <option value="todos">Todos os Grupos</option>
-                    {(vehicleGroups && typeof vehicleGroups === 'object' ? Object.keys(vehicleGroups) : []).map(group => <option key={group} value={group}>{group}</option>)}
-                    <option value="Outros">Outros</option>
+                    {(vehicleGroups && typeof vehicleGroups === 'object' ? Object.keys(vehicleGroups) : []).map(group => (
+                        <option key={group} value={group}>{group}</option>
+                    ))}
+                    {/* --- ATUALIZAÇÃO O/H: Adiciona grupo novo --- */}
+                    <option value="Caminhões de Trecho">Caminhões de Trecho</option>
+                    {/* --- FIM ATUALIZAÇÃO --- */}
                  </select>
                 <select name="type" value={filters.type} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
                     <option value="todos">Todos os Tipos</option>
-                    {/* Filtra tipos únicos e válidos */}
                     {[...new Set((vehicles || []).map(v => v.tipo).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
                 <select name="status" value={filters.status} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
                     <option value="todos">Todos os Status</option>
-                    {/* Filtra status únicos e válidos */}
                     {[...new Set((vehicles || []).map(v => v.status).filter(Boolean))].sort().map(status => <option key={status} value={status}>{status}</option>)}
-                     {/* Opções fixas caso não hajam veículos ainda */}
                      {!vehicles.some(v => v.status === 'Disponível') && <option value="Disponível">Disponível</option>}
                      {!vehicles.some(v => v.status === 'Em Obra') && <option value="Em Obra">Em Obra</option>}
-                     {/* Adicione outras opções fixas se necessário */}
                 </select>
             </div>
 
-            {/* Tabela de Veículos */}
+            {/* Tabela de Veículos (Atualizado com Leitura Principal) */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
                 {/* Cabeçalho Tabela Desktop */}
-                {/* ... (JSX do Cabeçalho da Tabela sem mudança) ... */}
-                <div className="hidden md:grid grid-cols-7 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
+                <div className="hidden md:grid grid-cols-6 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
                     <div className="col-span-2 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="cursor-pointer hover:text-gray-900" onClick={() => requestSort('placa')}>Placa <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Registro <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura Principal <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
                     <div className="cursor-pointer hover:text-gray-900" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="text-center">Ações</div>
+                    <div className="col-span-2 text-center">Ações</div>
                 </div>
                 {/* Linhas da Tabela (Mobile First) */}
-                {/* ... (JSX do loop .map das Linhas da Tabela sem mudança) ... */}
                 {filteredVehicles.map(vehicle => {
                     const revisionInfo = getRevisionStatus(vehicle);
                     const hasPendingFine = vehiclesWithPendingFines.has(vehicle.id);
-                    // Define classes de status para badge
                     const statusClasses = {
                         'Em Manutenção': 'bg-red-100 text-red-800',
                         'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse',
@@ -451,7 +435,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                             : vehicle.status;
 
                     return (
-                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-7 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${getVehicleRowClass(vehicle)}`}>
+                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-6 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${getVehicleRowClass(vehicle)}`}>
                             {/* Coluna Veículo (com imagem) */}
                             <div className="md:col-span-2 flex items-center gap-3">
                                 <div className="relative shrink-0">
@@ -464,40 +448,37 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                         />
                                     </button>
                                      {/* Ícones de Alerta */}
-                                     {/* Não pode circular */}
                                      {vehicle.canCirculate === false && <span className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-600 border-2 border-white rounded-full text-white tooltip" data-tip="Não pode circular"><TrafficCone size={12} /></span>}
-                                     {/* Revisão Próxima */}
                                      {revisionInfo.status === 'warning' && <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-yellow-500 border-2 border-white rounded-full text-white tooltip" data-tip={`Revisão: ${revisionInfo.text}`}><Info size={12} /></span>}
-                                     {/* Revisão Vencida */}
                                      {revisionInfo.status === 'danger' && <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-red-600 border-2 border-white rounded-full text-white tooltip" data-tip={`Revisão: ${revisionInfo.text}`}><AlertTriangle size={12} /></span>}
-                                     {/* Multa Pendente */}
                                      {hasPendingFine && <span className="absolute -bottom-1.5 -right-1.5 p-0.5 bg-orange-500 border-2 border-white rounded-full text-white tooltip" data-tip="Multa pendente"><ShieldAlert size={12} /></span>}
                                 </div>
                                 <div>
                                     <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
                                     <p className="text-xs text-gray-500">{vehicle.tipo}</p>
+                                    <p className="text-xs text-gray-700 md:hidden">Placa: {vehicle.placa}</p>
                                 </div>
                             </div>
-                            {/* Placa */}
-                            <div className="text-gray-700 md:block hidden">{vehicle.placa}</div>
-                            {/* Registro */}
-                            <div className="text-gray-700 md:block hidden">{vehicle.registroInterno}</div>
-                            {/* Leitura */}
-                            <div className="text-gray-700 text-right md:block hidden">{vehicle.vehicleReading}</div>
+                            
+                            {/* Leitura (Atualizado) */}
+                            <div className="text-left md:text-right font-semibold">
+                                <span className="md:hidden text-xs text-gray-500 font-medium">Leitura: </span>
+                                {vehicle.vehicleReading}
+                            </div>
+                            
                              {/* Status */}
                             <div>
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`}>
                                     {statusText}
                                 </span>
                             </div>
-                            {/* Ações */}
-                            <div className="flex flex-wrap gap-1 justify-start md:justify-center items-center">
+                            {/* Ações (Atualizado) */}
+                            <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
                                 {/* Agrupa botões comuns */}
                                 <button onClick={() => openFinesModal(vehicle)} title="Histórico de Multas" className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-md"><ShieldAlert size={14} /></button>
                                 <button onClick={() => openHistoryModal(vehicle)} title="Histórico" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-md"><Clock size={14} /></button>
                                 <ProtectedComponent requiredPermission="editor">
                                     <button onClick={() => openModal(vehicle)} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-md"><Edit size={14} /></button>
-                                     {/* Botões de alocação/manutenção apenas se o status permitir */}
                                      {vehicle.status === 'Disponível' && (
                                          <>
                                             <button onClick={() => openObraAllocationModal(vehicle)} title="Alocar em Obra" className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-md"><HardHat size={14} /></button>
@@ -505,7 +486,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                             <button onClick={() => handleMaintenanceClick(vehicle)} title="Manutenção" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"><Wrench size={14} /></button>
                                          </>
                                      )}
-                                     {/* Botões para desalocar */}
                                      {vehicle.status === 'Em Obra' && <button onClick={() => openObraAllocationModal(vehicle)} title="Desalocar da Obra" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-md"><HardHat size={14} /></button>}
                                      {vehicle.status === 'Em Operação' && <button onClick={() => openOperationalModal(vehicle)} title="Desalocar da Operação" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-md"><Users size={14} /></button>}
                                      {(vehicle.status === 'Em Manutenção' || vehicle.status === 'Aguardando Manutenção') && <button onClick={() => handleMaintenanceClick(vehicle)} title="Finalizar Manutenção" className="p-1.5 text-green-500 hover:text-green-700 hover:bg-green-100 rounded-md"><Wrench size={14} /></button>}
@@ -522,12 +502,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                  )}
             </div>
 
-            {/* Modais */}
+            {/* Modais (Atualizados para O/H) */}
             {isModalOpen && <VehicleModal user={user} vehicle={editingVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicleGroups={vehicleGroups} />}
             {isObraAllocationModalOpen && <ObraAllocationModal user={user} vehicle={vehicleForObraAllocation} obras={obras} employees={employees} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} vehicleGroups={vehicleGroups} />}
             {isOperationalModalOpen && <OperationalAssignmentModal user={user} vehicle={vehicleForOperational} employees={employees} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} />}
-            {isHistoryModalOpen && <HistoryModal vehicle={vehicleForHistory} onClose={() => setIsHistoryModalOpen(false)} obras={obras} />}
-            {isDeleteModalOpen && <PasswordConfirmationModal message="Tem certeza que deseja excluir este veículo? Todas as revisões associadas também serão removidas." onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />}
+            {isHistoryModalOpen && <HistoryModal vehicle={vehicleForHistory} onClose={() => setIsHistoryModalOpen(false)} obras={obras} vehicleGroups={vehicleGroups} />}
+            {isDeleteModalOpen && <PasswordConfirmationModal message="Tem certeza que deseja excluir este veículo? Todas as revisões e históricos associados também serão removidos." onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />}
             {isDetailModalOpen && <VehicleDetailModal vehicle={vehicleForDetail} revision={revisions.find(r => r.vehicleId === vehicleForDetail?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} />}
             {isFinesModalOpen && <VehicleFinesModal vehicle={vehicleForFines} fines={fines} onClose={() => setIsFinesModalOpen(false)} />}
             {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={vehicleForMaintenance} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData} />}
@@ -535,19 +515,15 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     );
 };
 
-// --- MODAIS E SUB-COMPONENTES (ADAPTADOS PARA API) ---
+// --- MODAIS E SUB-COMPONENTES (ADAPTADOS PARA API E REGRAS O/H) ---
 
-// Modal de Manutenção (Adaptado para API)
-// ... (Modal MaintenanceModal sem mudança) ...
+// Modal de Manutenção (sem mudança)
 const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, reloadData }) => {
     const isCurrentlyInMaintenance = vehicle.status === 'Em Manutenção' || vehicle.status === 'Aguardando Manutenção';
     const [status, setStatus] = useState(isCurrentlyInMaintenance ? vehicle.status : 'Aguardando Manutenção');
-     // Pega localização atual dos detalhes ou default
     const [location, setLocation] = useState(vehicle.maintenanceLocation?.details || 'Pátio MAK Lajeado');
     const [isSaving, setIsSaving] = useState(false);
-    // Estado para local de finalização
     const [endLocation, setEndLocation] = useState('Pátio MAK Lajeado');
-
 
     const handleSubmit = async () => {
         setIsSaving(true);
@@ -567,7 +543,7 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
     const handleEndMaintenance = async () => {
         setIsSaving(true);
         try {
-            await apiClient.endVehicleMaintenance(vehicle.id, { location: endLocation }); // Envia o local de finalização
+            await apiClient.endVehicleMaintenance(vehicle.id, { location: endLocation }); 
             setAlertMessage("Veículo liberado da manutenção.");
             reloadData();
             onClose();
@@ -588,7 +564,6 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
                 </div>
                 <div className="p-6 space-y-4">
                      <p className="text-sm"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
-                    {/* Se NÃO está em manutenção, permite definir status e local de entrada */}
                     {!isCurrentlyInMaintenance ? (
                         <>
                             <div>
@@ -604,7 +579,6 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
                             </div>
                         </>
                     ) : (
-                         // Se JÁ está em manutenção, mostra informações e permite finalizar
                         <div>
                             <p className="mb-2">O veículo está atualmente: <strong>{vehicle.status}</strong>.</p>
                             <p className="mb-4">Localização: <strong>{vehicle.maintenanceLocation?.details || 'Não informado'}</strong>.</p>
@@ -614,7 +588,6 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
                         </div>
                     )}
                 </div>
-                {/* Rodapé com botões condicionais */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
                     {isCurrentlyInMaintenance ? (
@@ -633,17 +606,14 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
 };
 
 
-// Modal de Multas do Veículo (Adaptado para API)
-// ... (Modal VehicleFinesModal sem mudança) ...
-const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { // Adiciona valor padrão
+// Modal de Multas do Veículo (Corrigido para paymentStatus)
+const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { 
     const vehicleFines = useMemo(() => {
         return (fines || [])
             .filter(fine => fine.vehicleId === vehicle.id)
-            // Ordena por data da infração (mais recente primeiro) usando new Date()
-            .sort((a, b) => new Date(b.dataInfracao) - new Date(a.dataInfracao));
+            .sort((a, b) => new Date(b.dataInfração) - new Date(a.dataInfração)); // Corrigido: dataInfração
     }, [fines, vehicle]);
 
-    // Função de badge (mantida)
     const getStatusBadge = (status) => {
         switch (status) {
             case 'Paga': return 'bg-green-100 text-green-800';
@@ -657,7 +627,6 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { // Adiciona va
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
                     <div>
                         <h2 className="text-xl font-bold">Histórico de Multas do Veículo</h2>
@@ -665,7 +634,6 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { // Adiciona va
                     </div>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={18}/></button>
                 </div>
-                 {/* Conteúdo Rolável */}
                 <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                     {vehicleFines.length > 0 ? (
                         <ul className="space-y-3">
@@ -674,15 +642,13 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { // Adiciona va
                                     <div className="flex flex-col sm:flex-row justify-between items-start">
                                         <div className="mb-2 sm:mb-0">
                                             <p className="font-semibold text-sm">{fine.descricao || 'Descrição não informada'}</p>
-                                            {/* Acessa nome do funcionário com segurança */}
                                             <p className="text-xs text-gray-600 mt-1">Condutor: {fine.employeeInfo?.nome || 'Não informado'}</p>
-                                             {/* Formata data da infração usando new Date() */}
-                                            <p className="text-xs text-gray-600">Data: {fine.dataInfracao ? new Date(fine.dataInfracao).toLocaleDateString('pt-BR') : 'N/A'}</p>
+                                            <p className="text-xs text-gray-600">Data: {fine.dataInfração ? new Date(fine.dataInfração).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'N/A'}</p>
                                         </div>
                                         <div className="text-left sm:text-right w-full sm:w-auto">
                                             <p className="font-bold text-red-600">R$ {(fine.valor || 0).toFixed(2)}</p>
-                                            <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-bold rounded-full ${getStatusBadge(fine.status)}`}>
-                                                {fine.status || 'N/A'}
+                                            <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-bold rounded-full ${getStatusBadge(fine.paymentStatus)}`}>
+                                                {fine.paymentStatus || 'N/A'}
                                             </span>
                                         </div>
                                     </div>
@@ -693,7 +659,6 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { // Adiciona va
                         <p className="text-gray-500 text-center italic">Nenhuma multa registrada para este veículo.</p>
                     )}
                 </div>
-                 {/* Rodapé Fixo */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm font-medium">Fechar</button>
                 </div>
@@ -703,42 +668,71 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { // Adiciona va
 };
 
 
-// Modal de Criação/Edição de Veículo (Adaptado para API, sem upload de foto)
-// ... (Modal VehicleModal sem mudança) ...
+// Modal de Criação/Edição de Veículo (Atualizado com O/H e Upload de Imagem)
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, vehicleGroups = {} }) => {
-    // Estado inicial ajustado para API (datas como YYYY-MM-DD, números como string)
+    
+    // --- Lógica O/H para estado inicial ---
+    const [currentGroup, setCurrentGroup] = useState('Veículos Leves');
+    
+    // Estado inicial
     const [formData, setFormData] = useState({
         placa: vehicle?.placa || '',
         registroInterno: vehicle?.registroInterno || '',
-        capacidade: vehicle?.capacidade?.toString() || '', // string
-        tipo: vehicle?.tipo || (vehicleTypes.length > 0 ? vehicleTypes[0] : ''), // Default para primeiro tipo se existir
+        capacidade: vehicle?.capacidade?.toString() || '', 
+        tipo: vehicle?.tipo || (vehicleTypes.length > 0 ? vehicleTypes[0] : ''), 
         marca: vehicle?.marca || '',
         modelo: vehicle?.modelo || '',
-        odometro: vehicle?.odometro?.toString() || '0', // string, default 0
+        odometro: vehicle?.odometro?.toString() || '0', 
         horimetro: vehicle?.horimetro?.toString() || '0',
         horimetroDigital: vehicle?.horimetroDigital?.toString() || '0',
         horimetroAnalogico: vehicle?.horimetroAnalogico?.toString() || '0',
         possuiHorimetroAnalogico: vehicle?.possuiHorimetroAnalogico || false,
-        mediaCalculo: vehicle?.mediaCalculo || 'odometro', // Default odometro
+        mediaCalculo: vehicle?.mediaCalculo || 'odometro', 
         isComboioVehicle: vehicle?.isComboioVehicle || false,
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
-        // rastreador: vehicle?.rastreador || 'Sem Rastreador', // Removido rastreador por enquanto
-        anoFabricacao: vehicle?.ano_fabricacao?.toString() || '', // Campo do DB é ano_fabricacao
-        anoModelo: vehicle?.ano_modelo?.toString() || '', // Campo do DB é ano_modelo
+        ano_fabricacao: vehicle?.ano_fabricacao?.toString() || '', 
+        ano_modelo: vehicle?.ano_modelo?.toString() || '',
         chassi: vehicle?.chassi || '',
-        // pbt: vehicle?.pbt || '', // Removido pbt por enquanto
-        // consumoMedioFabricante: vehicle?.consumoMedioFabricante?.toString() || '',
         validadeTacografo: vehicle?.validadeTacografo ? new Date(vehicle.validadeTacografo).toISOString().split('T')[0] : '', // YYYY-MM-DD
         validadeAET_DAER: vehicle?.validadeAET_DAER ? new Date(vehicle.validadeAET_DAER).toISOString().split('T')[0] : '',
         validadeAET_DNIT: vehicle?.validadeAET_DNIT ? new Date(vehicle.validadeAET_DNIT).toISOString().split('T')[0] : '',
         canCirculate: vehicle?.canCirculate !== undefined ? vehicle.canCirculate : true,
-        // Foto removida por enquanto
     });
-    // const [fotoFile, setFotoFile] = useState(null); // Removido
+
+    // --- Lógica de Upload de Imagem ---
+    const [fotoFile, setFotoFile] = useState(null); // Arquivo para upload
+    const [fotoPreview, setFotoPreview] = useState(vehicle?.fotoURL || null); // URL para preview
+    // --- Fim Lógica de Upload ---
+
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
 
-    // const rastreadorOptions = ['Fleet', 'Khronos', 'Sem Rastreador', 'Não Rastreável', 'Sigasul', 'Sigasul+Telemetria', 'Sigasul+ID', 'Sigasul+Cam', 'Sigasul+Cam+ID']; // Removido
+    // Atualiza o grupo (para UI) e o 'mediaCalculo' (lógica) quando o TIPO muda
+    useEffect(() => {
+        const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
+        const newGroup = Object.keys(groups).find(group => groups[group]?.includes(formData.tipo)) || 'Veículos Leves';
+        setCurrentGroup(newGroup);
+
+        // Atualiza 'mediaCalculo' com base no grupo
+        setFormData(prev => {
+            let newMediaCalculo = prev.mediaCalculo;
+            // Regra: "Caminhões Prancha" (grupo "Caminhões de Trecho") usa odometro
+            if (formData.tipo === 'Caminhões Prancha') {
+                newMediaCalculo = 'odometro';
+            }
+            // Regra: "Máquinas Pesadas" e "Caminhões" (outros) usam horimetro
+            else if (newGroup === 'Máquinas Pesadas' || newGroup === 'Caminhões') {
+                newMediaCalculo = 'horimetro';
+            }
+            // Regra: "Veículos Leves" usam odometro
+            else {
+                newMediaCalculo = 'odometro';
+            }
+            return { ...prev, mediaCalculo: newMediaCalculo };
+        });
+
+    }, [formData.tipo, vehicleGroups]);
+
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -746,13 +740,19 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             ...prev,
             [name]: type === 'checkbox' ? checked : value
         }));
-         // Se desmarcar analógico, limpa o valor
-        if (name === 'possuiHorimetroAnalogico' && !checked) {
+         if (name === 'possuiHorimetroAnalogico' && !checked) {
             setFormData(prev => ({ ...prev, horimetroAnalogico: '0' }));
         }
     };
 
-    // const handleFileChange = (e) => { if (e.target.files[0]) { setFotoFile(e.target.files[0]); } }; // Removido
+    // --- Handler para o arquivo de imagem ---
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setFotoFile(file); // Armazena o arquivo
+            setFotoPreview(URL.createObjectURL(file)); // Cria um preview local
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -778,46 +778,59 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
         setIsSaving(true);
 
-        // Prepara dados para API (converte números, trata datas)
+        // Prepara dados para API
         const dataToSave = {
             ...formData,
-            // Converte leituras para números ou null
             odometro: parseFloat(formData.odometro) || null,
             horimetro: parseFloat(formData.horimetro) || null,
             horimetroDigital: parseFloat(formData.horimetroDigital) || null,
-            horimetroAnalogico: formData.possuiHorimetroAnalogico ? (parseFloat(formData.horimetroAnalogico) || null) : null, // Só salva se checkbox estiver marcado
+            horimetroAnalogico: formData.possuiHorimetroAnalogico ? (parseFloat(formData.horimetroAnalogico) || null) : null,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
-            // consumoMedioFabricante: parseFloat(formData.consumoMedioFabricante) || null,
-            ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null, // Campo do DB
-            ano_modelo: parseInt(formData.anoModelo, 10) || null,       // Campo do DB
-            capacidade: parseFloat(formData.capacidade) || null, // Converte capacidade
-            // Trata datas: envia YYYY-MM-DD ou null
+            ano_fabricacao: parseInt(formData.ano_fabricacao, 10) || null, 
+            ano_modelo: parseInt(formData.ano_modelo, 10) || null,       
+            capacidade: parseFloat(formData.capacidade) || null, 
             validadeTacografo: formData.validadeTacografo || null,
             validadeAET_DAER: formData.validadeAET_DAER || null,
             validadeAET_DNIT: formData.validadeAET_DNIT || null,
-            // ultimaAlteracao é adicionado pelo backend
-            // fotoURL não está sendo enviado
         };
-         // Remove a prop que não existe no DB
-        delete dataToSave.anoFabricacao;
-        delete dataToSave.anoModelo;
 
         try {
+            let savedVehicleId = null;
+
             if (isEditing) {
                 await apiClient.updateVehicle(vehicle.id, dataToSave);
+                savedVehicleId = vehicle.id;
                 setAlertMessage(`Veículo ${formData.registroInterno} atualizado com sucesso!`);
             } else {
-                // Adiciona status padrão ao criar
-                const dataWithDefaults = {
-                    ...dataToSave,
-                    status: 'Disponível',
-                    // history é inicializado pelo backend
-                    // canCirculate já está no dataToSave
-                };
-                await apiClient.createVehicle(dataWithDefaults);
+                const dataWithDefaults = { ...dataToSave, status: 'Disponível' };
+                // Captura o retorno da API (que inclui o ID gerado)
+                const newVehicle = await apiClient.createVehicle(dataWithDefaults);
+                savedVehicleId = newVehicle.id;
                 setAlertMessage(`Veículo ${formData.registroInterno} adicionado com sucesso!`);
             }
-            reloadData(); // Recarrega os dados
+
+            // --- Lógica de Upload de Imagem ---
+            // Se um arquivo foi selecionado, faz o upload *após* salvar os dados
+            if (fotoFile && savedVehicleId) {
+                const uploadFormData = new FormData();
+                uploadFormData.append('fotoFile', fotoFile); // O nome 'fotoFile' deve bater com o da rota
+
+                // Usa o token do apiClient (assumindo que ele tem um método getToken())
+                const token = apiClient.getToken ? apiClient.getToken() : '';
+                
+                // Faz o POST para a nova rota /:id/upload-image
+                await fetch(`${apiClient.defaults.baseURL}/vehicles/${savedVehicleId}/upload-image`, {
+                    method: 'POST',
+                    body: uploadFormData,
+                    headers: {
+                        // Não defina 'Content-Type', o browser faz isso para FormData
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+            }
+            // --- Fim da Lógica de Upload ---
+
+            reloadData(); 
             onClose();
         } catch (err) {
             console.error("Erro ao salvar veículo:", err);
@@ -826,12 +839,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             setIsSaving(false);
         }
     };
-
-    // Grupo atual para UI condicional (mantido)
-    const currentGroup = useMemo(() => {
-         const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-         return Object.keys(groups).find(group => groups[group]?.includes(formData.tipo))
-     }, [formData.tipo, vehicleGroups]);
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
@@ -845,8 +852,30 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                  {/* Conteúdo Rolável */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
                     <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4 text-sm">
-                        {/* --- Coluna 1: Dados Principais --- */}
+                        
+                        {/* --- Coluna 1: Imagem e Dados Principais --- */}
                         <div className="space-y-4">
+                            {/* --- Upload de Imagem --- */}
+                            <div>
+                                <label className="block font-medium text-gray-700 mb-1">Foto do Veículo</label>
+                                <div className="mt-1 flex items-center gap-4">
+                                    {/* Preview da Imagem */}
+                                    <div className="w-24 h-20 bg-gray-100 rounded flex items-center justify-center overflow-hidden">
+                                        {fotoPreview ? (
+                                            <img src={fotoPreview} alt="Preview" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <ImageOff className="text-gray-400" size={32} />
+                                        )}
+                                    </div>
+                                    <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500">
+                                        <Camera size={16} className="inline-block mr-2" />
+                                        <span>Alterar Foto</span>
+                                        <input id="file-upload" name="fotoFile" type="file" className="sr-only" accept="image/*" onChange={handleFileChange} />
+                                    </label>
+                                </div>
+                            </div>
+                            {/* --- Fim Upload --- */}
+
                              <div>
                                 <label className="block font-medium text-gray-700 mb-1">Placa *</label>
                                 <input name="placa" value={formData.placa} onChange={handleChange} placeholder="ABC1D23" required className="p-2 border rounded w-full" />
@@ -858,8 +887,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                              <div>
                                 <label className="block font-medium text-gray-700 mb-1">Tipo *</label>
                                 <select name="tipo" value={formData.tipo} onChange={handleChange} className="p-2 border rounded w-full bg-white" required>
-                                     {/* Garante que vehicleTypes é um array */}
-                                    {(vehicleTypes || []).map(type => <option key={type} value={type}>{type}</option>)}
+                                    {(vehicleTypes || []).map(type => <option key={type} value={type}>{type}>{type}</option>)}
                                 </select>
                              </div>
                              <div>
@@ -870,16 +898,17 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                 <label className="block font-medium text-gray-700 mb-1">Modelo *</label>
                                 <input name="modelo" value={formData.modelo} onChange={handleChange} placeholder="Ex: FH 540" required className="p-2 border rounded w-full" />
                             </div>
-                              {/* Campo de Capacidade (Ex: m³) */}
                               <div>
                                  <label className="block font-medium text-gray-700 mb-1">Capacidade (m³)</label>
                                  <input name="capacidade" value={formData.capacidade} onChange={handleChange} placeholder="Ex: 12" type="number" step="any" className="p-2 border rounded w-full" />
                              </div>
                         </div>
 
-                         {/* --- Coluna 2: Leituras e Detalhes --- */}
+                         {/* --- Coluna 2: Leituras (Lógica O/H Aplicada) --- */}
                         <div className="space-y-4">
-                            {/* Leituras Condicionais */}
+                            {/* --- ATUALIZAÇÃO O/H: UI Condicional --- */}
+
+                            {/* Grupo: Máquinas Pesadas */}
                             {currentGroup === 'Máquinas Pesadas' && (
                                 <>
                                     <div>
@@ -896,44 +925,60 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                             <input name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} type="number" step="0.1" className="p-2 border rounded w-full" />
                                         </div>
                                     )}
+                                    {/* Campo 'horimetro' legado para Máquinas que não têm digital nem analógico */}
+                                    {!formData.possuiHorimetroAnalogico && (
+                                        <div>
+                                            <label className="block font-medium text-gray-700 mb-1">Horímetro (Padrão/Legado) (Hrs)</label>
+                                            <input name="horimetro" value={formData.horimetro} onChange={handleChange} type="number" step="0.1" className="p-2 border rounded w-full" />
+                                        </div>
+                                    )}
+                                    {/* Esconde Odômetro */}
+                                    <input name="odometro" value="0" type="hidden" /> 
                                 </>
                             )}
-                            {currentGroup === 'Caminhões' && (
+
+                            {/* Grupo: Caminhões (Exceto Prancha) */}
+                            {currentGroup === 'Caminhões' && formData.tipo !== 'Caminhões Prancha' && (
                                 <>
-                                    <div>
-                                        <label className="block font-medium text-gray-700 mb-1">Odômetro (Km)</label>
-                                        <input name="odometro" value={formData.odometro} onChange={handleChange} type="number" step="any" className="p-2 border rounded w-full" />
-                                    </div>
                                      <div>
-                                        <label className="block font-medium text-gray-700 mb-1">Horímetro (Hrs)</label>
-                                        <input name="horimetro" value={formData.horimetro} onChange={handleChange} type="number" step="0.1" className="p-2 border rounded w-full" />
+                                        <label className="block font-medium text-gray-700 mb-1">Horímetro (Hrs) *</label>
+                                        <input name="horimetro" value={formData.horimetro} onChange={handleChange} type="number" step="0.1" className="p-2 border rounded w-full" required/>
                                     </div>
-                                     {/* Opção Média Cálculo */}
-                                     <div>
-                                        <label className="block font-medium text-gray-700 mb-1">Calcular Média Por</label>
-                                        <select name="mediaCalculo" value={formData.mediaCalculo} onChange={handleChange} className="p-2 border rounded w-full bg-white">
-                                            <option value="odometro">Odômetro (Km/L)</option>
-                                            <option value="horimetro">Horímetro (L/Hr)</option>
-                                        </select>
-                                    </div>
+                                    {/* Esconde Odômetro */}
+                                    <input name="odometro" value="0" type="hidden" />
+                                    {/* Esconde digitais/analógicos */}
+                                    <input name="horimetroDigital" value="0" type="hidden" />
+                                    <input name="horimetroAnalogico" value="0" type="hidden" />
                                 </>
                             )}
-                            {(currentGroup === 'Veículos Leves' || !currentGroup) && ( // Default para Leves ou se grupo não definido
+
+                            {/* Grupo: Veículos Leves OU Caminhões de Trecho (Prancha) */}
+                            {(currentGroup === 'Veículos Leves' || formData.tipo === 'Caminhões Prancha' || !currentGroup) && ( 
                                 <div>
-                                    <label className="block font-medium text-gray-700 mb-1">Odômetro (Km)</label>
-                                    <input name="odometro" value={formData.odometro} onChange={handleChange} type="number" step="any" className="p-2 border rounded w-full" />
+                                    <label className="block font-medium text-gray-700 mb-1">Odômetro (Km) *</label>
+                                    <input name="odometro" value={formData.odometro} onChange={handleChange} type="number" step="any" className="p-2 border rounded w-full" required/>
+                                    {/* Esconde Horímetros */}
+                                    <input name="horimetro" value="0" type="hidden" />
+                                    <input name="horimetroDigital" value="0" type="hidden" />
+                                    <input name="horimetroAnalogico" value="0" type="hidden" />
                                 </div>
                             )}
+                            
+                            {/* Campo 'mediaCalculo' é definido automaticamente no useEffect, não precisa de input manual */}
+                            <input name="mediaCalculo" value={formData.mediaCalculo} type="hidden" />
+
+                            {/* --- FIM ATUALIZAÇÃO O/H --- */}
+
 
                              {/* Ano Fab/Modelo */}
                              <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block font-medium text-gray-700 mb-1">Ano Fabric.</label>
-                                    <input name="anoFabricacao" value={formData.anoFabricacao} onChange={handleChange} placeholder="AAAA" type="number" className="p-2 border rounded w-full" />
+                                    <input name="ano_fabricacao" value={formData.ano_fabricacao} onChange={handleChange} placeholder="AAAA" type="number" className="p-2 border rounded w-full" />
                                 </div>
                                 <div>
                                     <label className="block font-medium text-gray-700 mb-1">Ano Modelo</label>
-                                    <input name="anoModelo" value={formData.anoModelo} onChange={handleChange} placeholder="AAAA" type="number" className="p-2 border rounded w-full" />
+                                    <input name="ano_modelo" value={formData.ano_modelo} onChange={handleChange} placeholder="AAAA" type="number" className="p-2 border rounded w-full" />
                                 </div>
                             </div>
                             {/* Chassi */}
@@ -949,7 +994,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
                         </div>
 
-                         {/* --- Coluna 3: Checkboxes e Datas --- */}
+                         {/* --- Coluna 3: Checkboxes e Datas (Lógica O/H aplicada) --- */}
                         <div className="space-y-4">
                              {/* Comboio */}
                              <div className="flex items-center pt-1">
@@ -962,8 +1007,9 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                 <label htmlFor="canCirculate" className="ml-2 block font-medium text-gray-900 cursor-pointer">Pode Circular / Rodar?</label>
                             </div>
 
-                            {/* Datas (Condicional para Caminhões) */}
-                            {currentGroup === 'Caminhões' && (
+                            {/* Datas (Condicional) */}
+                            {/* --- ATUALIZAÇÃO O/H: Mostra para Caminhões (todos) E Prancha --- */}
+                            {(currentGroup === 'Caminhões' || formData.tipo === 'Caminhões Prancha') && (
                                 <div className="mt-4 pt-4 border-t space-y-4">
                                      <h3 className="font-semibold text-gray-700">Validades</h3>
                                      <div>
@@ -980,6 +1026,8 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                     </div>
                                 </div>
                             )}
+                            {/* --- FIM ATUALIZAÇÃO O/H --- */}
+
 
                              {/* Erro */}
                              {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
@@ -1000,64 +1048,45 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 };
 
 
-// Modal de Detalhes do Veículo (Adaptado para API)
-// ... (Modal VehicleDetailModal sem mudança) ...
-const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => { // Adiciona valor padrão
+// Modal de Detalhes do Veículo (Atualizado com O/H)
+const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => { 
     if (!vehicle) return null;
 
-     // Garante que groups é um objeto
-    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
-
-    // Determina unidade e leitura principal
-    let readingLabel = 'Leitura';
-    let readingValue = 'N/A';
-    let consumptionUnit = 'Unidade/L';
-
-    if (vehicleGroup === 'Máquinas Pesadas') {
-         readingLabel = 'Horímetro';
-         readingValue = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 'N/A';
-         consumptionUnit = 'L/Hr';
-    } else if (vehicleGroup === 'Caminhões') {
-        readingLabel = 'Horímetro/Odômetro';
-        readingValue = `${vehicle.horimetro ?? 'N/A'} Hr / ${vehicle.odometro ?? 'N/A'} Km`;
-        consumptionUnit = vehicle.mediaCalculo === 'horimetro' ? 'L/Hr' : 'Km/L';
-    } else { // Veículos Leves ou outros
-        readingLabel = 'Odômetro';
-        readingValue = vehicle.odometro ?? 'N/A';
-        consumptionUnit = 'Km/L';
+     // --- ATUALIZAÇÃO O/H ---
+    const { label: readingLabel, value: readingValueNum, unit: readingUnit } = getPrincipalReadingInfo(vehicle, vehicleGroups);
+    const readingValue = `${parseFloat(readingValueNum).toFixed(1)} ${readingUnit}`;
+    
+    // Determina unidade de consumo
+    let consumptionUnit = 'Km/L'; // Default (Leves, Prancha)
+    if (readingUnit === 'Hr') {
+        consumptionUnit = 'L/Hr'; // Máquinas, Caminhões
     }
+    // --- FIM ATUALIZAÇÃO ---
 
-    // Formata datas da API
     const formatDate = (dateString) => {
-        if (!dateString) return 'N/A';
-        try { return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' }); } // Usa UTC
+        if (!dateString || dateString.startsWith('0000')) return 'N/A';
+        try { return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' }); } 
         catch { return 'Inválida'; }
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[95vh] flex flex-col my-auto">
-                {/* Cabeçalho Fixo */}
                 <div className="p-4 sm:p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
                     <h2 className="text-xl sm:text-2xl font-bold">{vehicle.marca} {vehicle.modelo}</h2>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={20}/></button>
                 </div>
-                 {/* Conteúdo Rolável */}
                 <div className="p-4 sm:p-6 overflow-y-auto">
-                    {/* Imagem */}
                     <div className="mb-6 aspect-video bg-gray-100 rounded-lg flex items-center justify-center">
                         <img
                             src={vehicle.fotoURL || 'https://placehold.co/600x400/e2e8f0/cbd5e0?text=S/Foto'}
                             alt={`Foto de ${vehicle.marca || ''} ${vehicle.modelo || ''}`}
-                            className="w-full h-full object-contain rounded-lg" // object-contain para não distorcer
+                            className="w-full h-full object-contain rounded-lg"
                             onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x400/e2e8f0/cbd5e0?text=Erro'; }}
                         />
-                         {/* Ícone se a imagem falhar */}
                          {!vehicle.fotoURL && <ImageOff className="text-gray-400" size={48} />}
                     </div>
 
-                    {/* Detalhes em Grid */}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:text-base">
                         <div className="font-semibold text-gray-600">Registro Interno:</div>
                         <div className="text-gray-800 font-medium">{vehicle.registroInterno || 'N/A'}</div>
@@ -1068,14 +1097,13 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                         <div className="font-semibold text-gray-600">Tipo:</div>
                         <div className="text-gray-800 font-medium">{vehicle.tipo || 'N/A'}</div>
 
+                        {/* --- ATUALIZAÇÃO O/H --- */}
                         <div className="font-semibold text-gray-600">{readingLabel}:</div>
                         <div className="text-gray-800 font-medium">{readingValue}</div>
+                        {/* --- FIM ATUALIZAÇÃO --- */}
 
-                         {/* Separador */}
+
                         <div className="col-span-2 border-t my-2"></div>
-
-                        {/* Detalhes Adicionais */}
-                        {/* Removido Rastreador */}
                          {(vehicle.ano_fabricacao || vehicle.ano_modelo) && (<>
                             <div className="font-semibold text-gray-600">Ano Fab./Modelo:</div>
                             <div className="text-gray-800 font-medium">{vehicle.ano_fabricacao || 'N/A'} / {vehicle.ano_modelo || 'N/A'}</div>
@@ -1083,18 +1111,16 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
 
                         {vehicle.chassi && (<>
                             <div className="font-semibold text-gray-600">Chassi:</div>
-                            <div className="text-gray-800 font-medium break-all">{vehicle.chassi}</div> {/* break-all para chassi longo */}
+                            <div className="text-gray-800 font-medium break-all">{vehicle.chassi}</div>
                         </>)}
 
-                         {/* Removido PBT */}
-
-                         {/* Removido Consumo Médio Fabricante */}
-
-                         {/* Exibe Cálculo de Média */}
-                         {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') && (<>
+                         {/* --- ATUALIZAÇÃO O/H --- */}
+                        {(readingUnit === 'Hr' || vehicle.tipo === 'Caminhões Prancha') && (<>
                             <div className="font-semibold text-gray-600">Cálculo de Média:</div>
-                            <div className="text-gray-800 font-medium">{vehicle.mediaCalculo === 'odometro' ? 'Odômetro (Km/L)' : 'Horímetro (L/Hr)'}</div>
+                            <div className="text-gray-800 font-medium">{consumptionUnit}</div>
                         </>)}
+                        {/* --- FIM ATUALIZAÇÃO --- */}
+
 
                         {vehicle.capacidade && (
                             <>
@@ -1109,8 +1135,8 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                             </>
                         )}
 
-                         {/* Validades (Condicional para Caminhões) */}
-                         {vehicleGroup === 'Caminhões' && (
+                         {/* --- ATUALIZAÇÃO O/H: Condicional de Validades --- */}
+                         {(vehicleGroups['Caminhões']?.includes(vehicle.tipo) || vehicle.tipo === 'Caminhões Prancha') && (
                             <>
                                 <div className="col-span-2 border-t my-2"></div>
                                 <div className="font-semibold text-gray-600">Validade Tacógrafo:</div>
@@ -1123,23 +1149,25 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                                 <div className={`font-medium ${new Date(vehicle.validadeAET_DNIT) < new Date() ? 'text-red-600' : 'text-gray-800'}`}>{formatDate(vehicle.validadeAET_DNIT)}</div>
                             </>
                          )}
+                         {/* --- FIM ATUALIZAÇÃO --- */}
 
 
-                        {/* Revisão */}
+                        {/* Revisão (Atualizado O/H) */}
                         <div className="col-span-2 border-t my-2 pt-2">
                              <h3 className="font-semibold text-gray-700 mb-1">Próxima Revisão Agendada</h3>
                         </div>
                         <div className="font-semibold text-gray-600">Data:</div>
                         <div className="text-gray-800 font-medium">{formatDate(revision?.proximaRevisaoData)}</div>
 
-                        <div className="font-semibold text-gray-600">Leitura ({readingLabel.split('/')[0]}):</div>
-                        <div className="text-gray-800 font-medium">{revision?.proximaRevisaoOdometro || 'N/A'}</div>
+                        <div className="font-semibold text-gray-600">Leitura ({readingUnit}):</div>
+                        <div className="text-gray-800 font-medium">
+                            {(readingUnit === 'Hr' ? revision?.proximaRevisaoHorimetro : revision?.proximaRevisaoOdometro) || 'N/A'}
+                        </div>
 
                          <div className="font-semibold text-gray-600">Descrição:</div>
                          <div className="text-gray-800 font-medium col-span-2">{revision?.descricao || 'Nenhuma descrição'}</div>
                     </div>
                 </div>
-                 {/* Rodapé Fixo */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
                     <button onClick={onClose} className="px-6 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm font-medium">Fechar</button>
                 </div>
@@ -1148,10 +1176,8 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
     );
 };
 
-// Modal de Alocação Operacional (Adaptado para API)
-// ... (Modal OperationalAssignmentModal sem mudança) ...
+// Modal de Alocação Operacional (sem mudança)
 const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [] }) => {
-    // Tenta obter dados da alocação atual (pode ser string JSON ou objeto)
     let currentAssignment = null;
     if (vehicle.operationalAssignment) {
         if (typeof vehicle.operationalAssignment === 'string') {
@@ -1163,19 +1189,16 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
 
     const [subGroup, setSubGroup] = useState(currentAssignment?.subGroup || '');
     const [employeeId, setEmployeeId] = useState(currentAssignment?.employeeId || '');
-    const [observacoes, setObservacoes] = useState(currentAssignment?.observacoes || ''); // Observações da alocação atual
+    const [observacoes, setObservacoes] = useState(currentAssignment?.observacoes || ''); 
     const [isSaving, setIsSaving] = useState(false);
-    // Local para onde o veículo irá APÓS desalocar
     const [locationAfterUnassign, setLocationAfterUnassign] = useState('Pátio MAK Lajeado');
 
-    // Filtra funcionários disponíveis
     const availableEmployees = useMemo(() =>
         (employees || [])
-            .filter(e => e.status !== 'inativo') // Somente ativos
+            .filter(e => e.status !== 'inativo') 
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
-    // Função para Alocar
     const handleAssign = async () => {
         if (!subGroup || !employeeId) {
             setAlertMessage("Selecione o subgrupo e o funcionário.");
@@ -1195,7 +1218,6 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
         }
     };
 
-    // Função para Desalocar
     const handleUnassign = async () => {
         setIsSaving(true);
         try {
@@ -1220,11 +1242,9 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
                 </div>
                 <div className="p-6">
                      <p className="text-sm mb-4"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
-                    {/* Se já estiver alocado, mostra opção de desalocar */}
                     {currentAssignment ? (
                         <div className="space-y-4">
                             <p className="text-sm">Este veículo está alocado para <strong>{currentAssignment.subGroup || 'N/A'}</strong> com <strong>{currentAssignment.employeeName || 'N/A'}</strong>.</p>
-                             {/* Campo para definir o local após desalocar */}
                              <div>
                                 <label className="block text-sm font-medium text-gray-700">Local de Disponibilidade após Desalocar *</label>
                                 <input
@@ -1241,7 +1261,6 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
                             </button>
                         </div>
                     ) : (
-                         // Se não estiver alocado, mostra formulário para alocar
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">Alocar no Grupo *</label>
@@ -1273,65 +1292,54 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
                         </div>
                     )}
                 </div>
-                {/* Rodapé padrão */}
-                {/* <div className="p-4 bg-gray-50 border-t flex justify-end">
+                 <div className="p-4 bg-gray-50 border-t flex justify-end">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Fechar</button>
-                </div> */}
+                </div>
             </div>
         </div>
     );
 };
 
-// Modal de Alocação em Obra (Adaptado para API)
-// ... (Modal ObraAllocationModal - sem mudança estrutural, mas o bug do checkAndDeallocate será corrigido no FinishObraModal) ...
+// Modal de Alocação em Obra (Atualizado com O/H)
 const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClose, setAlertMessage, apiClient, reloadData, vehicles = [], vehicleGroups = {} }) => {
-    // Verifica se o veículo está atualmente alocado em obra
     const currentObraAllocation = (Array.isArray(vehicle.history) ? vehicle.history : [])
                                     .find(h => (h.type === 'obra' || h.historyType === 'obra') && !h.endDate && !h.dataSaida);
 
-    // Estado inicial dos campos
     const [obraId, setObraId] = useState(currentObraAllocation ? vehicle.obraAtualId : '');
     const [employeeId, setEmployeeId] = useState(currentObraAllocation?.details?.employeeId || '');
     const [dataEntrada, setDataEntrada] = useState(currentObraAllocation ? new Date(currentObraAllocation.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
-    const [dataSaida, setDataSaida] = useState(new Date().toISOString().split('T')[0]); // Para desalocar
-     // Local para onde irá após desalocar
+    const [dataSaida, setDataSaida] = useState(new Date().toISOString().split('T')[0]); 
     const [locationAfterDeallocate, setLocationAfterDeallocate] = useState('Pátio MAK Lajeado');
     const [isSaving, setIsSaving] = useState(false);
 
-    // Determina tipo de leitura e valor inicial
-    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
-    const readingType = (vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') ? 'horimetro' : 'odometro';
-    const readingLabel = readingType === 'horimetro' ? 'Horímetro' : 'Odômetro';
+    // --- ATUALIZAÇÃO O/H ---
+    const { label: readingLabel, value: currentReadingValue, type: readingType } = getPrincipalReadingInfo(vehicle, vehicleGroups);
+    // Leitura inicial: se estiver alocado, pega a de entrada; senão, pega a atual
     const initialReading = currentObraAllocation
-                            ? (currentObraAllocation.details?.[`${readingType}Entrada`] || '') // Leitura de entrada se já alocado
-                            : (vehicle[readingType] || ''); // Leitura atual do veículo se for alocar
+                            ? (currentObraAllocation.details?.[`${readingType}Entrada`] || currentReadingValue)
+                            : (currentReadingValue);
+    // --- FIM ATUALIZAÇÃO ---
 
-    const [readingValue, setReadingValue] = useState(initialReading.toString()); // Valor da leitura (entrada ou saída)
+    const [readingValue, setReadingValue] = useState(initialReading.toString()); 
 
-    // Filtra obras ativas e funcionários disponíveis
     const activeObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const availableEmployees = useMemo(() =>
         (employees || [])
-            .filter(e => e.status !== 'inativo' && (e.funcao === 'Operador de Máquina' || e.funcao === 'Motorista')) // Filtra por função também
+            .filter(e => e.status !== 'inativo' && (e.funcao === 'Operador de Máquina' || e.funcao === 'Motorista')) 
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
-    // Estados para o modal de finalização de obra (se aplicável ao desalocar)
     const [isFinishObraModalOpen, setIsFinishObraModalOpen] = useState(false);
     const [obraToFinalize, setObraToFinalize] = useState(null);
 
 
-    // Função para ALOCAR
     const handleAllocate = async () => {
         const readingFloat = parseFloat(readingValue);
         if (!obraId || !employeeId || readingValue === '' || isNaN(readingFloat)) {
             setAlertMessage(`Preencha a Obra, Funcionário e ${readingLabel} de Entrada.`);
             return;
         }
-
         const selectedEmployee = employees.find(e => e.id === employeeId);
-        // Verifica se o funcionário já está alocado (aviso)
         let employeeAllocationInfo = null;
         if (selectedEmployee?.alocadoEm) {
              if (typeof selectedEmployee.alocadoEm === 'string') {
@@ -1341,17 +1349,14 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
              }
              if (employeeAllocationInfo?.veiculoId && employeeAllocationInfo.veiculoId !== vehicle.id) {
                 console.warn(`Atenção: ${selectedEmployee.nome} já está alocado em outro veículo/obra.`);
-                 // Poderia mostrar um ConfirmationModal aqui se quisesse impedir/confirmar
             }
         }
-
-
         setIsSaving(true);
         try {
             await apiClient.allocateVehicleToObra(vehicle.id, {
                 obraId,
                 employeeId,
-                dataEntrada: dataEntrada, // Envia YYYY-MM-DD
+                dataEntrada: dataEntrada, 
                 readingType: readingType, // 'odometro' ou 'horimetro'
                 readingValue: readingFloat
             });
@@ -1366,29 +1371,28 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
         }
     };
 
-    // Função para DESALOCAR
     const handleDeallocate = async (shouldFinalizeObra = false, dataFimObra = null) => {
         const readingFloat = parseFloat(readingValue);
          if (readingValue === '' || isNaN(readingFloat)) {
              setAlertMessage(`Preencha o ${readingLabel} de Saída.`);
              return;
          }
-          // Validação: Leitura de saída não pode ser menor que a de entrada
-         if (currentObraAllocation && readingFloat < (currentObraAllocation.details?.[`${readingType}Entrada`] || 0)) {
-             setAlertMessage(`A leitura de saída (${readingFloat}) não pode ser menor que a leitura de entrada (${currentObraAllocation.details?.[`${readingType}Entrada`] || 0}).`);
+         const readingEntrada = (currentObraAllocation?.details?.[`${readingType}Entrada`] || 0);
+         if (currentObraAllocation && readingFloat < readingEntrada) {
+             setAlertMessage(`A leitura de saída (${readingFloat}) não pode ser menor que a leitura de entrada (${readingEntrada}).`);
              return;
          }
 
         setIsSaving(true);
         try {
             await apiClient.deallocateVehicleFromObra(vehicle.id, {
-                dataSaida: dataSaida, // Envia YYYY-MM-DD
+                dataSaida: dataSaida, 
                 readingType: readingType,
                 readingValue: readingFloat,
-                location: locationAfterDeallocate, // Novo local
+                location: locationAfterDeallocate, 
                 shouldFinalizeObra: shouldFinalizeObra,
-                dataFimObra: dataFimObra, // Opcional, YYYY-MM-DD
-                obraId: vehicle.obraAtualId // Passa o ID da obra atual para o backend saber qual finalizar
+                dataFimObra: dataFimObra, 
+                obraId: vehicle.obraAtualId 
             });
             setAlertMessage(`Veículo desalocado ${shouldFinalizeObra ? 'e obra finalizada' : ''} com sucesso!`);
             reloadData();
@@ -1401,23 +1405,20 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
         }
     };
 
-    // Verifica se é o último veículo na obra antes de desalocar
     const checkAndDeallocate = () => {
         const obraData = obras.find(o => o.id === vehicle.obraAtualId);
-        if (!obraData) { // Se não encontrar a obra (erro?), apenas desaloca
+        if (!obraData) { 
             handleDeallocate();
             return;
         }
-         // Garante que historicoVeiculos é um array antes de filtrar
-         const historico = Array.isArray(obraData.historicoVeiculos) ? obraData.historicoVeiculos : [];
-        // Verifica se *outros* veículos ainda estão ativos na obra
-        const otherActiveVehicles = historico.filter(h => h.veiculoId !== vehicle.id && !h.dataSaida);
+        // Busca veículos alocados *agora* (pela prop 'vehicles')
+        const otherActiveVehicles = vehicles.filter(v => v.id !== vehicle.id && v.obraAtualId === vehicle.obraAtualId);
 
         if (otherActiveVehicles.length === 0) { // Se este é o último
             setObraToFinalize(obraData);
-            setIsFinishObraModalOpen(true); // Abre modal para confirmar finalização da obra
+            setIsFinishObraModalOpen(true); 
         } else {
-            handleDeallocate(false); // Apenas desaloca o veículo
+            handleDeallocate(false); 
         }
     };
 
@@ -1431,7 +1432,6 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
                 </div>
                 <div className="p-6">
                      <p className="text-sm mb-4"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo} ({vehicle.placa})</p>
-                    {/* Se estiver alocado, mostra opção de desalocar */}
                     {currentObraAllocation ? (
                         <div className="space-y-4">
                             <p className="text-sm">Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>.</p>
@@ -1444,7 +1444,7 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
                                 <input
                                     type="number"
                                     step="any"
-                                    value={readingValue} // Usa o estado unificado
+                                    value={readingValue} 
                                     onChange={e => setReadingValue(e.target.value)}
                                     className="mt-1 w-full p-2 border rounded-md text-sm"
                                     required
@@ -1466,7 +1466,6 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
                             </button>
                         </div>
                     ) : (
-                         // Se não estiver alocado, mostra formulário para alocar
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">Alocar na Obra *</label>
@@ -1491,7 +1490,7 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
                                 <input
                                     type="number"
                                     step="any"
-                                    value={readingValue} // Usa o estado unificado
+                                    value={readingValue} 
                                     onChange={e => setReadingValue(e.target.value)}
                                     className="mt-1 w-full p-2 border rounded-md text-sm"
                                     required
@@ -1503,25 +1502,21 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
                         </div>
                     )}
                 </div>
-                 {/* Rodapé padrão removido, pois os botões de ação estão dentro das seções condicionais */}
                  <div className="p-4 bg-gray-50 border-t flex justify-end">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Fechar</button>
                 </div>
             </div>
 
-            {/* Modal de confirmação para finalizar obra (BUG CORRIGIDO) */}
             {isFinishObraModalOpen && (
                 <FinishObraModal
                     obra={obraToFinalize}
-                    // CORREÇÃO: O 'onClose' (botão "Não") agora também chama a desalocação, mas sem finalizar a obra
                     onClose={() => {
                         setIsFinishObraModalOpen(false);
-                        handleDeallocate(false); // Apenas desaloca o veículo
+                        handleDeallocate(false); 
                     }}
-                    // Ao confirmar, chama handleDeallocate com shouldFinalize=true
                     onConfirm={(dataFim) => {
-                        setIsFinishObraModalOpen(false); // Fecha este modal
-                        handleDeallocate(true, dataFim); // Chama desalocação finalizando a obra
+                        setIsFinishObraModalOpen(false); 
+                        handleDeallocate(true, dataFim); 
                     }}
                 />
             )}
@@ -1530,12 +1525,12 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
 };
 
 
-// Modal para perguntar se deseja finalizar a obra (Componente filho, sem mudança)
+// Modal para perguntar se deseja finalizar a obra (sem mudança)
 const FinishObraModal = ({ obra, onClose, onConfirm }) => {
     const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4"> {/* Aumenta z-index */}
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4"> 
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
                 <div className="p-6 border-b">
                     <h2 className="text-xl font-bold">Finalizar Obra?</h2>
@@ -1548,9 +1543,7 @@ const FinishObraModal = ({ obra, onClose, onConfirm }) => {
                     </div>
                 </div>
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
-                    {/* Botão "Não" agora apenas fecha o modal, permitindo que handleDeallocate(false) seja chamado */}
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium">Não, Manter Obra Ativa</button>
-                    {/* Botão "Sim" chama onConfirm passando a data */}
                     <button onClick={() => onConfirm(dataFim)} className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 text-sm">Sim, Finalizar Obra</button>
                 </div>
             </div>
@@ -1559,35 +1552,35 @@ const FinishObraModal = ({ obra, onClose, onConfirm }) => {
 };
 
 
-// Modal de Histórico (Adaptado para API)
-// ... (Modal HistoryModal sem mudança) ...
-const HistoryModal = ({ vehicle, onClose, obras = [] }) => { // Adiciona valor padrão
-    // Assume que vehicle.history é populado pela API (vinda da tabela vehicle_history)
+// Modal de Histórico (Atualizado com O/H)
+const HistoryModal = ({ vehicle, onClose, obras = [], vehicleGroups = {} }) => { 
+    
+    // --- ATUALIZAÇÃO O/H ---
+    const { label: readingLabel, unit: readingUnit, type: readingType } = getPrincipalReadingInfo(vehicle, vehicleGroups);
+    // --- FIM ATUALIZAÇÃO ---
+
     const history = useMemo(() => {
         if (!vehicle || !Array.isArray(vehicle.history)) return [];
-
-        // Ordena o histórico recebido da API (mais recente primeiro)
         return [...vehicle.history].sort((a,b) => {
             const dateA = a.startDate ? new Date(a.startDate) : 0;
             const dateB = b.startDate ? new Date(b.startDate) : 0;
-            return dateB - dateA; // Descendente
+            return dateB - dateA; 
         });
     }, [vehicle]);
 
-    // Função para renderizar detalhes (ajustada para API data)
     const renderHistoryDetail = (h) => {
         const details = h.details || {};
-         // Formata datas da API
          const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleString('pt-BR') : 'N/A';
         const startDate = formatDate(h.startDate);
         const endDate = h.endDate ? formatDate(h.endDate) : 'Presente';
 
-        switch(h.historyType || h.type) { // Usa historyType (nome da coluna API) ou type (nome antigo)
+        switch(h.historyType || h.type) { 
             case 'obra':
-                 // Determina leitura com base nos campos existentes
-                 const readingLabel = details.odometroEntrada != null ? 'Odômetro' : (details.horimetroEntrada != null ? 'Horímetro' : 'Leitura');
-                 const readingIn = details.odometroEntrada ?? details.horimetroEntrada ?? 'N/A';
-                 const readingOut = details.odometroSaida ?? details.horimetroSaida ?? 'N/A';
+                 // --- ATUALIZAÇÃO O/H ---
+                 // O 'readingType' vem da função helper (baseado no veículo)
+                 const readingIn = details[`${readingType}Entrada`] ?? 'N/A';
+                 const readingOut = details[`${readingType}Saida`] ?? 'N/A';
+                 // --- FIM ATUALIZAÇÃO ---
 
                 return (
                     <>
@@ -1612,7 +1605,6 @@ const HistoryModal = ({ vehicle, onClose, obras = [] }) => { // Adiciona valor p
                      <>
                         <p className="font-semibold">Manutenção</p>
                         <p className="text-xs text-gray-600 mt-0.5">Período: {startDate} - {endDate}</p>
-                         {/* Detalhes podem ser string ou objeto */}
                         {details && typeof details === 'string' && <p className="text-xs text-gray-500 mt-1">{details}</p>}
                          {details && typeof details === 'object' && details.details && <p className="text-xs text-gray-500 mt-1">{details.details}</p>}
                     </>
@@ -1622,9 +1614,8 @@ const HistoryModal = ({ vehicle, onClose, obras = [] }) => { // Adiciona valor p
         }
     };
 
-    // Estilo da linha (mantido)
     const getHistoryStyle = (type) => {
-         const historyType = type || 'desconhecido'; // Usa fallback
+         const historyType = type || 'desconhecido'; 
         switch(historyType.toLowerCase()) {
             case 'obra': return 'bg-green-50 border-l-4 border-green-500';
             case 'operacional': return 'bg-blue-50 border-l-4 border-blue-500';
@@ -1636,7 +1627,6 @@ const HistoryModal = ({ vehicle, onClose, obras = [] }) => { // Adiciona valor p
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b sticky top-0 bg-white z-10 flex justify-between items-center">
                     <div>
                         <h2 className="text-xl font-bold">Histórico Completo do Veículo</h2>
@@ -1644,12 +1634,10 @@ const HistoryModal = ({ vehicle, onClose, obras = [] }) => { // Adiciona valor p
                     </div>
                      <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={18}/></button>
                 </div>
-                 {/* Conteúdo Rolável */}
                 <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                     {history.length > 0 ? (
                         <ul className="space-y-3">
                             {history.map((h, index) => (
-                                // Usa um ID único se disponível, senão combina ID do veículo e timestamp
                                 <li key={h.id || `${vehicle.id}-${h.startDate || index}`} className={`p-3 rounded-r-lg ${getHistoryStyle(h.historyType || h.type)}`}>
                                     {renderHistoryDetail(h)}
                                 </li>
@@ -1659,7 +1647,6 @@ const HistoryModal = ({ vehicle, onClose, obras = [] }) => { // Adiciona valor p
                         <p className="text-gray-500 text-center italic">Nenhum histórico encontrado para este veículo.</p>
                     )}
                 </div>
-                 {/* Rodapé Fixo */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium">Fechar</button>
                 </div>
