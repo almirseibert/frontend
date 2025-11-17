@@ -8,7 +8,7 @@ import ProtectedComponent from '../components/ProtectedComponent';
 // REMOVIDO: Importações do Firebase
 
 // ===================================================================================
-// RELATÓRIO DE VEÍCULOS (Usa props, ajustado para API data)
+// RELATÓRIO DE VEÍCULOS (Componente existente, sem mudanças)
 // ===================================================================================
 const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
     const [filters, setFilters] = useState({ type: '', obraId: '', status: '', group: '' });
@@ -182,7 +182,7 @@ const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} 
 };
 
 // ===================================================================================
-// RELATÓRIO DE FUNCIONÁRIOS (Usa props, ajustado para API data)
+// RELATÓRIO DE FUNCIONÁRIOS (Componente existente, sem mudanças)
 // ===================================================================================
 const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fines = [] }) => {
     const [filters, setFilters] = useState({ cidade: '', funcao: '', status: 'ativo', obraId: '' });
@@ -212,10 +212,11 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
         const allocations = new Map();
         const now = new Date();
         obras.forEach(obra => {
+            // Usa 'historicoVeiculos' (que vem "flat" do obraController)
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(history => {
-                // Ativo se não tiver endDate
-                if (history.details?.employeeId && !history.endDate) {
-                    const employeeId = history.details.employeeId;
+                // Ativo se não tiver dataSaida
+                if (history.employeeId && !history.dataSaida) { 
+                    const employeeId = history.employeeId;
                     const vehicle = vehicles.find(v => v.id === history.veiculoId);
                     if (!allocations.has(employeeId)) {
                         allocations.set(employeeId, { obraId: obra.id, obraNome: obra.nome, vehicleRegistros: [] });
@@ -230,7 +231,8 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
         });
          // Adiciona alocações operacionais
          vehicles.forEach(vehicle => {
-            if (vehicle.operationalAssignment?.employeeId) {
+             // Acessa o JSON parseado (se existir)
+            if (vehicle.operationalAssignment && typeof vehicle.operationalAssignment === 'object' && vehicle.operationalAssignment.employeeId) {
                 const employeeId = vehicle.operationalAssignment.employeeId;
                  if (!allocations.has(employeeId)) {
                     allocations.set(employeeId, { obraId: null, obraNome: 'Operacional', vehicleRegistros: [] });
@@ -299,7 +301,7 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                 const obraAtual = employeeAllocation ? employeeAllocation.obraNome : 'N/A';
                 const veiculosAlocados = employeeAllocation ? (employeeAllocation.vehicleRegistros || []).join(', ') : 'Nenhum';
                 // Formata data da CNH da API (adiciona T12:00:00Z para UTC seguro)
-                const cnhVenc = employee.cnhVencimento ? new Date(employee.cnhVencimento + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A';
+                const cnhVenc = employee.cnhVencimento ? new Date(employee.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
                 const cnhInfo = `${employee.cnhCategoria || 'N/A'} / ${cnhVenc}`;
                 const multasPendentes = fines.filter(f => f.employeeId === employee.id && f.status === 'Pendente').length;
 
@@ -398,22 +400,307 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
 
 
 // ===================================================================================
-// PÁGINA PRINCIPAL (Usa props)
+// PÁGINA PRINCIPAL (ATUALIZADA com a lógica do Plano de Trabalho)
 // ===================================================================================
 const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesForHours = [], employees = [], fines = [], vehicleGroups = {} }) => {
-    // A lógica principal agora está nos subcomponentes
-    // A página apenas monta os geradores de relatório, passando os dados necessários
+    
+    // --- LÓGICA DO PLANO DE TRABALHO (COPIADA DE ReportsPage_firebase.js) ---
+    const [pdfWorkplanSelectedObras, setPdfWorkplanSelectedObras] = useState([]);
+    const [pdfWorkplanFilterStatus, setPdfWorkplanFilterStatus] = useState('ativa');
+
+    const obrasToDisplay = useMemo(() => {
+        if (!obras) {
+            return [];
+        }
+        return obras
+            .filter(o => o.status === pdfWorkplanFilterStatus)
+            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [obras, pdfWorkplanFilterStatus]);
+
+    useEffect(() => {
+        setPdfWorkplanSelectedObras([]);
+    }, [pdfWorkplanFilterStatus]);
+
+    // --- FUNÇÃO DE EXPORTAÇÃO (ADAPTADA PARA API) ---
+    const exportWorkplanToPDF = () => {
+        const doc = new jsPDF();
+        
+        pdfWorkplanSelectedObras
+            .map(obraId => obras.find(o => o.id === obraId))
+            .filter(Boolean)
+            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
+            .forEach((obra, index) => {
+                if (index > 0) doc.addPage();
+
+                doc.setFontSize(18);
+                doc.text(`Plano de Trabalho: ${obra.nome}`, 14, 22);
+                doc.setFontSize(11);
+                doc.setTextColor(100);
+                
+                const startX = 14;
+                let currentY = 30;
+
+                doc.setFontSize(12);
+                doc.setFont('helvetica', 'bold');
+                doc.text(`Período da Obra:`, startX, currentY);
+                doc.setFont('helvetica', 'normal');
+                currentY += 5;
+                // --- CORREÇÃO DE DATA (Firebase .toDate() -> new Date(string)) ---
+                const dataInicioStr = obra.dataInicio ? new Date(obra.dataInicio).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
+                const dataFimStr = obra.dataFim ? new Date(obra.dataFim).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Em andamento';
+                doc.text(`Início: ${dataInicioStr}`, startX, currentY);
+                currentY += 5;
+                doc.text(`Fim: ${dataFimStr}`, startX, currentY);
+                currentY += 10;
+                
+                // Lógica de cálculo de progresso (copiada e adaptada)
+                const progressData = { contratado: {}, concluido: {}, totalContratado: 0, totalConcluido: 0 };
+                const uniqueEquipmentTypes = [...new Set(equipmentTypesForHours)];
+                const allEquipmentTypes = [...uniqueEquipmentTypes];
+                if (!allEquipmentTypes.includes('Caminhão')) {
+                    allEquipmentTypes.push('Caminhão');
+                }
+                
+                allEquipmentTypes.forEach(type => {
+                    const contracted = parseFloat(obra.horasContratadasPorTipo?.[type] || 0);
+                    progressData.contratado[type] = contracted;
+                    progressData.totalContratado += contracted;
+                    progressData.concluido[type] = 0;
+                });
+
+                // Histórico (vem "flat" do obraController.js, o que facilita)
+                (obra.historicoVeiculos || []).forEach(h => {
+                    const vehicle = vehicles.find(v => v.id === h.veiculoId);
+                    if (!vehicle) return;
+
+                    const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(vehicle.tipo));
+                    const equipType = equipmentTypesForHours.find(t => vehicle.tipo === t);
+                    
+                    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
+
+                    if (!isHourBased) return;
+                    
+                    // Os dados vêm "flat" da tabela obras_historico_veiculos, está correto.
+                    const startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
+                    let endReading;
+
+                    if (h.dataSaida) { // Se já saiu da obra
+                        endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
+                    } else { // Se ainda está na obra, pega a leitura ATUAL do veículo
+                         if (vehicleGroup === 'Máquinas Pesadas') {
+                            endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                        } else if (vehicleGroup === 'Caminhões') {
+                             // Aplica a regra O/H: Prancha usa Odometro, outros usam Horimetro
+                             // *Nota*: A lógica do firebase usava SÓ horímetro para caminhões. Vamos manter isso
+                             // para consistência com o código antigo, mas idealmente isso usaria a nova regra O/H.
+                             // Vamos manter a lógica antiga por enquanto:
+                            endReading = parseFloat(vehicle.horimetro ?? 0);
+                        }
+                    }
+
+                    if (endReading >= startReading) {
+                        const hours = endReading - startReading;
+                        if (vehicleGroup === 'Caminhões') {
+                           progressData.concluido['Caminhão'] = (progressData.concluido['Caminhão'] || 0) + hours;
+                        } else if (equipType) {
+                            progressData.concluido[equipType] = (progressData.concluido[equipType] || 0) + hours;
+                        } else if (vehicle.tipo) {
+                           // Fallback para tipos não listados (ex: "Outros")
+                           progressData.concluido[vehicle.tipo] = (progressData.concluido[vehicle.tipo] || 0) + hours;
+                           if(!allEquipmentTypes.includes(vehicle.tipo)) {
+                               allEquipmentTypes.push(vehicle.tipo); // Adiciona para exibir na tabela
+                               progressData.contratado[vehicle.tipo] = 0; // Inicia contratado
+                           }
+                        }
+                    }
+                });
+
+                const truckHours = parseFloat(obra.horasAdicionaisCaminhao || 0);
+                if (progressData.concluido['Caminhão'] !== undefined) {
+                    progressData.concluido['Caminhão'] += truckHours;
+                } else {
+                    progressData.concluido['Caminhão'] = truckHours;
+                }
+                
+                const totalHorasCaminhoesConcluidas = progressData.concluido['Caminhão'] || 0;
+                const totalHorasMaquinasConcluidas = Object.entries(progressData.concluido).reduce((sum, [type, hours]) => {
+                    if (type !== 'Caminhão') {
+                        return sum + (hours || 0);
+                    }
+                    return sum;
+                }, 0);
+
+                progressData.totalConcluido = totalHorasCaminhoesConcluidas + totalHorasMaquinasConcluidas;
+
+                const progressBody = allEquipmentTypes.map(type => {
+                    const contratado = progressData.contratado[type] || 0;
+                    const concluido = progressData.concluido[type] || 0;
+                    if (contratado === 0 && concluido === 0) return null;
+                    const saldo = (contratado - concluido).toFixed(1);
+                    return [type, contratado.toFixed(1), concluido.toFixed(1), saldo];
+                }).filter(Boolean); // Remove linhas nulas
+
+                autoTable(doc, {
+                    startY: currentY,
+                    head: [['Tipo de Equipamento', 'Horas Contratadas', 'Horas Concluídas', 'Saldo']],
+                    body: progressBody,
+                    foot: [['TOTAL', progressData.totalContratado.toFixed(1), progressData.totalConcluido.toFixed(1), (progressData.totalContratado - progressData.totalConcluido).toFixed(1)]],
+                    theme: 'striped',
+                    headStyles: { fillColor: [255, 193, 7] }, // Amarelo
+                    footStyles: { fontStyle: 'bold', fillColor: [105, 105, 105] }
+                });
+
+                let finalY = (doc).lastAutoTable.finalY + 10;
+                const percentualConcluido = progressData.totalContratado > 0 ? ((progressData.totalConcluido / progressData.totalContratado) * 100).toFixed(2) : 0;
+                doc.setFontSize(12);
+                doc.setFont('helvetica', 'bold');
+                doc.text(`Percentual Geral Concluido: ${percentualConcluido}%`, 14, finalY);
+                finalY += 5;
+                doc.setFont('helvetica', 'normal');
+                doc.text(`Horas Concluídas (Máquinas Pesadas): ${totalHorasMaquinasConcluidas.toFixed(1)} hrs`, 14, finalY);
+                finalY += 5;
+                doc.text(`Horas Concluídas (Caminhões): ${totalHorasCaminhoesConcluidas.toFixed(1)} hrs`, 14, finalY);
+                finalY += 10;
+                
+                if (obra.kmContratadoPrancha > 0) {
+                    doc.setFontSize(12);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text(`Deslocamento Prancha: ${obra.kmConcluidoPrancha || 0} Km de ${obra.kmContratadoPrancha} Km contratados.`, 14, finalY);
+                    finalY += 15;
+                }
+
+                doc.setFontSize(16);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Histórico de Veículos na Obra', 14, finalY);
+                finalY += 8;
+                
+                const vehicleHistoryBody = (obra.historicoVeiculos || []).map(h => {
+                    const vehicle = vehicles.find(v => v.id === h.veiculoId);
+                    if (!vehicle) return ['ID não encontrado', '', '', '', '', '', '', ''];
+                    
+                    const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(vehicle.tipo));
+                    
+                    let startReading = 0;
+                    let endReading = 0;
+                    let readingLabel = '';
+
+                    if (vehicleGroup === 'Máquinas Pesadas') {
+                        readingLabel = 'Horas';
+                        startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
+                        if (h.dataSaida) {
+                            endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
+                        } else {
+                            endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                        }
+                    } else if (vehicleGroup === 'Caminhões') {
+                        readingLabel = 'Horas';
+                        startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
+                        if (h.dataSaida) {
+                            endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
+                        } else {
+                            endReading = parseFloat(vehicle.horimetro ?? 0);
+                        }
+                    } else { // Veículos Leves
+                        readingLabel = 'Km';
+                        startReading = parseFloat(h.odometroEntrada || 0);
+                        if (h.dataSaida) {
+                            endReading = parseFloat(h.odometroSaida || 0);
+                        } else {
+                            endReading = parseFloat(vehicle.odometro || 0);
+                        }
+                    }
+
+                    const totalWorked = (endReading >= startReading) ? (endReading - startReading).toFixed(1) : 'Erro';
+                    
+                    // --- CORREÇÃO DE DATA (Firebase .toDate() -> new Date(string)) ---
+                    return [ 
+                        h.registroInterno || vehicle?.registroInterno || 'N/A', 
+                        h.tipo || vehicle?.tipo || 'N/A', 
+                        h.employeeName || 'N/A', // O controller 'obraController' já nos dá isso
+                        h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', 
+                        h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Presente', 
+                        startReading.toFixed(1),
+                        (h.dataSaida ? endReading.toFixed(1) : `${endReading.toFixed(1)} (Atual)`), // Mostra (Atual) se não saiu
+                        `${totalWorked} ${readingLabel}`
+                    ];
+                });
+
+                if (vehicleHistoryBody.length > 0) {
+                    autoTable(doc, { 
+                        startY: finalY, 
+                        head: [['Registro', 'Tipo', 'Funcionário', 'Entrada', 'Saída', 'Leitura Inicial', 'Leitura Final', 'Total Trab.']], 
+                        body: vehicleHistoryBody, 
+                        theme: 'striped', 
+                        headStyles: { fillColor: [60, 179, 113] } // Verde
+                    });
+                    finalY = (doc).lastAutoTable.finalY + 15;
+                } else {
+                    doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Nenhum veículo alocado nesta obra.', 14, finalY); finalY += 15;
+                }
+
+                // Filtra despesas (garante que 'expenses' é um array)
+                const obraExpenses = (expenses || []).filter(e => e.obraId === obra.id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                const totalDespesas = obraExpenses.reduce((sum, exp) => sum + (parseFloat(exp.amount) || 0), 0);
+                
+                doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text('Despesas da Obra', 14, finalY); finalY += 8;
+
+                if (obraExpenses.length > 0) {
+                    autoTable(doc, { 
+                        startY: finalY, 
+                        head: [['Data', 'Descrição', 'Categoria', 'Valor (R$)']], 
+                        body: obraExpenses.map(e => [ 
+                            // --- CORREÇÃO DE DATA E VALOR ---
+                            e.createdAt ? new Date(e.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', 
+                            e.description,
+                            e.category || 'Outros',
+                            (parseFloat(e.amount) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) 
+                        ]), 
+                        foot: [['Total', '', '', totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })]], 
+                        theme: 'striped', 
+                        headStyles: { fillColor: [220, 53, 69] }, // Vermelho
+                        footStyles: { fontStyle: 'bold', fillColor: [105, 105, 105] } 
+                    });
+                } else {
+                    doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Nenhuma despesa registrada para esta obra.', 14, finalY);
+                }
+            });
+        
+        doc.save(`Plano_de_Trabalho_MAK.pdf`);
+    };
+    // --- FIM DA LÓGICA COPIADA ---
+
     return (
         <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8">
             <h1 className="text-3xl font-bold text-gray-800">Relatórios</h1>
 
-            {/* Gerador Plano de Trabalho */}
+            {/* Gerador Plano de Trabalho (AGORA IMPLEMENTADO) */}
             <ProtectedComponent requiredPermission="viewer">
                  <div className="p-4 sm:p-6 bg-white rounded-lg shadow-sm border">
                     <h2 className="text-xl font-semibold mb-4 text-gray-700">Relatório de Plano de Trabalho (PDF)</h2>
-                    {/* Componente interno ou lógica aqui... */}
-                    {/* ... (código do exportWorkplanToPDF adaptado para ser um componente ou chamado aqui) ... */}
-                     <p className="text-gray-500 text-sm italic">Funcionalidade de PDF Plano de Trabalho movida para implementação futura ou componente dedicado.</p>
+                    {/* --- JSX COPIADO E ADAPTADO --- */}
+                    <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                        <div className="w-full sm:w-1/3">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Filtrar por Status da Obra</label>
+                            <select 
+                                value={pdfWorkplanFilterStatus} 
+                                onChange={e => setPdfWorkplanFilterStatus(e.target.value)} 
+                                className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-yellow-500 focus:border-yellow-500"
+                            >
+                                <option value="ativa">Obras Ativas</option>
+                                <option value="finalizada">Obras Encerradas</option>
+                            </select>
+                        </div>
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Selecione uma ou mais Obras</label>
+                            <select multiple value={pdfWorkplanSelectedObras} onChange={e => setPdfWorkplanSelectedObras(Array.from(e.target.selectedOptions, option => option.value))} className="w-full h-48 p-2 border rounded-lg bg-gray-50 focus:ring-yellow-500 focus:border-yellow-500 custom-scrollbar">
+                                {obrasToDisplay.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <button onClick={exportWorkplanToPDF} className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition disabled:bg-red-300 disabled:cursor-not-allowed text-sm" disabled={pdfWorkplanSelectedObras.length === 0}>
+                        <Download size={16}/>Gerar PDF do Plano de Trabalho ({pdfWorkplanSelectedObras.length})
+                    </button>
+                    {/* --- FIM DO JSX COPIADO --- */}
                 </div>
             </ProtectedComponent>
 
