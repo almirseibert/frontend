@@ -230,9 +230,9 @@ const apiClient = {
     getUsers: async () => apiFetch('/users'), // Assumindo que admin pode listar usuários
 
     // --- Mensagens de Atualização (Admin) ---
-    getUpdates: async () => apiFetch('/updates'), // Corresponde a GET /api/updates
-    createUpdate: async (data) => apiFetch('/updates', { method: 'POST', body: JSON.stringify(data) }), // Corresponde a POST /api/updates
-    deleteUpdate: async (id) => apiFetch(`/updates/${id}`, { method: 'DELETE' }), // Corresponde a DELETE /api/updates/:id
+    // *** CORREÇÃO: Funções renomeadas e rotas corrigidas para /admin/update-message ***
+    adminGetUpdateMessage: async () => apiFetch('/admin/update-message'), // Corresponde a GET /api/admin/update-message
+    adminSaveUpdateMessage: async (data) => apiFetch('/admin/update-message', { method: 'PUT', body: JSON.stringify(data) }), // Corresponde a PUT /api/admin/update-message
 
     // --- Funções Administrativas ---
     adminGetRegistrationRequests: async () => apiFetch('/admin/registration-requests'),

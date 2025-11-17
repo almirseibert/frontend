@@ -23,8 +23,8 @@ const AdminPage = ({ apiClient, setAlertMessage, reloadData /* Adicionado reload
   useEffect(() => {
     const fetchUpdateMessage = async () => {
       try {
-        // Substituído getDoc por chamada da API
-        const data = await apiClient.getUpdates(); 
+        // *** CORREÇÃO: Chamando a função correta do apiClient ***
+        const data = await apiClient.adminGetUpdateMessage(); 
         if (data) {
           setUpdateMessage(data.message || '');
           setShowUpdatePopup(data.showPopup || false);
@@ -44,8 +44,8 @@ const AdminPage = ({ apiClient, setAlertMessage, reloadData /* Adicionado reload
     setUpdateStatus({ success: false, message: '' });
 
     try {
-      // Substituído setDoc por chamada da API
-      const response = await apiClient.saveUpdateMessage({
+      // *** CORREÇÃO: Chamando a função correta do apiClient ***
+      const response = await apiClient.adminSaveUpdateMessage({
         message: updateMessage,
         showPopup: showUpdatePopup,
       });
