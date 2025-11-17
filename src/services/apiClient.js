@@ -10,7 +10,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api'; //
 const getToken = () => localStorage.getItem('authToken');
 
 /**
- * Função genérica para fazer requisições à API.
+ * Função genérica para fazer requisições à API (JSON).
  * Inclui automaticamente a URL base e o token de autenticação.
  * @param {string} endpoint - O caminho da rota (ex: '/vehicles').
  * @param {object} options - Opções adicionais para o fetch (method, body, headers).
@@ -89,6 +89,42 @@ const apiClient = {
     startVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/start-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
     endVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/end-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
 
+    /**
+     * NOVA FUNÇÃO: Upload de imagem do veículo.
+     * Envia FormData, por isso não usa apiFetch padrão.
+     * @param {string} id - O ID do veículo.
+     * @param {FormData} formData - O objeto FormData contendo o arquivo (ex: { fotoFile: ... }).
+     * @returns {Promise<any>} A resposta da API em JSON.
+     */
+    uploadVehicleImage: async (id, formData) => {
+        const token = getToken();
+        const headers = {}; // NÃO definir 'Content-Type', o browser faz isso para multipart/form-data
+    
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+    
+        try {
+            const response = await fetch(`${API_URL}/vehicles/${id}/upload-image`, {
+                method: 'POST',
+                headers,
+                body: formData, // Envia o FormData diretamente
+            });
+    
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.message || errorData.error || `Erro ${response.status}: ${response.statusText}`;
+                throw new Error(errorMessage);
+            }
+            
+            return await response.json(); // Retorna a resposta (ex: { message, fotoURL })
+        } catch (error) {
+            console.error(`Erro no upload da imagem para ${API_URL}/vehicles/${id}/upload-image:`, error);
+            throw error;
+        }
+    },
+
+
     // --- Obras ---
     getObras: async () => apiFetch('/obras'),
     getObraById: async (id) => apiFetch(`/obras/${id}`),
@@ -96,8 +132,6 @@ const apiClient = {
     updateObra: async (id, data) => apiFetch(`/obras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteObra: async (id) => apiFetch(`/obras/${id}`, { method: 'DELETE' }),
     finishObra: async (id, data) => apiFetch(`/obras/${id}/finish`, { method: 'PUT', body: JSON.stringify(data) }), // Corrigido para aceitar 'data'
-
-    // --- NOVO: Função que faltava para editar histórico de obra ---
     updateObraHistoryEntry: async (obraId, historyId, data) => {
         return apiFetch(`/obras/${obraId}/historico/${historyId}`, {
             method: 'PUT',
@@ -124,12 +158,10 @@ const apiClient = {
     completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) }), // Mapeado da rota
 
     // --- Despesas ---
-    // *** FUNÇÕES ADICIONADAS AQUI ***
     getExpenses: async () => apiFetch('/expenses'),
     createExpense: async (data) => apiFetch('/expenses', { method: 'POST', body: JSON.stringify(data) }),
     updateExpense: async (id, data) => apiFetch(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteExpense: async (id) => apiFetch(`/expenses/${id}`, { method: 'DELETE' }),
-    // *** FIM DAS FUNÇÕES ADICIONADAS ***
 
     // --- Parceiros (Postos) ---
     getPartners: async () => apiFetch('/partners'),
@@ -192,19 +224,15 @@ const apiClient = {
     deleteInactivityAlert: async (id) => apiFetch(`/inactivityAlerts/${id}`, { method: 'DELETE' }),
 
     // --- Solicitações de Registro (Público) ---
-    // GET público não precisa de apiClient, mas POST sim
     createRegistrationRequest: async (data) => apiFetch('/registrationRequests', { method: 'POST', body: JSON.stringify(data) }),
-    // GET/DELETE/APPROVE são feitos via admin
-
+    
     // --- Usuários (Admin) ---
     getUsers: async () => apiFetch('/users'), // Assumindo que admin pode listar usuários
 
     // --- Mensagens de Atualização (Admin) ---
-    // *** CORREÇÕES PARA 'UPDATES' ***
     getUpdates: async () => apiFetch('/updates'), // Corresponde a GET /api/updates
     createUpdate: async (data) => apiFetch('/updates', { method: 'POST', body: JSON.stringify(data) }), // Corresponde a POST /api/updates
     deleteUpdate: async (id) => apiFetch(`/updates/${id}`, { method: 'DELETE' }), // Corresponde a DELETE /api/updates/:id
-    // A função 'saveUpdateMessage' foi removida/renomeada para 'createUpdate'
 
     // --- Funções Administrativas ---
     adminGetRegistrationRequests: async () => apiFetch('/admin/registration-requests'),
