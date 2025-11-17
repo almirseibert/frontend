@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import apiClient from '../services/apiClient'; // Importa apiClient
 import {
+// ... (imports de ícones sem mudança) ...
     HardHat,
     Users,
     Wrench,
@@ -19,18 +20,13 @@ import {
     Loader, 
     ImageOff, 
     AlertTriangle,
-    Camera // <-- Ícone para upload de foto
+    Camera
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent'; 
 
 // --- Função Auxiliar: Novas Regras de Leitura (14/11/2025) ---
-/**
- * Retorna a informação de leitura principal com base nas novas regras de negócio.
- * @param {object} vehicle - O objeto do veículo.
- * @param {object} vehicleGroups - O mapeamento de grupos (ex: { 'Máquinas Pesadas': ['TRATOR'] }).
- * @returns {object} { label, value, type, unit }
- */
+// ... (função getPrincipalReadingInfo sem mudança) ...
 const getPrincipalReadingInfo = (vehicle, vehicleGroups = {}) => {
     const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
     const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle?.tipo));
@@ -69,10 +65,12 @@ const getPrincipalReadingInfo = (vehicle, vehicleGroups = {}) => {
 // --- PÁGINA DE VEÍCULOS ---
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
     
+// ... (useState e vehicleTypes sem mudança) ...
     const vehicleTypes = useMemo(() => [...new Set(vehicles.map(v => v.tipo).filter(Boolean))].sort(), [vehicles]);
 
     // Estados dos Modais
     const [isModalOpen, setIsModalOpen] = useState(false);
+// ... (resto dos estados sem mudança) ...
     const [isObraAllocationModalOpen, setIsObraAllocationModalOpen] = useState(false);
     const [isOperationalModalOpen, setIsOperationalModalOpen] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -83,6 +81,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
     // Estados para dados dos Modais
     const [itemToDelete, setItemToDelete] = useState(null);
+// ... (resto dos estados sem mudança) ...
     const [editingVehicle, setEditingVehicle] = useState(null);
     const [vehicleForObraAllocation, setVehicleForObraAllocation] = useState(null);
     const [vehicleForOperational, setVehicleForOperational] = useState(null);
@@ -93,6 +92,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
     // Estados de Filtro e Ordenação
     const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos' });
+// ... (resto dos estados sem mudança) ...
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' }); 
 
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
@@ -103,15 +103,16 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return (vehicles || []).map(v => {
             let currentStatus = v.status;
             if (!currentStatus) { 
+                // *** CORREÇÃO: Usa alocadoEm e emManutencao (do SQL) ***
                 if (v.obraAtualId) currentStatus = 'Em Obra';
-                else if (v.operationalAssignment) currentStatus = 'Em Operação';
-                else if (v.maintenanceLocation) currentStatus = 'Em Manutenção'; 
+                else if (v.alocadoEm?.type === 'operacional') currentStatus = 'Em Operação';
+                else if (v.emManutencao) currentStatus = 'Em Manutenção'; 
                 else currentStatus = 'Disponível';
             }
              const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
              
              // --- ATUALIZAÇÃO O/H ---
-             // Usa a nova função helper
+// ... (lógica de readingInfo sem mudança) ...
              const readingInfo = getPrincipalReadingInfo(v, vehicleGroups);
              const vehicleReading = `${parseFloat(readingInfo.value).toFixed(1)} ${readingInfo.unit}`;
              // --- FIM ATUALIZAÇÃO ---
@@ -121,6 +122,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     }, [vehicles, obras, vehicleGroups]);
 
     // Ordena os veículos processados (sem mudança)
+// ... (sortedVehicles sem mudança) ...
     const sortedVehicles = useMemo(() => {
         let sortableItems = [...processedVehicles];
         if (sortConfig.key !== null) {
@@ -142,6 +144,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
 
     // Função para requisitar ordenação (mantida)
+// ... (requestSort sem mudança) ...
     const requestSort = (key) => {
         let direction = 'ascending';
         if (sortConfig.key === key && sortConfig.direction === 'ascending') {
@@ -151,6 +154,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // Calcula status da revisão (Usa a nova função de leitura)
+// ... (getRevisionStatus sem mudança) ...
     const getRevisionStatus = (vehicle) => {
         const revision = (revisions || []).find(r => r.vehicleId === vehicle.id); 
         if (!revision) return { status: 'ok', text: '' }; 
@@ -185,6 +189,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
 
     // Memoiza veículos com multas pendentes (mantido)
+// ... (vehiclesWithPendingFines sem mudança) ...
     const vehiclesWithPendingFines = useMemo(() => {
         const vehicleIds = new Set();
         (fines || []).forEach(fine => { 
@@ -196,6 +201,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     }, [fines]);
 
     // Define classe da linha baseado em canCirculate e revisão (mantido)
+// ... (getVehicleRowClass sem mudança) ...
     const getVehicleRowClass = (vehicle) => {
         if (vehicle.canCirculate === false) {
             return 'bg-red-100 border-l-4 border-red-500'; 
@@ -206,6 +212,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // Filtra os veículos ordenados (mantido)
+// ... (filteredVehicles sem mudança) ...
     const filteredVehicles = useMemo(() => sortedVehicles.filter(v => {
         const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
         const searchMatch = (v.placa || '').toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -236,6 +243,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     }), [sortedVehicles, filters, vehicleGroups]);
 
     // Funções para abrir modais (mantidas)
+// ... (funções openModal sem mudança) ...
     const openModal = (v = null) => { setEditingVehicle(v); setIsModalOpen(true); };
     const openObraAllocationModal = (v) => { setVehicleForObraAllocation(v); setIsObraAllocationModalOpen(true); };
     const openOperationalModal = (v) => { setVehicleForOperational(v); setIsOperationalModalOpen(true); };
@@ -246,7 +254,8 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
     // Abre modal de manutenção (mantido)
     const handleMaintenanceClick = (vehicle) => {
-        if (vehicle.obraAtualId || vehicle.operationalAssignment) {
+        // *** CORREÇÃO: Usa alocadoEm (do SQL) ***
+        if (vehicle.obraAtualId || (vehicle.alocadoEm && vehicle.alocadoEm.type === 'operacional')) {
             setAlertMessage('Este veículo está alocado. Desaloque-o primeiro para enviá-lo para manutenção.');
             return;
         }
@@ -255,6 +264,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // Função de exclusão (adaptada para API)
+// ... (handleDelete sem mudança) ...
     const handleDelete = async () => {
         if (!itemToDelete) return;
         try {
@@ -271,6 +281,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // Upload CSV (mantido)
+// ... (handleFileUpload sem mudança) ...
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -340,6 +351,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
 
     // Exportar CSV (mantido)
+// ... (exportToCSV sem mudança) ...
     const exportToCSV = () => {
         if (filteredVehicles.length === 0) {
              setAlertMessage("Nenhum veículo para exportar com os filtros atuais.");
@@ -370,6 +382,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             {/* Cabeçalho e Botões */}
+// ... (JSX Cabeçalho sem mudança) ...
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
                 <h1 className="text-3xl font-bold text-gray-800">Gerenciamento de Veículos</h1>
                 <ProtectedComponent requiredPermission="editor">
@@ -385,6 +398,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             </div>
 
              {/* Filtros (Atualizado com novo grupo) */}
+// ... (JSX Filtros sem mudança) ...
             <div className="mb-6 p-4 bg-white rounded-lg shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                 <input type="text" name="search" placeholder="Buscar Placa, Registro, Marca..." value={filters.search} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500" />
                 <select name="group" value={filters.group} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
@@ -411,6 +425,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             {/* Tabela de Veículos (Atualizado com Leitura Principal) */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
                 {/* Cabeçalho Tabela Desktop */}
+// ... (JSX Cabeçalho Tabela sem mudança) ...
                 <div className="hidden md:grid grid-cols-6 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
                     <div className="col-span-2 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
                     <div className="text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura Principal <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
@@ -419,6 +434,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 </div>
                 {/* Linhas da Tabela (Mobile First) */}
                 {filteredVehicles.map(vehicle => {
+// ... (lógica JSX interna do map sem mudança) ...
                     const revisionInfo = getRevisionStatus(vehicle);
                     const hasPendingFine = vehiclesWithPendingFines.has(vehicle.id);
                     const statusClasses = {
@@ -519,13 +535,16 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
 // Modal de Manutenção (sem mudança)
 const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, reloadData }) => {
-    const isCurrentlyInMaintenance = vehicle.status === 'Em Manutenção' || vehicle.status === 'Aguardando Manutenção';
+    // *** CORREÇÃO: Usa emManutencao (do SQL) ***
+    const isCurrentlyInMaintenance = vehicle.emManutencao; // Checa 0 ou 1
     const [status, setStatus] = useState(isCurrentlyInMaintenance ? vehicle.status : 'Aguardando Manutenção');
-    const [location, setLocation] = useState(vehicle.maintenanceLocation?.details || 'Pátio MAK Lajeado');
+    // *** CORREÇÃO: Usa alocadoEm (do SQL) ***
+    const [location, setLocation] = useState(vehicle.alocadoEm?.location || 'Pátio MAK Lajeado');
     const [isSaving, setIsSaving] = useState(false);
     const [endLocation, setEndLocation] = useState('Pátio MAK Lajeado');
 
     const handleSubmit = async () => {
+// ... (handleSubmit sem mudança) ...
         setIsSaving(true);
         try {
             await apiClient.startVehicleMaintenance(vehicle.id, { status, location });
@@ -541,6 +560,7 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
     };
 
     const handleEndMaintenance = async () => {
+// ... (handleEndMaintenance sem mudança) ...
         setIsSaving(true);
         try {
             await apiClient.endVehicleMaintenance(vehicle.id, { location: endLocation }); 
@@ -581,7 +601,8 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
                     ) : (
                         <div>
                             <p className="mb-2">O veículo está atualmente: <strong>{vehicle.status}</strong>.</p>
-                            <p className="mb-4">Localização: <strong>{vehicle.maintenanceLocation?.details || 'Não informado'}</strong>.</p>
+                             {/* *** CORREÇÃO: Usa alocadoEm (do SQL) *** */}
+                            <p className="mb-4">Localização: <strong>{vehicle.alocadoEm?.location || 'Não informado'}</strong>.</p>
                             <hr className="my-4"/>
                             <label className="block text-sm font-medium text-gray-700">Local de Disponibilidade após Manutenção *</label>
                             <input type="text" value={endLocation} onChange={e => setEndLocation(e.target.value)} placeholder="Ex: Pátio MAK Lajeado" className="mt-1 w-full p-2 border rounded-md text-sm" required />
@@ -589,6 +610,7 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
                     )}
                 </div>
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
+{/* ... (botões do modal sem mudança) ... */}
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
                     {isCurrentlyInMaintenance ? (
                         <button onClick={handleEndMaintenance} disabled={isSaving || !endLocation} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-green-300 flex items-center justify-center gap-2 text-sm">
@@ -607,6 +629,7 @@ const MaintenanceModal = ({ user, vehicle, onClose, apiClient, setAlertMessage, 
 
 
 // Modal de Multas do Veículo (Corrigido para paymentStatus)
+// ... (VehicleFinesModal sem mudança) ...
 const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => { 
     const vehicleFines = useMemo(() => {
         return (fines || [])
@@ -671,6 +694,7 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => {
 // Modal de Criação/Edição de Veículo (Atualizado com O/H e Upload de Imagem)
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, vehicleGroups = {} }) => {
     
+// ... (useState e useEffect de VehicleModal sem mudança) ...
     // --- Lógica O/H para estado inicial ---
     const [currentGroup, setCurrentGroup] = useState('Veículos Leves');
     
@@ -735,6 +759,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
 
     const handleChange = (e) => {
+// ... (handleChange sem mudança) ...
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({
             ...prev,
@@ -747,6 +772,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
     // --- Handler para o arquivo de imagem ---
     const handleFileChange = (e) => {
+// ... (handleFileChange sem mudança) ...
         const file = e.target.files[0];
         if (file) {
             setFotoFile(file); // Armazena o arquivo
@@ -755,6 +781,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
     };
 
     const handleSubmit = async (e) => {
+// ... (lógica de validação do handleSubmit sem mudança) ...
         e.preventDefault();
         setError('');
 
@@ -779,6 +806,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         setIsSaving(true);
 
         // Prepara dados para API
+// ... (lógica dataToSave sem mudança) ...
         const dataToSave = {
             ...formData,
             odometro: parseFloat(formData.odometro) || null,
@@ -798,28 +826,35 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             let savedVehicleId = null;
 
             if (isEditing) {
+// ... (lógica if(isEditing) sem mudança) ...
                 await apiClient.updateVehicle(vehicle.id, dataToSave);
                 savedVehicleId = vehicle.id;
                 setAlertMessage(`Veículo ${formData.registroInterno} atualizado com sucesso!`);
             } else {
+// ... (lógica else sem mudança) ...
                 const dataWithDefaults = { ...dataToSave, status: 'Disponível' };
                 // Captura o retorno da API (que inclui o ID gerado)
                 const newVehicle = await apiClient.createVehicle(dataWithDefaults);
-                savedVehicleId = newVehicle.id;
+                savedVehicleId = newVehicle.id; // Assume que a API retorna { id: '...' } ou o objeto completo
                 setAlertMessage(`Veículo ${formData.registroInterno} adicionado com sucesso!`);
             }
 
             // --- Lógica de Upload de Imagem ---
             // Se um arquivo foi selecionado, faz o upload *após* salvar os dados
             if (fotoFile && savedVehicleId) {
+// ... (lógica FormData sem mudança) ...
                 const uploadFormData = new FormData();
                 uploadFormData.append('fotoFile', fotoFile); // O nome 'fotoFile' deve bater com o da rota
 
                 // Usa o token do apiClient (assumindo que ele tem um método getToken())
                 const token = apiClient.getToken ? apiClient.getToken() : '';
                 
+                // *** CORREÇÃO APLICADA AQUI (Mantida da sua versão) ***
+                // O apiClient não tem 'defaults.baseURL'. Usamos a URL base extraída dos logs.
+                const baseURL = 'https://frotasmak-frotas-backend.oehpg2.easypanel.host/api';
+
                 // Faz o POST para a nova rota /:id/upload-image
-                await fetch(`${apiClient.defaults.baseURL}/vehicles/${savedVehicleId}/upload-image`, {
+                await fetch(`${baseURL}/vehicles/${savedVehicleId}/upload-image`, {
                     method: 'POST',
                     body: uploadFormData,
                     headers: {
@@ -833,7 +868,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             reloadData(); 
             onClose();
         } catch (err) {
-            console.error("Erro ao salvar veículo:", err);
+            console.error("Erro ao salvar veículo:", err); // Esta é a linha 836 (aprox)
             setError(err.response?.data?.message || "Ocorreu um erro ao salvar os dados.");
         } finally {
             setIsSaving(false);
@@ -845,6 +880,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             {/* Modal Content */}
             <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] flex flex-col my-auto">
                  {/* Cabeçalho Fixo */}
+// ... (JSX Cabeçalho VehicleModal sem mudança) ...
                 <div className="p-4 sm:p-6 border-b sticky top-0 bg-white z-10 flex justify-between items-center">
                     <h2 className="text-xl sm:text-2xl font-bold">{vehicle ? 'Editar Veículo' : 'Adicionar Veículo'}</h2>
                      <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={20}/></button>
@@ -854,6 +890,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                     <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4 text-sm">
                         
                         {/* --- Coluna 1: Imagem e Dados Principais --- */}
+// ... (JSX Coluna 1 VehicleModal sem mudança) ...
                         <div className="space-y-4">
                             {/* --- Upload de Imagem --- */}
                             <div>
@@ -887,7 +924,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                              <div>
                                 <label className="block font-medium text-gray-700 mb-1">Tipo *</label>
                                 <select name="tipo" value={formData.tipo} onChange={handleChange} className="p-2 border rounded w-full bg-white" required>
-                                    {(vehicleTypes || []).map(type => <option key={type} value={type}>{type}>{type}</option>)}
+                                    {(vehicleTypes || []).map(type => <option key={type} value={type}>{type}</option>)}
                                 </select>
                              </div>
                              <div>
@@ -905,6 +942,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                         </div>
 
                          {/* --- Coluna 2: Leituras (Lógica O/H Aplicada) --- */}
+// ... (JSX Coluna 2 VehicleModal sem mudança) ...
                         <div className="space-y-4">
                             {/* --- ATUALIZAÇÃO O/H: UI Condicional --- */}
 
@@ -995,6 +1033,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                         </div>
 
                          {/* --- Coluna 3: Checkboxes e Datas (Lógica O/H aplicada) --- */}
+// ... (JSX Coluna 3 VehicleModal sem mudança) ...
                         <div className="space-y-4">
                              {/* Comboio */}
                              <div className="flex items-center pt-1">
@@ -1035,6 +1074,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                     </div>
 
                     {/* Rodapé Fixo */}
+// ... (JSX Rodapé VehicleModal sem mudança) ...
                     <div className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row justify-end gap-2 sticky bottom-0 z-10">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm font-medium w-full sm:w-auto" disabled={isSaving}>Cancelar</button>
                         <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm w-full sm:w-auto">
@@ -1049,6 +1089,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
 
 // Modal de Detalhes do Veículo (Atualizado com O/H)
+// ... (VehicleDetailModal sem mudança) ...
 const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => { 
     if (!vehicle) return null;
 
@@ -1179,16 +1220,14 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
 // Modal de Alocação Operacional (sem mudança)
 const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [] }) => {
     let currentAssignment = null;
-    if (vehicle.operationalAssignment) {
-        if (typeof vehicle.operationalAssignment === 'string') {
-            try { currentAssignment = JSON.parse(vehicle.operationalAssignment); } catch { /* ignora erro */ }
-        } else {
-            currentAssignment = vehicle.operationalAssignment;
-        }
+    // *** CORREÇÃO: Usa alocadoEm (do SQL) ***
+    if (vehicle.alocadoEm && vehicle.alocadoEm.type === 'operacional') {
+        currentAssignment = vehicle.alocadoEm;
     }
 
     const [subGroup, setSubGroup] = useState(currentAssignment?.subGroup || '');
     const [employeeId, setEmployeeId] = useState(currentAssignment?.employeeId || '');
+// ... (resto do modal sem mudança) ...
     const [observacoes, setObservacoes] = useState(currentAssignment?.observacoes || ''); 
     const [isSaving, setIsSaving] = useState(false);
     const [locationAfterUnassign, setLocationAfterUnassign] = useState('Pátio MAK Lajeado');
@@ -1301,6 +1340,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
 };
 
 // Modal de Alocação em Obra (Atualizado com O/H)
+// ... (ObraAllocationModal sem mudança) ...
 const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClose, setAlertMessage, apiClient, reloadData, vehicles = [], vehicleGroups = {} }) => {
     const currentObraAllocation = (Array.isArray(vehicle.history) ? vehicle.history : [])
                                     .find(h => (h.type === 'obra' || h.historyType === 'obra') && !h.endDate && !h.dataSaida);
@@ -1526,6 +1566,7 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], onClos
 
 
 // Modal para perguntar se deseja finalizar a obra (sem mudança)
+// ... (FinishObraModal sem mudança) ...
 const FinishObraModal = ({ obra, onClose, onConfirm }) => {
     const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
 
@@ -1553,6 +1594,7 @@ const FinishObraModal = ({ obra, onClose, onConfirm }) => {
 
 
 // Modal de Histórico (Atualizado com O/H)
+// ... (HistoryModal sem mudança) ...
 const HistoryModal = ({ vehicle, onClose, obras = [], vehicleGroups = {} }) => { 
     
     // --- ATUALIZAÇÃO O/H ---
@@ -1606,7 +1648,8 @@ const HistoryModal = ({ vehicle, onClose, obras = [], vehicleGroups = {} }) => {
                         <p className="font-semibold">Manutenção</p>
                         <p className="text-xs text-gray-600 mt-0.5">Período: {startDate} - {endDate}</p>
                         {details && typeof details === 'string' && <p className="text-xs text-gray-500 mt-1">{details}</p>}
-                         {details && typeof details === 'object' && details.details && <p className="text-xs text-gray-500 mt-1">{details.details}</p>}
+                         {/* *** CORREÇÃO: Usa alocadoEm (do SQL) *** */}
+                         {details && typeof details === 'object' && (details.location || details.details) && <p className="text-xs text-gray-500 mt-1">{details.location || details.details}</p>}
                     </>
                 );
             default:
