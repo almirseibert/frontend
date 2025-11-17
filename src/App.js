@@ -48,6 +48,7 @@ const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescava
 // --- REMOVIDO: Configuração Firebase e Offline (Dexie) ---
 
 // --- COMPONENTES DE UI (MODAIS) ---
+
 // ... (Modal CustomAlert sem mudança) ...
 const CustomAlert = ({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
@@ -130,7 +131,29 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
     </div></div>);
 };
 
-// --- REMOVIDO: Tela de Login (agora importada de pages/LoginScreen.js) ---
+// --- NOVO COMPONENTE: MODAL DE AVISO DE ATUALIZAÇÃO ---
+const UpdateMessageModal = ({ message, onClose }) => (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]"> {/* z-index mais alto */}
+        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-xl w-full max-w-2xl">
+            <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-2xl font-bold text-yellow-600 flex items-center gap-2">
+                    <AlertTriangle /> Aviso Importante
+                 </h2>
+                 <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-200">
+                    <X size={20} />
+                 </button>
+            </div>
+            {/* Usar <pre> para manter a formatação da mensagem (quebras de linha, etc.) */}
+            <pre className="text-base text-gray-700 mb-6 whitespace-pre-wrap font-sans max-h-[60vh] overflow-y-auto custom-scrollbar p-2 bg-gray-50 rounded-md border">
+                {message}
+            </pre>
+            <button onClick={onClose} className="w-full py-2 px-6 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 transition-all">
+                Entendido
+            </button>
+        </div>
+    </div>
+);
+
 
 // --- CONTEÚDO PRINCIPAL DA APLICAÇÃO ---
 const AppContent = () => {
@@ -154,6 +177,12 @@ const AppContent = () => {
     const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
     
     const [loadingData, setLoadingData] = useState(true); // Estado de carregamento dos dados
+    
+    // --- NOVOS ESTADOS PARA O MODAL DE ATUALIZAÇÃO ---
+    const [updateMessage, setUpdateMessage] = useState(null);
+    const [showUpdateModal, setShowUpdateModal] = useState(false);
+    // --- FIM DOS NOVOS ESTADOS ---
+
 
     // Memoização para ordenar dados que precisam ser ordenados
     // ... (memoização de partners, comboio, fines sem mudança) ...
@@ -255,6 +284,7 @@ const AppContent = () => {
     }, [vehicles, revisions, fines]);
 
     // MELHORIA: `loadAllData` agora é um `useCallback` para ser usado como `reloadData`
+    // --- ATUALIZADO PARA INCLUIR A BUSCA DA MENSAGEM DE ATUALIZAÇÃO ---
     const loadAllData = useCallback(async () => {
         // Só carrega se o usuário estiver logado
         if (!user) {
@@ -278,8 +308,6 @@ const AppContent = () => {
             comboioTransactions: { getter: apiClient.getComboioTransactions, setter: setRawComboioTransactions },
             fines: { getter: apiClient.getFines, setter: setRawFines },
             diarioDeBordo: { getter: apiClient.getDiarioDeBordo, setter: setDiarioDeBordoLogs },
-            // users: { getter: apiClient.getUsers, setter: setUsers }, // Descomente se necessário
-            // updates: { getter: apiClient.getUpdates, setter: setUpdates }, // Descomente se necessário
         };
 
         // Remove endpoints que o operador não precisa
@@ -289,35 +317,55 @@ const AppContent = () => {
             delete dataEndpoints.partners;
             delete dataEndpoints.comboioTransactions;
             delete dataEndpoints.fines;
-            // delete dataEndpoints.users; // Operador não deve ver lista de usuários
         }
 
         try {
-            // Cria um array de Promises para todas as chamadas GET
-            const promises = Object.entries(dataEndpoints).map(([key, { getter }]) => 
+            // Cria um array de Promises para todas as chamadas GET de DADOS
+            const dataPromises = Object.entries(dataEndpoints).map(([key, { getter }]) => 
                 getter().catch(err => { 
                     // Captura erro individualmente para não parar tudo
                     console.error(`Erro ao carregar ${key}:`, err);
-                    // Retorna null ou um array vazio para indicar falha parcial
-                    return Array.isArray(dataEndpoints[key].setter([])) ? [] : null; 
+                    return null; // Retorna null para indicar falha parcial
                 })
             );
             
+            // --- 1. ADICIONA A PROMISE DA MENSAGEM DE ATUALIZAÇÃO ---
+            // (Apenas se não for operador)
+            let updateMessagePromise = Promise.resolve(null); // Valor padrão
+            if (user.user_type !== 'operador') {
+                updateMessagePromise = apiClient.adminGetUpdateMessage().catch(err => {
+                    console.warn("Não foi possível carregar a mensagem de atualização:", err.message);
+                    return null; // Não bloqueia o app se isso falhar
+                });
+            }
+
             // Executa todas as chamadas em paralelo
-            const results = await Promise.all(promises);
-            console.log("Dados recebidos da API:", results);
+            // --- 2. EXECUTA AS DUAS PROMISES (DADOS E MENSAGEM) ---
+            const [dataResults, updateResult] = await Promise.all([
+                Promise.all(dataPromises), // O array original de promessas de dados
+                updateMessagePromise      // A nova promessa da mensagem
+            ]);
             
-            // Atualiza os estados com os resultados
+            console.log("Dados recebidos da API:", dataResults);
+            
+            // Atualiza os estados com os resultados dos DADOS
             let resultIndex = 0;
             for (const key of Object.keys(dataEndpoints)) {
-                if (results[resultIndex] !== null) { // Só atualiza se a chamada não falhou
-                     dataEndpoints[key].setter(results[resultIndex]);
+                if (dataResults[resultIndex] !== null) { // <-- Usa dataResults
+                     dataEndpoints[key].setter(dataResults[resultIndex]); // <-- Usa dataResults
                 } else {
                     // Mostra alerta se uma chamada específica falhou
                     setAlertMessage(prev => prev + `\nFalha ao carregar dados de ${key}.`);
                 }
                 resultIndex++;
             }
+
+            // --- 3. PROCESSA O RESULTADO DA MENSAGEM DE ATUALIZAÇÃO ---
+            if (updateResult && updateResult.showPopup) {
+                setUpdateMessage(updateResult.message);
+                setShowUpdateModal(true); // Ativa o modal
+            }
+            // --- FIM DAS ADIÇÕES ---
 
         } catch (error) {
             // Erro GERAL (ex: problema de rede antes das chamadas começarem)
@@ -354,6 +402,7 @@ const AppContent = () => {
         return (
             <>
                 {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}
+                {/* O Modal de Atualização NÃO será mostrado para operadores (lógica de fetch) */}
                 <DiarioDeBordoPage 
                     apiClient={apiClient} // Passa o apiClient
                     user={user} // Passa o usuário
@@ -363,8 +412,6 @@ const AppContent = () => {
                     setAlertMessage={setAlertMessage}
                     vehicleGroups={vehicleGroups}
                     diarioDeBordoLogs={diarioDeBordoLogs}
-                    // REMOVIDO: db, auth, getPublicCollectionPath
-                    // REMOVIDO: Lógica offline
                 />
             </>
         );
@@ -444,28 +491,40 @@ const AppContent = () => {
     // Renderização principal do conteúdo logado
     // ... (renderização do AppContent (sidebar + main) sem mudança) ...
     return (
-        <div className="flex h-screen bg-gray-100 text-gray-800 font-sans">
-           {/* Sidebar Component */}
-           <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} user={user} logout={logout} /> 
-           
-           {/* Conteúdo Principal */}
-           <main className="flex-1 flex flex-col overflow-hidden">
-               {/* Área de conteúdo rolável */}
-               <div className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 sm:p-6 lg:p-8">
-                   {/* Alerta Global */}
-                   {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}
-                   
-                   {/* Indicador de Carregamento ou Página Renderizada */}
-                   {loadingData ? (
-                       <div className="flex items-center justify-center h-full text-lg font-semibold">
-                           <Loader size={32} className="animate-spin mr-3" /> Carregando dados da frota...
-                       </div>
-                    ) : (
-                       renderPage() // Renderiza a página atual
-                    )}
-               </div>
-           </main>
-        </div>
+        // --- ADICIONADO FRAGMENTO <> E RENDERIZAÇÃO CONDICIONAL DO MODAL ---
+        <>
+            {/* Modal de Atualização (renderiza por cima de tudo) */}
+            {showUpdateModal && updateMessage && (
+                <UpdateMessageModal 
+                    message={updateMessage} 
+                    onClose={() => setShowUpdateModal(false)} 
+                />
+            )}
+        
+            <div className="flex h-screen bg-gray-100 text-gray-800 font-sans">
+            {/* Sidebar Component */}
+            <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} user={user} logout={logout} /> 
+            
+            {/* Conteúdo Principal */}
+            <main className="flex-1 flex flex-col overflow-hidden">
+                {/* Área de conteúdo rolável */}
+                <div className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 sm:p-6 lg:p-8">
+                    {/* Alerta Global */}
+                    {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}
+                    
+                    {/* Indicador de Carregamento ou Página Renderizada */}
+                    {loadingData ? (
+                        <div className="flex items-center justify-center h-full text-lg font-semibold">
+                            <Loader size={32} className="animate-spin mr-3" /> Carregando dados da frota...
+                        </div>
+                        ) : (
+                        renderPage() // Renderiza a página atual
+                        )}
+                </div>
+            </main>
+            </div>
+        </>
+        // --- FIM DAS ADIÇÕES ---
     );
 };
 
@@ -628,4 +687,3 @@ const AppContainer = () => {
 
 // Exporta o container principal
 export default AppContainer;
-
