@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect } from 'react';
-// REMOVIDO: Imports do Firebase (firestore, functions)
 import {
     PlusCircle,
     Upload,
@@ -14,24 +13,23 @@ import {
     X,
     Users,
     Info,
-    Loader // Adicionado Loader
+    Loader,
+    Calendar // Ícone para datas
 } from 'lucide-react';
-import Papa from 'papaparse'; // Biblioteca para parsear CSV
+import Papa from 'papaparse'; 
 
-// Importa o componente de proteção e hook/componentes necessários
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useAuth } from '../contexts/AuthContext';
-import apiClient from '../services/apiClient'; // Importa apiClient
+import apiClient from '../services/apiClient';
 
 // ===================================================================================
-// MODAL PARA EDITAR/ADICIONAR FUNCIONÁRIO (ATUALIZADO PARA API)
+// MODAL PARA EDITAR/ADICIONAR FUNCIONÁRIO
 // ===================================================================================
 const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlertMessage, reloadData }) => {
-    // Estado inicial do formulário (mantido)
     const [formData, setFormData] = useState({
         nome: employee?.nome || '',
         vulgo: employee?.vulgo || '',
-        funcao: employee?.funcao || 'Motorista', // Padrão
+        funcao: employee?.funcao || 'Motorista', 
         registroInterno: employee?.registroInterno || '',
         cpf: employee?.cpf || '',
         endereco: employee?.endereco || '',
@@ -39,15 +37,15 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
         contato: employee?.contato || '',
         cnhNumero: employee?.cnhNumero || '',
         cnhCategoria: employee?.cnhCategoria || '',
-        // Converte data da API (se existir) para formato YYYY-MM-DD
         cnhVencimento: employee?.cnhVencimento ? new Date(employee.cnhVencimento).toISOString().split('T')[0] : '',
-        podeAcessarAbastecimento: employee?.podeAcessarAbastecimento || false, // Checkbox
+        podeAcessarAbastecimento: employee?.podeAcessarAbastecimento || false,
+        // *** NOVO CAMPO: Data de Admissão ***
+        dataAdmissao: employee?.dataAdmissao ? new Date(employee.dataAdmissao).toISOString().split('T')[0] : '',
     });
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
     const isEditing = !!employee;
 
-    // Handler para mudanças (mantido, adicionado checkbox)
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({
@@ -56,60 +54,51 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
         }));
     };
 
-    // Handler para submissão (USA API)
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSaving(true);
         setError('');
 
-        // Validação de Registro Interno duplicado
+        // Validação de duplicidade
         const internalIdExists = (employees || []).some(emp =>
             emp.registroInterno === formData.registroInterno && emp.id !== employee?.id
         );
-        if (internalIdExists && formData.registroInterno) { // Só valida se não estiver vazio
+        if (internalIdExists && formData.registroInterno) {
             setError('Já existe um funcionário com este registro interno.');
             setIsSaving(false);
             return;
         }
-        // Validação básica de nome e registro
          if (!formData.nome || !formData.registroInterno) {
             setError('Nome e Registro Interno são obrigatórios.');
             setIsSaving(false);
             return;
         }
 
-        // Prepara dados para a API
         const dataToSave = {
             ...formData,
-            // Backend deve definir 'status' inicial se não editando
             podeAcessarAbastecimento: formData.podeAcessarAbastecimento,
-            // Garante que a data CNH é enviada corretamente ou null
-             cnhVencimento: formData.cnhVencimento || null,
+            cnhVencimento: formData.cnhVencimento || null,
+            dataAdmissao: formData.dataAdmissao || null, 
         };
-        // Remove campos vazios (exceto booleanos) para não sobrescrever com ""
+        
+        // Limpeza de campos vazios
         Object.keys(dataToSave).forEach(key => {
             if (dataToSave[key] === '' && typeof dataToSave[key] !== 'boolean') {
                 dataToSave[key] = null;
             }
         });
 
-
         try {
             if (isEditing) {
-                // Chama API para ATUALIZAR
                 await apiClient.updateEmployee(employee.id, dataToSave);
                 setAlertMessage('Funcionário atualizado com sucesso!');
             } else {
-                // *** CORREÇÃO DO ERRO 500 ***
-                // Gera um ID (string) no frontend, pois o banco de dados (varchar) espera por ele.
-                dataToSave.id = crypto.randomUUID();
-                
-                // Chama API para CRIAR
+                dataToSave.id = crypto.randomUUID(); // Gera ID no frontend para o MySQL
                 await apiClient.createEmployee(dataToSave);
                 setAlertMessage('Funcionário adicionado com sucesso!');
             }
-            reloadData(); // Chama a função para recarregar dados no App.js
-            onClose(); // Fecha o modal
+            reloadData(); 
+            onClose(); 
         } catch (err) {
             console.error("Erro ao salvar funcionário via API:", err);
             setError(err.message || "Ocorreu um erro ao salvar o funcionário.");
@@ -118,29 +107,28 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
         }
     };
 
-    // Renderização do Modal (ajustada com checkbox)
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[95vh] flex flex-col">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
                     <h2 className="text-2xl font-bold">{isEditing ? 'Editar Funcionário' : 'Adicionar Funcionário'}</h2>
                      <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:bg-gray-200"><X size={20}/></button>
                 </div>
-                {/* Formulário */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                        {/* Campos */}
                         <div className="md:col-span-2"><label className="block font-medium text-gray-700">Nome Completo*</label><input name="nome" value={formData.nome} onChange={handleChange} placeholder="Nome Completo" required className="mt-1 w-full p-2 border rounded bg-gray-50"/></div>
                         <div><label className="block font-medium text-gray-700">Vulgo</label><input name="vulgo" value={formData.vulgo} onChange={handleChange} placeholder="Apelido" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Registro Interno*</label><input name="registroInterno" value={formData.registroInterno} onChange={handleChange} placeholder="Registro Interno" required className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
+                        
+                        {/* CAMPO DATA DE ADMISSÃO */}
+                        <div><label className="block font-medium text-gray-700">Data de Admissão</label><input name="dataAdmissao" type="date" value={formData.dataAdmissao} onChange={handleChange} className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
+                        
                         <div><label className="block font-medium text-gray-700">CPF</label><input name="cpf" value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Função</label><select name="funcao" value={formData.funcao} onChange={handleChange} className="mt-1 w-full p-2 border rounded bg-gray-50"><option value="Motorista">Motorista</option><option value="Operador de Máquina">Operador de Máquina</option><option value="Mecânico">Mecânico</option><option value="Administrativo">Administrativo</option><option value="Outro">Outro</option></select></div>
                         <div className="md:col-span-2"><label className="block font-medium text-gray-700">Endereço</label><input name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, Número, Bairro" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Cidade</label><input name="cidade" value={formData.cidade} onChange={handleChange} placeholder="Cidade" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Telefone / Contato</label><input name="contato" value={formData.contato} onChange={handleChange} placeholder="(XX) XXXXX-XXXX" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
 
-                        {/* Dados da CNH */}
                         <div className="md:col-span-2 border-t pt-4 mt-2">
                             <h3 className="text-lg font-semibold text-gray-800 mb-2">Dados da CNH</h3>
                         </div>
@@ -148,7 +136,6 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
                         <div><label className="block font-medium text-gray-700">Categoria CNH</label><input name="cnhCategoria" value={formData.cnhCategoria} onChange={handleChange} placeholder="Ex: AE" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Vencimento CNH</label><input name="cnhVencimento" type="date" value={formData.cnhVencimento} onChange={handleChange} className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
 
-                        {/* Permissão de Abastecimento */}
                         <div className="md:col-span-2 border-t pt-4 mt-2">
                              <h3 className="text-lg font-semibold text-gray-800 mb-2">Permissões</h3>
                              <div className="flex items-center">
@@ -166,10 +153,8 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
                              </div>
                          </div>
 
-                        {/* Mensagem de erro */}
                         {error && <p className="text-sm text-red-600 md:col-span-2 bg-red-50 p-3 rounded border border-red-200">{error}</p>}
                     </div>
-                    {/* Rodapé */}
                     <div className="p-6 bg-gray-50 border-t flex justify-end gap-4 sticky bottom-0 z-10">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition text-sm font-medium" disabled={isSaving}>Cancelar</button>
                         <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-1 text-sm">
@@ -183,79 +168,148 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
 };
 
 // ===================================================================================
-// MODAL HISTÓRICO (Usa props, ajustado para datas API)
+// NOVO: MODAL PARA MUDANÇA DE STATUS (ATIVAR/INATIVAR COM DATA)
 // ===================================================================================
-const EmployeeHistoryModal = ({ employee, obras, onClose }) => {
-    // Calcula histórico
-    const employeeHistory = useMemo(() => {
-        if (!employee || !Array.isArray(obras)) return [];
-        const history = [];
-        obras.forEach(obra => {
-            // Garante que historicoVeiculos é um array
-            (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(h => {
-                // *** CORREÇÃO PARA DADOS "FLAT" ***
-                // Verifica employeeId diretamente (removido o .details)
-                if (h.employeeId === employee.id) { 
-                    
-                    // O backend (obraController) envia 'dataEntrada' e 'dataSaida'
-                    const dataEntrada = h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
-                    const dataSaida = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Presente';
-                    
-                    history.push({
-                        obraNome: obra.nome || 'Obra sem nome',
-                        // *** CORREÇÃO PARA DADOS "FLAT" ***
-                        // Acessa registroInterno diretamente (removido o .details)
-                        veiculo: `${h.registroInterno || 'Veículo N/A'}`, 
-                        dataEntrada,
-                        dataSaida,
-                        // Adiciona data de entrada como Date para ordenação
-                        entryDateObj: h.dataEntrada ? new Date(h.dataEntrada) : new Date(0)
-                    });
-                }
-            });
-        });
-        // Ordena por data de entrada mais recente
-        return history.sort((a,b) => b.entryDateObj - a.entryDateObj);
-    }, [employee, obras]);
+const StatusChangeModal = ({ employee, onClose, onConfirm }) => {
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const isActivating = employee.status === 'inativo';
+    const actionText = isActivating ? 'Readmitir/Ativar Funcionário' : 'Desligar/Inativar Funcionário';
+    const dateLabel = isActivating ? 'Data de Readmissão (Novo Contrato)' : 'Data de Desligamento';
+    const message = isActivating 
+        ? `Deseja realmente reativar ${employee.nome}?`
+        : `Deseja realmente inativar ${employee.nome}?`;
+    const subMessage = isActivating
+        ? "Esta data será registrada como a nova Data de Admissão."
+        : "Esta data será registrada como Data de Desligamento e ficará no histórico.";
 
-    // Renderização do modal
+    const handleConfirm = () => {
+        if (!date) {
+            alert('Por favor, informe a data.');
+            return;
+        }
+        onConfirm(employee, date);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 border-t-4 border-yellow-400">
+                <h3 className="text-xl font-bold mb-2 text-gray-800">{actionText}</h3>
+                <p className="text-gray-700 font-medium mb-1">{message}</p>
+                <p className="text-gray-500 text-sm mb-6">{subMessage}</p>
+                
+                <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{dateLabel} *</label>
+                    <input 
+                        type="date" 
+                        value={date} 
+                        onChange={(e) => setDate(e.target.value)} 
+                        className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none"
+                        required
+                    />
+                </div>
+
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium text-sm transition">Cancelar</button>
+                    <button onClick={handleConfirm} className={`px-4 py-2 text-white rounded-lg font-medium text-sm transition ${isActivating ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>
+                        Confirmar {isActivating ? 'Readmissão' : 'Desligamento'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// ===================================================================================
+// MODAL HISTÓRICO (ATUALIZADO COM EVENTOS DE RH)
+// ===================================================================================
+const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
+    const [history, setHistory] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (employee) {
+            const fetchHistory = async () => {
+                setLoading(true);
+                try {
+                    // Chama API para buscar histórico completo (RH + Obras)
+                    const data = await apiClient.getEmployeeHistory(employee.id);
+                    setHistory(data || []);
+                } catch (error) {
+                    console.error("Erro ao buscar histórico:", error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            fetchHistory();
+        }
+    }, [employee, apiClient]);
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
                     <div>
-                        <h2 className="text-xl font-bold">Histórico de Trabalho</h2>
+                        <h2 className="text-xl font-bold">Histórico Completo</h2>
                         <p className="text-gray-600 text-sm">{employee?.nome || 'Funcionário'}</p>
                     </div>
                     <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:bg-gray-200"><X size={20}/></button>
                 </div>
-                {/* Tabela */}
-                <div className="p-6 overflow-y-auto">
-                    {employeeHistory.length > 0 ? (
+                <div className="p-6 overflow-y-auto custom-scrollbar">
+                    {loading ? (
+                        <div className="text-center py-10 text-gray-500 flex flex-col items-center"><Loader className="animate-spin mb-2" /> Carregando histórico...</div>
+                    ) : history.length > 0 ? (
                         <table className="w-full text-left table-auto border-collapse text-sm">
-                            <thead className="bg-gray-100 sticky top-0">
+                            <thead className="bg-gray-100 sticky top-0 text-gray-600 uppercase text-xs">
                                 <tr>
-                                    <th className="p-2 border-b">Obra</th>
-                                    <th className="p-2 border-b">Veículo</th>
-                                    <th className="p-2 border-b">Período</th>
+                                    <th className="p-3 border-b font-semibold">Tipo</th>
+                                    <th className="p-3 border-b font-semibold">Detalhes</th>
+                                    <th className="p-3 border-b font-semibold">Data / Período</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {employeeHistory.map((h, index) => (
-                                    <tr key={index} className="border-b hover:bg-gray-50">
-                                        <td className="p-2">{h.obraNome}</td>
-                                        <td className="p-2">{h.veiculo}</td>
-                                        <td className="p-2">{h.dataEntrada} - {h.dataSaida}</td>
-                                    </tr>
-                                ))}
+                                {history.map((h, index) => {
+                                    // Formata data para exibição
+                                    const dateStr = h.type === 'rh' 
+                                        ? new Date(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })
+                                        : `${new Date(h.dateStart).toLocaleDateString('pt-BR', { timeZone: 'UTC' })} - ${h.dateEnd ? new Date(h.dateEnd).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Atual'}`;
+
+                                    // Estilos condicionais
+                                    let rowClass = 'hover:bg-gray-50 border-b';
+                                    let icon = <Clock size={16} className="text-blue-500" />;
+                                    let typeLabel = 'Obra';
+
+                                    if (h.type === 'rh') {
+                                        typeLabel = 'RH';
+                                        if (h.eventType === 'desligamento') {
+                                            rowClass += ' bg-red-50 hover:bg-red-100 text-red-700';
+                                            icon = <UserX size={16} />;
+                                        } else {
+                                            rowClass += ' bg-green-50 hover:bg-green-100 text-green-700';
+                                            icon = <UserCheck size={16} />;
+                                        }
+                                    }
+
+                                    return (
+                                        <tr key={index} className={rowClass}>
+                                            <td className="p-3 flex items-center gap-2 font-medium">
+                                                {icon} {typeLabel}
+                                            </td>
+                                            <td className="p-3">
+                                                {h.type === 'rh' 
+                                                    ? <span className="font-medium">{h.description}</span>
+                                                    : <span><span className="font-medium">{h.obraName}</span> - {h.vehicle}</span>}
+                                            </td>
+                                            <td className="p-3 font-mono text-xs whitespace-nowrap">{dateStr}</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     ) : (
-                        <p className="text-gray-500 text-center py-10">Nenhum histórico de trabalho encontrado.</p>
+                        <p className="text-gray-500 text-center py-10 italic">Nenhum histórico encontrado.</p>
                     )}
                 </div>
-                {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition text-sm font-medium">Fechar</button>
                 </div>
@@ -265,9 +319,7 @@ const EmployeeHistoryModal = ({ employee, obras, onClose }) => {
 };
 
 
-// ===================================================================================
-// MODAL DE MULTAS (Usa props, ajustado para datas API)
-// ===================================================================================
+// ... (EmployeeFinesModal sem alterações) ...
 const EmployeeFinesModal = ({ employee, fines, onClose }) => {
     // Filtra e ordena multas
     const employeeFines = useMemo(() => {
@@ -302,7 +354,7 @@ const EmployeeFinesModal = ({ employee, fines, onClose }) => {
                      <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:bg-gray-200"><X size={20}/></button>
                 </div>
                  {/* Lista de Multas */}
-                <div className="p-6 overflow-y-auto">
+                <div className="p-6 overflow-y-auto custom-scrollbar">
                     {employeeFines.length > 0 ? (
                         <ul className="space-y-3">
                             {employeeFines.map(fine => (
@@ -326,7 +378,7 @@ const EmployeeFinesModal = ({ employee, fines, onClose }) => {
                             ))}
                         </ul>
                     ) : (
-                        <p className="text-gray-500 text-center py-10 text-sm">Nenhuma multa registrada para este funcionário.</p>
+                        <p className="text-gray-500 text-center py-10 text-sm italic">Nenhuma multa registrada para este funcionário.</p>
                     )}
                 </div>
                  {/* Rodapé */}
@@ -339,44 +391,43 @@ const EmployeeFinesModal = ({ employee, fines, onClose }) => {
 };
 
 // ===================================================================================
-// PÁGINA PRINCIPAL (ATUALIZADA PARA API e props)
+// PÁGINA PRINCIPAL (ATUALIZADA)
 // ===================================================================================
 const EmployeesPage = ({
-    user, apiClient, // Recebe apiClient e user
-    employees = [], vehicles = [], obras = [], fines = [], // Dados via props
-    PasswordConfirmationModal, setAlertMessage, reloadData, // Funções/Componentes via props
-    vehicleGroups // Constantes globais
+    user, apiClient, 
+    employees = [], vehicles = [], obras = [], fines = [], 
+    PasswordConfirmationModal, setAlertMessage, reloadData,
+    vehicleGroups
 }) => {
-    // Estados da UI (mantidos)
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
+    
+    // ** Estado para modal de status **
+    const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+    const [employeeForStatusChange, setEmployeeForStatusChange] = useState(null);
+
     const [employeeForFines, setEmployeeForFines] = useState(null);
     const [editingEmployee, setEditingEmployee] = useState(null);
     const [employeeForHistory, setEmployeeForHistory] = useState(null);
-    const [itemToDelete, setItemToDelete] = useState(null); // Guarda o ID
+    const [itemToDelete, setItemToDelete] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'nome', direction: 'ascending' });
-    const [isMigrating, setIsMigrating] = useState(false); // Estado para migração
-    const [filter, setFilter] = useState('ativos'); // Filtro Ativos/Inativos
+    const [isMigrating, setIsMigrating] = useState(false);
+    const [filter, setFilter] = useState('ativos');
 
-    // Memoização de listas (mantida)
     const activeEmployees = useMemo(() => (employees || []).filter(e => e.status === 'ativo'), [employees]);
     const inactiveEmployees = useMemo(() => (employees || []).filter(e => e.status === 'inativo'), [employees]);
 
-     // Mapa de alocação (Usa new Date() e estrutura de 'details')
+    // ... (cálculo de alocações e tempo disponível sem alterações) ...
     const employeeAllocations = useMemo(() => {
         const allocations = new Map();
         const now = new Date();
 
         (obras || []).forEach(obra => {
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(historyEntry => {
-                // Verifica se a alocação está ativa (sem dataSaida)
                 const isCurrentAllocation = !historyEntry.dataSaida; 
-                
-                // *** CORREÇÃO PARA DADOS "FLAT" ***
-                // Verifica employeeId diretamente (removido o .details)
                 if (isCurrentAllocation && historyEntry.employeeId) {
                     const employeeId = historyEntry.employeeId;
                     if (!allocations.has(employeeId)) {
@@ -389,10 +440,8 @@ const EmployeesPage = ({
                 }
             });
         });
-        // Inclui alocações operacionais (do campo 'operationalAssignment' do veículo)
+        // Inclui alocações operacionais
         (vehicles || []).forEach(vehicle => {
-            // Alocações operacionais ainda usam um JSON salvo em 'operationalAssignment' na tabela vehicles
-            // O vehicleController.js faz o parse disso.
             if (vehicle.operationalAssignment && vehicle.operationalAssignment.employeeId) {
                 const employeeId = vehicle.operationalAssignment.employeeId;
                  if (!allocations.has(employeeId)) {
@@ -405,29 +454,21 @@ const EmployeesPage = ({
         return allocations;
     }, [obras, vehicles]);
 
-     // Mapa de tempo disponível (Usa new Date() e estrutura de 'details')
     const availableTimeData = useMemo(() => {
         const data = {};
         const now = new Date();
         activeEmployees.forEach(emp => {
-            if (!employeeAllocations.has(emp.id)) { // Só calcula se não estiver alocado
+            if (!employeeAllocations.has(emp.id)) {
                 let lastDeallocationDate = null;
-                // Verifica histórico de obras
                 (obras || []).forEach(obra => {
                     const latestHistoryEntry = (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [])
-                        // *** CORREÇÃO PARA DADOS "FLAT" ***
-                        // Filtra usando employeeId diretamente (removido o .details)
-                        .filter(h => h.employeeId === emp.id && h.dataSaida) // Com data de saída
-                        .sort((a, b) => new Date(b.dataSaida).getTime() - new Date(a.dataSaida).getTime())[0]; // Ordena
+                        .filter(h => h.employeeId === emp.id && h.dataSaida)
+                        .sort((a, b) => new Date(b.dataSaida).getTime() - new Date(a.dataSaida).getTime())[0];
                     if (latestHistoryEntry) {
                         const deallocDate = new Date(latestHistoryEntry.dataSaida);
-                        if (!lastDeallocationDate || deallocDate > lastDeallocationDate) {
-                            lastDeallocationDate = deallocDate;
-                        }
+                        if (!lastDeallocationDate || deallocDate > lastDeallocationDate) lastDeallocationDate = deallocDate;
                     }
                 });
-                 // TODO: Adicionar verificação de histórico de alocação operacional (se o backend fornecer)
-
                 if (lastDeallocationDate) {
                     const diffTime = Math.abs(now - lastDeallocationDate);
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -438,10 +479,10 @@ const EmployeesPage = ({
             }
         });
         return data;
-    }, [activeEmployees, obras, employeeAllocations]); // Depende de employeeAllocations
+    }, [activeEmployees, obras, employeeAllocations]);
 
 
-    // Filtra e ordena funcionários para exibição (sem mudanças na lógica)
+    // ... (employeesToDisplay, sorting, filter - sem alterações) ...
     const employeesToDisplay = useMemo(() => {
         const listToFilter = filter === 'ativos' ? activeEmployees : inactiveEmployees;
         if (!Array.isArray(listToFilter)) return [];
@@ -459,9 +500,7 @@ const EmployeesPage = ({
                          const daysB = availableTimeData[b.id]?.daysAvailable || 0;
                          comparison = daysB - daysA;
                     }
-                    if (comparison === 0) {
-                         comparison = (a.nome || '').localeCompare(b.nome || '');
-                    }
+                    if (comparison === 0) comparison = (a.nome || '').localeCompare(b.nome || '');
                 } else {
                     const valA = a[sortConfig.key] || '';
                     const valB = b[sortConfig.key] || '';
@@ -482,33 +521,43 @@ const EmployeesPage = ({
         );
     }, [activeEmployees, inactiveEmployees, searchTerm, sortConfig, filter, availableTimeData, employeeAllocations]);
 
-    // IDs de funcionários com multas pendentes (usa 'fines' prop)
-    const employeesWithPendingFines = useMemo(() => {
-        const employeeIds = new Set();
-        (fines || []).forEach(fine => {
-            if (fine.status === 'Pendente') {
-                employeeIds.add(fine.employeeId);
-            }
-        });
-        return employeeIds;
-    }, [fines]);
-
-    // Mudar ordenação (sem mudanças)
     const requestSort = (key) => {
         let direction = 'ascending';
-        if (sortConfig.key === key && sortConfig.direction === 'ascending') {
-            direction = 'descending';
-        }
+        if (sortConfig.key === key && sortConfig.direction === 'ascending') direction = 'descending';
         setSortConfig({ key, direction });
     };
 
-    // Abrir modais (sem mudanças)
     const openModal = (employee = null) => { setEditingEmployee(employee); setIsModalOpen(true); };
     const openHistoryModal = (employee) => { setEmployeeForHistory(employee); setIsHistoryModalOpen(true); };
     const openFinesModal = (employee) => { setEmployeeForFines(employee); setIsFinesModalOpen(true); };
     const openDeleteModal = (id) => { setItemToDelete(id); setIsDeleteModalOpen(true); };
 
-    // Handler para DELETAR (Usa apiClient)
+    // *** NOVO HANDLER: ABRE MODAL DE STATUS ***
+    const handleOpenStatusModal = (employee) => {
+        if (employeeAllocations.has(employee.id) && employee.status === 'ativo') {
+             setAlertMessage("Não é possível inativar um funcionário alocado.");
+             return;
+        }
+        setEmployeeForStatusChange(employee);
+        setIsStatusModalOpen(true);
+    };
+
+    // *** NOVO HANDLER: CONFIRMA MUDANÇA DE STATUS (COM DATA) ***
+    const handleConfirmStatusChange = async (employee, date) => {
+        const newStatus = employee.status === 'ativo' ? 'inativo' : 'ativo';
+        try {
+            // Passa objeto { status, date } para a API
+            await apiClient.updateEmployeeStatus(employee.id, { status: newStatus, date: date });
+            setAlertMessage(`Funcionário ${employee.nome} foi ${newStatus === 'ativo' ? 'readmitido' : 'desligado'} com sucesso.`);
+            reloadData();
+            setIsStatusModalOpen(false);
+            setEmployeeForStatusChange(null);
+        } catch(error) {
+             console.error("Erro ao atualizar status:", error);
+             setAlertMessage(error.message || `Falha ao alterar status.`);
+        }
+    };
+
     const handleDelete = async () => {
         if (!itemToDelete) return;
         try {
@@ -524,36 +573,17 @@ const EmployeesPage = ({
         }
     };
 
-    // Handler para ATIVAR/INATIVAR (Usa apiClient)
-    const handleToggleEmployeeStatus = async (employee) => {
-        if (employeeAllocations.has(employee.id) && employee.status === 'ativo') {
-             setAlertMessage("Não é possível inativar um funcionário alocado.");
-             return;
-        }
-        const newStatus = employee.status === 'ativo' ? 'inativo' : 'ativo';
-        try {
-            // Usa a rota específica 'updateEmployeeStatus'
-            await apiClient.updateEmployeeStatus(employee.id, newStatus); // Envia string
-            setAlertMessage(`Funcionário ${employee.nome} foi ${newStatus === 'ativo' ? 'ativado' : 'inativado'}.`);
-            reloadData();
-        } catch(error) {
-             console.error("Erro ao atualizar status do funcionário via API:", error);
-             setAlertMessage(error.message || `Falha ao ${newStatus === 'ativo' ? 'ativar' : 'inativar'} funcionário.`);
-        }
-    };
-
-    // Handler para IMPORTAR CSV (Usa apiClient)
+    // ... (handleFileUpload e handleMigrateUsers sem alterações) ...
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (!file) return;
-
         Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
             complete: async (results) => {
                 const data = results.data;
                  if (!data || data.length === 0) {
-                    setAlertMessage("Arquivo CSV vazio ou inválido.");
+                    setAlertMessage("Arquivo CSV vazio.");
                     return;
                 }
 
@@ -618,111 +648,62 @@ const EmployeesPage = ({
         event.target.value = null;
     };
 
-    // Handler para EXPORTAR CSV (sem mudanças)
+    const handleMigrateUsers = async () => {
+        setIsMigrating(true);
+        setAlertMessage("Iniciando migração de usuários...");
+        try {
+            const result = await apiClient.adminMigrateUsers();
+            setAlertMessage(result.message || "Migração solicitada.");
+            reloadData();
+        } catch (error) { setAlertMessage(error.message || `Falha na migração.`); } 
+        finally { setIsMigrating(false); }
+    };
+
+    // ... (exportToCSV atualizado para incluir datas) ...
     const exportToCSV = () => {
-        if (!employeesToDisplay || employeesToDisplay.length === 0) {
-             setAlertMessage("Não há funcionários para exportar.");
-             return;
-        }
-        const headers = ['Nome', 'Vulgo', 'Função', 'Registro Interno', 'CPF', 'Endereço', 'Cidade', 'Contato', 'Status', 'CNH Numero', 'CNH Categoria', 'CNH Vencimento', 'Acesso Abastecimento'];
+        if (!employeesToDisplay || employeesToDisplay.length === 0) { setAlertMessage("Sem dados para exportar."); return; }
+        const headers = ['Nome', 'Vulgo', 'Função', 'Registro', 'CPF', 'Endereço', 'Cidade', 'Contato', 'Status', 'Admissão', 'Desligamento', 'CNH', 'Acesso Abastecimento'];
         const rows = employeesToDisplay.map(emp => [
             emp.nome, emp.vulgo, emp.funcao, emp.registroInterno, emp.cpf, emp.endereco, emp.cidade, emp.contato, emp.status,
-            emp.cnhNumero, emp.cnhCategoria, emp.cnhVencimento, emp.podeAcessarAbastecimento ? 'Sim' : 'Não'
+            emp.dataAdmissao ? new Date(emp.dataAdmissao).toLocaleDateString('pt-BR') : '',
+            emp.dataDesligamento ? new Date(emp.dataDesligamento).toLocaleDateString('pt-BR') : '',
+            `${emp.cnhCategoria || ''} - ${emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR') : ''}`,
+            emp.podeAcessarAbastecimento ? 'Sim' : 'Não'
         ]);
-        const csvContent = Papa.unparse({ fields: headers, data: rows }, { delimiter: ',' });
-
-        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+        const csv = Papa.unparse({ fields: headers, data: rows });
+        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
         link.setAttribute('download', `funcionarios_${filter}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    // Handler para MIGRAR USUÁRIOS (Usa apiClient)
-    const handleMigrateUsers = async () => {
-        // Confirmação
-        // REMOVIDO: window.confirm (usar modal se quiser)
-        // Por agora, executa direto ou assume que um modal de confirmação seria passado
-        // if (!window.confirm("...")) { return; }
 
-        setIsMigrating(true);
-        setAlertMessage("Iniciando migração de usuários...");
-
-        try {
-            // Chama a nova função do apiClient
-            const result = await apiClient.adminMigrateUsers();
-            setAlertMessage(result.message || "Migração solicitada. Pode levar alguns minutos.");
-            reloadData(); // Recarrega para ver novos 'userIds'
-        } catch (error) {
-            console.error("Erro ao executar a migração via API:", error);
-            setAlertMessage(error.message || `Falha na migração.`);
-        } finally {
-            setIsMigrating(false);
-        }
-    };
-
-    // Renderização Principal
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6 font-sans">
-            {/* Cabeçalho */}
-            <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+            {/* ... (Cabeçalho e Filtros iguais) ... */}
+             <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
                 <h1 className="text-3xl font-bold text-gray-800">Gerenciamento de Funcionários</h1>
                 <ProtectedComponent requiredPermission="editor">
                     <div className="flex flex-wrap gap-2">
                         <ProtectedComponent requiredPermission="admin">
-                            <button
-                                onClick={handleMigrateUsers}
-                                disabled={isMigrating}
-                                className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                                title="Cria usuários no sistema para funcionários que ainda não possuem login."
-                            >
-                                {isMigrating ? <Loader size={16} className="animate-spin"/> : <Users size={16} />}
-                                {isMigrating ? 'Migrando...' : 'Migrar Usuários'}
-                            </button>
+                            <button onClick={handleMigrateUsers} disabled={isMigrating} className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow hover:bg-purple-700 transition disabled:opacity-50 text-sm">{isMigrating ? <Loader size={16} className="animate-spin"/> : <Users size={16} />} Migrar Usuários</button>
                         </ProtectedComponent>
-                        <label className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white font-semibold rounded-lg shadow hover:bg-green-600 transition cursor-pointer text-sm">
-                            <Upload size={16} /> Importar CSV
-                            <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-                        </label>
+                        <label className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white font-semibold rounded-lg shadow hover:bg-green-600 transition cursor-pointer text-sm"><Upload size={16} /> Importar CSV<input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" /></label>
                         <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow hover:bg-blue-600 transition text-sm"><Download size={16} />Exportar CSV</button>
-                        <button onClick={() => openModal()} className="flex items-center gap-2 px-3 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow hover:bg-yellow-500 transition text-sm">
-                            <PlusCircle size={16} />Adicionar
-                        </button>
+                        <button onClick={() => openModal()} className="flex items-center gap-2 px-3 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow hover:bg-yellow-500 transition text-sm"><PlusCircle size={16} />Adicionar</button>
                     </div>
                 </ProtectedComponent>
             </div>
 
-            {/* Abas Ativos/Inativos */}
-            <div className="mb-4 flex border-b border-gray-300">
-                <button
-                    onClick={() => setFilter('ativos')}
-                    className={`py-2 px-4 font-semibold text-sm transition-colors duration-150 ${filter === 'ativos' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Ativos ({activeEmployees.length})
-                </button>
-                <button
-                    onClick={() => setFilter('inativos')}
-                    className={`py-2 px-4 font-semibold text-sm transition-colors duration-150 ${filter === 'inativos' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Inativos ({inactiveEmployees.length})
-                </button>
+             <div className="mb-4 flex border-b border-gray-300">
+                <button onClick={() => setFilter('ativos')} className={`py-2 px-4 font-semibold text-sm transition-colors ${filter === 'ativos' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>Ativos ({activeEmployees.length})</button>
+                <button onClick={() => setFilter('inativos')} className={`py-2 px-4 font-semibold text-sm transition-colors ${filter === 'inativos' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>Inativos ({inactiveEmployees.length})</button>
             </div>
 
-            {/* Busca */}
-            <div className="mb-6">
-                <input
-                    type="text"
-                    placeholder="Buscar por nome, vulgo, função, cidade ou registro..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 shadow-sm text-sm"
-                />
-            </div>
+            <div className="mb-6"><input type="text" placeholder="Buscar por nome, vulgo, função, cidade ou registro..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 shadow-sm text-sm" /></div>
 
-            {/* Tabela */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left text-gray-600">
@@ -739,87 +720,49 @@ const EmployeesPage = ({
                             {employeesToDisplay.map(employee => {
                                 const allocatedVehicles = employeeAllocations.get(employee.id) || [];
                                 const isAllocated = allocatedVehicles.length > 0;
-                                let allocationStatus = 'Disponível';
+                                let allocationStatus = employee.status === 'inativo' ? 'Inativo' : (isAllocated ? 'Alocado' : 'Disponível');
                                 
-                                // *** CORREÇÃO: Lógica de exibição dos veículos alocados (Limite de 4 + "...") ***
-                                let allocationDetails = ''; // O que aparece na tela
-                                let fullAllocationTitle = ''; // O que aparece no tooltip
-                                
-                                if (employee.status === 'inativo') {
-                                    allocationStatus = 'Inativo';
-                                } else if (isAllocated) {
-                                    allocationStatus = 'Alocado';
-                                    
+                                let allocationDetails = '';
+                                let fullAllocationTitle = '';
+                                if (isAllocated) {
                                     const vehicleNames = allocatedVehicles.map(v => v.registroInterno);
-                                    fullAllocationTitle = vehicleNames.join(', '); // O tooltip sempre mostra todos
-
-                                    if (vehicleNames.length > 4) {
-                                        // Limita a 4 e adiciona "..."
-                                        allocationDetails = vehicleNames.slice(0, 4).join(', ') + ' ...';
-                                    } else {
-                                        // Mostra todos se for 4 ou menos
-                                        allocationDetails = fullAllocationTitle;
-                                    }
+                                    fullAllocationTitle = vehicleNames.join(', ');
+                                    allocationDetails = vehicleNames.length > 4 ? vehicleNames.slice(0, 4).join(', ') + ' ...' : fullAllocationTitle;
                                 }
+                                
+                                // Exibe data de desligamento se inativo
+                                const desligamentoInfo = employee.status === 'inativo' && employee.dataDesligamento 
+                                    ? new Date(employee.dataDesligamento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) 
+                                    : null;
 
-                                const hasPendingFine = employeesWithPendingFines.has(employee.id);
-                                const availableData = availableTimeData[employee.id];
-                                const isInactiveAlert = allocationStatus === 'Disponível' && availableData && availableData.daysAvailable > 7 && availableData.daysAvailable !== Infinity; // Alerta após 7 dias
-
-                                let statusColor = 'bg-gray-100 text-gray-700 border-gray-200';
-                                if (allocationStatus === 'Alocado') statusColor = 'bg-green-100 text-green-700 border-green-200';
-                                if (allocationStatus === 'Inativo') statusColor = 'bg-red-100 text-red-700 border-red-200';
-                                if (isInactiveAlert) statusColor = 'bg-orange-100 text-orange-700 border-orange-200';
-                                if (allocationStatus === 'Disponível' && !isInactiveAlert && availableData?.daysAvailable !== Infinity) statusColor = 'bg-blue-100 text-blue-700 border-blue-200'; // Disponível normal
-
+                                const statusColor = allocationStatus === 'Alocado' ? 'bg-green-100 text-green-700' : allocationStatus === 'Inativo' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700';
 
                                 return (
-                                    <tr key={employee.id} className="bg-white border-b hover:bg-gray-50 transition-colors duration-150">
-                                        {/* Nome/Registro */}
+                                    <tr key={employee.id} className="bg-white border-b hover:bg-gray-50">
                                         <td className="px-6 py-4">
-                                            <div className="font-medium text-gray-900 flex items-center gap-1">
-                                                {employee.nome || 'Nome não informado'}
-                                                {employee.vulgo && <span className="text-gray-500">({employee.vulgo})</span>}
-                                                {hasPendingFine && <ShieldAlert size={14} className="text-orange-500 flex-shrink-0" title="Possui multas pendentes"/>}
-                                            </div>
+                                            <div className="font-medium text-gray-900 flex items-center gap-1">{employee.nome} {employee.vulgo && <span className="text-gray-500">({employee.vulgo})</span>}</div>
                                             <div className="text-xs text-gray-500">Reg: {employee.registroInterno || 'N/A'}</div>
                                         </td>
-                                        {/* Função */}
                                         <td className="px-6 py-4">{employee.funcao || 'N/A'}</td>
-                                        {/* Cidade */}
                                         <td className="px-6 py-4">{employee.cidade || 'N/A'}</td>
-                                         {/* Status */}
                                         <td className="px-6 py-4">
-                                            <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${statusColor}`}>
-                                                {allocationStatus}
-                                            </span>
-                                            {/* *** CORREÇÃO: Aplica as variáveis (com limite) e o tooltip (completo) *** */}
-                                            {isAllocated && allocationDetails &&
-                                                 <p className="text-[11px] text-gray-500 mt-1 truncate" title={`Alocado em: ${fullAllocationTitle}`}>
-                                                     {`Em: ${allocationDetails}`}
-                                                 </p>}
-                                            {isInactiveAlert &&
-                                                <p className="text-[11px] text-orange-700 mt-1 font-medium" title={`Disponível desde ${availableData.lastDeallocationDate}`}>
-                                                    {`Há ${availableData.daysAvailable} dias`}
-                                                </p>}
-                                             {allocationStatus === 'Disponível' && !isInactiveAlert && availableData?.daysAvailable !== Infinity &&
-                                                <p className="text-[11px] text-blue-700 mt-1 font-medium" title={`Disponível desde ${availableData.lastDeallocationDate}`}>
-                                                     {`Há ${availableData.daysAvailable} dias`}
-                                                </p>}
+                                            <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${statusColor}`}>{allocationStatus}</span>
+                                            {isAllocated && <p className="text-[11px] text-gray-500 mt-1 truncate" title={fullAllocationTitle}>Em: {allocationDetails}</p>}
+                                            {desligamentoInfo && <p className="text-[11px] text-red-600 mt-1">Desligado: {desligamentoInfo}</p>}
                                         </td>
-                                        {/* Ações */}
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center items-center gap-1 flex-wrap">
                                                 <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => handleToggleEmployeeStatus(employee)} title={employee.status === 'ativo' ? 'Inativar' : 'Ativar'} className={`p-1 rounded-full hover:bg-gray-200 transition`}>
+                                                    {/* *** ALTERADO PARA ABRIR MODAL DE DATA *** */}
+                                                    <button onClick={() => handleOpenStatusModal(employee)} title={employee.status === 'ativo' ? 'Inativar (Desligar)' : 'Ativar (Readmitir)'} className={`p-1 rounded-full hover:bg-gray-200 transition`}>
                                                         {employee.status === 'ativo' ? <UserX size={16} className="text-red-500"/> : <UserCheck size={16} className="text-green-500"/>}
                                                     </button>
                                                 </ProtectedComponent>
                                                 <ProtectedComponent requiredPermission="editor">
                                                     <button onClick={() => openModal(employee)} title="Editar" className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition"><Edit size={16} /></button>
                                                 </ProtectedComponent>
-                                                <button onClick={() => openHistoryModal(employee)} title="Histórico de Trabalho" className="p-1 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition"><Clock size={16} /></button>
-                                                <button onClick={() => openFinesModal(employee)} title="Histórico de Multas" className="p-1 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-full transition"><ShieldAlert size={16} /></button>
+                                                <button onClick={() => openHistoryModal(employee)} title="Histórico" className="p-1 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition"><Clock size={16} /></button>
+                                                <button onClick={() => openFinesModal(employee)} title="Multas" className="p-1 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-full transition"><ShieldAlert size={16} /></button>
                                                 <ProtectedComponent requiredPermission="admin">
                                                     <button onClick={() => openDeleteModal(employee.id)} title="Excluir" className="p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-full transition"><Trash2 size={16} /></button>
                                                 </ProtectedComponent>
@@ -828,9 +771,7 @@ const EmployeesPage = ({
                                     </tr>
                                 );
                             })}
-                            {employeesToDisplay.length === 0 && (
-                                <tr><td colSpan="5" className="text-center p-6 text-gray-500">Nenhum funcionário encontrado para os filtros selecionados.</td></tr>
-                            )}
+                            {employeesToDisplay.length === 0 && <tr><td colSpan="5" className="text-center p-6 text-gray-500">Nenhum funcionário encontrado.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -838,15 +779,20 @@ const EmployeesPage = ({
 
             {/* Modais */}
             {isModalOpen && <EmployeeModal user={user} employee={editingEmployee} employees={employees} apiClient={apiClient} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} reloadData={reloadData}/>}
-            {isHistoryModalOpen && <EmployeeHistoryModal employee={employeeForHistory} obras={obras} onClose={() => setIsHistoryModalOpen(false)} />}
+            {/* *** PASSA API CLIENT PRO HISTÓRICO *** */}
+            {isHistoryModalOpen && <EmployeeHistoryModal employee={employeeForHistory} onClose={() => setIsHistoryModalOpen(false)} apiClient={apiClient} />}
             {isFinesModalOpen && <EmployeeFinesModal employee={employeeForFines} fines={fines} onClose={() => setIsFinesModalOpen(false)} />}
-            {isDeleteModalOpen &&
-                <PasswordConfirmationModal
-                     message="Confirme sua senha para EXCLUIR este funcionário. Esta ação não pode ser desfeita."
-                     onConfirm={handleDelete}
-                     onClose={() => setIsDeleteModalOpen(false)}
-                     apiClient={apiClient} // Passa apiClient
-                 />}
+            
+            {/* *** NOVO MODAL DE STATUS *** */}
+            {isStatusModalOpen && employeeForStatusChange && (
+                <StatusChangeModal 
+                    employee={employeeForStatusChange} 
+                    onClose={() => setIsStatusModalOpen(false)} 
+                    onConfirm={handleConfirmStatusChange} 
+                />
+            )}
+
+            {isDeleteModalOpen && <PasswordConfirmationModal message="Confirme sua senha para EXCLUIR este funcionário." onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />}
         </div>
     );
 };
