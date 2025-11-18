@@ -193,20 +193,23 @@ const EmployeeHistoryModal = ({ employee, obras, onClose }) => {
         obras.forEach(obra => {
             // Garante que historicoVeiculos é um array
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(h => {
-                if (h.details?.employeeId === employee.id) { // Verifica employeeId dentro de details
+                // *** CORREÇÃO PARA DADOS "FLAT" ***
+                // Verifica employeeId diretamente (removido o .details)
+                if (h.employeeId === employee.id) { 
                     
-                    // *** CORREÇÃO DO PERÍODO: Mudar de startDate/endDate para dataEntrada/dataSaida ***
                     // O backend (obraController) envia 'dataEntrada' e 'dataSaida'
                     const dataEntrada = h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
                     const dataSaida = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Presente';
                     
                     history.push({
                         obraNome: obra.nome || 'Obra sem nome',
-                        veiculo: `${h.details?.vehicleRegistroInterno || 'Veículo N/A'}`,
+                        // *** CORREÇÃO PARA DADOS "FLAT" ***
+                        // Acessa registroInterno diretamente (removido o .details)
+                        veiculo: `${h.registroInterno || 'Veículo N/A'}`, 
                         dataEntrada,
                         dataSaida,
                         // Adiciona data de entrada como Date para ordenação
-                        entryDateObj: h.dataEntrada ? new Date(h.dataEntrada) : new Date(0) // *** CORREÇÃO AQUI TAMBÉM ***
+                        entryDateObj: h.dataEntrada ? new Date(h.dataEntrada) : new Date(0)
                     });
                 }
             });
@@ -370,10 +373,12 @@ const EmployeesPage = ({
         (obras || []).forEach(obra => {
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(historyEntry => {
                 // Verifica se a alocação está ativa (sem dataSaida)
-                // *** CORREÇÃO: Usa dataSaida ao invés de endDate ***
                 const isCurrentAllocation = !historyEntry.dataSaida; 
-                if (isCurrentAllocation && historyEntry.details?.employeeId) {
-                    const employeeId = historyEntry.details.employeeId;
+                
+                // *** CORREÇÃO PARA DADOS "FLAT" ***
+                // Verifica employeeId diretamente (removido o .details)
+                if (isCurrentAllocation && historyEntry.employeeId) {
+                    const employeeId = historyEntry.employeeId;
                     if (!allocations.has(employeeId)) {
                         allocations.set(employeeId, []);
                     }
@@ -386,6 +391,8 @@ const EmployeesPage = ({
         });
         // Inclui alocações operacionais (do campo 'operationalAssignment' do veículo)
         (vehicles || []).forEach(vehicle => {
+            // Alocações operacionais ainda usam um JSON salvo em 'operationalAssignment' na tabela vehicles
+            // O vehicleController.js faz o parse disso.
             if (vehicle.operationalAssignment && vehicle.operationalAssignment.employeeId) {
                 const employeeId = vehicle.operationalAssignment.employeeId;
                  if (!allocations.has(employeeId)) {
@@ -408,8 +415,9 @@ const EmployeesPage = ({
                 // Verifica histórico de obras
                 (obras || []).forEach(obra => {
                     const latestHistoryEntry = (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [])
-                        // *** CORREÇÃO: Usa dataSaida ao invés de endDate ***
-                        .filter(h => h.details?.employeeId === emp.id && h.dataSaida) // Com data de saída
+                        // *** CORREÇÃO PARA DADOS "FLAT" ***
+                        // Filtra usando employeeId diretamente (removido o .details)
+                        .filter(h => h.employeeId === emp.id && h.dataSaida) // Com data de saída
                         .sort((a, b) => new Date(b.dataSaida).getTime() - new Date(a.dataSaida).getTime())[0]; // Ordena
                     if (latestHistoryEntry) {
                         const deallocDate = new Date(latestHistoryEntry.dataSaida);
