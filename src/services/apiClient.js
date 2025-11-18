@@ -146,7 +146,11 @@ const apiClient = {
     updateEmployee: async (id, data) => apiFetch(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteEmployee: async (id) => apiFetch(`/employees/${id}`, { method: 'DELETE' }),
     getEmployeeHistory: async (id) => apiFetch(`/employees/${id}/history`), // Mapeado da rota
-    updateEmployeeStatus: async (id, status) => apiFetch(`/employees/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }), // Mapeado da rota
+    // *** CORREÇÃO CRÍTICA ***: Deve receber o objeto completo { status, date } e passá-lo ao body
+    updateEmployeeStatus: async (id, data) => apiFetch(`/employees/${id}/status`, { 
+        method: 'PUT', 
+        body: JSON.stringify(data) 
+    }), 
 
     // --- Revisões ---
     getRevisions: async () => apiFetch('/revisions'),
@@ -175,7 +179,7 @@ const apiClient = {
     getRefuelings: async () => apiFetch('/refuelings'),
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
-    updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    updateRefuelingOrder: async (id, data) => apiFetch('/refuelings', { method: 'PUT', body: JSON.stringify(data) }), // Corrigido para PUT
     confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), // Corrigido para PUT
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
 

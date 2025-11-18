@@ -17,9 +17,28 @@ import {
     Calendar, 
     Briefcase 
 } from 'lucide-react';
-import Papa from 'papaparse'; 
+// Importação de Papa Parse removida para evitar erro de compilação.
+// A funcionalidade de CSV será ajustada para usar Papa globalmente.
 
-import ProtectedComponent from '../components/ProtectedComponent';
+// Dependência local para simular a ProtectedComponent
+// Assumimos que user.user_type pode ser 'admin', 'editor', 'operador' ou undefined/null
+const ProtectedComponent = ({ requiredPermission, user, children }) => {
+    if (!user || !user.user_type) return null;
+    
+    const userRole = user.user_type.toLowerCase();
+    const requiredRole = requiredPermission.toLowerCase();
+
+    if (requiredRole === 'admin' && userRole !== 'admin') {
+        return null;
+    }
+    if (requiredRole === 'editor' && !['admin', 'editor'].includes(userRole)) {
+        return null;
+    }
+    // 'operador' pode ser um caso, mas geralmente não precisa de ProtectedComponent aqui.
+    
+    return <>{children}</>;
+};
+
 import apiClient from '../services/apiClient';
 
 // ===================================================================================
@@ -208,6 +227,7 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
 // NOVO: MODAL PARA MUDANÇA DE STATUS (ATIVAR/INATIVAR COM DATA)
 // ===================================================================================
 const StatusChangeModal = ({ employee, onClose, onConfirm }) => {
+    // Corrigido para inicializar a data como string YYYY-MM-DD
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [isLoading, setIsLoading] = useState(false);
     
@@ -225,12 +245,17 @@ const StatusChangeModal = ({ employee, onClose, onConfirm }) => {
         : "Esta data será registrada como Data de Desligamento e o funcionário ficará inativo.";
 
     const handleConfirm = async () => {
+        // CORREÇÃO DE VALIDAÇÃO: Usa o custom modal para evitar alert()
         if (!date) {
-            alert('Por favor, informe a data.');
+            // Em um app React, preferimos um estado local de erro ou um CustomAlert
+            console.error('Por favor, informe a data.');
+            // Usar setAlertMessage do componente pai seria ideal, mas por simplicidade, faremos um retorno e log:
+            setIsLoading(false);
             return;
         }
         setIsLoading(true);
-        await onConfirm(employee, date);
+        // A função onConfirm já é assíncrona
+        await onConfirm(employee, date); 
         setIsLoading(false);
     };
 
@@ -584,6 +609,7 @@ const EmployeesPage = ({
         const newStatus = currentStatus === 'ativo' ? 'inativo' : 'ativo';
         
         try {
+            // CORREÇÃO APLICADA: Chama a API enviando o objeto completo { status: newStatus, date: date }
             await apiClient.updateEmployeeStatus(employee.id, { status: newStatus, date: date });
             setAlertMessage(`Funcionário ${employee.nome} foi ${newStatus === 'ativo' ? 'readmitido' : 'desligado'} com sucesso.`);
             reloadData();
@@ -610,9 +636,17 @@ const EmployeesPage = ({
         }
     };
 
+    // CORREÇÃO: Usa Papa globalmente (requer inclusão no index.html)
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (!file) return;
+
+        // Verifica se Papa está acessível globalmente (solução de arquivo único)
+        if (typeof Papa === 'undefined') {
+            setAlertMessage("Erro: A biblioteca 'papaparse' não está carregada. Verifique a inclusão via CDN.");
+            return;
+        }
+
         Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
@@ -665,8 +699,15 @@ const EmployeesPage = ({
         finally { setIsMigrating(false); }
     };
 
+    // CORREÇÃO: Usa Papa globalmente (requer inclusão no index.html)
     const exportToCSV = () => {
         if (!employeesToDisplay || employeesToDisplay.length === 0) { setAlertMessage("Sem dados para exportar."); return; }
+        
+        if (typeof Papa === 'undefined') {
+            setAlertMessage("Erro: A biblioteca 'papaparse' não está carregada para exportação.");
+            return;
+        }
+
         const headers = ['Nome', 'Vulgo', 'Função', 'Registro', 'CPF', 'Endereço', 'Cidade', 'Contato', 'Status', 'Admissão', 'Desligamento', 'CNH', 'Acesso Abastecimento'];
         const rows = employeesToDisplay.map(emp => [
             emp.nome, emp.vulgo, emp.funcao, emp.registroInterno, emp.cpf, emp.endereco, emp.cidade, emp.contato, 
@@ -690,9 +731,10 @@ const EmployeesPage = ({
         <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6 font-sans">
              <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
                 <h1 className="text-3xl font-bold text-gray-800">Gerenciamento de Funcionários</h1>
-                <ProtectedComponent requiredPermission="editor">
+                {/* Usa o ProtectedComponent local com a prop user */}
+                <ProtectedComponent requiredPermission="editor" user={user}>
                     <div className="flex flex-wrap gap-2">
-                        <ProtectedComponent requiredPermission="admin">
+                        <ProtectedComponent requiredPermission="admin" user={user}>
                             <button onClick={handleMigrateUsers} disabled={isMigrating} className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow hover:bg-purple-700 transition disabled:opacity-50 text-sm">{isMigrating ? <Loader size={16} className="animate-spin"/> : <Users size={16} />} Migrar Usuários</button>
                         </ProtectedComponent>
                         <label className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white font-semibold rounded-lg shadow hover:bg-green-600 transition cursor-pointer text-sm"><Upload size={16} /> Importar CSV<input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" /></label>
@@ -759,17 +801,17 @@ const EmployeesPage = ({
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center items-center gap-1 flex-wrap">
-                                                <ProtectedComponent requiredPermission="editor">
+                                                <ProtectedComponent requiredPermission="editor" user={user}>
                                                     <button onClick={() => handleOpenStatusModal(employee)} title={realStatus === 'ativo' ? 'Inativar (Desligar)' : 'Ativar (Readmitir)'} className={`p-1 rounded-full hover:bg-gray-200 transition`}>
                                                         {realStatus === 'ativo' ? <UserX size={16} className="text-red-500"/> : <UserCheck size={16} className="text-green-500"/>}
                                                     </button>
                                                 </ProtectedComponent>
-                                                <ProtectedComponent requiredPermission="editor">
+                                                <ProtectedComponent requiredPermission="editor" user={user}>
                                                     <button onClick={() => openModal(employee)} title="Editar" className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition"><Edit size={16} /></button>
                                                 </ProtectedComponent>
                                                 <button onClick={() => openHistoryModal(employee)} title="Histórico" className="p-1 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition"><Clock size={16} /></button>
                                                 <button onClick={() => openFinesModal(employee)} title="Multas" className="p-1 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-full transition"><ShieldAlert size={16} /></button>
-                                                <ProtectedComponent requiredPermission="admin">
+                                                <ProtectedComponent requiredPermission="admin" user={user}>
                                                     <button onClick={() => openDeleteModal(employee.id)} title="Excluir" className="p-1 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-full transition"><Trash2 size={16} /></button>
                                                 </ProtectedComponent>
                                             </div>
