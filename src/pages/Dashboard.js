@@ -840,8 +840,8 @@ const Dashboard = ({
 
                     {/* Coluna Direita (1/3) */}
                     <div className="space-y-6">
-                        {/* Quadro de Avisos (Novo Estilo) */}
-                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[500px] flex flex-col">
+                        {/* Quadro de Avisos (Expandido) */}
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
                             <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
                                 <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
                                     <Bell size={18} className="text-indigo-600" />
@@ -890,35 +890,6 @@ const Dashboard = ({
                                 }) : <p className="text-gray-400 text-sm text-center py-10 italic">Tudo tranquilo por aqui.</p>}
                             </div>
                         </section>
-                        
-                        {/* Resumo de Manutenção (Novo Card Visual) */}
-                        <section className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-md text-white p-6 relative overflow-hidden">
-                            <div className="relative z-10">
-                                <h3 className="font-bold text-md mb-1">Manutenção Preventiva</h3>
-                                <p className="text-gray-400 text-xs mb-4">Próximos vencimentos</p>
-                                
-                                <ul className="space-y-2 text-sm">
-                                    {revisions.slice(0, 3).map((rev, idx) => (
-                                        <li key={idx} className="flex justify-between items-center border-b border-gray-700 pb-2 last:border-0">
-                                            <span className="flex items-center gap-2 truncate max-w-[70%]">
-                                                <div className={`w-1.5 h-1.5 rounded-full ${idx === 0 ? 'bg-red-400' : 'bg-yellow-400'}`}></div>
-                                                {vehicles.find(v => v.id === rev.vehicleId)?.registroInterno || 'Veículo'}
-                                            </span>
-                                            <span className="font-mono text-xs text-gray-300">
-                                                {rev.proximaRevisaoOdometro ? `${rev.proximaRevisaoOdometro} km` : new Date(rev.proximaRevisaoData).toLocaleDateString('pt-BR')}
-                                            </span>
-                                        </li>
-                                    ))}
-                                    {revisions.length === 0 && <li className="text-xs text-gray-500 italic">Nenhuma revisão programada.</li>}
-                                </ul>
-
-                                <button onClick={() => navigate('revisions')} className="mt-4 w-full bg-white/10 hover:bg-white/20 transition-colors py-2 rounded-lg text-xs font-medium text-center border border-white/10">
-                                    Ver Calendário Completo
-                                </button>
-                            </div>
-                            <Wrench size={100} className="absolute -bottom-4 -right-4 text-white/5 transform -rotate-12" />
-                        </section>
-
                     </div>
                 </div>
 
