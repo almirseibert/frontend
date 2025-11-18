@@ -14,12 +14,13 @@ import {
     Users,
     Info,
     Loader,
-    Calendar // Ícone para datas
+    Calendar, // Ícone para datas
+    Briefcase // Ícone para admissão
 } from 'lucide-react';
 import Papa from 'papaparse'; 
 
 import ProtectedComponent from '../components/ProtectedComponent';
-import { useAuth } from '../contexts/AuthContext';
+// import { useAuth } from '../contexts/AuthContext'; // (Não usado diretamente aqui, vem via props se precisar)
 import apiClient from '../services/apiClient';
 
 // ===================================================================================
@@ -39,8 +40,10 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
         cnhCategoria: employee?.cnhCategoria || '',
         cnhVencimento: employee?.cnhVencimento ? new Date(employee.cnhVencimento).toISOString().split('T')[0] : '',
         podeAcessarAbastecimento: employee?.podeAcessarAbastecimento || false,
-        // *** NOVO CAMPO: Data de Admissão ***
-        dataAdmissao: employee?.dataAdmissao ? new Date(employee.dataAdmissao).toISOString().split('T')[0] : '',
+        // Usa dataAdmissao se existir, senão tenta dataContratacao (legado), senão vazio
+        dataAdmissao: employee?.dataAdmissao 
+            ? new Date(employee.dataAdmissao).toISOString().split('T')[0] 
+            : (employee?.dataContratacao ? new Date(employee.dataContratacao).toISOString().split('T')[0] : ''),
     });
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
@@ -94,6 +97,7 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
                 setAlertMessage('Funcionário atualizado com sucesso!');
             } else {
                 dataToSave.id = crypto.randomUUID(); // Gera ID no frontend para o MySQL
+                dataToSave.status = 'ativo'; // Garante status ativo ao criar
                 await apiClient.createEmployee(dataToSave);
                 setAlertMessage('Funcionário adicionado com sucesso!');
             }
@@ -121,7 +125,12 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
                         <div><label className="block font-medium text-gray-700">Registro Interno*</label><input name="registroInterno" value={formData.registroInterno} onChange={handleChange} placeholder="Registro Interno" required className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         
                         {/* CAMPO DATA DE ADMISSÃO */}
-                        <div><label className="block font-medium text-gray-700">Data de Admissão</label><input name="dataAdmissao" type="date" value={formData.dataAdmissao} onChange={handleChange} className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
+                        <div>
+                            <label className="block font-medium text-gray-700 flex items-center gap-1">
+                                <Briefcase size={14}/> Data de Admissão
+                            </label>
+                            <input name="dataAdmissao" type="date" value={formData.dataAdmissao} onChange={handleChange} className="mt-1 w-full p-2 border rounded bg-gray-50" />
+                        </div>
                         
                         <div><label className="block font-medium text-gray-700">CPF</label><input name="cpf" value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Função</label><select name="funcao" value={formData.funcao} onChange={handleChange} className="mt-1 w-full p-2 border rounded bg-gray-50"><option value="Motorista">Motorista</option><option value="Operador de Máquina">Operador de Máquina</option><option value="Mecânico">Mecânico</option><option value="Administrativo">Administrativo</option><option value="Outro">Outro</option></select></div>
@@ -172,22 +181,29 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
 // ===================================================================================
 const StatusChangeModal = ({ employee, onClose, onConfirm }) => {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-    const isActivating = employee.status === 'inativo';
+    const [isLoading, setIsLoading] = useState(false);
+    
+    // Corrigindo lógica de detecção de status para ser case-insensitive e robusta
+    const currentStatus = (employee.status || 'inativo').toLowerCase();
+    const isActivating = currentStatus === 'inativo';
+    
     const actionText = isActivating ? 'Readmitir/Ativar Funcionário' : 'Desligar/Inativar Funcionário';
     const dateLabel = isActivating ? 'Data de Readmissão (Novo Contrato)' : 'Data de Desligamento';
     const message = isActivating 
         ? `Deseja realmente reativar ${employee.nome}?`
         : `Deseja realmente inativar ${employee.nome}?`;
     const subMessage = isActivating
-        ? "Esta data será registrada como a nova Data de Admissão."
-        : "Esta data será registrada como Data de Desligamento e ficará no histórico.";
+        ? "Esta data será registrada como a nova Data de Admissão e o histórico anterior será preservado."
+        : "Esta data será registrada como Data de Desligamento e o funcionário ficará inativo.";
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (!date) {
             alert('Por favor, informe a data.');
             return;
         }
-        onConfirm(employee, date);
+        setIsLoading(true);
+        await onConfirm(employee, date);
+        setIsLoading(false);
     };
 
     return (
@@ -209,8 +225,9 @@ const StatusChangeModal = ({ employee, onClose, onConfirm }) => {
                 </div>
 
                 <div className="flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium text-sm transition">Cancelar</button>
-                    <button onClick={handleConfirm} className={`px-4 py-2 text-white rounded-lg font-medium text-sm transition ${isActivating ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>
+                    <button onClick={onClose} disabled={isLoading} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium text-sm transition">Cancelar</button>
+                    <button onClick={handleConfirm} disabled={isLoading} className={`px-4 py-2 text-white rounded-lg font-medium text-sm transition flex items-center gap-2 ${isActivating ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>
+                        {isLoading ? <Loader size={16} className="animate-spin"/> : null}
                         Confirmar {isActivating ? 'Readmissão' : 'Desligamento'}
                     </button>
                 </div>
@@ -319,18 +336,15 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
 };
 
 
-// ... (EmployeeFinesModal sem alterações) ...
+// ... (EmployeeFinesModal sem alterações - mas incluído para integridade) ...
 const EmployeeFinesModal = ({ employee, fines, onClose }) => {
-    // Filtra e ordena multas
     const employeeFines = useMemo(() => {
         if (!employee || !Array.isArray(fines)) return [];
         return fines
             .filter(fine => fine.employeeId === employee.id)
-            // Ordena por data da infração mais recente
             .sort((a, b) => (b.dataInfração || '').localeCompare(a.dataInfração || ''));
     }, [fines, employee]);
 
-    // Badge de status
     const getStatusBadge = (status) => {
         switch (status) {
             case 'Paga': return 'bg-green-100 text-green-700 border-green-200';
@@ -341,11 +355,9 @@ const EmployeeFinesModal = ({ employee, fines, onClose }) => {
         }
     };
 
-    // Renderização do modal
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
                     <div>
                         <h2 className="text-xl font-bold">Histórico de Multas</h2>
@@ -353,20 +365,17 @@ const EmployeeFinesModal = ({ employee, fines, onClose }) => {
                     </div>
                      <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:bg-gray-200"><X size={20}/></button>
                 </div>
-                 {/* Lista de Multas */}
                 <div className="p-6 overflow-y-auto custom-scrollbar">
                     {employeeFines.length > 0 ? (
                         <ul className="space-y-3">
                             {employeeFines.map(fine => (
                                 <li key={fine.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                                     <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
-                                        {/* Detalhes */}
                                         <div className="flex-1">
                                             <p className="font-semibold text-sm">{fine.descricao || 'Descrição não informada'}</p>
                                             <p className="text-xs text-gray-600">Veículo: {fine.vehicleInfo?.registroInterno || 'N/A'} - {fine.vehicleInfo?.placa || 'N/A'}</p>
                                             <p className="text-xs text-gray-600">Data: {fine.dataInfração ? new Date(fine.dataInfração).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
                                         </div>
-                                         {/* Valor e Status */}
                                         <div className="text-left sm:text-right flex-shrink-0">
                                             <p className="font-bold text-red-600">R$ {(parseFloat(fine.valor) || 0).toFixed(2)}</p>
                                             <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-bold rounded-full border ${getStatusBadge(fine.status)}`}>
@@ -381,7 +390,6 @@ const EmployeeFinesModal = ({ employee, fines, onClose }) => {
                         <p className="text-gray-500 text-center py-10 text-sm italic">Nenhuma multa registrada para este funcionário.</p>
                     )}
                 </div>
-                 {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition text-sm font-medium">Fechar</button>
                 </div>
@@ -417,14 +425,29 @@ const EmployeesPage = ({
     const [isMigrating, setIsMigrating] = useState(false);
     const [filter, setFilter] = useState('ativos');
 
-    const activeEmployees = useMemo(() => (employees || []).filter(e => e.status === 'ativo'), [employees]);
-    const inactiveEmployees = useMemo(() => (employees || []).filter(e => e.status === 'inativo'), [employees]);
+    // *** FILTRAGEM ROBUSTA ***
+    // Garante que compara strings com strings e lida com possíveis erros de dados antigos
+    const activeEmployees = useMemo(() => 
+        (employees || []).filter(e => {
+            const s = (e.status || '').toLowerCase();
+            // Se o status vier corrompido como JSON string, tenta limpar ou assume inativo
+            if (s.includes('{')) return false; 
+            return s === 'ativo';
+        }), 
+    [employees]);
 
-    // ... (cálculo de alocações e tempo disponível sem alterações) ...
+    const inactiveEmployees = useMemo(() => 
+        (employees || []).filter(e => {
+            const s = (e.status || '').toLowerCase();
+            // Se for 'inativo' OU se for algo estranho (para não perder o registro)
+            if (s.includes('{')) return true; 
+            return s !== 'ativo';
+        }), 
+    [employees]);
+
+    // ... (cálculo de alocações e tempo disponível) ...
     const employeeAllocations = useMemo(() => {
         const allocations = new Map();
-        const now = new Date();
-
         (obras || []).forEach(obra => {
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(historyEntry => {
                 const isCurrentAllocation = !historyEntry.dataSaida; 
@@ -440,7 +463,6 @@ const EmployeesPage = ({
                 }
             });
         });
-        // Inclui alocações operacionais
         (vehicles || []).forEach(vehicle => {
             if (vehicle.operationalAssignment && vehicle.operationalAssignment.employeeId) {
                 const employeeId = vehicle.operationalAssignment.employeeId;
@@ -450,7 +472,6 @@ const EmployeesPage = ({
                  allocations.get(employeeId).push(vehicle);
             }
         });
-
         return allocations;
     }, [obras, vehicles]);
 
@@ -481,8 +502,7 @@ const EmployeesPage = ({
         return data;
     }, [activeEmployees, obras, employeeAllocations]);
 
-
-    // ... (employeesToDisplay, sorting, filter - sem alterações) ...
+    // ... (employeesToDisplay) ...
     const employeesToDisplay = useMemo(() => {
         const listToFilter = filter === 'ativos' ? activeEmployees : inactiveEmployees;
         if (!Array.isArray(listToFilter)) return [];
@@ -532,7 +552,7 @@ const EmployeesPage = ({
     const openFinesModal = (employee) => { setEmployeeForFines(employee); setIsFinesModalOpen(true); };
     const openDeleteModal = (id) => { setItemToDelete(id); setIsDeleteModalOpen(true); };
 
-    // *** NOVO HANDLER: ABRE MODAL DE STATUS ***
+    // *** HANDLER PARA ABRIR MODAL DE STATUS ***
     const handleOpenStatusModal = (employee) => {
         if (employeeAllocations.has(employee.id) && employee.status === 'ativo') {
              setAlertMessage("Não é possível inativar um funcionário alocado.");
@@ -542,14 +562,20 @@ const EmployeesPage = ({
         setIsStatusModalOpen(true);
     };
 
-    // *** NOVO HANDLER: CONFIRMA MUDANÇA DE STATUS (COM DATA) ***
+    // *** HANDLER PARA CONFIRMAR MUDANÇA DE STATUS ***
     const handleConfirmStatusChange = async (employee, date) => {
-        const newStatus = employee.status === 'ativo' ? 'inativo' : 'ativo';
+        const currentStatus = (employee.status || '').toLowerCase();
+        const newStatus = currentStatus === 'ativo' ? 'inativo' : 'ativo';
+        
         try {
-            // Passa objeto { status, date } para a API
+            // Chama a rota específica no backend que trata status + data + histórico
             await apiClient.updateEmployeeStatus(employee.id, { status: newStatus, date: date });
+            
             setAlertMessage(`Funcionário ${employee.nome} foi ${newStatus === 'ativo' ? 'readmitido' : 'desligado'} com sucesso.`);
+            
+            // Recarrega os dados para refletir a mudança nas listas e no histórico
             reloadData();
+            
             setIsStatusModalOpen(false);
             setEmployeeForStatusChange(null);
         } catch(error) {
@@ -573,7 +599,7 @@ const EmployeesPage = ({
         }
     };
 
-    // ... (handleFileUpload e handleMigrateUsers sem alterações) ...
+    // ... (handleFileUpload e handleMigrateUsers mantidos) ...
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -586,13 +612,10 @@ const EmployeesPage = ({
                     setAlertMessage("Arquivo CSV vazio.");
                     return;
                 }
-
                 setIsMigrating(true);
                 setAlertMessage(`Importando ${data.length} funcionários...`);
                 let successCount = 0;
                 let errorCount = 0;
-                let errorMessages = [];
-
                 for (const item of data) {
                     const employeeData = {
                         nome: item.Nome || item.nome || '',
@@ -606,45 +629,18 @@ const EmployeesPage = ({
                         cnhNumero: item.cnhNumero || null,
                         cnhCategoria: item.cnhCategoria || null,
                         cnhVencimento: item.cnhVencimento || null,
-                         status: 'ativo', // Padrão
-                         podeAcessarAbastecimento: false, // Padrão
+                         status: 'ativo', podeAcessarAbastecimento: false,
                     };
-
-                    if (!employeeData.nome || !employeeData.registroInterno) {
-                        console.warn("Linha ignorada (nome ou registro ausente):", item);
-                        errorCount++;
-                        errorMessages.push(`Linha ${successCount + errorCount}: Nome ou Registro Interno ausente.`);
-                        continue;
-                    }
-                    
-                    // *** CORREÇÃO: Adiciona ID aqui também para importação ***
+                    if (!employeeData.nome || !employeeData.registroInterno) { errorCount++; continue; }
                     employeeData.id = crypto.randomUUID();
-
-                    try {
-                        await apiClient.createEmployee(employeeData);
-                        successCount++;
-                    } catch (error) {
-                        console.error("Erro ao importar funcionário:", item, error);
-                        errorCount++;
-                        errorMessages.push(`Linha ${successCount + errorCount} (${employeeData.nome}): ${error.message}`);
-                    }
+                    try { await apiClient.createEmployee(employeeData); successCount++; } 
+                    catch (error) { errorCount++; }
                 }
-
                 setIsMigrating(false);
-                let summaryMessage = `Importação concluída: ${successCount} sucesso(s), ${errorCount} erro(s).`;
-                if(errorCount > 0) {
-                    summaryMessage += "\n\nErros (primeiros 5):\n" + errorMessages.slice(0, 5).join("\n");
-                }
-                setAlertMessage(summaryMessage); // Usa <pre> no CustomAlert para formatar
+                setAlertMessage(`Importação: ${successCount} sucesso(s), ${errorCount} erro(s).`);
                 if (successCount > 0) reloadData();
-
-            },
-            error: (error) => {
-                console.error("Erro ao parsear CSV:", error);
-                setAlertMessage("Erro ao ler o arquivo CSV.");
             }
         });
-
         event.target.value = null;
     };
 
@@ -659,15 +655,15 @@ const EmployeesPage = ({
         finally { setIsMigrating(false); }
     };
 
-    // ... (exportToCSV atualizado para incluir datas) ...
+    // ... (exportToCSV com novas colunas) ...
     const exportToCSV = () => {
         if (!employeesToDisplay || employeesToDisplay.length === 0) { setAlertMessage("Sem dados para exportar."); return; }
         const headers = ['Nome', 'Vulgo', 'Função', 'Registro', 'CPF', 'Endereço', 'Cidade', 'Contato', 'Status', 'Admissão', 'Desligamento', 'CNH', 'Acesso Abastecimento'];
         const rows = employeesToDisplay.map(emp => [
             emp.nome, emp.vulgo, emp.funcao, emp.registroInterno, emp.cpf, emp.endereco, emp.cidade, emp.contato, emp.status,
-            emp.dataAdmissao ? new Date(emp.dataAdmissao).toLocaleDateString('pt-BR') : '',
-            emp.dataDesligamento ? new Date(emp.dataDesligamento).toLocaleDateString('pt-BR') : '',
-            `${emp.cnhCategoria || ''} - ${emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR') : ''}`,
+            emp.dataAdmissao ? new Date(emp.dataAdmissao).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '',
+            emp.dataDesligamento ? new Date(emp.dataDesligamento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '',
+            `${emp.cnhCategoria || ''} - ${emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : ''}`,
             emp.podeAcessarAbastecimento ? 'Sim' : 'Não'
         ]);
         const csv = Papa.unparse({ fields: headers, data: rows });
@@ -682,7 +678,6 @@ const EmployeesPage = ({
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6 font-sans">
-            {/* ... (Cabeçalho e Filtros iguais) ... */}
              <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
                 <h1 className="text-3xl font-bold text-gray-800">Gerenciamento de Funcionários</h1>
                 <ProtectedComponent requiredPermission="editor">
@@ -730,7 +725,6 @@ const EmployeesPage = ({
                                     allocationDetails = vehicleNames.length > 4 ? vehicleNames.slice(0, 4).join(', ') + ' ...' : fullAllocationTitle;
                                 }
                                 
-                                // Exibe data de desligamento se inativo
                                 const desligamentoInfo = employee.status === 'inativo' && employee.dataDesligamento 
                                     ? new Date(employee.dataDesligamento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) 
                                     : null;
@@ -753,7 +747,6 @@ const EmployeesPage = ({
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center items-center gap-1 flex-wrap">
                                                 <ProtectedComponent requiredPermission="editor">
-                                                    {/* *** ALTERADO PARA ABRIR MODAL DE DATA *** */}
                                                     <button onClick={() => handleOpenStatusModal(employee)} title={employee.status === 'ativo' ? 'Inativar (Desligar)' : 'Ativar (Readmitir)'} className={`p-1 rounded-full hover:bg-gray-200 transition`}>
                                                         {employee.status === 'ativo' ? <UserX size={16} className="text-red-500"/> : <UserCheck size={16} className="text-green-500"/>}
                                                     </button>
@@ -779,11 +772,9 @@ const EmployeesPage = ({
 
             {/* Modais */}
             {isModalOpen && <EmployeeModal user={user} employee={editingEmployee} employees={employees} apiClient={apiClient} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} reloadData={reloadData}/>}
-            {/* *** PASSA API CLIENT PRO HISTÓRICO *** */}
             {isHistoryModalOpen && <EmployeeHistoryModal employee={employeeForHistory} onClose={() => setIsHistoryModalOpen(false)} apiClient={apiClient} />}
             {isFinesModalOpen && <EmployeeFinesModal employee={employeeForFines} fines={fines} onClose={() => setIsFinesModalOpen(false)} />}
             
-            {/* *** NOVO MODAL DE STATUS *** */}
             {isStatusModalOpen && employeeForStatusChange && (
                 <StatusChangeModal 
                     employee={employeeForStatusChange} 
