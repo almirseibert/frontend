@@ -146,7 +146,7 @@ const apiClient = {
     updateEmployee: async (id, data) => apiFetch(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteEmployee: async (id) => apiFetch(`/employees/${id}`, { method: 'DELETE' }),
     getEmployeeHistory: async (id) => apiFetch(`/employees/${id}/history`), // Mapeado da rota
-    // *** CORREÇÃO CRÍTICA ***: Deve receber o objeto completo { status, date } e passá-lo ao body
+    // *** CORREÇÃO CRÍTICA (Confirmada) ***: Envia o objeto de dados completo { status, date }
     updateEmployeeStatus: async (id, data) => apiFetch(`/employees/${id}/status`, { 
         method: 'PUT', 
         body: JSON.stringify(data) 
