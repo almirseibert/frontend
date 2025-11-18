@@ -14,14 +14,40 @@ import {
     Users,
     Info,
     Loader,
-    Calendar, // Ícone para datas
-    Briefcase // Ícone para admissão
+    Calendar, 
+    Briefcase 
 } from 'lucide-react';
 import Papa from 'papaparse'; 
 
 import ProtectedComponent from '../components/ProtectedComponent';
-// import { useAuth } from '../contexts/AuthContext'; // (Não usado diretamente aqui, vem via props se precisar)
 import apiClient from '../services/apiClient';
+
+// ===================================================================================
+// UTILITÁRIOS DE ROBUSTEZ
+// ===================================================================================
+
+/**
+ * Função crítica para ler o status do funcionário mesmo se o banco retornar lixo (JSON).
+ * Impede que funcionários desapareçam da tela.
+ */
+const getSafeStatus = (statusRaw) => {
+    if (!statusRaw) return 'inativo'; // Default seguro
+    
+    let statusStr = String(statusRaw).toLowerCase();
+    
+    // Se o backend mandou um JSON stringificado por erro antigo, tentamos ler dentro dele
+    if (statusStr.includes('{')) {
+        try {
+            const parsed = JSON.parse(statusRaw);
+            return (parsed.status || 'inativo').toLowerCase();
+        } catch (e) {
+            // Se falhar o parse, assume inativo para evitar erros, mas mantém o registro 'vivo'
+            return 'inativo';
+        }
+    }
+    
+    return statusStr;
+};
 
 // ===================================================================================
 // MODAL PARA EDITAR/ADICIONAR FUNCIONÁRIO
@@ -93,6 +119,8 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
 
         try {
             if (isEditing) {
+                // Proteção: Não enviamos status aqui para evitar sobrescrever com lixo
+                // Status só deve ser alterado pelo modal específico
                 await apiClient.updateEmployee(employee.id, dataToSave);
                 setAlertMessage('Funcionário atualizado com sucesso!');
             } else {
@@ -124,7 +152,7 @@ const EmployeeModal = ({ user, employee, employees, apiClient, onClose, setAlert
                         <div><label className="block font-medium text-gray-700">Vulgo</label><input name="vulgo" value={formData.vulgo} onChange={handleChange} placeholder="Apelido" className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         <div><label className="block font-medium text-gray-700">Registro Interno*</label><input name="registroInterno" value={formData.registroInterno} onChange={handleChange} placeholder="Registro Interno" required className="mt-1 w-full p-2 border rounded bg-gray-50" /></div>
                         
-                        {/* CAMPO DATA DE ADMISSÃO */}
+                        {/* CAMPO DATA DE ADMISSÃO - Sincronizado no Backend */}
                         <div>
                             <label className="block font-medium text-gray-700 flex items-center gap-1">
                                 <Briefcase size={14}/> Data de Admissão
@@ -183,9 +211,9 @@ const StatusChangeModal = ({ employee, onClose, onConfirm }) => {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [isLoading, setIsLoading] = useState(false);
     
-    // Corrigindo lógica de detecção de status para ser case-insensitive e robusta
-    const currentStatus = (employee.status || 'inativo').toLowerCase();
-    const isActivating = currentStatus === 'inativo';
+    // Usa getSafeStatus para não quebrar com dados antigos
+    const realStatus = getSafeStatus(employee.status);
+    const isActivating = realStatus === 'inativo';
     
     const actionText = isActivating ? 'Readmitir/Ativar Funcionário' : 'Desligar/Inativar Funcionário';
     const dateLabel = isActivating ? 'Data de Readmissão (Novo Contrato)' : 'Data de Desligamento';
@@ -286,12 +314,10 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                             </thead>
                             <tbody>
                                 {history.map((h, index) => {
-                                    // Formata data para exibição
                                     const dateStr = h.type === 'rh' 
                                         ? new Date(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })
                                         : `${new Date(h.dateStart).toLocaleDateString('pt-BR', { timeZone: 'UTC' })} - ${h.dateEnd ? new Date(h.dateEnd).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Atual'}`;
 
-                                    // Estilos condicionais
                                     let rowClass = 'hover:bg-gray-50 border-b';
                                     let icon = <Clock size={16} className="text-blue-500" />;
                                     let typeLabel = 'Obra';
@@ -336,7 +362,6 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
 };
 
 
-// ... (EmployeeFinesModal sem alterações - mas incluído para integridade) ...
 const EmployeeFinesModal = ({ employee, fines, onClose }) => {
     const employeeFines = useMemo(() => {
         if (!employee || !Array.isArray(fines)) return [];
@@ -412,7 +437,6 @@ const EmployeesPage = ({
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
     
-    // ** Estado para modal de status **
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
     const [employeeForStatusChange, setEmployeeForStatusChange] = useState(null);
 
@@ -425,27 +449,22 @@ const EmployeesPage = ({
     const [isMigrating, setIsMigrating] = useState(false);
     const [filter, setFilter] = useState('ativos');
 
-    // *** FILTRAGEM ROBUSTA ***
-    // Garante que compara strings com strings e lida com possíveis erros de dados antigos
+    // *** FILTRAGEM ROBUSTA E TOLERANTE A FALHAS ***
+    // Usa getSafeStatus para garantir que dados sujos não escondam funcionários
     const activeEmployees = useMemo(() => 
         (employees || []).filter(e => {
-            const s = (e.status || '').toLowerCase();
-            // Se o status vier corrompido como JSON string, tenta limpar ou assume inativo
-            if (s.includes('{')) return false; 
+            const s = getSafeStatus(e.status);
             return s === 'ativo';
         }), 
     [employees]);
 
     const inactiveEmployees = useMemo(() => 
         (employees || []).filter(e => {
-            const s = (e.status || '').toLowerCase();
-            // Se for 'inativo' OU se for algo estranho (para não perder o registro)
-            if (s.includes('{')) return true; 
+            const s = getSafeStatus(e.status);
             return s !== 'ativo';
         }), 
     [employees]);
 
-    // ... (cálculo de alocações e tempo disponível) ...
     const employeeAllocations = useMemo(() => {
         const allocations = new Map();
         (obras || []).forEach(obra => {
@@ -502,7 +521,6 @@ const EmployeesPage = ({
         return data;
     }, [activeEmployees, obras, employeeAllocations]);
 
-    // ... (employeesToDisplay) ...
     const employeesToDisplay = useMemo(() => {
         const listToFilter = filter === 'ativos' ? activeEmployees : inactiveEmployees;
         if (!Array.isArray(listToFilter)) return [];
@@ -552,9 +570,8 @@ const EmployeesPage = ({
     const openFinesModal = (employee) => { setEmployeeForFines(employee); setIsFinesModalOpen(true); };
     const openDeleteModal = (id) => { setItemToDelete(id); setIsDeleteModalOpen(true); };
 
-    // *** HANDLER PARA ABRIR MODAL DE STATUS ***
     const handleOpenStatusModal = (employee) => {
-        if (employeeAllocations.has(employee.id) && employee.status === 'ativo') {
+        if (employeeAllocations.has(employee.id) && getSafeStatus(employee.status) === 'ativo') {
              setAlertMessage("Não é possível inativar um funcionário alocado.");
              return;
         }
@@ -562,20 +579,14 @@ const EmployeesPage = ({
         setIsStatusModalOpen(true);
     };
 
-    // *** HANDLER PARA CONFIRMAR MUDANÇA DE STATUS ***
     const handleConfirmStatusChange = async (employee, date) => {
-        const currentStatus = (employee.status || '').toLowerCase();
+        const currentStatus = getSafeStatus(employee.status);
         const newStatus = currentStatus === 'ativo' ? 'inativo' : 'ativo';
         
         try {
-            // Chama a rota específica no backend que trata status + data + histórico
             await apiClient.updateEmployeeStatus(employee.id, { status: newStatus, date: date });
-            
             setAlertMessage(`Funcionário ${employee.nome} foi ${newStatus === 'ativo' ? 'readmitido' : 'desligado'} com sucesso.`);
-            
-            // Recarrega os dados para refletir a mudança nas listas e no histórico
             reloadData();
-            
             setIsStatusModalOpen(false);
             setEmployeeForStatusChange(null);
         } catch(error) {
@@ -599,7 +610,6 @@ const EmployeesPage = ({
         }
     };
 
-    // ... (handleFileUpload e handleMigrateUsers mantidos) ...
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -655,12 +665,12 @@ const EmployeesPage = ({
         finally { setIsMigrating(false); }
     };
 
-    // ... (exportToCSV com novas colunas) ...
     const exportToCSV = () => {
         if (!employeesToDisplay || employeesToDisplay.length === 0) { setAlertMessage("Sem dados para exportar."); return; }
         const headers = ['Nome', 'Vulgo', 'Função', 'Registro', 'CPF', 'Endereço', 'Cidade', 'Contato', 'Status', 'Admissão', 'Desligamento', 'CNH', 'Acesso Abastecimento'];
         const rows = employeesToDisplay.map(emp => [
-            emp.nome, emp.vulgo, emp.funcao, emp.registroInterno, emp.cpf, emp.endereco, emp.cidade, emp.contato, emp.status,
+            emp.nome, emp.vulgo, emp.funcao, emp.registroInterno, emp.cpf, emp.endereco, emp.cidade, emp.contato, 
+            getSafeStatus(emp.status), // Usa status limpo
             emp.dataAdmissao ? new Date(emp.dataAdmissao).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '',
             emp.dataDesligamento ? new Date(emp.dataDesligamento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '',
             `${emp.cnhCategoria || ''} - ${emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : ''}`,
@@ -715,7 +725,10 @@ const EmployeesPage = ({
                             {employeesToDisplay.map(employee => {
                                 const allocatedVehicles = employeeAllocations.get(employee.id) || [];
                                 const isAllocated = allocatedVehicles.length > 0;
-                                let allocationStatus = employee.status === 'inativo' ? 'Inativo' : (isAllocated ? 'Alocado' : 'Disponível');
+                                
+                                // Usa o status limpo para exibição
+                                const realStatus = getSafeStatus(employee.status);
+                                let allocationStatus = realStatus === 'inativo' ? 'Inativo' : (isAllocated ? 'Alocado' : 'Disponível');
                                 
                                 let allocationDetails = '';
                                 let fullAllocationTitle = '';
@@ -725,7 +738,7 @@ const EmployeesPage = ({
                                     allocationDetails = vehicleNames.length > 4 ? vehicleNames.slice(0, 4).join(', ') + ' ...' : fullAllocationTitle;
                                 }
                                 
-                                const desligamentoInfo = employee.status === 'inativo' && employee.dataDesligamento 
+                                const desligamentoInfo = realStatus === 'inativo' && employee.dataDesligamento 
                                     ? new Date(employee.dataDesligamento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) 
                                     : null;
 
@@ -747,8 +760,8 @@ const EmployeesPage = ({
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center items-center gap-1 flex-wrap">
                                                 <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => handleOpenStatusModal(employee)} title={employee.status === 'ativo' ? 'Inativar (Desligar)' : 'Ativar (Readmitir)'} className={`p-1 rounded-full hover:bg-gray-200 transition`}>
-                                                        {employee.status === 'ativo' ? <UserX size={16} className="text-red-500"/> : <UserCheck size={16} className="text-green-500"/>}
+                                                    <button onClick={() => handleOpenStatusModal(employee)} title={realStatus === 'ativo' ? 'Inativar (Desligar)' : 'Ativar (Readmitir)'} className={`p-1 rounded-full hover:bg-gray-200 transition`}>
+                                                        {realStatus === 'ativo' ? <UserX size={16} className="text-red-500"/> : <UserCheck size={16} className="text-green-500"/>}
                                                     </button>
                                                 </ProtectedComponent>
                                                 <ProtectedComponent requiredPermission="editor">
