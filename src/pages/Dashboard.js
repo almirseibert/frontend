@@ -2,26 +2,22 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     Building, Truck, HardHat, Users, CheckCircle, Wrench,
     ShieldAlert, Bell, Badge, TrendingUp, TrendingDown,
-    Filter, Info, AlertTriangle, Clock, X, Loader
+    Filter, Info, AlertTriangle, Clock, X, Loader, MapPin,
+    Activity, Calendar, Maximize2, MoreHorizontal, Search
 } from 'lucide-react';
-// REMOVIDO: Imports do Firebase Firestore
-import apiClient from '../services/apiClient'; // Importa apiClient (necessário para InactivityAlertModal)
-
-// Importa o componente de proteção
+import apiClient from '../services/apiClient'; 
 import ProtectedComponent from '../components/ProtectedComponent';
-// REMOVIDO: useAuth (não diretamente necessário aqui, permissões vêm via props se preciso)
 
 // ===================================================================================
-// COMPONENTE: MODAL DE INATIVIDADE (Usa apiClient)
+// COMPONENTE: MODAL DE INATIVIDADE (Lógica Mantida)
 // ===================================================================================
-const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient, setAlertMessage }) => { // Recebe apiClient e setAlertMessage
+const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient, setAlertMessage }) => {
     const [prolongDays, setProlongDays] = useState(7);
     const [observation, setObservation] = useState(alert.observation || '');
     const [isSaving, setIsSaving] = useState(false);
 
-    const { obra, operator, vehicle } = alert; // Dados já processados
+    const { obra, operator, vehicle } = alert;
 
-    // Função para marcar como observado (USA API)
     const handleObserve = async () => {
         if (!observation) {
             setAlertMessage("Por favor, adicione uma observação antes de marcar como observado.");
@@ -34,8 +30,8 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
                 observation,
                 dismissedAt: new Date().toISOString(),
             });
-            setAlertMessage("Alerta marcado como observado."); // Adiciona feedback
-            onObserve(); // Fecha modal e pode recarregar dados
+            setAlertMessage("Alerta marcado como observado.");
+            onObserve();
         } catch (error) {
             console.error("Erro ao marcar como observado via API:", error);
             setAlertMessage(error.message || "Falha ao marcar como observado.");
@@ -44,7 +40,6 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
         }
     };
 
-    // Função para prorrogar (USA API)
     const handleProlong = async () => {
         const days = parseInt(prolongDays, 10);
         if (isNaN(days) || days <= 0) {
@@ -59,12 +54,12 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
 
             await apiClient.updateInactivityAlert(alert.id, {
                 status: 'Prolongado',
-                observation: observation || `Prolongado por ${days} dia(s).`, // Adiciona observação padrão se vazia
+                observation: observation || `Prolongado por ${days} dia(s).`,
                 prolongedUntil: newAlertUntilDate.toISOString(),
                 prolongedByDays: days,
             });
-            setAlertMessage(`Alerta prolongado por ${days} dia(s).`); // Adiciona feedback
-            onProlong(); // Fecha modal e pode recarregar dados
+            setAlertMessage(`Alerta prolongado por ${days} dia(s).`);
+            onProlong();
         } catch (error) {
             console.error("Erro ao prorrogar alerta via API:", error);
             setAlertMessage(error.message || "Falha ao prorrogar alerta.");
@@ -73,11 +68,9 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
         }
     };
 
-    // Renderização do modal (ajustada para usar new Date())
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center">
                     <div>
                         <h2 className="text-xl font-bold">Alerta de Inatividade</h2>
@@ -85,19 +78,15 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
                     </div>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={20}/></button>
                 </div>
-                {/* Corpo */}
                 <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-                    {/* Mensagem */}
                     <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-50 text-yellow-800 border border-yellow-200">
                         <Info size={24} className="flex-shrink-0"/>
                         <p className="font-medium text-sm">Este veículo está alocado em obra ({obra?.nome || 'N/A'}) e não foi abastecido nos últimos 7 dias.</p>
                     </div>
-                    {/* Detalhes */}
                     <p className="text-sm"><strong>Último Abastecimento:</strong> {alert.lastRefuelingDate ? new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
                     <p className="text-sm"><strong>Obra Atual:</strong> {obra?.nome || 'Não especificada'}</p>
                     <p className="text-sm"><strong>Operador Designado:</strong> {operator?.nome || 'Não especificado'}</p>
 
-                    {/* Observação */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Observação *</label>
                         <textarea
@@ -106,11 +95,10 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
                             rows="3"
                             className="w-full p-2 border rounded mt-1 bg-gray-50 focus:ring-yellow-500 focus:border-yellow-500 text-sm"
                             placeholder="Ex: 'em espera devido a tempo chuvoso'"
-                            required // Observação é obrigatória para observar
+                            required
                         />
                     </div>
 
-                    {/* Prolongar */}
                     <div className="flex items-end gap-2 pt-2 border-t border-gray-200">
                         <div className="flex-1">
                             <label className="block text-sm font-medium text-gray-700">Prolongar Aviso por (dias)</label>
@@ -128,7 +116,6 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
                         </button>
                     </div>
                 </div>
-                {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
                     <button onClick={handleObserve} disabled={isSaving || !observation} className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-green-300 flex items-center gap-1 text-sm">
                          {isSaving ? <Loader size={16} className="animate-spin"/> : <CheckCircle size={16}/>}
@@ -141,42 +128,64 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
     );
 };
 
+// ===================================================================================
+// COMPONENTE: MAPA PLACEHOLDER (NOVO)
+// ===================================================================================
+const MapPlaceholder = () => (
+    <div className="bg-blue-50 rounded-xl h-full min-h-[300px] flex flex-col items-center justify-center border-2 border-dashed border-blue-200 relative overflow-hidden group">
+      <div className="absolute inset-0 opacity-10 pointer-events-none">
+        {/* Representação abstrata do mapa do RS */}
+        <svg viewBox="0 0 100 100" className="w-full h-full text-blue-600 fill-current">
+          <path d="M30,20 L70,10 L90,40 L80,90 L40,85 L10,60 Z" />
+        </svg>
+      </div>
+      
+      <MapPin size={48} className="text-blue-500 mb-4 animate-bounce" />
+      <h3 className="text-lg font-semibold text-blue-800">Mapa de Alocação (RS)</h3>
+      <p className="text-sm text-blue-600 text-center max-w-xs px-4">
+        O mapeamento geográfico será ativado em breve. Acompanhe a localização das obras e frotas em tempo real.
+      </p>
+      
+      {/* Simulando Pints no Mapa */}
+      <div className="absolute top-1/3 left-1/3 w-3 h-3 bg-red-500 rounded-full shadow-lg animate-pulse" title="Obra A"></div>
+      <div className="absolute top-1/2 left-1/2 w-3 h-3 bg-green-500 rounded-full shadow-lg animate-pulse" title="Obra B"></div>
+      <div className="absolute bottom-1/3 right-1/3 w-3 h-3 bg-yellow-500 rounded-full shadow-lg animate-pulse" title="Obra C"></div>
+      
+      <button className="mt-4 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-lg shadow-sm border border-blue-200 hover:bg-blue-50 transition-colors">
+        Expandir Visualização
+      </button>
+    </div>
+  );
 
 // ===================================================================================
-// COMPONENTE: RANKING DE CONSUMO (Usa props, ajustado para API data)
+// COMPONENTE: RANKING DE CONSUMO (Lógica Mantida)
 // ===================================================================================
-const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups = {} }) => { // Adiciona valores padrão
+const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups = {} }) => {
     const [selectedType, setSelectedType] = useState('todos');
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
-    // Gera lista de tipos (sem mudanças)
     const vehicleTypes = useMemo(() => {
         if (!Array.isArray(vehicles)) return ['todos'];
         const types = new Set(vehicles.map(v => v.tipo).filter(Boolean));
         return ['todos', ...Array.from(types).sort()];
     }, [vehicles]);
 
-    // Calcula rankings (Usa new Date() e props)
     const rankings = useMemo(() => {
         if (!Array.isArray(vehicles) || !Array.isArray(refuelings) || !vehicleGroups || Object.keys(vehicleGroups).length === 0) {
              return { all: [], best: [], worst: [] };
         }
 
-        // Filtra veículos pelo tipo
         const filteredVehicles = selectedType === 'todos'
             ? vehicles
             : vehicles.filter(v => v.tipo === selectedType);
 
-        // Calcula média
         const vehicleAverages = filteredVehicles.map(vehicle => {
             const history = (refuelings || [])
                 .filter(r => r.vehicleId === vehicle.id && r.status === 'Concluída')
-                // Ordena por data (string ISO da API) crescente
                 .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
             if (history.length < 2) return null;
 
-            // Determina unidade (Km/L ou L/Hr)
             let unit = 'Km/L';
             const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
             if (vehicle.mediaCalculo === 'horimetro' || vehicleGroup === 'Máquinas Pesadas' || (vehicleGroup === 'Caminhões' && vehicle.mediaCalculo !== 'odometro')) {
@@ -188,11 +197,10 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
             const totalLiters = history.slice(1).reduce((sum, item) => sum + (parseFloat(item.litrosAbastecidos) || 0), 0);
             let startReading = 0, endReading = 0;
 
-            // Define leituras
             if (unit === 'Km/L') {
                 startReading = parseFloat(firstRefuel.odometro || 0);
                 endReading = parseFloat(lastRefuel.odometro || 0);
-            } else { // L/Hr
+            } else {
                  const getHorimetro = (refuel) => parseFloat(refuel.horimetroDigital ?? refuel.horimetroAnalogico ?? refuel.horimetro ?? 0);
                  startReading = getHorimetro(firstRefuel);
                  endReading = getHorimetro(lastRefuel);
@@ -201,34 +209,30 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
             const totalReadingDiff = endReading - startReading;
             let overallAverage = null;
 
-            // Calcula média
             if (unit === 'Km/L') {
                 if (totalLiters > 0 && totalReadingDiff > 0) overallAverage = totalReadingDiff / totalLiters;
-            } else { // L/Hr
+            } else { 
                 if (totalReadingDiff > 0 && totalLiters > 0) overallAverage = totalLiters / totalReadingDiff;
             }
 
             return overallAverage !== null && isFinite(overallAverage) ? { ...vehicle, average: overallAverage, unit } : null;
         }).filter(Boolean);
 
-        // Ordena para rankings
         const sortedAverages = [...vehicleAverages].sort((a, b) => {
-            if (a.unit === 'L/Hr') return a.average - b.average; // Menor L/Hr é melhor
-            return b.average - a.average; // Maior Km/L é melhor
+            if (a.unit === 'L/Hr') return a.average - b.average;
+            return b.average - a.average;
         });
 
         const best = sortedAverages.slice(0, 5);
-        const worst = [...sortedAverages].reverse().slice(0, 5); // Pega os 5 piores
+        const worst = [...sortedAverages].reverse().slice(0, 5);
 
         return { all: vehicleAverages, best, worst };
     }, [vehicles, refuelings, vehicleGroups, selectedType]);
 
-    // Encontra dados do veículo selecionado (sem mudanças)
     const selectedVehicleData = useMemo(() => {
         return rankings.all.find(v => v.id === selectedVehicleId);
     }, [rankings.all, selectedVehicleId]);
 
-    // Renderiza listas (sem mudanças)
     const renderRankList = (data, title, icon, colorClass) => (
         <div>
             <h3 className={`font-semibold text-md mb-2 flex items-center gap-2 ${colorClass}`}>
@@ -245,10 +249,8 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
         </div>
     );
 
-    // Renderização do componente (sem mudanças)
     return (
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
-            {/* Cabeçalho */}
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <h2 className="text-xl font-bold text-gray-900">Ranking de Consumo</h2>
                 <div className="flex items-center gap-2">
@@ -265,7 +267,6 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
                 </div>
             </div>
 
-            {/* Select Comparação */}
             {selectedType !== 'todos' && rankings.all.length > 0 && (
                 <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700">Comparar outros ({selectedType}):</label>
@@ -286,14 +287,11 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
                 </div>
             )}
 
-            {/* Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 {/* Rankings */}
                 <div className="space-y-4">
                     {renderRankList(rankings.best, 'Melhores Médias', <TrendingUp size={18}/>, 'text-green-600')}
                     {renderRankList(rankings.worst, 'Piores Médias', <TrendingDown size={18}/>, 'text-red-600')}
                 </div>
-                {/* Detalhes */}
                 {selectedVehicleData ? (
                     <div className="p-4 bg-gray-100 rounded-lg shadow-inner border border-gray-200 self-start">
                         <h3 className="font-semibold text-md mb-2 flex items-center gap-2">
@@ -316,12 +314,12 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
 
 
 // ===================================================================================
-// COMPONENTE: PAINEL DE PROGRESSO DA OBRA (Usa props, ajustado para API data)
+// COMPONENTE: PAINEL DE PROGRESSO DA OBRA (Lógica de Cálculo Mantida, Layout GRID Atualizado)
 // ===================================================================================
-const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipmentTypesForHours = [] }) => { // Adiciona valores padrão
+const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipmentTypesForHours = [] }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
 
-    // Filtra obras ativas com dados (sem mudanças)
+    // Filtra obras ativas com dados (Lógica intacta)
     const activeObrasWithContractData = useMemo(() => {
         if (!Array.isArray(obras)) return [];
         return obras.filter(obra => {
@@ -340,57 +338,47 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         }).sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
 
-     // Função auxiliar para calcular executado (Usa new Date() e props)
-    const calculateExecuted = useMemo(() => (obra) => { // Envolve em useMemo para referência estável
+     // Função auxiliar para calcular executado (Lógica intacta)
+    const calculateExecuted = useMemo(() => (obra) => {
         let totalExecutadoHoras = 0;
-        // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
         let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha) || 0;
         let horasExecutadasPorTipo = {};
-        // Garante que equipmentTypesForHours é array
         const equipmentTypes = Array.isArray(equipmentTypesForHours) ? equipmentTypesForHours : [];
         equipmentTypes.forEach(type => { horasExecutadasPorTipo[type] = 0; });
-        // Adiciona Caminhão se não estiver presente
         if (!horasExecutadasPorTipo['Caminhão']) horasExecutadasPorTipo['Caminhão'] = 0;
 
-        // Garante que historicoVeiculos é array
         (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(hist => {
             const vehicle = vehicles.find(v => v.id === hist.veiculoId);
             if (!vehicle) return;
-            // Garante que vehicleGroups é objeto
             const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
             const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
             const equipType = equipmentTypes.find(t => vehicle.tipo === t);
 
-            // Prioriza horímetro do histórico (details)
             let startReading = parseFloat(hist.details?.horimetroEntrada ?? hist.details?.odometroEntrada ?? 0);
             let endReading = parseFloat(hist.details?.horimetroSaida ?? hist.details?.odometroSaida ?? 0);
             let useOdometroForPrancha = false;
 
-            // Se não saiu, pega leitura atual do veículo
-            if (!hist.endDate) { // Usa endDate da API
+            if (!hist.endDate) {
                 if (vehicleGroup === 'Máquinas Pesadas') {
                      endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
-                     // Garante startReading correspondente se endReading for válido
                      if (endReading > 0 && hist.details?.horimetroEntrada == null) startReading = 0;
                 } else if (vehicleGroup === 'Caminhões') {
-                     // Para prancha, usa odômetro
                     if (obra.contractType === 'prancha') {
                          endReading = parseFloat(vehicle.odometro || 0);
-                         startReading = parseFloat(hist.details?.odometroEntrada || 0); // Compara odômetro com odômetro
+                         startReading = parseFloat(hist.details?.odometroEntrada || 0);
                          useOdometroForPrancha = true;
-                    } else { // Outros contratos de caminhão, usa horímetro
+                    } else {
                          endReading = parseFloat(vehicle.horimetro || 0);
-                         startReading = parseFloat(hist.details?.horimetroEntrada || 0); // Compara horímetro com horímetro
+                         startReading = parseFloat(hist.details?.horimetroEntrada || 0); 
                          if (endReading > 0 && hist.details?.horimetroEntrada == null) startReading = 0;
                     }
-                } else { // Veículos Leves
+                } else { 
                     endReading = parseFloat(vehicle.odometro || 0);
                     startReading = parseFloat(hist.details?.odometroEntrada || 0);
                     if (endReading > 0 && hist.details?.odometroEntrada == null) startReading = 0;
                 }
             }
 
-            // Calcula diferença
             if (endReading >= startReading) {
                  const diff = endReading - startReading;
                  if (useOdometroForPrancha) {
@@ -398,14 +386,12 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                  } else if (equipType && obra.contractType !== 'prancha' && vehicleGroup !== 'Veículos Leves') {
                       horasExecutadasPorTipo[equipType] = (horasExecutadasPorTipo[equipType] || 0) + diff;
                  }
-                 // Contabiliza horas de caminhão (não prancha) mesmo se 'Caminhão' não estiver em equipmentTypesForHours
                  else if (vehicleGroup === 'Caminhões' && !useOdometroForPrancha && obra.contractType !== 'prancha') {
                      horasExecutadasPorTipo['Caminhão'] = (horasExecutadasPorTipo['Caminhão'] || 0) + diff;
                  }
             }
         });
 
-        // Adiciona horas manuais de caminhão (não prancha)
         const truckManualHours = parseFloat(obra.horasAdicionaisCaminhao || 0);
         if (horasExecutadasPorTipo['Caminhão'] !== undefined && obra.contractType !== 'prancha') {
              horasExecutadasPorTipo['Caminhão'] += truckManualHours;
@@ -418,9 +404,9 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
              totalKmPrancha: totalExecutadoKmPrancha,
              porTipo: horasExecutadasPorTipo,
         };
-    }, [vehicles, vehicleGroups, equipmentTypesForHours]); // Dependências da função interna
+    }, [vehicles, vehicleGroups, equipmentTypesForHours]);
 
-    // Calcula progresso total (Usa calculateExecuted)
+    // Calcula progresso total (Lógica intacta)
     const allObrasProgress = useMemo(() => {
         if (!activeObrasWithContractData || !vehicles) {
             return { totalContracted: 0, totalExecuted: 0, unit: 'hrs' };
@@ -429,39 +415,35 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
 
         activeObrasWithContractData.forEach(obra => {
             const currentContractType = obra.contractType || 'horas';
-            const executed = calculateExecuted(obra); // Usa a função memoizada
+            const executed = calculateExecuted(obra);
 
             if (currentContractType === 'horas') {
                 totalContratado += Object.values(obra.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
                 totalExecutado += executed.totalHoras;
                 primaryUnit = 'hrs';
             } else if (currentContractType === 'metrosQuadrados') {
-                 // Garante que sectors é array
                 const sectors = Array.isArray(obra.sectors) ? obra.sectors : [];
                 totalContratado += sectors.reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0);
-                totalExecutado += sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0); // Usa kmConcluido da API
+                totalExecutado += sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0);
                 primaryUnit = 'm²';
              } else if (currentContractType === 'prancha') {
-                 // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
                  totalContratado += parseFloat(obra.kmContratadoPrancha) || 0;
-                 totalExecutado += executed.totalKmPrancha; // Já é seguro
+                 totalExecutado += executed.totalKmPrancha;
                  primaryUnit = 'km';
             }
         });
         return { totalContracted: totalContratado || 0, totalExecuted: totalExecutado || 0, unit: primaryUnit };
     }, [activeObrasWithContractData, vehicles, calculateExecuted]);
 
-    // Calcula dados da obra selecionada (Usa calculateExecuted)
+    // Calcula dados da obra selecionada (Lógica intacta)
     const obraData = useMemo(() => {
         if (!selectedObraId || !activeObrasWithContractData || !vehicles) return null;
         const obra = activeObrasWithContractData.find(o => o.id === selectedObraId);
         if (!obra) return null;
 
         const currentContractType = obra.contractType || 'horas';
-        const executed = calculateExecuted(obra); // Usa a função memoizada
-        // Garante que equipmentTypesForHours é array
+        const executed = calculateExecuted(obra);
         const equipmentTypes = Array.isArray(equipmentTypesForHours) ? equipmentTypesForHours : [];
-        // Garante que allEquipmentTypes inclua 'Caminhão'
         const allEquipmentTypes = [...new Set([...equipmentTypes, 'Caminhão'])];
 
         if (currentContractType === 'horas') {
@@ -477,20 +459,18 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
             });
             return { type: 'horas', nome: obra.nome, totalContratado, totalExecutado: executed.totalHoras, unit: 'hrs', breakdown: Object.values(breakdownMap) };
         } else if (currentContractType === 'metrosQuadrados') {
-             // Garante que sectors é array
             const sectors = Array.isArray(obra.sectors) ? obra.sectors : [];
             const totalKmContratado = sectors.reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0);
-            const totalKmConcluido = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0); // Usa da API
+            const totalKmConcluido = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0);
             return { type: 'metrosQuadrados', nome: obra.nome, totalKmContratado, totalKmConcluido, unit: 'm²', sectors: sectors.map(s => ({...s, kmContratado: parseFloat(s.kmContratado || 0), kmConcluido: parseFloat(s.kmConcluido || 0)})) };
          } else if (currentContractType === 'prancha') {
-             // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
              const totalKmContratado = parseFloat(obra.kmContratadoPrancha) || 0;
              return { type: 'prancha', nome: obra.nome, totalKmContratado, totalKmConcluido: executed.totalKmPrancha, unit: 'km' };
         }
         return null;
     }, [selectedObraId, activeObrasWithContractData, vehicles, calculateExecuted, equipmentTypesForHours]);
 
-    // ProgressBar (sem mudanças)
+    // ProgressBar 
     const ProgressBar = ({ value, max, color = 'bg-yellow-400' }) => {
         const numericValue = parseFloat(value) || 0;
         const numericMax = parseFloat(max) || 0;
@@ -498,9 +478,9 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         const displayPercentage = Math.min(percentage, 100).toFixed(0);
 
         return (
-            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden my-1">
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden my-1">
                 <div
-                    className={`${color} h-4 rounded-full text-gray-900 text-[10px] flex items-center justify-center font-bold transition-width duration-500 ease-in-out`}
+                    className={`${color} h-3 rounded-full text-gray-900 text-[9px] flex items-center justify-center font-bold transition-width duration-500 ease-in-out`}
                     style={{ width: `${displayPercentage}%` }}
                  >
                     {percentage > 15 ? `${displayPercentage}%` : ''}
@@ -509,13 +489,13 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         );
     };
 
-    // Calcula progresso individual (Usa calculateExecuted)
+    // Calcula progresso individual (Lógica intacta)
     const individualObrasProgress = useMemo(() => {
         if (!activeObrasWithContractData || !vehicles) return [];
         return activeObrasWithContractData.map(obra => {
             const currentContractType = obra.contractType || 'horas';
             let totalContratado = 0, totalExecutado = 0, unit = 'hrs';
-            const executed = calculateExecuted(obra); // Usa função memoizada
+            const executed = calculateExecuted(obra);
 
             if (currentContractType === 'horas') {
                 totalContratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
@@ -527,29 +507,28 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                 totalExecutado = sectors.reduce((sum, s) => sum + (parseFloat(s.kmConcluido) || 0), 0);
                 unit = 'm²';
              } else if (currentContractType === 'prancha') {
-                 // CORREÇÃO: Garante que o parseFloat tenha um fallback para 0
                  totalContratado = parseFloat(obra.kmContratadoPrancha) || 0;
-                 totalExecutado = executed.totalKmPrancha; // Já é seguro
+                 totalExecutado = executed.totalKmPrancha;
                  unit = 'km';
             }
 
             const percentage = totalContratado > 0 ? (totalExecutado / totalContratado) * 100 : 0;
-            return { id: obra.id, nome: obra.nome, totalContratado, totalExecutado, percentage: percentage || 0, unit };
+            return { id: obra.id, nome: obra.nome, totalContratado, totalExecutado, percentage: percentage || 0, unit, cliente: obra.cliente };
         }).sort((a,b) => b.percentage - a.percentage);
     }, [activeObrasWithContractData, vehicles, calculateExecuted]);
 
-    // Renderização (sem mudanças significativas, apenas ajustes de texto/unidade)
+    // Renderização (GRID DE 3 COLUNAS APLICADO)
     return (
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
             {/* Cabeçalho */}
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
-                <h2 className="text-xl font-bold text-gray-900">Progresso da Obra</h2>
+                <h2 className="text-xl font-bold text-gray-900">Progresso / Alocação</h2>
                 <select
                      onChange={(e) => setSelectedObraId(e.target.value)}
                      value={selectedObraId}
                      className="p-1 border rounded-lg bg-gray-50 text-sm focus:ring-yellow-500 focus:border-yellow-500"
                  >
-                    <option value="">Visão Geral</option>
+                    <option value="">Visão Geral (Todas)</option>
                     {activeObrasWithContractData.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                 </select>
             </div>
@@ -557,46 +536,50 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
             {/* Conteúdo */}
             {!obras || !vehicles ? (
                  <p className="text-center text-gray-500 py-10">Carregando...</p>
-            ) : !selectedObraId ? ( // Visão Geral
+            ) : !selectedObraId ? ( // Visão Geral em GRID
                 <div className="space-y-4">
-                    {/* Progresso Total */}
-                    <div className="bg-gray-100 p-3 rounded-lg border border-gray-200">
-                        <h3 className="text-sm font-semibold text-gray-800 mb-1">Progresso Total (Obras Ativas)</h3>
-                        <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
-                            <span>Progresso Geral</span>
-                             {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
-                             <span>{(allObrasProgress.totalExecuted || 0).toFixed(1)} / {(allObrasProgress.totalContracted || 0).toFixed(1)} {allObrasProgress.unit}</span>
-                        </div>
-                        <ProgressBar value={allObrasProgress.totalExecuted} max={allObrasProgress.totalContracted} color="bg-green-500" />
-                    </div>
-                    {/* Progresso Individual */}
-                    <div>
-                        <h3 className="text-sm font-semibold text-gray-800 mb-1 pt-1">Progresso por Obra</h3>
-                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
-                            {individualObrasProgress.length > 0 ? individualObrasProgress.map(obraProg => {
-                                const barColor = obraProg.percentage < 75 ? 'bg-blue-500' : obraProg.percentage < 95 ? 'bg-yellow-500' : 'bg-red-500';
-                                // CORREÇÃO: Adiciona fallback (|| 0) para segurança
-                                const progressText = `${(obraProg.totalExecutado || 0).toFixed(1)} ${obraProg.unit}`;
-                                const contractedText = `${(obraProg.totalContratado || 0).toFixed(1)} ${obraProg.unit}`;
+                    {/* Grid de 3 Colunas para Obras */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto custom-scrollbar pr-1">
+                        {individualObrasProgress.length > 0 ? individualObrasProgress.map(obraProg => {
+                            const barColor = obraProg.percentage < 75 ? 'bg-blue-500' : obraProg.percentage < 95 ? 'bg-yellow-500' : 'bg-red-500';
+                            const progressText = `${(obraProg.totalExecutado || 0).toFixed(1)} ${obraProg.unit}`;
 
-                                return (
-                                    <div key={obraProg.id} className="mb-1">
-                                         <span className="text-[11px] font-medium text-gray-700 block mb-0.5">{obraProg.nome}</span>
-                                        <div className="w-full bg-gray-200 rounded-full h-4 relative overflow-hidden border border-gray-300">
-                                            <div className={`h-full ${barColor} rounded-full`} style={{ width: `${Math.min(obraProg.percentage, 100)}%` }}></div>
-                                            <div className="absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold text-black mix-blend-difference invert">
-                                                <span className="truncate">{progressText}</span>
-                                                {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
-                                                <span className="absolute left-1/2 -translate-x-1/2">{(obraProg.percentage || 0).toFixed(0)}%</span>
-                                                <span className="truncate">{contractedText}</span>
+                            return (
+                                <div key={obraProg.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 hover:bg-white hover:shadow-sm transition-all group flex flex-col justify-between h-full">
+                                    <div>
+                                        <div className="flex items-center mb-2">
+                                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mr-2 shrink-0">
+                                                <HardHat size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <h4 className="text-xs font-bold text-gray-800 truncate" title={obraProg.nome}>
+                                                    {obraProg.nome}
+                                                </h4>
+                                                <p className="text-[10px] text-gray-500 truncate">{obraProg.cliente || 'Cliente N/A'}</p>
                                             </div>
                                         </div>
                                     </div>
-                                );
-                            }) : <p className="text-xs text-gray-500 text-center py-4 italic">Nenhuma obra ativa com dados.</p>}
+                                    
+                                    <div className="mt-2">
+                                        <div className="flex justify-between text-[10px] font-medium text-gray-600 mb-1">
+                                            <span>{progressText}</span>
+                                            <span>{(obraProg.percentage || 0).toFixed(0)}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                            <div className={`h-full ${barColor} rounded-full`} style={{ width: `${Math.min(obraProg.percentage, 100)}%` }}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        }) : <p className="text-xs text-gray-500 col-span-3 text-center py-4 italic">Nenhuma obra ativa com dados.</p>}
+                    </div>
+                    
+                    <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+                        <div className="text-xs text-gray-500 italic">Total de {individualObrasProgress.length} obras listadas.</div>
+                        <div className="text-xs font-medium text-gray-700">
+                            Progresso Geral: {(allObrasProgress.totalExecuted || 0).toFixed(1)} / {(allObrasProgress.totalContracted || 0).toFixed(1)} {allObrasProgress.unit}
                         </div>
                     </div>
-                    <p className="text-xs text-gray-500 italic pt-1 text-center">Selecione uma obra para detalhes.</p>
                 </div>
             ) : selectedObraId && obraData ? ( // Detalhes da Obra
                 <div className="space-y-3">
@@ -604,14 +587,13 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                         <div className="flex justify-between mb-0.5 text-xs font-medium">
                             <span>Progresso Total ({obraData.unit})</span>
                             <span>
-                                {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
                                 {((obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido) || 0).toFixed(1)} /
                                 {((obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado) || 0).toFixed(1)} {obraData.unit}
                             </span>
                         </div>
                         <ProgressBar value={obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido} max={obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado} />
                     </div>
-                    {/* Detalhes Horas */}
+                    {/* Detalhes Específicos (Mantidos) */}
                     {obraData.type === 'horas' && obraData.breakdown && (
                         <div className="space-y-1 pt-1 border-t border-gray-200">
                             <h3 className="text-xs font-semibold text-gray-700">Detalhes por Equipamento:</h3>
@@ -622,7 +604,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                                         <div key={entry.tipo}>
                                             <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
                                                 <span>{entry.tipo}</span>
-                                                {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
                                                 <span>{(entry.executado || 0).toFixed(1)} / {(entry.contratado || 0).toFixed(1)} hrs</span>
                                             </div>
                                             <ProgressBar value={entry.executado} max={entry.contratado} color="bg-blue-400" />
@@ -631,15 +612,14 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                             ) : <p className="text-xs text-gray-500 italic">Sem horas contratadas/executadas.</p>}
                         </div>
                     )}
-                    {/* Detalhes m² */}
-                    {obraData.type === 'metrosQuadrados' && obraData.sectors && (
+                    {/* ... Lógica de m² e Prancha mantida (oculta para brevidade mas presente no conceito) ... */}
+                     {obraData.type === 'metrosQuadrados' && obraData.sectors && (
                         <div className="space-y-1 pt-1 border-t border-gray-200">
                             <h3 className="text-xs font-semibold text-gray-700">Progresso por Setor ({obraData.unit}):</h3>
                             {obraData.sectors.length > 0 ? obraData.sectors.map(sector => (
                                 <div key={sector.name}>
                                     <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
                                         <span>{sector.name || 'Setor s/ nome'}</span>
-                                        {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
                                         <span>{(sector.kmConcluido || 0).toFixed(1)} / {(sector.kmContratado || 0).toFixed(1)} {obraData.unit}</span>
                                     </div>
                                     <ProgressBar value={sector.kmConcluido} max={sector.kmContratado} color="bg-green-400" />
@@ -647,12 +627,10 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                             )) : <p className="text-xs text-gray-500 italic">Nenhum setor definido.</p>}
                         </div>
                     )}
-                     {/* Detalhes Prancha */}
                      {obraData.type === 'prancha' && (
                          <div className="pt-1 border-t border-gray-200">
                              <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
                                  <span>Deslocamento Prancha ({obraData.unit})</span>
-                                 {/* CORREÇÃO: Adiciona fallback (|| 0) para segurança */}
                                  <span>{(obraData.totalKmConcluido || 0).toFixed(1)} / {(obraData.totalKmContratado || 0).toFixed(1)} {obraData.unit}</span>
                              </div>
                              <ProgressBar value={obraData.totalKmConcluido} max={obraData.totalKmContratado} color="bg-indigo-400" />
@@ -665,19 +643,17 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
 };
 
 // ===================================================================================
-// COMPONENTE PRINCIPAL DO DASHBOARD (Usa props e apiClient)
+// COMPONENTE PRINCIPAL (Painel de Controle)
 // ===================================================================================
 const Dashboard = ({
     navigate,
     vehicles = [], obras = [], revisions = [], refuelings = [], employees = [], fines = [],
-    // inactivityAlerts = [], // Recebe via props do App.js
     vehicleGroups = {}, equipmentTypesForHours = [],
-    apiClient, // Recebe via props
-    setAlertMessage, // Recebe via props
-    reloadData // Recebe via props (se necessário)
+    apiClient,
+    setAlertMessage,
+    reloadData
 }) => {
     const [selectedInactivityAlert, setSelectedInactivityAlert] = useState(null);
-     // Busca alertas de inatividade da API dentro do Dashboard
      const [inactivityAlerts, setInactivityAlerts] = useState([]);
      const [loadingAlerts, setLoadingAlerts] = useState(true);
 
@@ -689,96 +665,84 @@ const Dashboard = ({
                  setInactivityAlerts(alertsData || []);
              } catch (error) {
                  console.error("Erro ao buscar alertas de inatividade:", error);
-                 // Não mostrar alerta para erro de busca de alertas, apenas logar
-                 setInactivityAlerts([]); // Define como vazio em caso de erro
+                 setInactivityAlerts([]);
              } finally {
                  setLoadingAlerts(false);
              }
          };
          fetchInactivityAlerts();
-         // Recarrega alertas a cada 5 minutos (opcional)
          const intervalId = setInterval(fetchInactivityAlerts, 5 * 60 * 1000);
-         return () => clearInterval(intervalId); // Limpa intervalo ao desmontar
+         return () => clearInterval(intervalId);
      }, [apiClient]);
 
 
-    // Calcula os alertas combinados (Usa new Date() e props)
     const alerts = useMemo(() => {
-        // Alertas de 'possuiAviso' (vem processado de App.js)
         const vehicleAlerts = (vehicles || []).filter(v => v?.possuiAviso).map(v => ({
             id: `vehicle-${v.id}`,
             type: 'Aviso Veículo',
             vehicle: v,
             text: v.avisoTexto || 'Verificar veículo',
-            isDanger: (v.avisoTexto || '').includes('Vencida!') || v.canCirculate === false, // Adiciona canCirculate
+            isDanger: (v.avisoTexto || '').includes('Vencida!') || v.canCirculate === false,
+            date: new Date().toLocaleDateString('pt-BR')
         }));
 
-        // Alertas CNH
         const now = new Date();
         const thirtyDaysFromNow = new Date();
         thirtyDaysFromNow.setDate(now.getDate() + 30);
+        
         const cnhAlerts = (employees || []).map(emp => {
             if (emp.cnhVencimento) {
                 try {
-                    // Adiciona hora para evitar problemas de fuso
                     const vencimento = new Date(emp.cnhVencimento + 'T12:00:00Z');
                     if (!isNaN(vencimento)) {
                         if (vencimento < now) {
-                            return { id: `cnh-${emp.id}`, type: 'CNH', employee: emp, text: `Vencida em ${vencimento.toLocaleDateString('pt-BR')}`, isDanger: true };
+                            return { id: `cnh-${emp.id}`, type: 'CNH', employee: emp, text: `Vencida em ${vencimento.toLocaleDateString('pt-BR')}`, isDanger: true, date: vencimento.toLocaleDateString('pt-BR') };
                         } else if (vencimento <= thirtyDaysFromNow) {
-                            return { id: `cnh-${emp.id}`, type: 'CNH', employee: emp, text: `Vence em ${vencimento.toLocaleDateString('pt-BR')}`, isDanger: false };
+                            return { id: `cnh-${emp.id}`, type: 'CNH', employee: emp, text: `Vence em ${vencimento.toLocaleDateString('pt-BR')}`, isDanger: false, date: vencimento.toLocaleDateString('pt-BR') };
                         }
                     }
-                } catch { /* Ignora data inválida */ }
+                } catch { }
             }
             return null;
         }).filter(Boolean);
 
-        // Alertas de Inatividade (processados localmente com dados da API)
          const processedInactivityAlerts = (inactivityAlerts || []).map(alert => {
              const vehicle = vehicles.find(v => v.id === alert.vehicleId);
              const obra = obras.find(o => o.id === alert.obraId);
              const operator = employees.find(e => e.id === alert.operatorId);
 
-             if (!vehicle || !obra || !operator) return null; // Pula se dados não encontrados
+             if (!vehicle || !obra || !operator) return null;
 
              const isProlongedActive = alert.status === 'Prolongado' && new Date(alert.prolongedUntil) > now;
-             if (alert.status === 'Observado' || isProlongedActive) return null; // Não exibe
+             if (alert.status === 'Observado' || isProlongedActive) return null;
 
              return {
                  ...alert,
                  id: `inactive-${alert.id}`,
                  type: 'Inatividade',
-                 vehicle, obra, operator, // Passa objetos completos
+                 vehicle, obra, operator,
                  isDanger: true,
+                 text: `Inativo na obra ${obra.nome}`,
+                 date: new Date().toLocaleDateString('pt-BR')
              };
          }).filter(Boolean);
 
-        // Combina e ordena
         const combinedAlerts = [...vehicleAlerts, ...cnhAlerts, ...processedInactivityAlerts]
-            .sort((a, b) => (b.isDanger - a.isDanger)); // Perigosos primeiro
+            .sort((a, b) => (b.isDanger - a.isDanger));
 
         return combinedAlerts;
-    }, [vehicles, employees, inactivityAlerts, obras]); // Dependências atualizadas
+    }, [vehicles, employees, inactivityAlerts, obras]);
 
-    // Calcula estatísticas (sem mudanças)
     const stats = useMemo(() => {
         const validVehicles = Array.isArray(vehicles) ? vehicles : [];
         const validObras = Array.isArray(obras) ? obras : [];
         const validFines = Array.isArray(fines) ? fines : [];
-
-        const processedVehicles = validVehicles.map(v => ({
-            ...v,
-            // Garante um status, priorizando o da API ou 'Disponível' como fallback
-            status: v?.status || 'Disponível'
-        }));
-
-        const activeObrasCount = validObras.filter(o => o?.status === 'ativa').length;
+        const processedVehicles = validVehicles.map(v => ({...v, status: v?.status || 'Disponível'}));
         const maintenanceStatuses = ['Em Manutenção', 'Aguardando Manutenção'];
 
         return {
             totalVehicles: processedVehicles.length,
-            totalObras: activeObrasCount,
+            totalObras: validObras.filter(o => o?.status === 'ativa').length,
             vehiclesInObra: processedVehicles.filter(v => v.status === 'Em Obra').length,
             vehiclesInOperation: processedVehicles.filter(v => v.status === 'Em Operação').length,
             availableVehicles: processedVehicles.filter(v => v.status === 'Disponível').length,
@@ -787,92 +751,85 @@ const Dashboard = ({
         };
     }, [vehicles, obras, fines]);
 
-    // Manipuladores do modal de inatividade
     const handleInactivityAlertClick = (alert) => setSelectedInactivityAlert(alert);
     const handleInactivityModalClose = () => setSelectedInactivityAlert(null);
     const handleAlertAction = () => {
-        // Fecha o modal e recarrega os dados para atualizar a lista de alertas
         setSelectedInactivityAlert(null);
-        if (reloadData) reloadData(); // Chama reloadData se disponível
-        else console.warn("Função reloadData não disponível para atualizar alertas.");
+        if (reloadData) reloadData();
     };
 
-    // StatCard (sem mudanças)
-    const StatCard = ({ title, value, icon, iconBgColor, iconTextColor, onClick }) => (
-        <div onClick={onClick} className="p-3 bg-white rounded-lg shadow-md flex items-center gap-3 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 border border-gray-100">
-            <div className={`p-2 rounded-full ${iconBgColor} ${iconTextColor} shadow-sm`}><div className="w-5 h-5">{icon}</div></div>
+    const StatCard = ({ title, value, icon: Icon, colorClass, subtext, onClick }) => (
+        <div onClick={onClick} className="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex items-start justify-between transition-all hover:shadow-md cursor-pointer hover:-translate-y-0.5">
             <div>
-                <p className="text-xl font-bold text-gray-800">{value ?? '0'}</p>
-                <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{title}</p>
+                <p className="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wide">{title}</p>
+                <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+                {subtext && <p className="text-[10px] text-gray-400 mt-1">{subtext}</p>}
+            </div>
+            <div className={`p-2 rounded-lg ${colorClass}`}>
+                <Icon size={20} />
             </div>
         </div>
     );
 
-    // Renderização do Dashboard
     return (
         <ProtectedComponent requiredPermission="viewer">
-            <div className="space-y-5">
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
+            <div className="space-y-6">
+                {/* Header - Painel de Controle */}
+                <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+                            <Activity className="text-indigo-600" />
+                            Painel de Controle
+                        </h1>
+                        <p className="text-gray-500 text-sm mt-1">
+                            Visão geral operacional • {new Date().toLocaleDateString('pt-BR')}
+                        </p>
+                    </div>
+                     <div className="flex items-center gap-3">
+                        <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                            <span className="text-xs font-medium text-gray-600">Sistema Online</span>
+                        </div>
+                        <button onClick={() => navigate('obras')} className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2 text-sm font-medium">
+                            <Building size={16} />
+                            <span>Gerenciar Obras</span>
+                        </button>
+                    </div>
+                </header>
 
                 {/* Grid de Estatísticas */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                    <StatCard title="Total Frota" value={stats.totalVehicles} icon={<Truck size={20}/>} iconBgColor="bg-yellow-100" iconTextColor="text-yellow-700" onClick={() => navigate('vehicles')} />
-                    <StatCard title="Obras Ativas" value={stats.totalObras} icon={<Building size={20}/>} iconBgColor="bg-gray-100" iconTextColor="text-gray-700" onClick={() => navigate('obras', { status: 'ativa' })} />
-                    <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={<HardHat size={20}/>} iconBgColor="bg-green-100" iconTextColor="text-green-700" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
-                    <StatCard title="Em Operação" value={stats.vehiclesInOperation} icon={<Users size={20}/>} iconBgColor="bg-blue-100" iconTextColor="text-blue-700" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
-                    <StatCard title="Disponíveis" value={stats.availableVehicles} icon={<CheckCircle size={20}/>} iconBgColor="bg-teal-100" iconTextColor="text-teal-700" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
-                    <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={<Wrench size={20}/>} iconBgColor="bg-red-100" iconTextColor="text-red-700" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
-                    <StatCard title="Multas Pend." value={stats.pendingFines} icon={<ShieldAlert size={20}/>} iconBgColor="bg-orange-100" iconTextColor="text-orange-700" onClick={() => navigate('fines', { status: 'Pendente' })} />
+                    <StatCard title="Total Frota" value={stats.totalVehicles} icon={Truck} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles')} />
+                    <StatCard title="Obras Ativas" value={stats.totalObras} icon={Building} colorClass="bg-gray-100 text-gray-600" onClick={() => navigate('obras', { status: 'ativa' })} />
+                    <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={HardHat} colorClass="bg-green-100 text-green-600" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
+                    <StatCard title="Operação" value={stats.vehiclesInOperation} icon={Users} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
+                    <StatCard title="Disponíveis" value={stats.availableVehicles} icon={CheckCircle} colorClass="bg-teal-100 text-teal-600" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
+                    <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={Wrench} colorClass="bg-red-100 text-red-600" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
+                    <StatCard title="Multas" value={stats.pendingFines} icon={ShieldAlert} colorClass="bg-orange-100 text-orange-600" onClick={() => navigate('fines', { status: 'Pendente' })} />
                 </div>
 
-                {/* Grid Principal */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                    {/* Alertas */}
-                    <div className="lg:col-span-1 bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200">
-                        <h2 className="text-lg font-bold text-gray-900 mb-3">Alertas e Avisos</h2>
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
-                            {loadingAlerts ? (
-                                <div className="flex justify-center items-center h-20"><Loader className="animate-spin text-gray-400"/></div>
-                            ) : alerts.length > 0 ? alerts.map(alert => {
-                                let bgColor = 'bg-yellow-50 border-yellow-200';
-                                let textColor = 'text-yellow-800';
-                                let iconColor = 'text-yellow-600';
-                                let Icon = Info;
-                                if (alert.type === 'CNH') { Icon = Badge; bgColor = 'bg-blue-50 border-blue-200'; textColor = 'text-blue-800'; iconColor = 'text-blue-600'; }
-                                if (alert.type === 'Inatividade') { Icon = Clock; bgColor = 'bg-purple-50 border-purple-200'; textColor = 'text-purple-800'; iconColor = 'text-purple-600'; }
-                                if (alert.isDanger) { Icon = AlertTriangle; bgColor = 'bg-red-50 border-red-200'; textColor = 'text-red-800'; iconColor = 'text-red-600'; }
-
-                                return (
-                                <div
-                                    key={alert.id}
-                                    className={`p-2.5 rounded-lg flex items-start gap-2 ${bgColor} border cursor-pointer hover:shadow-sm transition-shadow duration-150`}
-                                    onClick={() => {
-                                        if (alert.type === 'Inatividade') handleInactivityAlertClick(alert);
-                                        else if (alert.vehicle) navigate('vehicles', { search: alert.vehicle.registroInterno }); // Navega e filtra
-                                        else if (alert.employee) navigate('employees', { search: alert.employee.nome }); // Navega e filtra
-                                    }}
-                                >
-                                    <div className={`mt-0.5 flex-shrink-0 ${iconColor}`}><Icon size={16}/></div>
-                                    <div className="flex-1">
-                                        <p className={`font-semibold text-xs ${textColor}`}>
-                                            {alert.vehicle ? `${alert.vehicle.registroInterno}` : alert.employee?.nome}
-                                        </p>
-                                        <p className="text-[10px] text-gray-600">{alert.type}</p>
-                                        <p className={`text-[11px] font-medium ${textColor}`}>
-                                            {alert.text ||
-                                             (alert.status === 'Observado' ? 'Observado' :
-                                              (alert.status === 'Prolongado' && alert.prolongedUntil ? `Prolongado até ${new Date(alert.prolongedUntil).toLocaleDateString('pt-BR')}` :
-                                               (alert.lastRefuelingDate ? `Últ. Abast.: ${new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR')}` : ''))
-                                            )}
-                                        </p>
-                                    </div>
+                {/* Layout Principal Assimétrico */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* Coluna Esquerda (2/3) */}
+                    <div className="lg:col-span-2 space-y-6">
+                        {/* Seção do Mapa */}
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                                <div>
+                                    <h2 className="text-md font-bold text-gray-800">Geolocalização da Frota</h2>
+                                    <p className="text-xs text-gray-500">Distribuição atual no RS</p>
                                 </div>
-                                );
-                            }) : <p className="text-gray-500 text-sm text-center py-10 italic">Nenhum alerta.</p>}
-                        </div>
-                    </div>
-                    {/* Progresso Obra */}
-                    <div className="lg:col-span-2">
+                                <button className="text-gray-400 hover:text-indigo-600 transition-colors">
+                                    <Maximize2 size={18} />
+                                </button>
+                            </div>
+                            <div className="h-[300px] bg-gray-50 p-4">
+                                <MapPlaceholder />
+                            </div>
+                        </section>
+
+                        {/* Progresso Obra */}
                         <ObraProgressBI
                             obras={obras}
                             vehicles={vehicles}
@@ -880,9 +837,92 @@ const Dashboard = ({
                             equipmentTypesForHours={equipmentTypesForHours}
                         />
                     </div>
+
+                    {/* Coluna Direita (1/3) */}
+                    <div className="space-y-6">
+                        {/* Quadro de Avisos (Novo Estilo) */}
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[500px] flex flex-col">
+                            <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
+                                <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
+                                    <Bell size={18} className="text-indigo-600" />
+                                    Quadro de Avisos
+                                </h2>
+                            </div>
+                            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
+                                {loadingAlerts ? (
+                                    <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
+                                ) : alerts.length > 0 ? alerts.map(alert => {
+                                    // Estilização dinâmica
+                                    const style = alert.isDanger 
+                                        ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
+                                        : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
+                                    
+                                    let Icon = Bell;
+                                    if (alert.type === 'CNH') Icon = Badge;
+                                    if (alert.type === 'Inatividade') Icon = Clock;
+                                    if (alert.isDanger) Icon = AlertTriangle;
+
+                                    return (
+                                        <div 
+                                            key={alert.id} 
+                                            onClick={() => {
+                                                if (alert.type === 'Inatividade') handleInactivityAlertClick(alert);
+                                                else if (alert.vehicle) navigate('vehicles', { search: alert.vehicle.registroInterno });
+                                                else if (alert.employee) navigate('employees', { search: alert.employee.nome });
+                                            }}
+                                            className={`p-3 rounded-lg border-l-4 shadow-sm flex items-start gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${style.border} ${style.bg}`}
+                                        >
+                                            <div className={`mt-1 ${style.icon}`}><Icon size={16} /></div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start">
+                                                    <h4 className={`text-xs font-bold truncate ${style.title}`}>
+                                                        {alert.vehicle ? alert.vehicle.registroInterno : alert.employee?.nome}
+                                                    </h4>
+                                                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                                        {alert.date}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] font-semibold text-gray-500 uppercase mt-0.5">{alert.type}</p>
+                                                <p className="text-xs text-gray-600 mt-1 leading-relaxed">{alert.text}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                }) : <p className="text-gray-400 text-sm text-center py-10 italic">Tudo tranquilo por aqui.</p>}
+                            </div>
+                        </section>
+                        
+                        {/* Resumo de Manutenção (Novo Card Visual) */}
+                        <section className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-md text-white p-6 relative overflow-hidden">
+                            <div className="relative z-10">
+                                <h3 className="font-bold text-md mb-1">Manutenção Preventiva</h3>
+                                <p className="text-gray-400 text-xs mb-4">Próximos vencimentos</p>
+                                
+                                <ul className="space-y-2 text-sm">
+                                    {revisions.slice(0, 3).map((rev, idx) => (
+                                        <li key={idx} className="flex justify-between items-center border-b border-gray-700 pb-2 last:border-0">
+                                            <span className="flex items-center gap-2 truncate max-w-[70%]">
+                                                <div className={`w-1.5 h-1.5 rounded-full ${idx === 0 ? 'bg-red-400' : 'bg-yellow-400'}`}></div>
+                                                {vehicles.find(v => v.id === rev.vehicleId)?.registroInterno || 'Veículo'}
+                                            </span>
+                                            <span className="font-mono text-xs text-gray-300">
+                                                {rev.proximaRevisaoOdometro ? `${rev.proximaRevisaoOdometro} km` : new Date(rev.proximaRevisaoData).toLocaleDateString('pt-BR')}
+                                            </span>
+                                        </li>
+                                    ))}
+                                    {revisions.length === 0 && <li className="text-xs text-gray-500 italic">Nenhuma revisão programada.</li>}
+                                </ul>
+
+                                <button onClick={() => navigate('revisions')} className="mt-4 w-full bg-white/10 hover:bg-white/20 transition-colors py-2 rounded-lg text-xs font-medium text-center border border-white/10">
+                                    Ver Calendário Completo
+                                </button>
+                            </div>
+                            <Wrench size={100} className="absolute -bottom-4 -right-4 text-white/5 transform -rotate-12" />
+                        </section>
+
+                    </div>
                 </div>
 
-                {/* Ranking Consumo */}
+                {/* Ranking Consumo (Rodapé) */}
                 <FuelEfficiencyRanking
                      vehicles={vehicles}
                      refuelings={refuelings}
@@ -898,7 +938,7 @@ const Dashboard = ({
                     onObserve={handleAlertAction}
                     onProlong={handleAlertAction}
                     apiClient={apiClient}
-                    setAlertMessage={setAlertMessage} // Passa setAlertMessage para o modal
+                    setAlertMessage={setAlertMessage}
                 />
             )}
         </ProtectedComponent>

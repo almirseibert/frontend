@@ -544,7 +544,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
     
     // Definição dos itens de navegação (mantida)
     const navItems = [
-        { id: 'dashboard', label: 'Dashboard', icon: <Building size={20} /> },
+        { id: 'dashboard', label: 'Painel de Controle', icon: <Building size={15} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={20} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={20} /> },
         { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={20} /> },
