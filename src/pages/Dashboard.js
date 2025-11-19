@@ -3,10 +3,26 @@ import {
     Building, Truck, HardHat, Users, CheckCircle, Wrench,
     ShieldAlert, Bell, Badge, TrendingUp, TrendingDown,
     Filter, Info, AlertTriangle, Clock, X, Loader, MapPin,
-    Activity, Calendar, Maximize2, MoreHorizontal, Search
+    Activity, Maximize2
 } from 'lucide-react';
 import apiClient from '../services/apiClient'; 
-import ProtectedComponent from '../components/ProtectedComponent';
+
+// --- IMPORTS DO MAPA ---
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// --- CORREÇÃO DE ÍCONES DO LEAFLET ---
+// Corrige o problema de ícones padrão não carregando no Webpack/React
+const fixLeafletIcon = () => {
+    delete L.Icon.Default.prototype._getIconUrl;
+    L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+    });
+};
+fixLeafletIcon();
 
 // ===================================================================================
 // COMPONENTE: MODAL DE INATIVIDADE (Lógica Mantida)
@@ -129,33 +145,71 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
 };
 
 // ===================================================================================
-// COMPONENTE: MAPA PLACEHOLDER (NOVO)
+// COMPONENTE: MAPA DE ALOCAÇÃO (Versão Real)
 // ===================================================================================
-const MapPlaceholder = () => (
-    <div className="bg-blue-50 rounded-xl h-full min-h-[300px] flex flex-col items-center justify-center border-2 border-dashed border-blue-200 relative overflow-hidden group">
-      <div className="absolute inset-0 opacity-10 pointer-events-none">
-        {/* Representação abstrata do mapa do RS */}
-        <svg viewBox="0 0 100 100" className="w-full h-full text-blue-600 fill-current">
-          <path d="M30,20 L70,10 L90,40 L80,90 L40,85 L10,60 Z" />
-        </svg>
-      </div>
-      
-      <MapPin size={48} className="text-blue-500 mb-4 animate-bounce" />
-      <h3 className="text-lg font-semibold text-blue-800">Mapa de Alocação (RS)</h3>
-      <p className="text-sm text-blue-600 text-center max-w-xs px-4">
-        O mapeamento geográfico será ativado em breve. Acompanhe a localização das obras e frotas em tempo real.
-      </p>
-      
-      {/* Simulando Pints no Mapa */}
-      <div className="absolute top-1/3 left-1/3 w-3 h-3 bg-red-500 rounded-full shadow-lg animate-pulse" title="Obra A"></div>
-      <div className="absolute top-1/2 left-1/2 w-3 h-3 bg-green-500 rounded-full shadow-lg animate-pulse" title="Obra B"></div>
-      <div className="absolute bottom-1/3 right-1/3 w-3 h-3 bg-yellow-500 rounded-full shadow-lg animate-pulse" title="Obra C"></div>
-      
-      <button className="mt-4 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-lg shadow-sm border border-blue-200 hover:bg-blue-50 transition-colors">
-        Expandir Visualização
-      </button>
-    </div>
-  );
+const AllocationMap = ({ obras = [], vehicles = [] }) => {
+    // Filtra apenas obras ativas que possuem coordenadas válidas
+    const validObras = useMemo(() => {
+        return obras.filter(o => 
+            o.status === 'ativa' && 
+            o.latitude && 
+            o.longitude && 
+            !isNaN(parseFloat(o.latitude)) && 
+            !isNaN(parseFloat(o.longitude))
+        );
+    }, [obras]);
+
+    // Conta veículos por obra para exibir no popup
+    const getVehicleCount = (obraId) => {
+        if (!Array.isArray(obras)) return 0;
+        const obra = obras.find(o => o.id === obraId);
+        if (!obra || !Array.isArray(obra.historicoVeiculos)) return 0;
+        // Conta apenas veículos que não têm data de saída (ainda ativos)
+        return obra.historicoVeiculos.filter(h => !h.dataSaida).length;
+    };
+
+    // Centro do mapa: Aproximadamente o centro do Rio Grande do Sul ou Santa Maria
+    const mapCenter = [-29.6914, -53.8008]; 
+
+    return (
+        <div className="h-full w-full rounded-xl overflow-hidden relative z-0">
+            <MapContainer 
+                center={mapCenter} 
+                zoom={7} 
+                style={{ height: '100%', width: '100%' }}
+                scrollWheelZoom={false} // Evita scroll acidental
+            >
+                <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                
+                {validObras.map(obra => (
+                    <Marker 
+                        key={obra.id} 
+                        position={[parseFloat(obra.latitude), parseFloat(obra.longitude)]}
+                    >
+                        <Popup>
+                            <div className="text-center">
+                                <strong className="block text-sm text-gray-800">{obra.nome}</strong>
+                                <span className="text-xs text-gray-500 block mb-1">{obra.cliente || 'Cliente N/A'}</span>
+                                <div className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full inline-block">
+                                    {getVehicleCount(obra.id)} Veículos Ativos
+                                </div>
+                            </div>
+                        </Popup>
+                    </Marker>
+                ))}
+
+                {validObras.length === 0 && (
+                     <div className="absolute bottom-4 left-4 bg-white/90 p-2 rounded shadow text-xs text-gray-600 z-[1000]">
+                        Nenhuma obra com coordenadas cadastradas.
+                    </div>
+                )}
+            </MapContainer>
+        </div>
+    );
+};
 
 // ===================================================================================
 // COMPONENTE: RANKING DE CONSUMO (Lógica Mantida)
@@ -314,12 +368,11 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
 
 
 // ===================================================================================
-// COMPONENTE: PAINEL DE PROGRESSO DA OBRA (Lógica de Cálculo Mantida, Layout GRID Atualizado)
+// COMPONENTE: PAINEL DE PROGRESSO DA OBRA (Lógica Mantida)
 // ===================================================================================
 const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipmentTypesForHours = [] }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
 
-    // Filtra obras ativas com dados (Lógica intacta)
     const activeObrasWithContractData = useMemo(() => {
         if (!Array.isArray(obras)) return [];
         return obras.filter(obra => {
@@ -338,7 +391,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         }).sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
 
-     // Função auxiliar para calcular executado (Lógica intacta)
     const calculateExecuted = useMemo(() => (obra) => {
         let totalExecutadoHoras = 0;
         let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha) || 0;
@@ -406,7 +458,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         };
     }, [vehicles, vehicleGroups, equipmentTypesForHours]);
 
-    // Calcula progresso total (Lógica intacta)
     const allObrasProgress = useMemo(() => {
         if (!activeObrasWithContractData || !vehicles) {
             return { totalContracted: 0, totalExecuted: 0, unit: 'hrs' };
@@ -435,7 +486,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         return { totalContracted: totalContratado || 0, totalExecuted: totalExecutado || 0, unit: primaryUnit };
     }, [activeObrasWithContractData, vehicles, calculateExecuted]);
 
-    // Calcula dados da obra selecionada (Lógica intacta)
     const obraData = useMemo(() => {
         if (!selectedObraId || !activeObrasWithContractData || !vehicles) return null;
         const obra = activeObrasWithContractData.find(o => o.id === selectedObraId);
@@ -470,7 +520,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         return null;
     }, [selectedObraId, activeObrasWithContractData, vehicles, calculateExecuted, equipmentTypesForHours]);
 
-    // ProgressBar 
     const ProgressBar = ({ value, max, color = 'bg-yellow-400' }) => {
         const numericValue = parseFloat(value) || 0;
         const numericMax = parseFloat(max) || 0;
@@ -489,7 +538,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         );
     };
 
-    // Calcula progresso individual (Lógica intacta)
     const individualObrasProgress = useMemo(() => {
         if (!activeObrasWithContractData || !vehicles) return [];
         return activeObrasWithContractData.map(obra => {
@@ -517,10 +565,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
         }).sort((a,b) => b.percentage - a.percentage);
     }, [activeObrasWithContractData, vehicles, calculateExecuted]);
 
-    // Renderização (GRID DE 3 COLUNAS APLICADO)
     return (
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
-            {/* Cabeçalho */}
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <h2 className="text-xl font-bold text-gray-900">Progresso / Alocação</h2>
                 <select
@@ -533,12 +579,10 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                 </select>
             </div>
 
-            {/* Conteúdo */}
             {!obras || !vehicles ? (
                  <p className="text-center text-gray-500 py-10">Carregando...</p>
-            ) : !selectedObraId ? ( // Visão Geral em GRID
+            ) : !selectedObraId ? ( 
                 <div className="space-y-4">
-                    {/* Grid de 3 Colunas para Obras */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto custom-scrollbar pr-1">
                         {individualObrasProgress.length > 0 ? individualObrasProgress.map(obraProg => {
                             const barColor = obraProg.percentage < 75 ? 'bg-blue-500' : obraProg.percentage < 95 ? 'bg-yellow-500' : 'bg-red-500';
@@ -581,7 +625,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                         </div>
                     </div>
                 </div>
-            ) : selectedObraId && obraData ? ( // Detalhes da Obra
+            ) : selectedObraId && obraData ? ( 
                 <div className="space-y-3">
                     <div>
                         <div className="flex justify-between mb-0.5 text-xs font-medium">
@@ -593,7 +637,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                         </div>
                         <ProgressBar value={obraData.type === 'horas' ? obraData.totalExecutado : obraData.totalKmConcluido} max={obraData.type === 'horas' ? obraData.totalContratado : obraData.totalKmContratado} />
                     </div>
-                    {/* Detalhes Específicos (Mantidos) */}
+                    
                     {obraData.type === 'horas' && obraData.breakdown && (
                         <div className="space-y-1 pt-1 border-t border-gray-200">
                             <h3 className="text-xs font-semibold text-gray-700">Detalhes por Equipamento:</h3>
@@ -612,7 +656,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                             ) : <p className="text-xs text-gray-500 italic">Sem horas contratadas/executadas.</p>}
                         </div>
                     )}
-                    {/* ... Lógica de m² e Prancha mantida (oculta para brevidade mas presente no conceito) ... */}
                      {obraData.type === 'metrosQuadrados' && obraData.sectors && (
                         <div className="space-y-1 pt-1 border-t border-gray-200">
                             <h3 className="text-xs font-semibold text-gray-700">Progresso por Setor ({obraData.unit}):</h3>
@@ -772,148 +815,130 @@ const Dashboard = ({
     );
 
     return (
-        <ProtectedComponent requiredPermission="viewer">
-            <div className="space-y-6">
-                {/* Header - Painel de Controle */}
-                <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
-                            <Activity className="text-indigo-600" />
-                            Painel de Controle
-                        </h1>
-                        <p className="text-gray-500 text-sm mt-1">
-                            Visão geral operacional • {new Date().toLocaleDateString('pt-BR')}
-                        </p>
-                    </div>
-                     <div className="flex items-center gap-3">
-                        <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
-                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            <span className="text-xs font-medium text-gray-600">Sistema Online</span>
-                        </div>
-                        <button onClick={() => navigate('obras')} className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2 text-sm font-medium">
-                            <Building size={16} />
-                            <span>Gerenciar Obras</span>
-                        </button>
-                    </div>
-                </header>
-
-                {/* Grid de Estatísticas */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                    <StatCard title="Total Frota" value={stats.totalVehicles} icon={Truck} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles')} />
-                    <StatCard title="Obras Ativas" value={stats.totalObras} icon={Building} colorClass="bg-gray-100 text-gray-600" onClick={() => navigate('obras', { status: 'ativa' })} />
-                    <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={HardHat} colorClass="bg-green-100 text-green-600" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
-                    <StatCard title="Operação" value={stats.vehiclesInOperation} icon={Users} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
-                    <StatCard title="Disponíveis" value={stats.availableVehicles} icon={CheckCircle} colorClass="bg-teal-100 text-teal-600" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
-                    <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={Wrench} colorClass="bg-red-100 text-red-600" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
-                    <StatCard title="Multas" value={stats.pendingFines} icon={ShieldAlert} colorClass="bg-orange-100 text-orange-600" onClick={() => navigate('fines', { status: 'Pendente' })} />
+    <>
+        {/* Container Principal com espaçamento vertical */}
+        <div className="space-y-6">
+            
+            {/* Header - Painel de Controle */}
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+                        <Activity className="text-indigo-600" />
+                        Painel de Controle
+                    </h1>
+                    <p className="text-gray-500 text-sm mt-1">
+                        Visão geral operacional • {new Date().toLocaleDateString('pt-BR')}
+                    </p>
                 </div>
-
-                {/* Layout Principal Assimétrico */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    
-                    {/* Coluna Esquerda (2/3) */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Seção do Mapa */}
-                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                                <div>
-                                    <h2 className="text-md font-bold text-gray-800">Geolocalização da Frota</h2>
-                                    <p className="text-xs text-gray-500">Distribuição atual no RS</p>
-                                </div>
-                                <button className="text-gray-400 hover:text-indigo-600 transition-colors">
-                                    <Maximize2 size={18} />
-                                </button>
-                            </div>
-                            <div className="h-[300px] bg-gray-50 p-4">
-                                <MapPlaceholder />
-                            </div>
-                        </section>
-
-                        {/* Progresso Obra */}
-                        <ObraProgressBI
-                            obras={obras}
-                            vehicles={vehicles}
-                            vehicleGroups={vehicleGroups}
-                            equipmentTypesForHours={equipmentTypesForHours}
-                        />
+                <div className="flex items-center gap-3">
+                    <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
+                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        <span className="text-xs font-medium text-gray-600">Sistema Online</span>
                     </div>
-
-                    {/* Coluna Direita (1/3) */}
-                    <div className="space-y-6">
-                        {/* Quadro de Avisos (Expandido) */}
-                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
-                            <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
-                                <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
-                                    <Bell size={18} className="text-indigo-600" />
-                                    Quadro de Avisos
-                                </h2>
-                            </div>
-                            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
-                                {loadingAlerts ? (
-                                    <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
-                                ) : alerts.length > 0 ? alerts.map(alert => {
-                                    // Estilização dinâmica
-                                    const style = alert.isDanger 
-                                        ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
-                                        : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
-                                    
-                                    let Icon = Bell;
-                                    if (alert.type === 'CNH') Icon = Badge;
-                                    if (alert.type === 'Inatividade') Icon = Clock;
-                                    if (alert.isDanger) Icon = AlertTriangle;
-
-                                    return (
-                                        <div 
-                                            key={alert.id} 
-                                            onClick={() => {
-                                                if (alert.type === 'Inatividade') handleInactivityAlertClick(alert);
-                                                else if (alert.vehicle) navigate('vehicles', { search: alert.vehicle.registroInterno });
-                                                else if (alert.employee) navigate('employees', { search: alert.employee.nome });
-                                            }}
-                                            className={`p-3 rounded-lg border-l-4 shadow-sm flex items-start gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${style.border} ${style.bg}`}
-                                        >
-                                            <div className={`mt-1 ${style.icon}`}><Icon size={16} /></div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-start">
-                                                    <h4 className={`text-xs font-bold truncate ${style.title}`}>
-                                                        {alert.vehicle ? alert.vehicle.registroInterno : alert.employee?.nome}
-                                                    </h4>
-                                                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                                                        {alert.date}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[10px] font-semibold text-gray-500 uppercase mt-0.5">{alert.type}</p>
-                                                <p className="text-xs text-gray-600 mt-1 leading-relaxed">{alert.text}</p>
-                                            </div>
-                                        </div>
-                                    );
-                                }) : <p className="text-gray-400 text-sm text-center py-10 italic">Tudo tranquilo por aqui.</p>}
-                            </div>
-                        </section>
-                    </div>
+                    <button 
+                        onClick={() => navigate('obras')} 
+                        className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2 text-sm font-medium"
+                    >
+                        <Building size={16} />
+                        <span>Gerenciar Obras</span>
+                    </button>
                 </div>
+            </header>
 
-                {/* Ranking Consumo (Rodapé) */}
-                <FuelEfficiencyRanking
-                     vehicles={vehicles}
-                     refuelings={refuelings}
-                     vehicleGroups={vehicleGroups}
-                 />
+            {/* Grid de Estatísticas - Ajustado para melhor responsividade (xl:grid-cols-7) */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-3">
+                <StatCard title="Total Frota" value={stats.totalVehicles} icon={Truck} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles')} />
+                <StatCard title="Obras Ativas" value={stats.totalObras} icon={Building} colorClass="bg-gray-100 text-gray-600" onClick={() => navigate('obras', { status: 'ativa' })} />
+                <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={HardHat} colorClass="bg-green-100 text-green-600" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
+                <StatCard title="Operação" value={stats.vehiclesInOperation} icon={Users} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
+                <StatCard title="Disponíveis" value={stats.availableVehicles} icon={CheckCircle} colorClass="bg-teal-100 text-teal-600" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
+                <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={Wrench} colorClass="bg-red-100 text-red-600" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
+                <StatCard title="Multas" value={stats.pendingFines} icon={ShieldAlert} colorClass="bg-orange-100 text-orange-600" onClick={() => navigate('fines', { status: 'Pendente' })} />
             </div>
 
-             {/* Modal Inatividade */}
-            {selectedInactivityAlert && (
-                <InactivityAlertModal
-                    alert={selectedInactivityAlert}
-                    onClose={handleInactivityModalClose}
-                    onObserve={handleAlertAction}
-                    onProlong={handleAlertAction}
-                    apiClient={apiClient}
-                    setAlertMessage={setAlertMessage}
-                />
-            )}
-        </ProtectedComponent>
-    );
+            {/* Layout Principal Assimétrico */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Coluna Esquerda (2/3) - Mapas e Gráficos */}
+                <div className="lg:col-span-2 space-y-6">
+                    <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <div>
+                                <h2 className="text-md font-bold text-gray-800">Geolocalização da Frota</h2>
+                                <p className="text-xs text-gray-500">Distribuição atual no RS</p>
+                            </div>
+                            <button className="text-gray-400 hover:text-indigo-600 transition-colors">
+                                <Maximize2 size={18} />
+                            </button>
+                        </div>
+                        <div className="h-[300px] bg-gray-100 relative z-0">
+                            <AllocationMap obras={obras} vehicles={vehicles} />
+                        </div>
+                    </section>
+
+                    <ObraProgressBI
+                        obras={obras}
+                        vehicles={vehicles}
+                        vehicleGroups={vehicleGroups}
+                        equipmentTypesForHours={equipmentTypesForHours}
+                    />
+                </div>
+
+                {/* Coluna Direita (1/3) - Avisos */}
+                <div className="space-y-6">
+                    <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
+                        <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
+                            <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
+                                <Bell size={18} className="text-indigo-600" />
+                                Quadro de Avisos
+                            </h2>
+                        </div>
+                        
+                        <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
+                            {loadingAlerts ? (
+                                <div className="flex justify-center py-10">
+                                    <Loader className="animate-spin text-indigo-300"/>
+                                </div>
+                            ) : alerts.length > 0 ? (
+                                alerts.map(alert => (
+                                    <AlertItem 
+                                        key={alert.id} 
+                                        alert={alert} 
+                                        navigate={navigate}
+                                        handleInactivityAlertClick={handleInactivityAlertClick}
+                                    />
+                                ))
+                            ) : (
+                                <p className="text-gray-400 text-sm text-center py-10 italic">
+                                    Tudo tranquilo por aqui.
+                                </p>
+                            )}
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            {/* Ranking Consumo (Rodapé) */}
+            <FuelEfficiencyRanking
+                vehicles={vehicles}
+                refuelings={refuelings}
+                vehicleGroups={vehicleGroups}
+            />
+        </div>
+
+        {/* Modal Inatividade (Renderizado via Portal ou condicional fora do layout principal) */}
+        {selectedInactivityAlert && (
+            <InactivityAlertModal
+                alert={selectedInactivityAlert}
+                onClose={handleInactivityModalClose}
+                onObserve={handleAlertAction}
+                onProlong={handleAlertAction}
+                apiClient={apiClient}
+                setAlertMessage={setAlertMessage}
+            />
+        )}
+    </>
+);
 };
 
 export default Dashboard;
