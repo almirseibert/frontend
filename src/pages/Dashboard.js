@@ -24,7 +24,7 @@ const fixLeafletIcon = () => {
 fixLeafletIcon();
 
 // ===================================================================================
-// COMPONENTE: MODAL DE MAPA EXPANDIDO (NOVO)
+// COMPONENTE: MODAL DE MAPA EXPANDIDO
 // ===================================================================================
 const ExpandedMapModal = ({ obras, vehicles, onClose }) => {
     return (
@@ -196,7 +196,7 @@ const AllocationMap = ({ obras = [], vehicles = [], isExpanded = false }) => {
             });
     };
 
-    // Centro do mapa (RS/Santa Maria)
+    // Centro do mapa: Aproximadamente o centro do Rio Grande do Sul ou Santa Maria
     const mapCenter = [-29.6914, -53.8008]; 
 
     return (
@@ -349,7 +349,6 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
     );
 
     return (
-        // CORREÇÃO: Removido 'h-full' para evitar sobreposição e permitir que o container cresça conforme o conteúdo
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200">
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <h2 className="text-xl font-bold text-gray-900">Ranking de Consumo</h2>
@@ -612,7 +611,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
     }, [activeObrasWithContractData, vehicles, calculateExecuted]);
 
     return (
-        // CORREÇÃO: Removido 'h-full' para evitar sobreposição
+        // CORREÇÃO: Removemos o h-full deste container para evitar conflitos de altura com elementos externos
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200">
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <h2 className="text-xl font-bold text-gray-900">Progresso / Alocação</h2>
@@ -939,23 +938,23 @@ const Dashboard = ({
 
                     {/* Coluna Direita (1/3) */}
                     <div className="space-y-6">
-    {/* Quadro de Avisos (Expandido) */}
-    <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
-        <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
-            <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
-                <Bell size={18} className="text-indigo-600" />
-                Quadro de Avisos
-            </h2>
-        </div>
-        <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
-            {loadingAlerts ? (
-                <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
-            ) : alerts.length > 0 ? alerts.map(alert => {
-                // Estilização dinâmica
-                const style = alert.isDanger 
-                    ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
-                    : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
-                
+                        {/* Quadro de Avisos (Expandido) */}
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
+                            <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
+                                <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
+                                    <Bell size={18} className="text-indigo-600" />
+                                    Quadro de Avisos
+                                </h2>
+                            </div>
+                            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
+                                {loadingAlerts ? (
+                                    <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
+                                ) : alerts.length > 0 ? alerts.map(alert => {
+                                    // Estilização dinâmica
+                                    const style = alert.isDanger 
+                                        ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
+                                        : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
+                                    
                                     let Icon = Bell;
                                     if (alert.type === 'CNH') Icon = Badge;
                                     if (alert.type === 'Inatividade') Icon = Clock;
