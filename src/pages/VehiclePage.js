@@ -18,9 +18,10 @@ import {
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
+// Importando os Modais (Certifique-se que os arquivos existem em /components)
 import VehicleModal from '../components/VehicleModal'; 
 import MaintenanceModal from '../components/MaintenanceModal';
-import VehicleFinesModal from '../components/VehicleFinesModal';
+import VehicleFinesModal from '../components/VehicleFinesModal'; // Vamos corrigir este arquivo abaixo
 import VehicleDetailModal from '../components/VehicleDetailModal';
 import OperationalAssignmentModal from '../components/OperationalAssignmentModal';
 import ObraAllocationModal from '../components/ObraAllocationModal';
@@ -32,13 +33,10 @@ import { getVehicleMainReading } from '../utils/vehicleRules';
 // --- PÁGINA DE VEÍCULOS ---
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
     
-    // CORREÇÃO 1: Lista de Tipos
-    // Agora combina os tipos dos veículos existentes COM os tipos definidos nos grupos (vehicleRules)
-    // Isso garante que "Caminhão Prancha" apareça no dropdown mesmo que nenhum veículo desse tipo exista ainda.
+    // Lista de Tipos para o Dropdown
     const vehicleTypes = useMemo(() => {
         const existingTypes = (vehicles || []).map(v => v.tipo).filter(Boolean);
         const predefinedTypes = Object.values(vehicleGroups || {}).flat();
-        // Une os dois arrays e remove duplicatas usando Set
         return [...new Set([...existingTypes, ...predefinedTypes])].sort();
     }, [vehicles, vehicleGroups]);
 
@@ -168,6 +166,13 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         const revisionInfo = getRevisionStatus(vehicle);
         const revisionStatusClasses = { ok: '', warning: 'bg-yellow-50', danger: 'bg-red-50' };
         return revisionStatusClasses[revisionInfo.status];
+    };
+
+    // --- NOVO: Função Helper para Limitar Texto ---
+    const truncateText = (text, limit = 22) => {
+        if (!text) return '';
+        if (text.length <= limit) return text;
+        return text.substring(0, limit) + '...';
     };
 
     const filteredVehicles = useMemo(() => sortedVehicles.filter(v => {
@@ -319,7 +324,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                  </select>
                 <select name="type" value={filters.type} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
                     <option value="todos">Todos os Tipos</option>
-                    {/* Usa vehicleTypes calculado que inclui os novos tipos */}
                     {vehicleTypes.map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
                 <select name="status" value={filters.status} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
@@ -330,7 +334,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
             {/* Tabela de Veículos */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                {/* Cabeçalho Tabela Desktop - CORREÇÃO 2: Grid-cols-12 para melhor distribuição */}
+                {/* Cabeçalho Tabela Desktop (12 Colunas) */}
                 <div className="hidden md:grid grid-cols-12 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider items-center">
                     <div className="col-span-4 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
                     <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('placa')}>Placa</div>
@@ -364,10 +368,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                         : 'https://placehold.co/80x60/e2e8f0/cbd5e0?text=S/Foto';
 
                     return (
-                        // CORREÇÃO 2: Grid-cols-12 na linha também
                         <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${getVehicleRowClass(vehicle)}`}>
                             
-                            {/* Coluna Veículo (col-span-4) */}
+                            {/* Coluna Veículo (4) */}
                             <div className="md:col-span-4 flex items-center gap-3">
                                 <div className="relative shrink-0">
                                     <button onClick={() => openDetailModal(vehicle)} className="cursor-pointer block">
@@ -389,26 +392,29 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                 </div>
                             </div>
 
-                            {/* Placa (col-span-1) */}
+                            {/* Placa (1) */}
                             <div className="text-gray-700 md:col-span-1 md:block hidden truncate" title={vehicle.placa}>{vehicle.placa}</div>
                             
-                            {/* Registro (col-span-1) */}
+                            {/* Registro (1) */}
                             <div className="text-gray-700 md:col-span-1 md:block hidden truncate">{vehicle.registroInterno}</div>
                             
-                            {/* Leitura (col-span-2) - Alinhado à direita */}
+                            {/* Leitura (2) */}
                             <div className="text-gray-700 text-right md:col-span-2 md:block hidden font-mono font-medium truncate">
                                 {vehicle.vehicleReading}
                             </div>
                             
-                             {/* Status (col-span-2) - Centralizado e truncado para não empurrar */}
+                             {/* Status (2) - COM LIMITAÇÃO DE CARACTERES (22 CHARS) */}
                             <div className="md:col-span-2 text-center md:block flex justify-between items-center">
                                 <span className="md:hidden font-bold text-gray-500 text-xs mr-2">Status:</span>
-                                <div className={`px-2 py-0.5 rounded-full text-xs font-semibold truncate mx-auto inline-block max-w-full ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`} title={statusText}>
-                                    {statusText}
+                                <div 
+                                    className={`px-2 py-0.5 rounded-full text-xs font-semibold mx-auto inline-block whitespace-nowrap ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`} 
+                                    title={statusText} // Tooltip com texto completo
+                                >
+                                    {truncateText(statusText, 22)}
                                 </div>
                             </div>
 
-                            {/* Ações (col-span-2) - Centralizado */}
+                            {/* Ações (2) */}
                             <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
                                 <button onClick={() => openFinesModal(vehicle)} title="Multas" className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-md"><ShieldAlert size={14} /></button>
                                 <button onClick={() => openHistoryModal(vehicle)} title="Histórico" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-md"><Clock size={14} /></button>
@@ -437,6 +443,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                  )}
             </div>
 
+            {/* Modais */}
             {isModalOpen && <VehicleModal user={user} vehicle={editingVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicleGroups={vehicleGroups} />}
             {isObraAllocationModalOpen && <ObraAllocationModal user={user} vehicle={vehicleForObraAllocation} obras={obras} employees={employees} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} vehicleGroups={vehicleGroups} />}
             {isOperationalModalOpen && <OperationalAssignmentModal user={user} vehicle={vehicleForOperational} employees={employees} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} />}
