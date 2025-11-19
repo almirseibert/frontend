@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import apiClient from '../services/apiClient'; // Importa apiClient
+import apiClient from '../services/apiClient'; 
 import {
     HardHat,
     Users,
@@ -12,17 +12,12 @@ import {
     Upload,
     Download,
     ChevronsUpDown,
-    X,
     TrafficCone,
-    CheckCircle,
     Info,
-    Loader, 
-    ImageOff, 
     AlertTriangle
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
-// Importa todos os modais extraídos
 import VehicleModal from '../components/VehicleModal'; 
 import MaintenanceModal from '../components/MaintenanceModal';
 import VehicleFinesModal from '../components/VehicleFinesModal';
@@ -31,63 +26,21 @@ import OperationalAssignmentModal from '../components/OperationalAssignmentModal
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
 
-// ===================================================================================
-// FUNÇÃO AUXILIAR DE REGRA DE NEGÓCIO (LEITURA O/H)
-// Centraliza a lógica para decidir se usa Km ou Hr em todo o sistema
-// ===================================================================================
-export const getVehicleMainReading = (vehicle, vehicleGroups = {}) => {
-    if (!vehicle) return { value: 0, unit: '', label: 'N/A', raw: 0 };
-
-    const groups = vehicleGroups || {};
-    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
-
-    // REGRA 1: Caminhões de Trecho (Ex: Caminhão Prancha) -> Força Odômetro (Km)
-    // Verifica variações de plural/singular para garantir
-    if (vehicle.tipo === 'Caminhão Prancha' || vehicle.tipo === 'Caminhões Prancha') {
-        return { 
-            value: vehicle.odometro, 
-            unit: 'Km', 
-            label: 'Odômetro', 
-            raw: parseFloat(vehicle.odometro || 0) 
-        };
-    }
-
-    // REGRA 2: Máquinas Pesadas -> Força Horímetro (Digital > Analógico > Genérico)
-    if (vehicleGroup === 'Máquinas Pesadas') {
-        // Prioridade: Digital -> Analógico -> Campo legado 'horimetro'
-        const val = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro;
-        return { 
-            value: val, 
-            unit: 'Hr', 
-            label: 'Horímetro', 
-            raw: parseFloat(val || 0) 
-        };
-    }
-
-    // REGRA 3: Caminhões (Padrão) -> Força Horímetro
-    if (vehicleGroup === 'Caminhões') {
-        return { 
-            value: vehicle.horimetro, 
-            unit: 'Hr', 
-            label: 'Horímetro', 
-            raw: parseFloat(vehicle.horimetro || 0) 
-        };
-    }
-
-    // REGRA 4: Veículos Leves e Outros -> Padrão Odômetro (Km)
-    return { 
-        value: vehicle.odometro, 
-        unit: 'Km', 
-        label: 'Odômetro', 
-        raw: parseFloat(vehicle.odometro || 0) 
-    };
-};
-
+// IMPORTAÇÃO DAS REGRAS DE NEGÓCIO CENTRALIZADAS
+import { getVehicleMainReading } from '../utils/vehicleRules';
 
 // --- PÁGINA DE VEÍCULOS ---
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
-    // Lista de tipos de veículos
-    const vehicleTypes = useMemo(() => [...new Set(vehicles.map(v => v.tipo).filter(Boolean))].sort(), [vehicles]);
+    
+    // CORREÇÃO 1: Lista de Tipos
+    // Agora combina os tipos dos veículos existentes COM os tipos definidos nos grupos (vehicleRules)
+    // Isso garante que "Caminhão Prancha" apareça no dropdown mesmo que nenhum veículo desse tipo exista ainda.
+    const vehicleTypes = useMemo(() => {
+        const existingTypes = (vehicles || []).map(v => v.tipo).filter(Boolean);
+        const predefinedTypes = Object.values(vehicleGroups || {}).flat();
+        // Une os dois arrays e remove duplicatas usando Set
+        return [...new Set([...existingTypes, ...predefinedTypes])].sort();
+    }, [vehicles, vehicleGroups]);
 
     // Estados dos Modais
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -117,10 +70,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
     const handleFilterChange = (e) => { const { name, value } = e.target; setFilters(prev => ({ ...prev, [name]: value })); };
 
-    // Veículos processados com status consistente e novas regras O/H aplicadas
+    // Veículos processados
     const processedVehicles = useMemo(() => {
         return (vehicles || []).map(v => {
-            // Status
             let currentStatus = v.status;
             if (!currentStatus) {
                 if (v.obraAtualId) currentStatus = 'Em Obra';
@@ -128,11 +80,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 else if (v.maintenanceLocation) currentStatus = 'Em Manutenção';
                 else currentStatus = 'Disponível';
             }
-             // Obra
              const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
              
-             // --- APLICAÇÃO DA REGRA DE NEGÓCIO (Leitura Principal) ---
-             const readingData = getVehicleMainReading(v, vehicleGroups);
+             const readingData = getVehicleMainReading(v);
              const formattedReading = (readingData.value === null || readingData.value === undefined) 
                 ? 'N/A' 
                 : `${readingData.value} ${readingData.unit}`;
@@ -142,25 +92,22 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 status: currentStatus, 
                 obra, 
                 vehicleReading: formattedReading,
-                vehicleReadingRaw: readingData.raw // Usado para ordenação
+                vehicleReadingRaw: readingData.raw 
             };
         }).filter(Boolean);
-    }, [vehicles, obras, vehicleGroups]);
+    }, [vehicles, obras]); 
 
-    // Ordena os veículos processados
+    // Ordenação
     const sortedVehicles = useMemo(() => {
         let sortableItems = [...processedVehicles];
         if (sortConfig.key !== null) {
             sortableItems.sort((a, b) => {
-                // Ordenação numérica para leituras (Usa o valor raw calculado pela regra de negócio)
                 if (sortConfig.key === 'vehicleReading') {
                      const numA = a.vehicleReadingRaw || 0;
                      const numB = b.vehicleReadingRaw || 0;
                      const comparison = numA - numB;
                      return sortConfig.direction === 'ascending' ? comparison : -comparison;
                 }
-                
-                // Ordenação de string para outros campos
                 const valA = a[sortConfig.key] ?? '';
                 const valB = b[sortConfig.key] ?? '';
                 const comparison = String(valA).toLowerCase().localeCompare(String(valB).toLowerCase());
@@ -170,8 +117,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return sortableItems;
     }, [processedVehicles, sortConfig]); 
 
-
-    // Função para requisitar ordenação
     const requestSort = (key) => {
         let direction = 'ascending';
         if (sortConfig.key === key && sortConfig.direction === 'ascending') {
@@ -180,28 +125,22 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         setSortConfig({ key, direction });
     };
 
-    // Calcula status da revisão (agora usando a regra centralizada)
     const getRevisionStatus = (vehicle) => {
         const revision = (revisions || []).find(r => r.vehicleId === vehicle.id);
         if (!revision) return { status: 'ok', text: '' }; 
 
         const now = new Date();
         const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-
-        // --- USO DA REGRA CENTRALIZADA ---
-        const readingData = getVehicleMainReading(vehicle, vehicleGroups);
+        const readingData = getVehicleMainReading(vehicle);
         const currentReading = readingData.raw;
-        // ---------------------------------
 
         const proximoOdometro = revision.proximaRevisaoOdometro || 0; 
         const avisoKmHr = revision.avisoAntecedenciaKmHr || 0;
         const avisoDias = revision.avisoAntecedenciaDias || 0;
 
-        // Vencidos
         if (proximoOdometro > 0 && currentReading >= proximoOdometro) return { status: 'danger', text: 'Leitura Vencida' };
         if (proximaData && now >= proximaData) return { status: 'danger', text: 'Data Vencida' };
 
-        // Próximos
         if (proximoOdometro > 0 && avisoKmHr > 0 && currentReading >= proximoOdometro - avisoKmHr) return { status: 'warning', text: 'Leitura Próxima' };
         if (proximaData && avisoDias > 0) {
             const warningDate = new Date(proximaData);
@@ -212,8 +151,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return { status: 'ok', text: '' };
     };
 
-
-    // Memoiza veículos com multas pendentes
     const vehiclesWithPendingFines = useMemo(() => {
         const vehicleIds = new Set();
         (fines || []).forEach(fine => {
@@ -224,7 +161,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return vehicleIds;
     }, [fines]);
 
-    // Define classe da linha
     const getVehicleRowClass = (vehicle) => {
         if (vehicle.canCirculate === false) {
             return 'bg-red-100 border-l-4 border-red-500'; 
@@ -234,7 +170,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return revisionStatusClasses[revisionInfo.status];
     };
 
-    // Filtra os veículos ordenados
     const filteredVehicles = useMemo(() => sortedVehicles.filter(v => {
         const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
         const searchMatch = (v.placa || '').toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -244,10 +179,10 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         const typeMatch = filters.type === 'todos' || v.tipo === filters.type;
         const statusMatch = filters.status === 'todos' || v.status === filters.status;
         const groupMatch = filters.group === 'todos' || (groups[filters.group] && groups[filters.group].includes(v.tipo));
+        
         return searchMatch && typeMatch && statusMatch && groupMatch;
     }), [sortedVehicles, filters, vehicleGroups]);
 
-    // Funções para abrir modais
     const openModal = (v = null) => { setEditingVehicle(v); setIsModalOpen(true); };
     const openObraAllocationModal = (v) => { setVehicleForObraAllocation(v); setIsObraAllocationModalOpen(true); };
     const openOperationalModal = (v) => { setVehicleForOperational(v); setIsOperationalModalOpen(true); };
@@ -256,7 +191,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const openDetailModal = (v) => { setVehicleForDetail(v); setIsDetailModalOpen(true); };
     const openFinesModal = (v) => { setVehicleForFines(v); setIsFinesModalOpen(true); };
 
-    // Abre modal de manutenção
     const handleMaintenanceClick = (vehicle) => {
         if (vehicle.obraAtualId || vehicle.operationalAssignment) {
             setAlertMessage('Este veículo está alocado. Desaloque-o primeiro para enviá-lo para manutenção.');
@@ -266,7 +200,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         setIsMaintenanceModalOpen(true);
     };
 
-    // Função de exclusão
     const handleDelete = async () => {
         if (!itemToDelete) return;
         try {
@@ -282,7 +215,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         }
     };
 
-    // Upload CSV
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -291,7 +223,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 const text = e.target.result;
                 const lines = text.split(/[\r\n]+/).filter(line => line.trim() !== ''); 
                 if (lines.length < 2) {
-                    setAlertMessage("Arquivo CSV vazio ou inválido (precisa de cabeçalho e pelo menos uma linha de dados).");
+                    setAlertMessage("Arquivo CSV vazio ou inválido.");
                     return;
                 }
                 const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
@@ -303,19 +235,15 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     'Tipo': 'tipo',
                     'Odometro': 'odometro',
                     'Horimetro': 'horimetro',
-                    // Adicione outros mapeamentos...
                 };
                 const data = lines.slice(1).map(line => {
                      const values = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(v => v.trim().replace(/^"|"$/g, '')) || [];
-                     if (values.length !== headers.length) {
-                         console.warn("Linha com número incorreto de colunas:", line);
-                         return null;
-                     }
+                     if (values.length !== headers.length) return null;
                     return headers.reduce((obj, header, index) => {
                          const apiKey = headerMapping[header]; 
                          if (apiKey) { 
                              let value = values[index] || '';
-                             if (['odometro', 'horimetro', 'horimetroDigital', 'horimetroAnalogico', 'fuelCapacity'].includes(apiKey)) {
+                             if (['odometro', 'horimetro', 'horimetroDigital', 'horimetroAnalogico'].includes(apiKey)) {
                                  value = parseFloat(value.replace(',', '.')) || 0;
                              }
                              obj[apiKey] = value;
@@ -324,10 +252,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     }, {});
                 }).filter(Boolean); 
 
-                if (data.length === 0) {
-                     setAlertMessage("Nenhum dado válido encontrado no arquivo CSV.");
-                     return;
-                 }
+                if (data.length === 0) { setAlertMessage("Nenhum dado válido encontrado."); return; }
 
                 setAlertMessage(`Importando ${data.length} veículos...`);
                 let successCount = 0;
@@ -335,15 +260,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
                 for (const item of data) {
                     try {
-                        const payload = { ...item, status: 'Disponível', canCirculate: item.canCirculate !== undefined ? item.canCirculate : true };
+                        const payload = { ...item, status: 'Disponível', canCirculate: true };
                         await apiClient.createVehicle(payload);
                         successCount++;
-                    } catch (error) {
-                        console.error("Erro ao importar veículo:", item.registroInterno || item.placa, error);
-                        errorCount++;
-                    }
+                    } catch (error) { errorCount++; }
                 }
-                setAlertMessage(`${successCount} veículos importados com sucesso. ${errorCount} falharam.`);
+                setAlertMessage(`${successCount} veículos importados. ${errorCount} falharam.`);
                 if (successCount > 0) reloadData();
             };
             reader.onerror = () => setAlertMessage("Erro ao ler o arquivo CSV.");
@@ -352,27 +274,15 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         event.target.value = null;
     };
 
-
-    // Exportar CSV
     const exportToCSV = () => {
-        if (filteredVehicles.length === 0) {
-             setAlertMessage("Nenhum veículo para exportar com os filtros atuais.");
-             return;
-         }
-        const headers = ['registroInterno', 'placa', 'marca', 'modelo', 'tipo', 'odometro', 'horimetro', 'horimetroDigital', 'horimetroAnalogico', 'status', 'localizacaoAtual', 'canCirculate', 'validadeTacografo', 'validadeAET_DAER', 'validadeAET_DNIT'];
+        if (filteredVehicles.length === 0) { setAlertMessage("Nenhum veículo para exportar."); return; }
+        const headers = ['registroInterno', 'placa', 'marca', 'modelo', 'tipo', 'odometro', 'horimetro', 'horimetroDigital', 'horimetroAnalogico', 'status', 'localizacaoAtual'];
         const rows = filteredVehicles.map(v => headers.map(header => {
             let value = v[header];
-            if (['validadeTacografo', 'validadeAET_DAER', 'validadeAET_DNIT'].includes(header) && value) {
-                 try { return new Date(value).toISOString().split('T')[0]; } catch { return ''; }
-             }
-             if (typeof value === 'boolean') return value ? 'true' : 'false';
+            if (typeof value === 'boolean') return value ? 'true' : 'false';
             return value ?? ''; 
         }));
-
-        let csvContent = "data:text/csv;charset=utf-8,"
-            + headers.join(',') + "\n"
-            + rows.map(e => e.map(i => `"${String(i).replace(/"/g, '""')}"`).join(",")).join("\n"); 
-
+        let csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + "\n" + rows.map(e => e.map(i => `"${String(i).replace(/"/g, '""')}"`).join(",")).join("\n"); 
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
@@ -382,7 +292,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         document.body.removeChild(link);
     };
 
-    // ... Renderização principal ...
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             {/* Cabeçalho e Botões */}
@@ -410,32 +319,32 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                  </select>
                 <select name="type" value={filters.type} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
                     <option value="todos">Todos os Tipos</option>
-                    {[...new Set((vehicles || []).map(v => v.tipo).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}
+                    {/* Usa vehicleTypes calculado que inclui os novos tipos */}
+                    {vehicleTypes.map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
                 <select name="status" value={filters.status} onChange={handleFilterChange} className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500">
                     <option value="todos">Todos os Status</option>
                     {[...new Set((vehicles || []).map(v => v.status).filter(Boolean))].sort().map(status => <option key={status} value={status}>{status}</option>)}
-                     {!vehicles.some(v => v.status === 'Disponível') && <option value="Disponível">Disponível</option>}
-                     {!vehicles.some(v => v.status === 'Em Obra') && <option value="Em Obra">Em Obra</option>}
                 </select>
             </div>
 
             {/* Tabela de Veículos */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                {/* Cabeçalho Tabela Desktop */}
-                <div className="hidden md:grid grid-cols-7 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
-                    <div className="col-span-2 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="cursor-pointer hover:text-gray-900" onClick={() => requestSort('placa')}>Placa <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Registro <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="cursor-pointer hover:text-gray-900" onClick={() => requestSort('status')}>Status <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="text-center">Ações</div>
+                {/* Cabeçalho Tabela Desktop - CORREÇÃO 2: Grid-cols-12 para melhor distribuição */}
+                <div className="hidden md:grid grid-cols-12 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider items-center">
+                    <div className="col-span-4 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('placa')}>Placa</div>
+                    <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Reg.</div>
+                    <div className="col-span-2 text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="col-span-2 text-center cursor-pointer hover:text-gray-900" onClick={() => requestSort('status')}>Status</div>
+                    <div className="col-span-2 text-center">Ações</div>
                 </div>
-                {/* Linhas da Tabela (Mobile First) */}
+
+                {/* Linhas da Tabela */}
                 {filteredVehicles.map(vehicle => {
                     const revisionInfo = getRevisionStatus(vehicle);
                     const hasPendingFine = vehiclesWithPendingFines.has(vehicle.id);
-                    // Classes de status
+                    
                     const statusClasses = {
                         'Em Manutenção': 'bg-red-100 text-red-800',
                         'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse',
@@ -455,9 +364,11 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                         : 'https://placehold.co/80x60/e2e8f0/cbd5e0?text=S/Foto';
 
                     return (
-                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-7 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${getVehicleRowClass(vehicle)}`}>
-                            {/* Coluna Veículo (com imagem) */}
-                            <div className="md:col-span-2 flex items-center gap-3">
+                        // CORREÇÃO 2: Grid-cols-12 na linha também
+                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${getVehicleRowClass(vehicle)}`}>
+                            
+                            {/* Coluna Veículo (col-span-4) */}
+                            <div className="md:col-span-4 flex items-center gap-3">
                                 <div className="relative shrink-0">
                                     <button onClick={() => openDetailModal(vehicle)} className="cursor-pointer block">
                                         <img
@@ -467,45 +378,52 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                             onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/80x60/e2e8f0/cbd5e0?text=Erro'; }}
                                         />
                                     </button>
-                                     {/* Ícones de Alerta */}
                                      {vehicle.canCirculate === false && <span className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-600 border-2 border-white rounded-full text-white tooltip" data-tip="Não pode circular"><TrafficCone size={12} /></span>}
                                      {revisionInfo.status === 'warning' && <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-yellow-500 border-2 border-white rounded-full text-white tooltip" data-tip={`Revisão: ${revisionInfo.text}`}><Info size={12} /></span>}
                                      {revisionInfo.status === 'danger' && <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-red-600 border-2 border-white rounded-full text-white tooltip" data-tip={`Revisão: ${revisionInfo.text}`}><AlertTriangle size={12} /></span>}
                                      {hasPendingFine && <span className="absolute -bottom-1.5 -right-1.5 p-0.5 bg-orange-500 border-2 border-white rounded-full text-white tooltip" data-tip="Multa pendente"><ShieldAlert size={12} /></span>}
                                 </div>
-                                <div>
-                                    <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
-                                    <p className="text-xs text-gray-500">{vehicle.tipo}</p>
+                                <div className="overflow-hidden">
+                                    <p className="font-bold text-gray-900 truncate" title={`${vehicle.marca} ${vehicle.modelo}`}>{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
+                                    <p className="text-xs text-gray-500 truncate">{vehicle.tipo}</p>
                                 </div>
                             </div>
-                            {/* Placa */}
-                            <div className="text-gray-700 md:block hidden">{vehicle.placa}</div>
-                            {/* Registro */}
-                            <div className="text-gray-700 md:block hidden">{vehicle.registroInterno}</div>
-                            {/* Leitura */}
-                            <div className="text-gray-700 text-right md:block hidden font-mono font-medium">{vehicle.vehicleReading}</div>
-                             {/* Status */}
-                            <div>
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`}>
-                                    {statusText}
-                                </span>
+
+                            {/* Placa (col-span-1) */}
+                            <div className="text-gray-700 md:col-span-1 md:block hidden truncate" title={vehicle.placa}>{vehicle.placa}</div>
+                            
+                            {/* Registro (col-span-1) */}
+                            <div className="text-gray-700 md:col-span-1 md:block hidden truncate">{vehicle.registroInterno}</div>
+                            
+                            {/* Leitura (col-span-2) - Alinhado à direita */}
+                            <div className="text-gray-700 text-right md:col-span-2 md:block hidden font-mono font-medium truncate">
+                                {vehicle.vehicleReading}
                             </div>
-                            {/* Ações */}
-                            <div className="flex flex-wrap gap-1 justify-start md:justify-center items-center">
-                                <button onClick={() => openFinesModal(vehicle)} title="Histórico de Multas" className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-md"><ShieldAlert size={14} /></button>
+                            
+                             {/* Status (col-span-2) - Centralizado e truncado para não empurrar */}
+                            <div className="md:col-span-2 text-center md:block flex justify-between items-center">
+                                <span className="md:hidden font-bold text-gray-500 text-xs mr-2">Status:</span>
+                                <div className={`px-2 py-0.5 rounded-full text-xs font-semibold truncate mx-auto inline-block max-w-full ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`} title={statusText}>
+                                    {statusText}
+                                </div>
+                            </div>
+
+                            {/* Ações (col-span-2) - Centralizado */}
+                            <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
+                                <button onClick={() => openFinesModal(vehicle)} title="Multas" className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-gray-100 rounded-md"><ShieldAlert size={14} /></button>
                                 <button onClick={() => openHistoryModal(vehicle)} title="Histórico" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-md"><Clock size={14} /></button>
                                 <ProtectedComponent requiredPermission="editor">
                                     <button onClick={() => openModal(vehicle)} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-md"><Edit size={14} /></button>
                                      {vehicle.status === 'Disponível' && (
                                          <>
-                                            <button onClick={() => openObraAllocationModal(vehicle)} title="Alocar em Obra" className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-md"><HardHat size={14} /></button>
-                                            <button onClick={() => openOperationalModal(vehicle)} title="Alocar em Operação" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-md"><Users size={14} /></button>
+                                            <button onClick={() => openObraAllocationModal(vehicle)} title="Alocar Obra" className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-md"><HardHat size={14} /></button>
+                                            <button onClick={() => openOperationalModal(vehicle)} title="Alocar Operação" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-md"><Users size={14} /></button>
                                             <button onClick={() => handleMaintenanceClick(vehicle)} title="Manutenção" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"><Wrench size={14} /></button>
                                          </>
                                      )}
-                                     {vehicle.status === 'Em Obra' && <button onClick={() => openObraAllocationModal(vehicle)} title="Desalocar da Obra" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-md"><HardHat size={14} /></button>}
-                                     {vehicle.status === 'Em Operação' && <button onClick={() => openOperationalModal(vehicle)} title="Desalocar da Operação" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-md"><Users size={14} /></button>}
-                                     {(vehicle.status === 'Em Manutenção' || vehicle.status === 'Aguardando Manutenção') && <button onClick={() => handleMaintenanceClick(vehicle)} title="Finalizar Manutenção" className="p-1.5 text-green-500 hover:text-green-700 hover:bg-green-100 rounded-md"><Wrench size={14} /></button>}
+                                     {vehicle.status === 'Em Obra' && <button onClick={() => openObraAllocationModal(vehicle)} title="Desalocar Obra" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-md"><HardHat size={14} /></button>}
+                                     {vehicle.status === 'Em Operação' && <button onClick={() => openOperationalModal(vehicle)} title="Desalocar Operação" className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-md"><Users size={14} /></button>}
+                                     {(vehicle.status === 'Em Manutenção' || vehicle.status === 'Aguardando Manutenção') && <button onClick={() => handleMaintenanceClick(vehicle)} title="Finalizar Manut." className="p-1.5 text-green-500 hover:text-green-700 hover:bg-green-100 rounded-md"><Wrench size={14} /></button>}
                                 </ProtectedComponent>
                                 <ProtectedComponent requiredPermission="admin">
                                     <button onClick={() => openDeleteModal(vehicle.id)} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"><Trash2 size={14} /></button>
@@ -519,7 +437,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                  )}
             </div>
 
-            {/* Modais (agora importados) */}
             {isModalOpen && <VehicleModal user={user} vehicle={editingVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicleGroups={vehicleGroups} />}
             {isObraAllocationModalOpen && <ObraAllocationModal user={user} vehicle={vehicleForObraAllocation} obras={obras} employees={employees} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} vehicleGroups={vehicleGroups} />}
             {isOperationalModalOpen && <OperationalAssignmentModal user={user} vehicle={vehicleForOperational} employees={employees} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} />}
@@ -531,7 +448,5 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         </div>
     );
 };
-
-// --- MODAIS FORAM MOVIDOS PARA /components ---
 
 export default VehiclePage;
