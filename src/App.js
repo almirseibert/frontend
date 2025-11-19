@@ -1,6 +1,4 @@
-import React, { useState, useEffect, useMemo, useContext, createContext, useCallback } from 'react'; // Adicionado useCallback
-// Ícones Lucide mantidos
-// ... (ícones importados sem mudança) ...
+import React, { useState, useEffect, useMemo, useContext, createContext, useCallback } from 'react'; 
 import { 
     LogOut, HardHat, Building, Clock, Truck, PlusCircle, Trash2, Edit, FileText, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
@@ -8,11 +6,9 @@ import {
 } from 'lucide-react';
 
 // --- CONTEXTO DE AUTENTICAÇÃO ---
-// ... (imports do AuthContext sem mudança) ...
 import { AuthProvider, useAuth } from './contexts/AuthContext'; 
 
 // --- IMPORTAÇÃO DAS PÁGINAS ---
-// ... (imports das páginas sem mudança) ...
 import Dashboard from './pages/Dashboard';
 import ObrasPage from './pages/ObrasPage';
 import PartnersPage from './pages/PartnersPage';
@@ -20,7 +16,7 @@ import RefuelingPage from './pages/RefuelingPage';
 import ComboioPage from './pages/ComboioPage';
 import ExpensesPage from './pages/ExpensesPage';
 import EmployeesPage from './pages/EmployeesPage';
-import ReportsPage from './pages/ReportsPage'; // Descomente se/quando criar
+import ReportsPage from './pages/ReportsPage'; 
 import FinesPage from './pages/FinesPage';
 import VehiclePage from './pages/VehiclePage';
 import RevisionsPage from './pages/RevisionsPage';
@@ -28,39 +24,31 @@ import DiarioDeBordoPage from './pages/DiarioDeBordoPage';
 import AdminPage from './pages/AdminPage'; 
 import ControleDiarioPage from './pages/ControleDiarioPage';
 import OrdersPage from './pages/OrdersPage'; 
-import LoginScreen from './components/LoginScreen'; // Importa a nova tela de login
+import LoginScreen from './components/LoginScreen'; 
 
 // --- IMPORTAÇÃO DO CLIENTE DE API ---
-// Essencial para comunicar com o backend
 import apiClient from './services/apiClient'; 
 
-// --- DADOS GLOBAIS (CONSTANTES) ---
-// ... (constantes vehicleGroups, etc. sem mudança) ...
-const vehicleGroups = {
-    'Veículos Leves': ['Camionete', 'Automóvel', 'Moto'],
-    'Caminhões': ['Caçamba Traçado', 'Caçamba Truckado', 'Caçamba Toco', 'Caminhão Pipa', 'Caminhão Tanque', 'Cavalo', 'Caminhão carroceria', 'Bitruck', 'Caçamba Bitruck'],
-    'Máquinas Pesadas': ['Rolo', 'Motoniveladora', 'Escavadeira', 'Fresadora', 'Pá Carregadeira', 'Trator', 'Trator de Esteiras', 'Retroescavadeira']
-};
-const extraObraOptions = ['Administração', 'Oficina', 'Pátio', 'Rampa', 'Diversos'];
-const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional', 'Supervisor'];
-const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras'];
-
-// --- REMOVIDO: Configuração Firebase e Offline (Dexie) ---
+// --- IMPORTAÇÃO DAS REGRAS DE NEGÓCIO CENTRALIZADAS (NOVO) ---
+import { 
+    vehicleGroups, 
+    extraObraOptions, 
+    operationalSubGroups, 
+    equipmentTypesForHours, 
+    getVehicleMainReading 
+} from './utils/vehicleRules';
 
 // --- COMPONENTES DE UI (MODAIS) ---
 
-// ... (Modal CustomAlert sem mudança) ...
 const CustomAlert = ({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
         <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-2xl text-center">
-            {/* Usando <pre> para preservar quebras de linha e espaços da mensagem */}
             <pre className="text-lg mb-6 whitespace-pre-wrap text-left font-sans">{message}</pre>
             <button onClick={onClose} className="py-2 px-6 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500">OK</button>
         </div>
     </div>
 );
 
-// ... (Modal ConfirmationModal sem mudança) ...
 const ConfirmationModal = ({ title, message, onConfirm, onClose, confirmText = 'Confirmar', cancelText = 'Cancelar', confirmColor = 'bg-yellow-400 hover:bg-yellow-500 text-gray-900' }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[90]">
         <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
@@ -74,13 +62,11 @@ const ConfirmationModal = ({ title, message, onConfirm, onClose, confirmText = '
     </div>
 );
 
-// ... (Modal PasswordConfirmationModal sem mudança) ...
 const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
 
-    // Verifica se apiClient foi passado corretamente
     if (!apiClient) {
         console.error("PasswordConfirmationModal: apiClient não foi fornecido!");
         return <CustomAlert message="Erro interno: Falta configuração para confirmação de senha." onClose={onClose} />;
@@ -89,16 +75,11 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
     const handleConfirm = async () => {
         setIsVerifying(true);
         setError('');
-        
         try {
-            // Chama a rota /api/auth/validate-password do backend via apiClient
             await apiClient.validatePassword(password);
-            
-            // Se a API não der erro (status 200), a senha está correta.
-            await onConfirm(); // Executa a ação principal (ex: deletar)
-            onClose(); // Fecha o modal
+            await onConfirm(); 
+            onClose(); 
         } catch (err) {
-            // Se a API der erro (401, etc), o apiClient vai lançar o erro.
             setError(err.message || "Senha incorreta ou falha na verificação.");
         } finally {
             setIsVerifying(false);
@@ -131,9 +112,8 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
     </div></div>);
 };
 
-// --- NOVO COMPONENTE: MODAL DE AVISO DE ATUALIZAÇÃO ---
 const UpdateMessageModal = ({ message, onClose }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]"> {/* z-index mais alto */}
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]"> 
         <div className="bg-white p-6 sm:p-8 rounded-lg shadow-xl w-full max-w-2xl">
             <div className="flex justify-between items-center mb-4">
                  <h2 className="text-2xl font-bold text-yellow-600 flex items-center gap-2">
@@ -143,7 +123,6 @@ const UpdateMessageModal = ({ message, onClose }) => (
                     <X size={20} />
                  </button>
             </div>
-            {/* Usar <pre> para manter a formatação da mensagem (quebras de linha, etc.) */}
             <pre className="text-base text-gray-700 mb-6 whitespace-pre-wrap font-sans max-h-[60vh] overflow-y-auto custom-scrollbar p-2 bg-gray-50 rounded-md border">
                 {message}
             </pre>
@@ -154,45 +133,33 @@ const UpdateMessageModal = ({ message, onClose }) => (
     </div>
 );
 
-
 // --- CONTEÚDO PRINCIPAL DA APLICAÇÃO ---
 const AppContent = () => {
-    // Usa o novo AuthContext
     const { user, logout } = useAuth(); 
     const [currentPage, setCurrentPage] = useState('dashboard');
-    const [pageFilter, setPageFilter] = useState(null); // Para filtros pré-definidos ao navegar
-    const [alertMessage, setAlertMessage] = useState(''); // Para mensagens de alerta globais
+    const [pageFilter, setPageFilter] = useState(null); 
+    const [alertMessage, setAlertMessage] = useState(''); 
 
-    // Estados para armazenar os dados vindos da API
-    // ... (estados de vehicles, obras, etc. sem mudança) ...
     const [vehicles, setVehicles] = useState([]);
     const [obras, setObras] = useState([]);
     const [revisions, setRevisions] = useState([]);
     const [expenses, setExpenses] = useState([]);
     const [employees, setEmployees] = useState([]);
-    const [rawPartners, setRawPartners] = useState([]); // Usamos 'raw' para aplicar sort depois
+    const [rawPartners, setRawPartners] = useState([]); 
     const [refuelings, setRefuelings] = useState([]);
     const [rawComboioTransactions, setRawComboioTransactions] = useState([]);
     const [rawFines, setRawFines] = useState([]);
     const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
     
-    const [loadingData, setLoadingData] = useState(true); // Estado de carregamento dos dados
-    
-    // --- NOVOS ESTADOS PARA O MODAL DE ATUALIZAÇÃO ---
+    const [loadingData, setLoadingData] = useState(true); 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
-    // --- FIM DOS NOVOS ESTADOS ---
 
-
-    // Memoização para ordenar dados que precisam ser ordenados
-    // ... (memoização de partners, comboio, fines sem mudança) ...
     const partners = useMemo(() => [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [rawPartners]);
     const comboioTransactions = useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
     const fines = useMemo(() => [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime())), [rawFines]);
 
-
-    // ATUALIZADO: Função para processar alertas, usando new Date()
-    // ... (função processVehiclesWithAlerts sem mudança) ...
+    // --- ATUALIZADO: Usando a lógica centralizada de regras de negócio ---
     const processVehiclesWithAlerts = (vehiclesData, revisionsData, finesData) => {
         const now = new Date();
         const thirtyDaysFromNow = new Date();
@@ -203,25 +170,21 @@ const AppContent = () => {
             let alertText = '';
 
             // 1. Alerta de Circulação
-            if (vehicle.canCirculate === false) { // Assume que a API retorna booleano
+            if (vehicle.canCirculate === false) { 
                 hasAlert = true;
                 alertText = `O veículo não pode rodar por status de documento/revisão.`;
             }
 
             // 2. Alerta de Revisão
-            const revision = revisionsData.find(r => r.vehicleId === vehicle.id); // Ajustado para vehicleId
+            const revision = revisionsData.find(r => r.vehicleId === vehicle.id); 
             if (revision && !hasAlert) {
-                // Convertendo string ISO da API para Date
                 const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
                 const proximoOdometro = revision.proximaRevisaoOdometro;
-                const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(vehicle.tipo));
-
-                // Lógica de leitura atual mantida
-                let currentReading = 0;
-                if(vehicleGroup === 'Máquinas Pesadas') currentReading = vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital;
-                else if(vehicleGroup === 'Caminhões') currentReading = vehicle.horimetro;
-                else currentReading = vehicle.odometro;
-                currentReading = parseFloat(currentReading || 0); // Garante que é número
+                
+                // --- USO DA REGRA CENTRALIZADA ---
+                const readingData = getVehicleMainReading(vehicle); // <--- Ponto Crítico Atualizado
+                const currentReading = readingData.raw;
+                // --------------------------------
 
                 const avisoKm = parseFloat(revision.avisoAntecedenciaKmHr || 0);
                 const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
@@ -230,7 +193,6 @@ const AppContent = () => {
                     hasAlert = true;
                     alertText = 'Atenção: Revisão Vencida!';
                 } else if ((proximoOdometro > 0 && avisoKm > 0 && currentReading >= proximoOdometro - avisoKm) || (proximaData && avisoDias > 0)) {
-                    // Verifica se a data de aviso já passou
                     if(proximaData && avisoDias > 0) {
                         const warningDate = new Date(proximaData);
                         warningDate.setDate(warningDate.getDate() - avisoDias);
@@ -239,7 +201,7 @@ const AppContent = () => {
                             alertText = 'Atenção: Revisão Próxima do Vencimento!';
                         }
                     } else if (proximoOdometro > 0 && avisoKm > 0 && currentReading >= proximoOdometro - avisoKm) {
-                         hasAlert = true; // Adicionado para cobrir o caso do KM/HR sem data
+                         hasAlert = true; 
                          alertText = 'Atenção: Revisão Próxima do Vencimento!';
                     }
                 }
@@ -249,13 +211,12 @@ const AppContent = () => {
             const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo);
             if (isTruck && !hasAlert) {
                 const docs = [
-                    // Convertendo string ISO da API para Date
                     { type: 'Tacógrafo', date: vehicle.validadeTacografo ? new Date(vehicle.validadeTacografo) : null },
                     { type: 'AET DAER/RS', date: vehicle.validadeAET_DAER ? new Date(vehicle.validadeAET_DAER) : null },
                     { type: 'AET DNIT', date: vehicle.validadeAET_DNIT ? new Date(vehicle.validadeAET_DNIT) : null },
                 ];
                 const expiredDoc = docs.find(doc => doc.date && doc.date < now);
-                const nearExpiredDoc = docs.find(doc => doc.date && !expiredDoc && doc.date <= thirtyDaysFromNow); // Só verifica próximo se não estiver vencido
+                const nearExpiredDoc = docs.find(doc => doc.date && !expiredDoc && doc.date <= thirtyDaysFromNow); 
 
                 if (expiredDoc) {
                     hasAlert = true;
@@ -267,7 +228,7 @@ const AppContent = () => {
             }
             
             // 4. Alerta de Multas Pendentes
-            const hasPendingFine = finesData.some(fine => fine.vehicleId === vehicle.id && fine.paymentStatus === 'Pendente'); // Ajustado para paymentStatus
+            const hasPendingFine = finesData.some(fine => fine.vehicleId === vehicle.id && fine.paymentStatus === 'Pendente'); 
             if(hasPendingFine && !hasAlert) {
                 hasAlert = true;
                 alertText = 'Atenção: Há multas pendentes para este veículo.';
@@ -277,26 +238,20 @@ const AppContent = () => {
         });
     };
 
-    // Aplica a função de processamento aos veículos carregados
     const processedVehicles = useMemo(() => {
-        // Garante que revisions e fines sejam arrays antes de passar
         return processVehiclesWithAlerts(vehicles, revisions || [], fines || []);
     }, [vehicles, revisions, fines]);
 
-    // MELHORIA: `loadAllData` agora é um `useCallback` para ser usado como `reloadData`
-    // --- ATUALIZADO PARA INCLUIR A BUSCA DA MENSAGEM DE ATUALIZAÇÃO ---
     const loadAllData = useCallback(async () => {
-        // Só carrega se o usuário estiver logado
         if (!user) {
-            setLoadingData(false); // Garante que não fique carregando se não houver usuário
+            setLoadingData(false); 
             return;
         }
         
         setLoadingData(true);
-        setAlertMessage(''); // Limpa alertas antigos
+        setAlertMessage(''); 
         console.log("Iniciando carregamento de dados da API...");
 
-        // Mapeia os endpoints do apiClient para os setters de estado
         const dataEndpoints = {
             vehicles: { getter: apiClient.getVehicles, setter: setVehicles },
             obras: { getter: apiClient.getObras, setter: setObras },
@@ -310,8 +265,7 @@ const AppContent = () => {
             diarioDeBordo: { getter: apiClient.getDiarioDeBordo, setter: setDiarioDeBordoLogs },
         };
 
-        // Remove endpoints que o operador não precisa
-        if (user.user_type === 'operador') { // Usa user_type como no backend
+        if (user.user_type === 'operador') { 
             delete dataEndpoints.revisions;
             delete dataEndpoints.expenses;
             delete dataEndpoints.partners;
@@ -320,143 +274,114 @@ const AppContent = () => {
         }
 
         try {
-            // Cria um array de Promises para todas as chamadas GET de DADOS
             const dataPromises = Object.entries(dataEndpoints).map(([key, { getter }]) => 
                 getter().catch(err => { 
-                    // Captura erro individualmente para não parar tudo
                     console.error(`Erro ao carregar ${key}:`, err);
-                    return null; // Retorna null para indicar falha parcial
+                    return null; 
                 })
             );
             
-            // --- 1. ADICIONA A PROMISE DA MENSAGEM DE ATUALIZAÇÃO ---
-            // (Apenas se não for operador)
-            let updateMessagePromise = Promise.resolve(null); // Valor padrão
+            let updateMessagePromise = Promise.resolve(null); 
             if (user.user_type !== 'operador') {
                 updateMessagePromise = apiClient.adminGetUpdateMessage().catch(err => {
                     console.warn("Não foi possível carregar a mensagem de atualização:", err.message);
-                    return null; // Não bloqueia o app se isso falhar
+                    return null; 
                 });
             }
 
-            // Executa todas as chamadas em paralelo
-            // --- 2. EXECUTA AS DUAS PROMISES (DADOS E MENSAGEM) ---
             const [dataResults, updateResult] = await Promise.all([
-                Promise.all(dataPromises), // O array original de promessas de dados
-                updateMessagePromise      // A nova promessa da mensagem
+                Promise.all(dataPromises),
+                updateMessagePromise     
             ]);
             
             console.log("Dados recebidos da API:", dataResults);
             
-            // Atualiza os estados com os resultados dos DADOS
             let resultIndex = 0;
             for (const key of Object.keys(dataEndpoints)) {
-                if (dataResults[resultIndex] !== null) { // <-- Usa dataResults
-                     dataEndpoints[key].setter(dataResults[resultIndex]); // <-- Usa dataResults
+                if (dataResults[resultIndex] !== null) { 
+                     dataEndpoints[key].setter(dataResults[resultIndex]); 
                 } else {
-                    // Mostra alerta se uma chamada específica falhou
                     setAlertMessage(prev => prev + `\nFalha ao carregar dados de ${key}.`);
                 }
                 resultIndex++;
             }
 
-            // --- 3. PROCESSA O RESULTADO DA MENSAGEM DE ATUALIZAÇÃO ---
             if (updateResult && updateResult.showPopup) {
                 setUpdateMessage(updateResult.message);
-                setShowUpdateModal(true); // Ativa o modal
+                setShowUpdateModal(true); 
             }
-            // --- FIM DAS ADIÇÕES ---
 
         } catch (error) {
-            // Erro GERAL (ex: problema de rede antes das chamadas começarem)
             console.error("Erro GERAL ao carregar dados da API:", error);
             setAlertMessage(`Falha ao carregar dados do servidor: ${error.message}. Verifique sua conexão.`);
-            // Se o erro for 401 (Não Autorizado), faz logout
             if (error.message.includes('401') || error.message.includes('Erro 401')) {
                 setAlertMessage("Sua sessão expirou ou é inválida. Por favor, faça login novamente.");
-                logout(); // Desloga o usuário
+                logout(); 
             }
         } finally {
             setLoadingData(false);
             console.log("Carregamento de dados finalizado.");
         }
-    }, [user, logout]); // Dependências: user e logout
+    }, [user, logout]); 
 
-    // ATUALIZADO: useEffect agora depende do `loadAllData` (que é um useCallback)
     useEffect(() => {
         loadAllData();
-        
-        // Cleanup function (vazia, pois não usamos mais listeners)
         return () => {}; 
-    }, [loadAllData]); // Dependência: loadAllData
+    }, [loadAllData]); 
     
-    // --- Lógica de Renderização ---
-
-    // Renderiza DiarioDeBordoPage diretamente se for operador
-    // ... (renderização do operador sem mudança) ...
     if (user && user.user_type === 'operador') { 
         if (loadingData) {
             return <div className="flex items-center justify-center min-h-screen text-lg font-semibold"><Loader size={32} className="animate-spin mr-2" /> Carregando dados do operador...</div>;
         }
-        // Passa apiClient para a página do operador
         return (
             <>
                 {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}
-                {/* O Modal de Atualização NÃO será mostrado para operadores (lógica de fetch) */}
                 <DiarioDeBordoPage 
-                    apiClient={apiClient} // Passa o apiClient
-                    user={user} // Passa o usuário
+                    apiClient={apiClient} 
+                    user={user} 
                     employees={employees} 
-                    vehicles={processedVehicles} // Passa veículos processados
+                    vehicles={processedVehicles} 
                     obras={obras} 
                     setAlertMessage={setAlertMessage}
-                    vehicleGroups={vehicleGroups}
+                    vehicleGroups={vehicleGroups} // Passando grupos atualizados
                     diarioDeBordoLogs={diarioDeBordoLogs}
                 />
             </>
         );
     }
 
-    // Função para navegar entre as "páginas" (componentes)
     const navigate = (page, filter = null) => { 
         setCurrentPage(page); 
         setPageFilter(filter); 
     };
 
-    // MELHORIA: A função reloadData agora é o próprio loadAllData
     const reloadData = loadAllData;
 
-    // Função para renderizar o componente da página atual
     const renderPage = () => {
-        // Props comuns passadas para todas as páginas
         const commonProps = { 
             user, 
             setAlertMessage, 
-            // ATENÇÃO: Passando apiClient para o PasswordConfirmationModal
             PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
             ConfirmationModal, 
-            vehicleGroups, 
+            vehicleGroups, // Passando grupos centralizados
             extraObraOptions, 
             equipmentTypesForHours, 
             operationalSubGroups,
-            apiClient, // Passa o apiClient para todas as páginas
-            reloadData, // Passa a função de recarregar (agora eficiente)
-            navigate, // Passa a função de navegação
-            // Dados carregados são passados como props
-            vehicles: processedVehicles, // Usa os veículos processados com alertas
+            apiClient, 
+            reloadData, 
+            navigate, 
+            vehicles: processedVehicles, 
             obras,
             revisions,
             expenses,
             employees,
-            partners, // Passa a lista ordenada
+            partners, 
             refuelings,
-            comboioTransactions, // Passa a lista ordenada
-            fines, // Passa a lista ordenada
+            comboioTransactions, 
+            fines, 
             diarioDeBordoLogs,
         };
         
-        // Componente simples para acesso negado
-        // ... (componente AccessDenied sem mudança) ...
         const AccessDenied = () => (
             <div className="flex flex-col items-center justify-center h-full">
                 <div className="text-center p-10 bg-white rounded-lg shadow-md">
@@ -467,8 +392,6 @@ const AppContent = () => {
             </div>
         );
 
-        // Switch para decidir qual página renderizar
-        // ... (switch/case sem mudança) ...
         switch (currentPage) {
             case 'dashboard': return <Dashboard {...commonProps} />;
             case 'vehicles': return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
@@ -482,18 +405,14 @@ const AppContent = () => {
             case 'expenses': return <ExpensesPage {...commonProps} />;
             case 'employees': return <EmployeesPage {...commonProps} />;
             case 'fines': return <FinesPage {...commonProps} />;
-            case 'reports': return <ReportsPage {...commonProps} />; // Descomente quando criar
+            case 'reports': return <ReportsPage {...commonProps} />; 
             case 'admin': return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <AccessDenied />; 
-            default: return <Dashboard {...commonProps} />; // Volta pro Dashboard como padrão
+            default: return <Dashboard {...commonProps} />; 
         }
     };
 
-    // Renderização principal do conteúdo logado
-    // ... (renderização do AppContent (sidebar + main) sem mudança) ...
     return (
-        // --- ADICIONADO FRAGMENTO <> E RENDERIZAÇÃO CONDICIONAL DO MODAL ---
         <>
-            {/* Modal de Atualização (renderiza por cima de tudo) */}
             {showUpdateModal && updateMessage && (
                 <UpdateMessageModal 
                     message={updateMessage} 
@@ -502,38 +421,29 @@ const AppContent = () => {
             )}
         
             <div className="flex h-screen bg-gray-100 text-gray-800 font-sans">
-            {/* Sidebar Component */}
             <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} user={user} logout={logout} /> 
             
-            {/* Conteúdo Principal */}
             <main className="flex-1 flex flex-col overflow-hidden">
-                {/* Área de conteúdo rolável */}
                 <div className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 sm:p-6 lg:p-8">
-                    {/* Alerta Global */}
                     {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}
                     
-                    {/* Indicador de Carregamento ou Página Renderizada */}
                     {loadingData ? (
                         <div className="flex items-center justify-center h-full text-lg font-semibold">
                             <Loader size={32} className="animate-spin mr-3" /> Carregando dados da frota...
                         </div>
                         ) : (
-                        renderPage() // Renderiza a página atual
+                        renderPage() 
                         )}
                 </div>
             </main>
             </div>
         </>
-        // --- FIM DAS ADIÇÕES ---
     );
 };
 
-// --- COMPONENTE SIDEBAR ---
-// ... (componente Sidebar sem mudança) ...
 const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     
-    // ATUALIZADO: Usa a função logout passada via props
     const handleLogout = async () => { 
         if(logout) {
             await logout(); 
@@ -542,7 +452,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
         }
     }; 
     
-    // Definição dos itens de navegação (mantida)
     const navItems = [
         { id: 'dashboard', label: 'Painel de Controle', icon: <Building size={15} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={20} /> },
@@ -556,13 +465,12 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
         { id: 'expenses', label: 'Despesas', icon: <DollarSign size={20} /> },
         { id: 'employees', label: 'Funcionários', icon: <User size={20} /> },
         { id: 'fines', label: 'Multas', icon: <ShieldAlert size={20} /> },
-        { id: 'reports', label: 'Relatórios', icon: <FileText size={20} /> }, // Descomente quando criar
+        { id: 'reports', label: 'Relatórios', icon: <FileText size={20} /> }, 
     ];
     
     return (
         <div className={`bg-gray-900 text-gray-200 shadow-md transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}>
             <div className="flex flex-col h-full">
-                {/* Header da Sidebar */}
                 <div className="flex items-center justify-between h-16 px-4 border-b border-gray-700">
                     {!isCollapsed && <img src="https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png" alt="MAK Logo" className="h-8" />}
                     <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-2 rounded-md text-gray-400 hover:bg-gray-700 focus:outline-none">
@@ -570,21 +478,16 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                     </button>
                 </div>
                 
-                {/* Navegação Principal */}
                 <nav className="flex-1 mt-2 overflow-y-auto">
                     <ul className="space-y-1 px-2">
                         {navItems.map(item => {
-                            // ATUALIZADO: Lógica de permissão para Abastecimento e Comboio
-                            // Usa 'user.podeAcessarAbastecimento' E 'user.user_type'
                             const isAdmin = user.user_type === 'admin';
                             const canAccessRefuelingRelated = user.podeAcessarAbastecimento || isAdmin;
 
-                            // Esconde itens se não tiver permissão
                             if ((item.id === 'refueling' || item.id === 'comboio') && !canAccessRefuelingRelated) {
                                 return null; 
                             }
                             
-                            // Renderiza o item de navegação
                             return (
                                 <li key={item.id}>
                                     <button 
@@ -594,7 +497,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                                             ? 'bg-yellow-500 text-gray-900 shadow-inner' 
                                             : 'hover:bg-gray-700 text-gray-300' 
                                         }`}
-                                        title={item.label} // Adiciona tooltip
+                                        title={item.label} 
                                     >
                                         {item.icon}
                                         {!isCollapsed && <span className="ml-3 font-medium truncate">{item.label}</span>}
@@ -603,8 +506,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                             );
                         })}
                         
-                        {/* Link de Administração (visível apenas para admin) */}
-                        {/* ATUALIZADO: usa user.user_type */}
                         {user && user.user_type === 'admin' && (
                             <li className="mt-4 border-t border-gray-700 pt-2">
                                 <button 
@@ -624,7 +525,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                     </ul>
                 </nav>
                 
-                {/* Footer da Sidebar (Logout) */}
                 <div className="p-2 border-t border-gray-700">
                     <button 
                         onClick={handleLogout} 
@@ -640,12 +540,9 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
     );
 };
 
-// --- COMPONENTE ROTEADOR PRINCIPAL ---
-// ... (componente AppRouter sem mudança) ...
 const AppRouter = () => {
-    const { user, loading } = useAuth(); // Pega user e loading do NOVO AuthContext
+    const { user, loading } = useAuth(); 
 
-    // Mostra tela de carregamento inicial
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen text-lg font-semibold bg-gray-100">
@@ -654,36 +551,27 @@ const AppRouter = () => {
         );
     }
 
-    // Se não estiver carregando e não houver usuário, mostra Login
     if (!user) {
-        // Passa apiClient para LoginScreen (embora ele use useAuth internamente agora)
         return <LoginScreen apiClient={apiClient} />;
     }
     
-    // Se houver usuário, mostra o conteúdo principal
     return <AppContent />;
 };
 
-// --- COMPONENTE CONTAINER DA APLICAÇÃO ---
-// ... (componente AppContainer sem mudança) ...
 const AppContainer = () => {
-    // Define título e favicon uma vez
     useEffect(() => {
         document.title = "Frotas MAK";
         const favicon = document.querySelector("link[rel~='icon']");
         if (favicon) {
-            favicon.href = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png'; // URL do seu favicon
+            favicon.href = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png'; 
         }
     }, []);
 
     return (
-        // AuthProvider agora envolve AppRouter
         <AuthProvider> 
-            {/* REMOVIDO: OfflineProvider */}
             <AppRouter />
         </AuthProvider>
     );
 };
 
-// Exporta o container principal
 export default AppContainer;
