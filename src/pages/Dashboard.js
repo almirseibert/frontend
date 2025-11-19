@@ -815,130 +815,149 @@ const Dashboard = ({
     );
 
     return (
-    <>
-        {/* Container Principal com espaçamento vertical */}
-        <div className="space-y-6">
-            
-            {/* Header - Painel de Controle */}
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
-                        <Activity className="text-indigo-600" />
-                        Painel de Controle
-                    </h1>
-                    <p className="text-gray-500 text-sm mt-1">
-                        Visão geral operacional • {new Date().toLocaleDateString('pt-BR')}
-                    </p>
-                </div>
-                <div className="flex items-center gap-3">
-                    <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
-                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        <span className="text-xs font-medium text-gray-600">Sistema Online</span>
+        <>
+            <div className="space-y-6">
+                {/* Header - Painel de Controle */}
+                <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+                            <Activity className="text-indigo-600" />
+                            Painel de Controle
+                        </h1>
+                        <p className="text-gray-500 text-sm mt-1">
+                            Visão geral operacional • {new Date().toLocaleDateString('pt-BR')}
+                        </p>
                     </div>
-                    <button 
-                        onClick={() => navigate('obras')} 
-                        className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2 text-sm font-medium"
-                    >
-                        <Building size={16} />
-                        <span>Gerenciar Obras</span>
-                    </button>
-                </div>
-            </header>
-
-            {/* Grid de Estatísticas - Ajustado para melhor responsividade (xl:grid-cols-7) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-3">
-                <StatCard title="Total Frota" value={stats.totalVehicles} icon={Truck} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles')} />
-                <StatCard title="Obras Ativas" value={stats.totalObras} icon={Building} colorClass="bg-gray-100 text-gray-600" onClick={() => navigate('obras', { status: 'ativa' })} />
-                <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={HardHat} colorClass="bg-green-100 text-green-600" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
-                <StatCard title="Operação" value={stats.vehiclesInOperation} icon={Users} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
-                <StatCard title="Disponíveis" value={stats.availableVehicles} icon={CheckCircle} colorClass="bg-teal-100 text-teal-600" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
-                <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={Wrench} colorClass="bg-red-100 text-red-600" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
-                <StatCard title="Multas" value={stats.pendingFines} icon={ShieldAlert} colorClass="bg-orange-100 text-orange-600" onClick={() => navigate('fines', { status: 'Pendente' })} />
-            </div>
-
-            {/* Layout Principal Assimétrico */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* Coluna Esquerda (2/3) - Mapas e Gráficos */}
-                <div className="lg:col-span-2 space-y-6">
-                    <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                            <div>
-                                <h2 className="text-md font-bold text-gray-800">Geolocalização da Frota</h2>
-                                <p className="text-xs text-gray-500">Distribuição atual no RS</p>
-                            </div>
-                            <button className="text-gray-400 hover:text-indigo-600 transition-colors">
-                                <Maximize2 size={18} />
-                            </button>
+                     <div className="flex items-center gap-3">
+                        <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                            <span className="text-xs font-medium text-gray-600">Sistema Online</span>
                         </div>
-                        <div className="h-[300px] bg-gray-100 relative z-0">
-                            <AllocationMap obras={obras} vehicles={vehicles} />
-                        </div>
-                    </section>
+                        <button onClick={() => navigate('obras')} className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2 text-sm font-medium">
+                            <Building size={16} />
+                            <span>Gerenciar Obras</span>
+                        </button>
+                    </div>
+                </header>
 
-                    <ObraProgressBI
-                        obras={obras}
-                        vehicles={vehicles}
-                        vehicleGroups={vehicleGroups}
-                        equipmentTypesForHours={equipmentTypesForHours}
-                    />
+                {/* Grid de Estatísticas */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <StatCard title="Total Frota" value={stats.totalVehicles} icon={Truck} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles')} />
+                    <StatCard title="Obras Ativas" value={stats.totalObras} icon={Building} colorClass="bg-gray-100 text-gray-600" onClick={() => navigate('obras', { status: 'ativa' })} />
+                    <StatCard title="Em Obra" value={stats.vehiclesInObra} icon={HardHat} colorClass="bg-green-100 text-green-600" onClick={() => navigate('vehicles', { status: 'Em Obra' })} />
+                    <StatCard title="Operação" value={stats.vehiclesInOperation} icon={Users} colorClass="bg-blue-100 text-blue-600" onClick={() => navigate('vehicles', { status: 'Em Operação' })} />
+                    <StatCard title="Disponíveis" value={stats.availableVehicles} icon={CheckCircle} colorClass="bg-teal-100 text-teal-600" onClick={() => navigate('vehicles', { status: 'Disponível' })} />
+                    <StatCard title="Manutenção" value={stats.vehiclesInMaintenance} icon={Wrench} colorClass="bg-red-100 text-red-600" onClick={() => navigate('vehicles', { status: 'Em Manutenção' })} />
+                    <StatCard title="Multas" value={stats.pendingFines} icon={ShieldAlert} colorClass="bg-orange-100 text-orange-600" onClick={() => navigate('fines', { status: 'Pendente' })} />
                 </div>
 
-                {/* Coluna Direita (1/3) - Avisos */}
-                <div className="space-y-6">
-                    <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
-                        <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
-                            <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
-                                <Bell size={18} className="text-indigo-600" />
-                                Quadro de Avisos
-                            </h2>
-                        </div>
-                        
-                        <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
-                            {loadingAlerts ? (
-                                <div className="flex justify-center py-10">
-                                    <Loader className="animate-spin text-indigo-300"/>
+                {/* Layout Principal Assimétrico */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* Coluna Esquerda (2/3) */}
+                    <div className="lg:col-span-2 space-y-6">
+                        {/* Seção do Mapa (AGORA REAL) */}
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                                <div>
+                                    <h2 className="text-md font-bold text-gray-800">Geolocalização da Frota</h2>
+                                    <p className="text-xs text-gray-500">Distribuição atual no RS</p>
                                 </div>
-                            ) : alerts.length > 0 ? (
-                                alerts.map(alert => (
-                                    <AlertItem 
-                                        key={alert.id} 
-                                        alert={alert} 
-                                        navigate={navigate}
-                                        handleInactivityAlertClick={handleInactivityAlertClick}
-                                    />
-                                ))
-                            ) : (
-                                <p className="text-gray-400 text-sm text-center py-10 italic">
-                                    Tudo tranquilo por aqui.
-                                </p>
-                            )}
-                        </div>
-                    </section>
+                                <button className="text-gray-400 hover:text-indigo-600 transition-colors">
+                                    <Maximize2 size={18} />
+                                </button>
+                            </div>
+                            <div className="h-[300px] bg-gray-100 relative z-0">
+                                {/* Renderiza o mapa com os dados de obras e veículos */}
+                                <AllocationMap obras={obras} vehicles={vehicles} />
+                            </div>
+                        </section>
+
+                        {/* Progresso Obra */}
+                        <ObraProgressBI
+                            obras={obras}
+                            vehicles={vehicles}
+                            vehicleGroups={vehicleGroups}
+                            equipmentTypesForHours={equipmentTypesForHours}
+                        />
+                    </div>
+
+                    {/* Coluna Direita (1/3) */}
+                    <div className="space-y-6">
+                        {/* Quadro de Avisos (Expandido) */}
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
+                            <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
+                                <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
+                                    <Bell size={18} className="text-indigo-600" />
+                                    Quadro de Avisos
+                                </h2>
+                            </div>
+                            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
+                                {loadingAlerts ? (
+                                    <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
+                                ) : alerts.length > 0 ? alerts.map(alert => {
+                                    // Estilização dinâmica
+                                    const style = alert.isDanger 
+                                        ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
+                                        : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
+                                    
+                                    let Icon = Bell;
+                                    if (alert.type === 'CNH') Icon = Badge;
+                                    if (alert.type === 'Inatividade') Icon = Clock;
+                                    if (alert.isDanger) Icon = AlertTriangle;
+
+                                    return (
+                                        <div 
+                                            key={alert.id} 
+                                            onClick={() => {
+                                                if (alert.type === 'Inatividade') handleInactivityAlertClick(alert);
+                                                else if (alert.vehicle) navigate('vehicles', { search: alert.vehicle.registroInterno });
+                                                else if (alert.employee) navigate('employees', { search: alert.employee.nome });
+                                            }}
+                                            className={`p-3 rounded-lg border-l-4 shadow-sm flex items-start gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${style.border} ${style.bg}`}
+                                        >
+                                            <div className={`mt-1 ${style.icon}`}><Icon size={16} /></div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start">
+                                                    <h4 className={`text-xs font-bold truncate ${style.title}`}>
+                                                        {alert.vehicle ? alert.vehicle.registroInterno : alert.employee?.nome}
+                                                    </h4>
+                                                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                                        {alert.date}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] font-semibold text-gray-500 uppercase mt-0.5">{alert.type}</p>
+                                                <p className="text-xs text-gray-600 mt-1 leading-relaxed">{alert.text}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                }) : <p className="text-gray-400 text-sm text-center py-10 italic">Tudo tranquilo por aqui.</p>}
+                            </div>
+                        </section>
+                    </div>
                 </div>
+
+                {/* Ranking Consumo (Rodapé) */}
+                <FuelEfficiencyRanking
+                     vehicles={vehicles}
+                     refuelings={refuelings}
+                     vehicleGroups={vehicleGroups}
+                 />
             </div>
 
-            {/* Ranking Consumo (Rodapé) */}
-            <FuelEfficiencyRanking
-                vehicles={vehicles}
-                refuelings={refuelings}
-                vehicleGroups={vehicleGroups}
-            />
-        </div>
-
-        {/* Modal Inatividade (Renderizado via Portal ou condicional fora do layout principal) */}
-        {selectedInactivityAlert && (
-            <InactivityAlertModal
-                alert={selectedInactivityAlert}
-                onClose={handleInactivityModalClose}
-                onObserve={handleAlertAction}
-                onProlong={handleAlertAction}
-                apiClient={apiClient}
-                setAlertMessage={setAlertMessage}
-            />
-        )}
-    </>
-);
+             {/* Modal Inatividade */}
+            {selectedInactivityAlert && (
+                <InactivityAlertModal
+                    alert={selectedInactivityAlert}
+                    onClose={handleInactivityModalClose}
+                    onObserve={handleAlertAction}
+                    onProlong={handleAlertAction}
+                    apiClient={apiClient}
+                    setAlertMessage={setAlertMessage}
+                />
+            )}
+        </>
+    );
 };
 
 export default Dashboard;
