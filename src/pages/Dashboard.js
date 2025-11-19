@@ -939,23 +939,23 @@ const Dashboard = ({
 
                     {/* Coluna Direita (1/3) */}
                     <div className="space-y-6">
-                        {/* Quadro de Avisos (Expandido) */}
-                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
-                        <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
-                            <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
-                                <Bell size={18} className="text-indigo-600" />
-                            Quadro de Avisos
-                            </h2>
-                            </div>
-                            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
-                                {loadingAlerts ? (
-                                    <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
-                                ) : alerts.length > 0 ? alerts.map(alert => {
-                                    // Estilização dinâmica
-                                    const style = alert.isDanger 
-                                        ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
-                                        : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
-                                    
+    {/* Quadro de Avisos (Expandido) */}
+    <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[600px] flex flex-col">
+        <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
+            <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
+                <Bell size={18} className="text-indigo-600" />
+                Quadro de Avisos
+            </h2>
+        </div>
+        <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3">
+            {loadingAlerts ? (
+                <div className="flex justify-center py-10"><Loader className="animate-spin text-indigo-300"/></div>
+            ) : alerts.length > 0 ? alerts.map(alert => {
+                // Estilização dinâmica
+                const style = alert.isDanger 
+                    ? { border: 'border-red-500', icon: 'text-red-500', bg: 'bg-white', title: 'text-gray-800' }
+                    : { border: 'border-blue-400', icon: 'text-blue-500', bg: 'bg-white', title: 'text-gray-800' };
+                
                                     let Icon = Bell;
                                     if (alert.type === 'CNH') Icon = Badge;
                                     if (alert.type === 'Inatividade') Icon = Clock;
