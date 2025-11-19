@@ -30,11 +30,63 @@ import VehicleDetailModal from '../components/VehicleDetailModal';
 import OperationalAssignmentModal from '../components/OperationalAssignmentModal';
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
-// import { PasswordConfirmationModal, ConfirmationModal } from '../App'; // Assumindo que vêm do App.js
+
+// ===================================================================================
+// FUNÇÃO AUXILIAR DE REGRA DE NEGÓCIO (LEITURA O/H)
+// Centraliza a lógica para decidir se usa Km ou Hr em todo o sistema
+// ===================================================================================
+export const getVehicleMainReading = (vehicle, vehicleGroups = {}) => {
+    if (!vehicle) return { value: 0, unit: '', label: 'N/A', raw: 0 };
+
+    const groups = vehicleGroups || {};
+    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
+
+    // REGRA 1: Caminhões de Trecho (Ex: Caminhão Prancha) -> Força Odômetro (Km)
+    // Verifica variações de plural/singular para garantir
+    if (vehicle.tipo === 'Caminhão Prancha' || vehicle.tipo === 'Caminhões Prancha') {
+        return { 
+            value: vehicle.odometro, 
+            unit: 'Km', 
+            label: 'Odômetro', 
+            raw: parseFloat(vehicle.odometro || 0) 
+        };
+    }
+
+    // REGRA 2: Máquinas Pesadas -> Força Horímetro (Digital > Analógico > Genérico)
+    if (vehicleGroup === 'Máquinas Pesadas') {
+        // Prioridade: Digital -> Analógico -> Campo legado 'horimetro'
+        const val = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro;
+        return { 
+            value: val, 
+            unit: 'Hr', 
+            label: 'Horímetro', 
+            raw: parseFloat(val || 0) 
+        };
+    }
+
+    // REGRA 3: Caminhões (Padrão) -> Força Horímetro
+    if (vehicleGroup === 'Caminhões') {
+        return { 
+            value: vehicle.horimetro, 
+            unit: 'Hr', 
+            label: 'Horímetro', 
+            raw: parseFloat(vehicle.horimetro || 0) 
+        };
+    }
+
+    // REGRA 4: Veículos Leves e Outros -> Padrão Odômetro (Km)
+    return { 
+        value: vehicle.odometro, 
+        unit: 'Km', 
+        label: 'Odômetro', 
+        raw: parseFloat(vehicle.odometro || 0) 
+    };
+};
+
 
 // --- PÁGINA DE VEÍCULOS ---
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
-    // Lista de tipos de veículos (pode vir do backend no futuro)
+    // Lista de tipos de veículos
     const vehicleTypes = useMemo(() => [...new Set(vehicles.map(v => v.tipo).filter(Boolean))].sort(), [vehicles]);
 
     // Estados dos Modais
@@ -65,7 +117,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
     const handleFilterChange = (e) => { const { name, value } = e.target; setFilters(prev => ({ ...prev, [name]: value })); };
 
-    // Veículos processados com status consistente e regras O/H
+    // Veículos processados com status consistente e novas regras O/H aplicadas
     const processedVehicles = useMemo(() => {
         return (vehicles || []).map(v => {
             // Status
@@ -79,36 +131,19 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
              // Obra
              const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
              
-             // --- LÓGICA DE LEITURA PRINCIPAL (NOVAS REGRAS O/H) ---
-             const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-             const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(v.tipo));
+             // --- APLICAÇÃO DA REGRA DE NEGÓCIO (Leitura Principal) ---
+             const readingData = getVehicleMainReading(v, vehicleGroups);
+             const formattedReading = (readingData.value === null || readingData.value === undefined) 
+                ? 'N/A' 
+                : `${readingData.value} ${readingData.unit}`;
              
-             let vehicleReading = 'N/A';
-             let readingSuffix = '';
-
-             if (vehicleGroup === 'Máquinas Pesadas') {
-                 // Regra: Máquinas Pesadas usam Horímetro (Digital > Analógico > Legado)
-                 vehicleReading = v.horimetroDigital ?? v.horimetroAnalogico ?? v.horimetro ?? 'N/A';
-                 readingSuffix = ' Hr';
-             } else if (vehicleGroup === 'Caminhões') {
-                 if (v.tipo === 'Caminhões Prancha') {
-                     // Exceção: Caminhão de Trecho usa Odômetro
-                     vehicleReading = v.odometro ?? v.horimetro ?? 'N/A'; 
-                     readingSuffix = v.odometro != null ? ' Km' : (v.horimetro != null ? ' Hr' : '');
-                 } else {
-                     // Padrão: Caminhão usa Horímetro
-                     vehicleReading = v.horimetro ?? v.odometro ?? 'N/A';
-                     readingSuffix = v.horimetro != null ? ' Hr' : (v.odometro != null ? ' Km' : '');
-                 }
-             } else { // Leves ou outros
-                 vehicleReading = v.odometro ?? 'N/A';
-                 readingSuffix = ' Km';
-             }
-             
-             const formattedReading = vehicleReading === 'N/A' ? 'N/A' : `${vehicleReading}${readingSuffix}`;
-             // --- FIM LÓGICA LEITURA ---
-
-            return { ...v, status: currentStatus, obra, vehicleReading: formattedReading };
+            return { 
+                ...v, 
+                status: currentStatus, 
+                obra, 
+                vehicleReading: formattedReading,
+                vehicleReadingRaw: readingData.raw // Usado para ordenação
+            };
         }).filter(Boolean);
     }, [vehicles, obras, vehicleGroups]);
 
@@ -117,28 +152,11 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         let sortableItems = [...processedVehicles];
         if (sortConfig.key !== null) {
             sortableItems.sort((a, b) => {
-                // Ordenação numérica para leituras
+                // Ordenação numérica para leituras (Usa o valor raw calculado pela regra de negócio)
                 if (sortConfig.key === 'vehicleReading') {
-                     const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-                     
-                     const getSortableReading = (v) => {
-                        const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(v.tipo));
-                        if (vehicleGroup === 'Máquinas Pesadas') {
-                            return v.horimetroDigital ?? v.horimetroAnalogico ?? v.horimetro ?? 0;
-                        } else if (vehicleGroup === 'Caminhões') {
-                            if (v.tipo === 'Caminhões Prancha') {
-                                return v.odometro ?? v.horimetro ?? 0;
-                            } else {
-                                return v.horimetro ?? v.odometro ?? 0;
-                            }
-                        } else {
-                            return v.odometro ?? 0;
-                        }
-                     };
-                     
-                     const numA = getSortableReading(a);
-                     const numB = getSortableReading(b);
-                     const comparison = (numA || 0) - (numB || 0);
+                     const numA = a.vehicleReadingRaw || 0;
+                     const numB = b.vehicleReadingRaw || 0;
+                     const comparison = numA - numB;
                      return sortConfig.direction === 'ascending' ? comparison : -comparison;
                 }
                 
@@ -150,7 +168,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             });
         }
         return sortableItems;
-    }, [processedVehicles, sortConfig, vehicleGroups]); 
+    }, [processedVehicles, sortConfig]); 
 
 
     // Função para requisitar ordenação
@@ -162,7 +180,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         setSortConfig({ key, direction });
     };
 
-    // Calcula status da revisão (com regras O/H)
+    // Calcula status da revisão (agora usando a regra centralizada)
     const getRevisionStatus = (vehicle) => {
         const revision = (revisions || []).find(r => r.vehicleId === vehicle.id);
         if (!revision) return { status: 'ok', text: '' }; 
@@ -170,23 +188,10 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         const now = new Date();
         const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
 
-        const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-        const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
-        
-        let currentReading = 0;
-        // --- APLICA NOVAS REGRAS O/H ---
-        if(vehicleGroup === 'Máquinas Pesadas') {
-            currentReading = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
-        } else if(vehicleGroup === 'Caminhões') {
-            if (vehicle.tipo === 'Caminhões Prancha') {
-                currentReading = vehicle.odometro ?? 0;
-            } else {
-                currentReading = vehicle.horimetro ?? 0;
-            }
-        } else { // Leves
-            currentReading = vehicle.odometro ?? 0;
-        }
-        // --- FIM REGRAS O/H ---
+        // --- USO DA REGRA CENTRALIZADA ---
+        const readingData = getVehicleMainReading(vehicle, vehicleGroups);
+        const currentReading = readingData.raw;
+        // ---------------------------------
 
         const proximoOdometro = revision.proximaRevisaoOdometro || 0; 
         const avisoKmHr = revision.avisoAntecedenciaKmHr || 0;
@@ -478,7 +483,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                             {/* Registro */}
                             <div className="text-gray-700 md:block hidden">{vehicle.registroInterno}</div>
                             {/* Leitura */}
-                            <div className="text-gray-700 text-right md:block hidden">{vehicle.vehicleReading}</div>
+                            <div className="text-gray-700 text-right md:block hidden font-mono font-medium">{vehicle.vehicleReading}</div>
                              {/* Status */}
                             <div>
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`}>
