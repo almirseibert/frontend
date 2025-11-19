@@ -1,10 +1,9 @@
 // src/utils/vehicleRules.js
-// ESTE ARQUIVO É A FONTE DA VERDADE PARA REGRAS DE NEGÓCIO DE VEÍCULOS
 
 export const vehicleGroups = {
     'Veículos Leves': ['Camionete', 'Automóvel', 'Moto', 'Utilitário'],
     'Caminhões': ['Caçamba Traçado', 'Caçamba Truckado', 'Caçamba Toco', 'Caminhão Pipa', 'Caminhão Tanque', 'Cavalo', 'Caminhão carroceria', 'Bitruck', 'Caçamba Bitruck'],
-    'Caminhões de Trecho': ['Caminhão Prancha', 'Caminhões Prancha'], // NOVO GRUPO: Exceção que usa Km
+    'Caminhões de Trecho': ['Caminhão Prancha', 'Caminhões Prancha'], 
     'Máquinas Pesadas': ['Rolo', 'Motoniveladora', 'Escavadeira', 'Fresadora', 'Pá Carregadeira', 'Trator', 'Trator de Esteiras', 'Retroescavadeira']
 };
 
@@ -13,20 +12,38 @@ export const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional',
 export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras'];
 
 /**
- * Determina a leitura principal (Km ou Hr) de um veículo baseado nas regras de negócio da MAK.
- * HIERARQUIA DE DECISÃO:
- * 1. Caminhões de Trecho (Prancha) -> SEMPRE Odômetro (Km)
- * 2. Máquinas Pesadas -> Horímetro (Digital > Analógico > Genérico)
- * 3. Caminhões -> Horímetro (Hr)
- * 4. Veículos Leves e Padrão -> Odômetro (Km)
+ * Define quais tipos de leitura são permitidos para inserção de dados para cada grupo.
+ * Usado em Modais de Cadastro, Abastecimento, etc.
  */
+export const getAllowedReadingTypes = (vehicleType) => {
+    // Encontra o grupo do veículo
+    const group = Object.keys(vehicleGroups).find(key => vehicleGroups[key].includes(vehicleType));
+
+    // REGRA: Caminhões (Exceto de Trecho) só usam Horímetro
+    if (group === 'Caminhões') {
+        return ['horimetro']; 
+    }
+    
+    // REGRA: Caminhões de Trecho só usam Odômetro
+    if (group === 'Caminhões de Trecho') {
+        return ['odometro'];
+    }
+
+    // REGRA: Máquinas Pesadas usam Horímetro
+    if (group === 'Máquinas Pesadas') {
+        return ['horimetro'];
+    }
+
+    // Padrão (Leves, etc)
+    return ['odometro'];
+};
+
 export const getVehicleMainReading = (vehicle) => {
     if (!vehicle) return { value: 0, unit: '', label: 'N/A', raw: 0 };
 
     const tipo = vehicle.tipo || '';
     
     // REGRA 1: Exceção Prioritária - Caminhões de Trecho
-    // Verifica explicitamente os tipos definidos no grupo "Caminhões de Trecho"
     const isCaminhaoDeTrecho = vehicleGroups['Caminhões de Trecho'].includes(tipo);
     
     if (isCaminhaoDeTrecho) {
@@ -38,12 +55,10 @@ export const getVehicleMainReading = (vehicle) => {
         };
     }
 
-    // Identifica o grupo do veículo
     const groupName = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(tipo));
 
     // REGRA 2: Máquinas Pesadas
     if (groupName === 'Máquinas Pesadas') {
-        // Prioridade: Digital > Analógico > Campo legado
         const val = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro;
         return { 
             value: val, 
@@ -53,7 +68,7 @@ export const getVehicleMainReading = (vehicle) => {
         };
     }
 
-    // REGRA 3: Caminhões (Padrão)
+    // REGRA 3: Caminhões (Padrão) -> USA HORÍMETRO
     if (groupName === 'Caminhões') {
         return { 
             value: vehicle.horimetro, 
@@ -63,7 +78,7 @@ export const getVehicleMainReading = (vehicle) => {
         };
     }
 
-    // REGRA 4: Veículos Leves e Default (Fallback)
+    // REGRA 4: Veículos Leves e Default
     return { 
         value: vehicle.odometro, 
         unit: 'Km', 

@@ -1,14 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Loader, X } from 'lucide-react';
+import { Loader, X, AlertTriangle, Shield } from 'lucide-react';
+import { getVehicleMainReading } from '../utils/vehicleRules';
 
 // --- Modal de Alocação Operacional ---
-// Extraído de VehiclePage.js
-const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [] }) => {
-    // Tenta obter dados da alocação atual (pode ser string JSON ou objeto)
+const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [], PasswordConfirmationModal }) => {
     let currentAssignment = null;
     if (vehicle.operationalAssignment) {
         if (typeof vehicle.operationalAssignment === 'string') {
-            try { currentAssignment = JSON.parse(vehicle.operationalAssignment); } catch { /* ignora erro */ }
+            try { currentAssignment = JSON.parse(vehicle.operationalAssignment); } catch { }
         } else {
             currentAssignment = vehicle.operationalAssignment;
         }
@@ -16,24 +15,67 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
 
     const [subGroup, setSubGroup] = useState(currentAssignment?.subGroup || '');
     const [employeeId, setEmployeeId] = useState(currentAssignment?.employeeId || '');
-    const [observacoes, setObservacoes] = useState(currentAssignment?.observacoes || ''); // Observações da alocação atual
+    const [observacoes, setObservacoes] = useState(currentAssignment?.observacoes || ''); 
     const [isSaving, setIsSaving] = useState(false);
-    // Local para onde o veículo irá APÓS desalocar
     const [locationAfterUnassign, setLocationAfterUnassign] = useState('Pátio MAK Lajeado');
 
-    // Filtra funcionários disponíveis
+    // --- ESTADOS DE SEGURANÇA ---
+    const [restrictionAlert, setRestrictionAlert] = useState(null);
+    const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+
     const availableEmployees = useMemo(() =>
         (employees || [])
-            .filter(e => e.status !== 'inativo') // Somente ativos
+            .filter(e => e.status !== 'inativo')
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
-    // Função para Alocar
-    const handleAssign = async () => {
+    // --- VERIFICAÇÃO DE RESTRIÇÕES ---
+    const checkRestrictions = () => {
+        const issues = [];
+        const now = new Date();
+        const thirtyDays = new Date(); thirtyDays.setDate(now.getDate() + 30);
+
+        if (vehicle.canCirculate === false) issues.push("• O veículo está marcado como 'NÃO PODE CIRCULAR'.");
+
+        const revision = revisions?.find(r => r.vehicleId === vehicle.id);
+        if (revision) {
+            const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
+            const mainReading = getVehicleMainReading(vehicle); 
+            const current = mainReading.raw || 0;
+            const proximoOdo = revision.proximaRevisaoOdometro || 0;
+            const aviso = revision.avisoAntecedenciaKmHr || 0;
+            
+            if (proximaData && now >= proximaData) issues.push("• Revisão VENCIDA por data.");
+            if (proximoOdo > 0 && current >= proximoOdo) issues.push("• Revisão VENCIDA por leitura.");
+            else if (proximoOdo > 0 && aviso > 0 && current >= (proximoOdo - aviso)) issues.push("• Revisão PRÓXIMA do vencimento.");
+        }
+
+        if (['Caminhão', 'Caminhões'].some(t => vehicle.tipo?.includes(t))) {
+             [{ n: 'Tacógrafo', d: vehicle.validadeTacografo }, { n: 'AET DAER', d: vehicle.validadeAET_DAER }, { n: 'AET DNIT', d: vehicle.validadeAET_DNIT }].forEach(doc => {
+                if (doc.d) {
+                    const d = new Date(doc.d);
+                    if (d < now) issues.push(`• ${doc.n} VENCIDO.`);
+                    else if (d <= thirtyDays) issues.push(`• ${doc.n} próximo do vencimento.`);
+                }
+            });
+        }
+        return issues;
+    };
+
+    const handleAssignClick = () => {
         if (!subGroup || !employeeId) {
             setAlertMessage("Selecione o subgrupo e o funcionário.");
             return;
         }
+        const issues = checkRestrictions();
+        if (issues.length > 0) {
+            setRestrictionAlert(issues);
+            return;
+        }
+        executeAssign();
+    };
+
+    const executeAssign = async () => {
         setIsSaving(true);
         try {
             await apiClient.assignVehicleToOperational(vehicle.id, { subGroup, employeeId, observacoes });
@@ -48,7 +90,6 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
         }
     };
 
-    // Função para Desalocar
     const handleUnassign = async () => {
         setIsSaving(true);
         try {
@@ -65,69 +106,109 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], onClose, se
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-                <div className="p-6 border-b flex justify-between items-center">
-                    <h2 className="text-xl font-bold">Alocação Operacional</h2>
-                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
-                </div>
-                <div className="p-6">
-                     <p className="text-sm mb-4"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
-                    {/* Se já estiver alocado, mostra opção de desalocar */}
-                    {currentAssignment ? (
-                        <div className="space-y-4">
-                            <p className="text-sm">Este veículo está alocado para <strong>{currentAssignment.subGroup || 'N/A'}</strong> com <strong>{currentAssignment.employeeName || 'N/A'}</strong>.</p>
-                             {/* Campo para definir o local após desalocar */}
-                             <div>
-                                <label className="block text-sm font-medium text-gray-700">Local de Disponibilidade após Desalocar *</label>
-                                <input
-                                     type="text"
-                                     value={locationAfterUnassign}
-                                     onChange={e => setLocationAfterUnassign(e.target.value)}
-                                     placeholder="Ex: Pátio MAK Lajeado"
-                                     className="mt-1 w-full p-2 border rounded-md text-sm"
-                                     required
-                                 />
+        <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+                    <div className="p-6 border-b flex justify-between items-center bg-blue-50">
+                        <h2 className="text-xl font-bold text-blue-800">Alocação Operacional</h2>
+                         <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
+                    </div>
+
+                    {/* ALERTA DE RESTRIÇÃO */}
+                    {restrictionAlert && !currentAssignment && (
+                        <div className="p-4 bg-red-50 border-b border-red-100">
+                            <div className="flex items-start gap-3">
+                                <AlertTriangle className="text-red-600 shrink-0 mt-1" />
+                                <div>
+                                    <h3 className="font-bold text-red-700 text-sm uppercase">Restrições Detectadas</h3>
+                                    <div className="text-red-600 text-sm mt-1 space-y-1">
+                                        {restrictionAlert.map((issue, idx) => <p key={idx}>{issue}</p>)}
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowPasswordConfirm(true)}
+                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 flex items-center justify-center gap-2"
+                                    >
+                                        <Shield size={16} /> Autorizar com Senha
+                                    </button>
+                                </div>
                             </div>
-                            <button onClick={handleUnassign} disabled={isSaving || !locationAfterUnassign} className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-300 flex items-center justify-center gap-2 text-sm">
-                                {isSaving ? <><Loader className="animate-spin" size={18}/> Finalizando...</> : "Finalizar Alocação"}
-                            </button>
-                        </div>
-                    ) : (
-                         // Se não estiver alocado, mostra formulário para alocar
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Alocar no Grupo *</label>
-                                <select value={subGroup} onChange={e => setSubGroup(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
-                                    <option value="">Selecione...</option>
-                                    {(operationalSubGroups || []).map(g => <option key={g} value={g}>{g}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Alocar para Funcionário *</label>
-                                <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
-                                    <option value="">Selecione...</option>
-                                    {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} ({e.funcao})</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Observações</label>
-                                <textarea
-                                    value={observacoes}
-                                    onChange={e => setObservacoes(e.target.value)}
-                                    rows="2"
-                                    className="mt-1 w-full p-2 border rounded-md text-sm"
-                                    placeholder="Detalhes adicionais..."
-                                />
-                            </div>
-                            <button onClick={handleAssign} disabled={isSaving || !subGroup || !employeeId} className="w-full px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm">
-                                {isSaving ? <><Loader className="animate-spin" size={18}/> Alocando...</> : "Alocar Veículo"}
-                            </button>
                         </div>
                     )}
+
+                    <div className="p-6">
+                         <p className="text-sm mb-4"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
+                        {/* DESALOCAR */}
+                        {currentAssignment ? (
+                            <div className="space-y-4">
+                                <p className="text-sm">Este veículo está alocado para <strong>{currentAssignment.subGroup || 'N/A'}</strong> com <strong>{currentAssignment.employeeName || 'N/A'}</strong>.</p>
+                                 <div>
+                                    <label className="block text-sm font-medium text-gray-700">Local de Disponibilidade após Desalocar *</label>
+                                    <input
+                                         type="text"
+                                         value={locationAfterUnassign}
+                                         onChange={e => setLocationAfterUnassign(e.target.value)}
+                                         placeholder="Ex: Pátio MAK Lajeado"
+                                         className="mt-1 w-full p-2 border rounded-md text-sm"
+                                         required
+                                     />
+                                </div>
+                                <button onClick={handleUnassign} disabled={isSaving || !locationAfterUnassign} className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-300 flex items-center justify-center gap-2 text-sm">
+                                    {isSaving ? <><Loader className="animate-spin" size={18}/> Finalizando...</> : "Finalizar Alocação"}
+                                </button>
+                            </div>
+                        ) : (
+                             // ALOCAR
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Alocar no Grupo *</label>
+                                    <select value={subGroup} onChange={e => setSubGroup(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
+                                        <option value="">Selecione...</option>
+                                        {(operationalSubGroups || []).map(g => <option key={g} value={g}>{g}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Alocar para Funcionário *</label>
+                                    <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
+                                        <option value="">Selecione...</option>
+                                        {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} ({e.funcao})</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Observações</label>
+                                    <textarea
+                                        value={observacoes}
+                                        onChange={e => setObservacoes(e.target.value)}
+                                        rows="2"
+                                        className="mt-1 w-full p-2 border rounded-md text-sm"
+                                        placeholder="Detalhes adicionais..."
+                                    />
+                                </div>
+                                <button 
+                                    onClick={handleAssignClick} 
+                                    disabled={isSaving || !subGroup || !employeeId || restrictionAlert !== null} 
+                                    className="w-full px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm"
+                                >
+                                    {isSaving ? <><Loader className="animate-spin" size={18}/> Alocando...</> : "Alocar Veículo"}
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
+
+            {/* MODAL DE SENHA */}
+            {showPasswordConfirm && PasswordConfirmationModal && (
+                <PasswordConfirmationModal
+                    message="Veículo com restrições. Digite sua senha para liberar a alocação."
+                    onConfirm={async () => {
+                        await executeAssign();
+                        setShowPasswordConfirm(false);
+                    }}
+                    onClose={() => setShowPasswordConfirm(false)}
+                />
+            )}
+        </>
     );
 };
 

@@ -18,29 +18,24 @@ import {
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
-// Importando os Modais (Certifique-se que os arquivos existem em /components)
 import VehicleModal from '../components/VehicleModal'; 
 import MaintenanceModal from '../components/MaintenanceModal';
-import VehicleFinesModal from '../components/VehicleFinesModal'; // Vamos corrigir este arquivo abaixo
+import VehicleFinesModal from '../components/VehicleFinesModal'; 
 import VehicleDetailModal from '../components/VehicleDetailModal';
 import OperationalAssignmentModal from '../components/OperationalAssignmentModal';
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
 
-// IMPORTAÇÃO DAS REGRAS DE NEGÓCIO CENTRALIZADAS
 import { getVehicleMainReading } from '../utils/vehicleRules';
 
-// --- PÁGINA DE VEÍCULOS ---
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
     
-    // Lista de Tipos para o Dropdown
     const vehicleTypes = useMemo(() => {
         const existingTypes = (vehicles || []).map(v => v.tipo).filter(Boolean);
         const predefinedTypes = Object.values(vehicleGroups || {}).flat();
         return [...new Set([...existingTypes, ...predefinedTypes])].sort();
     }, [vehicles, vehicleGroups]);
 
-    // Estados dos Modais
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isObraAllocationModalOpen, setIsObraAllocationModalOpen] = useState(false);
     const [isOperationalModalOpen, setIsOperationalModalOpen] = useState(false);
@@ -50,7 +45,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
 
-    // Estados para dados dos Modais
     const [itemToDelete, setItemToDelete] = useState(null);
     const [editingVehicle, setEditingVehicle] = useState(null);
     const [vehicleForObraAllocation, setVehicleForObraAllocation] = useState(null);
@@ -60,15 +54,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [vehicleForFines, setVehicleForFines] = useState(null);
     const [vehicleForMaintenance, setVehicleForMaintenance] = useState(null);
 
-    // Estados de Filtro e Ordenação
     const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos' });
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
 
-    // Aplica filtro inicial
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
     const handleFilterChange = (e) => { const { name, value } = e.target; setFilters(prev => ({ ...prev, [name]: value })); };
 
-    // Veículos processados
     const processedVehicles = useMemo(() => {
         return (vehicles || []).map(v => {
             let currentStatus = v.status;
@@ -95,7 +86,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         }).filter(Boolean);
     }, [vehicles, obras]); 
 
-    // Ordenação
     const sortedVehicles = useMemo(() => {
         let sortableItems = [...processedVehicles];
         if (sortConfig.key !== null) {
@@ -168,7 +158,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return revisionStatusClasses[revisionInfo.status];
     };
 
-    // --- NOVO: Função Helper para Limitar Texto ---
     const truncateText = (text, limit = 22) => {
         if (!text) return '';
         if (text.length <= limit) return text;
@@ -403,12 +392,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                 {vehicle.vehicleReading}
                             </div>
                             
-                             {/* Status (2) - COM LIMITAÇÃO DE CARACTERES (22 CHARS) */}
+                             {/* Status (2) */}
                             <div className="md:col-span-2 text-center md:block flex justify-between items-center">
                                 <span className="md:hidden font-bold text-gray-500 text-xs mr-2">Status:</span>
                                 <div 
                                     className={`px-2 py-0.5 rounded-full text-xs font-semibold mx-auto inline-block whitespace-nowrap ${statusClasses[vehicle.status] || 'bg-gray-100 text-gray-800'}`} 
-                                    title={statusText} // Tooltip com texto completo
+                                    title={statusText} 
                                 >
                                     {truncateText(statusText, 22)}
                                 </div>
@@ -443,10 +432,41 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                  )}
             </div>
 
-            {/* Modais */}
             {isModalOpen && <VehicleModal user={user} vehicle={editingVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicleGroups={vehicleGroups} />}
-            {isObraAllocationModalOpen && <ObraAllocationModal user={user} vehicle={vehicleForObraAllocation} obras={obras} employees={employees} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} vehicleGroups={vehicleGroups} />}
-            {isOperationalModalOpen && <OperationalAssignmentModal user={user} vehicle={vehicleForOperational} employees={employees} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} />}
+            
+            {/* Passando 'revisions' e 'PasswordConfirmationModal' para os Modais de Alocação */}
+            {isObraAllocationModalOpen && (
+                <ObraAllocationModal 
+                    user={user} 
+                    vehicle={vehicleForObraAllocation} 
+                    obras={obras} 
+                    employees={employees} 
+                    revisions={revisions} // CRÍTICO para a verificação
+                    onClose={() => setIsObraAllocationModalOpen(false)} 
+                    setAlertMessage={setAlertMessage} 
+                    apiClient={apiClient} 
+                    reloadData={reloadData} 
+                    vehicles={vehicles} 
+                    vehicleGroups={vehicleGroups}
+                    PasswordConfirmationModal={PasswordConfirmationModal} // Passando componente de senha
+                />
+            )}
+            
+            {isOperationalModalOpen && (
+                <OperationalAssignmentModal 
+                    user={user} 
+                    vehicle={vehicleForOperational} 
+                    employees={employees} 
+                    revisions={revisions} // CRÍTICO
+                    onClose={() => setIsOperationalModalOpen(false)} 
+                    setAlertMessage={setAlertMessage} 
+                    apiClient={apiClient} 
+                    reloadData={reloadData} 
+                    operationalSubGroups={operationalSubGroups}
+                    PasswordConfirmationModal={PasswordConfirmationModal} // Passando componente de senha
+                />
+            )}
+
             {isHistoryModalOpen && <HistoryModal vehicle={vehicleForHistory} onClose={() => setIsHistoryModalOpen(false)} obras={obras} />}
             {isDeleteModalOpen && <PasswordConfirmationModal message="Tem certeza que deseja excluir este veículo? Todas as revisões associadas também serão removidas." onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />}
             {isDetailModalOpen && <VehicleDetailModal vehicle={vehicleForDetail} revision={revisions.find(r => r.vehicleId === vehicleForDetail?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} />}
