@@ -13,7 +13,6 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
 // --- CORREÇÃO DE ÍCONES DO LEAFLET ---
-// Corrige o problema de ícones padrão não carregando no Webpack/React
 const fixLeafletIcon = () => {
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
@@ -25,7 +24,30 @@ const fixLeafletIcon = () => {
 fixLeafletIcon();
 
 // ===================================================================================
-// COMPONENTE: MODAL DE INATIVIDADE (Lógica Mantida)
+// COMPONENTE: MODAL DE MAPA EXPANDIDO (NOVO)
+// ===================================================================================
+const ExpandedMapModal = ({ obras, vehicles, onClose }) => {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[9999] p-4">
+            <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <MapPin className="text-blue-600" /> Mapa de Alocação Expandido
+                    </h2>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 transition-colors">
+                        <X size={24} />
+                    </button>
+                </div>
+                <div className="flex-1 relative">
+                    <AllocationMap obras={obras} vehicles={vehicles} isExpanded={true} />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ===================================================================================
+// COMPONENTE: MODAL DE INATIVIDADE
 // ===================================================================================
 const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient, setAlertMessage }) => {
     const [prolongDays, setProlongDays] = useState(7);
@@ -147,7 +169,7 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
 // ===================================================================================
 // COMPONENTE: MAPA DE ALOCAÇÃO (Versão Real)
 // ===================================================================================
-const AllocationMap = ({ obras = [], vehicles = [] }) => {
+const AllocationMap = ({ obras = [], vehicles = [], isExpanded = false }) => {
     // Filtra apenas obras ativas que possuem coordenadas válidas
     const validObras = useMemo(() => {
         return obras.filter(o => 
@@ -159,47 +181,70 @@ const AllocationMap = ({ obras = [], vehicles = [] }) => {
         );
     }, [obras]);
 
-    // Conta veículos por obra para exibir no popup
-    const getVehicleCount = (obraId) => {
-        if (!Array.isArray(obras)) return 0;
+    // Retorna a lista de veículos ativos na obra
+    const getActiveVehiclesList = (obraId) => {
+        if (!Array.isArray(obras)) return [];
         const obra = obras.find(o => o.id === obraId);
-        if (!obra || !Array.isArray(obra.historicoVeiculos)) return 0;
-        // Conta apenas veículos que não têm data de saída (ainda ativos)
-        return obra.historicoVeiculos.filter(h => !h.dataSaida).length;
+        if (!obra || !Array.isArray(obra.historicoVeiculos)) return [];
+        
+        // Filtra veículos ativos (sem dataSaida) e mapeia para o formato desejado
+        return obra.historicoVeiculos
+            .filter(h => !h.dataSaida)
+            .map(h => {
+                const vehicle = vehicles.find(v => v.id === h.veiculoId);
+                return vehicle ? `${vehicle.tipo} - ${vehicle.registroInterno}` : 'Veículo Desconhecido';
+            });
     };
 
-    // Centro do mapa: Aproximadamente o centro do Rio Grande do Sul ou Santa Maria
+    // Centro do mapa (RS/Santa Maria)
     const mapCenter = [-29.6914, -53.8008]; 
 
     return (
         <div className="h-full w-full rounded-xl overflow-hidden relative z-0">
             <MapContainer 
                 center={mapCenter} 
-                zoom={7} 
+                zoom={isExpanded ? 8 : 7} 
                 style={{ height: '100%', width: '100%' }}
-                scrollWheelZoom={false} // Evita scroll acidental
+                scrollWheelZoom={isExpanded} // Permite zoom com scroll apenas se expandido
             >
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
                 
-                {validObras.map(obra => (
-                    <Marker 
-                        key={obra.id} 
-                        position={[parseFloat(obra.latitude), parseFloat(obra.longitude)]}
-                    >
-                        <Popup>
-                            <div className="text-center">
-                                <strong className="block text-sm text-gray-800">{obra.nome}</strong>
-                                <span className="text-xs text-gray-500 block mb-1">{obra.cliente || 'Cliente N/A'}</span>
-                                <div className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full inline-block">
-                                    {getVehicleCount(obra.id)} Veículos Ativos
+                {validObras.map(obra => {
+                    const activeVehiclesList = getActiveVehiclesList(obra.id);
+                    return (
+                        <Marker 
+                            key={obra.id} 
+                            position={[parseFloat(obra.latitude), parseFloat(obra.longitude)]}
+                        >
+                            <Popup className="custom-popup">
+                                <div className="min-w-[200px]">
+                                    <div className="border-b pb-1 mb-2">
+                                        <strong className="block text-sm text-gray-900 uppercase">{obra.nome}</strong>
+                                        <span className="text-xs text-gray-500">{obra.cliente || 'Cliente N/A'}</span>
+                                    </div>
+                                    
+                                    <div className="text-xs">
+                                        <div className="font-semibold mb-1 text-blue-700">
+                                            {activeVehiclesList.length} Veículo(s) Ativo(s):
+                                        </div>
+                                        {activeVehiclesList.length > 0 ? (
+                                            <ul className="list-disc list-inside space-y-0.5 text-gray-700 max-h-32 overflow-y-auto custom-scrollbar">
+                                                {activeVehiclesList.map((vStr, idx) => (
+                                                    <li key={idx}>{vStr}</li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <span className="text-gray-400 italic">Nenhum veículo no momento.</span>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                            </Popup>
+                        </Marker>
+                    );
+                })}
 
                 {validObras.length === 0 && (
                      <div className="absolute bottom-4 left-4 bg-white/90 p-2 rounded shadow text-xs text-gray-600 z-[1000]">
@@ -212,7 +257,7 @@ const AllocationMap = ({ obras = [], vehicles = [] }) => {
 };
 
 // ===================================================================================
-// COMPONENTE: RANKING DE CONSUMO (Lógica Mantida)
+// COMPONENTE: RANKING DE CONSUMO
 // ===================================================================================
 const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups = {} }) => {
     const [selectedType, setSelectedType] = useState('todos');
@@ -304,7 +349,8 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
     );
 
     return (
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
+        // CORREÇÃO: Removido 'h-full' para evitar sobreposição e permitir que o container cresça conforme o conteúdo
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200">
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <h2 className="text-xl font-bold text-gray-900">Ranking de Consumo</h2>
                 <div className="flex items-center gap-2">
@@ -368,7 +414,7 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [], vehicleGroups =
 
 
 // ===================================================================================
-// COMPONENTE: PAINEL DE PROGRESSO DA OBRA (Lógica Mantida)
+// COMPONENTE: PAINEL DE PROGRESSO DA OBRA
 // ===================================================================================
 const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipmentTypesForHours = [] }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
@@ -566,7 +612,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
     }, [activeObrasWithContractData, vehicles, calculateExecuted]);
 
     return (
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md h-full border border-gray-200">
+        // CORREÇÃO: Removido 'h-full' para evitar sobreposição
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200">
             <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <h2 className="text-xl font-bold text-gray-900">Progresso / Alocação</h2>
                 <select
@@ -656,10 +703,11 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                             ) : <p className="text-xs text-gray-500 italic">Sem horas contratadas/executadas.</p>}
                         </div>
                     )}
+                     {/* Código Omitido para brevidade mas lógica mantida */}
                      {obraData.type === 'metrosQuadrados' && obraData.sectors && (
                         <div className="space-y-1 pt-1 border-t border-gray-200">
-                            <h3 className="text-xs font-semibold text-gray-700">Progresso por Setor ({obraData.unit}):</h3>
-                            {obraData.sectors.length > 0 ? obraData.sectors.map(sector => (
+                             <h3 className="text-xs font-semibold text-gray-700">Progresso por Setor ({obraData.unit}):</h3>
+                             {obraData.sectors.length > 0 ? obraData.sectors.map(sector => (
                                 <div key={sector.name}>
                                     <div className="flex justify-between mb-0.5 text-[11px] font-medium text-gray-600">
                                         <span>{sector.name || 'Setor s/ nome'}</span>
@@ -669,7 +717,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], vehicleGroups = {}, equipme
                                 </div>
                             )) : <p className="text-xs text-gray-500 italic">Nenhum setor definido.</p>}
                         </div>
-                    )}
+                     )}
                      {obraData.type === 'prancha' && (
                          <div className="pt-1 border-t border-gray-200">
                              <div className="flex justify-between mb-0.5 text-xs font-medium text-gray-600">
@@ -697,6 +745,8 @@ const Dashboard = ({
     reloadData
 }) => {
     const [selectedInactivityAlert, setSelectedInactivityAlert] = useState(null);
+    const [isMapExpanded, setIsMapExpanded] = useState(false); // Estado para controlar o modal do mapa
+    
      const [inactivityAlerts, setInactivityAlerts] = useState([]);
      const [loadingAlerts, setLoadingAlerts] = useState(true);
 
@@ -863,7 +913,12 @@ const Dashboard = ({
                                     <h2 className="text-md font-bold text-gray-800">Geolocalização da Frota</h2>
                                     <p className="text-xs text-gray-500">Distribuição atual no RS</p>
                                 </div>
-                                <button className="text-gray-400 hover:text-indigo-600 transition-colors">
+                                {/* BOTÃO EXPANDIR MAPA AGORA FUNCIONAL */}
+                                <button 
+                                    onClick={() => setIsMapExpanded(true)}
+                                    className="text-gray-400 hover:text-indigo-600 transition-colors p-1 rounded hover:bg-gray-100"
+                                    title="Expandir Mapa"
+                                >
                                     <Maximize2 size={18} />
                                 </button>
                             </div>
@@ -938,11 +993,14 @@ const Dashboard = ({
                 </div>
 
                 {/* Ranking Consumo (Rodapé) */}
-                <FuelEfficiencyRanking
-                     vehicles={vehicles}
-                     refuelings={refuelings}
-                     vehicleGroups={vehicleGroups}
-                 />
+                {/* CORREÇÃO DE LAYOUT: Removemos classes de altura fixa que poderiam causar sobreposição */}
+                <div className="mt-6">
+                    <FuelEfficiencyRanking
+                        vehicles={vehicles}
+                        refuelings={refuelings}
+                        vehicleGroups={vehicleGroups}
+                    />
+                </div>
             </div>
 
              {/* Modal Inatividade */}
@@ -954,6 +1012,15 @@ const Dashboard = ({
                     onProlong={handleAlertAction}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
+                />
+            )}
+
+            {/* Modal de Mapa Expandido */}
+            {isMapExpanded && (
+                <ExpandedMapModal 
+                    obras={obras} 
+                    vehicles={vehicles} 
+                    onClose={() => setIsMapExpanded(false)} 
                 />
             )}
         </>
