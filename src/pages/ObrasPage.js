@@ -7,27 +7,27 @@ import {
     Trash2,
     RefreshCw,
     X,
-    Loader // Importa o ícone de Loader
+    Loader, // Importa o ícone de Loader
+    MapPin // Importa o ícone de Mapa
 } from 'lucide-react';
 
 // Importa o componente de proteção
 import ProtectedComponent from '../components/ProtectedComponent'; // Ajuste o caminho se necessário
-// REMOVIDO: Importação direta de modais de App.js (serão passados via props)
 
 // --- Página de Obras ---
 const ObrasPage = ({
     user,
-    vehicles = [], // Renomeado para 'vehicles' (plural) para consistência
-    obras = [], // Adicionado valor padrão
-    PasswordConfirmationModal, // Recebido via props
-    ConfirmationModal, // Recebido via props (se necessário)
+    vehicles = [],
+    obras = [],
+    PasswordConfirmationModal,
+    ConfirmationModal,
     setAlertMessage,
-    equipmentTypesForHours = [], // Adicionado valor padrão
+    equipmentTypesForHours = [],
     initialFilter,
-    vehicleGroups = {}, // Adicionado valor padrão
-    employees = [], // Adicionado valor padrão
-    apiClient, // Recebido via props
-    reloadData, // Recebido via props
+    vehicleGroups = {},
+    employees = [],
+    apiClient,
+    reloadData,
 }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -41,14 +41,13 @@ const ObrasPage = ({
 
     const openModal = (o = null) => { setEditingObra(o); setIsModalOpen(true); };
     const openDetailModal = (o) => { setDetailedObra(o); setIsDetailModalOpen(true); };
-    const openDeleteModal = (id) => { setItemToDelete({ id }); setIsDeleteModalOpen(true); }; // Simplificado
+    const openDeleteModal = (id) => { setItemToDelete({ id }); setIsDeleteModalOpen(true); };
     const openFinishModal = (obra) => { setObraToFinish(obra); setIsFinishModalOpen(true); };
 
     // Função de exclusão (usa apiClient)
     const handleDelete = async () => {
         if (!itemToDelete) return;
 
-        // A verificação de veículos alocados é feita no backend
         try {
             await apiClient.deleteObra(itemToDelete.id);
             setAlertMessage("Obra excluída com sucesso!");
@@ -62,49 +61,42 @@ const ObrasPage = ({
         }
     };
 
-    // Filtra e ordena as obras (sem mudanças na lógica, apenas usa 'obras' prop)
+    // Filtra e ordena as obras
     const filteredObras = useMemo(() => (obras || [])
         .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
         .filter(o => filter === 'finalizadas' ? o.status === 'finalizada' : o.status !== 'finalizada'),
     [obras, filter]);
 
-    // Cálculo de progresso (ajustado para datas da API e estrutura)
-    // *** CORREÇÃO: historicoVeiculos agora é lido corretamente ***
+    // Cálculo de progresso
     const calculateProgress = useMemo(() => {
         const progressData = {};
         (obras || []).forEach(obra => {
             let totalHours = 0;
-            let totalKm = 0; // Usado para metrosQuadrados
+            let totalKm = 0;
             const currentContractType = obra.contractType || 'horas';
-
-            // Garante que historicoVeiculos é um array antes de iterar
             const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [];
 
             if (currentContractType === 'horas') {
                 historico.forEach(h => {
                     const vehicle = vehicles.find(v => v.id === h.veiculoId);
                     if (!vehicle) return;
-                    const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo)); // Usa ?.
-                    if (vehicleGroup === 'Veículos Leves') return; // Ignora leves para cálculo de horas
+                    const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
+                    if (vehicleGroup === 'Veículos Leves') return;
 
-                    // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
                     let startReading = h.horimetroEntrada ?? h.odometroEntrada ?? 0;
                     let endReading = h.horimetroSaida ?? h.odometroSaida;
 
-                    // Ajuste para pegar a leitura atual do veículo se não houver data de saída
                     if (!h.dataSaida) {
                          if (vehicleGroup === 'Máquinas Pesadas') {
                             endReading = vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital;
                          } else if (vehicleGroup === 'Caminhões') {
-                            endReading = vehicle.horimetro; // Prioriza horímetro para caminhão ativo
+                            endReading = vehicle.horimetro;
                          }
-                         // Se for tipo 'odometro' e ainda não tiver endReading (ex: leve ativo), pega do veículo
                          else if (h.odometroEntrada != null) {
                              endReading = vehicle.odometro;
                          }
                     }
 
-                    // Garante que são números antes de subtrair
                     startReading = parseFloat(startReading) || 0;
                     endReading = parseFloat(endReading) || 0;
 
@@ -116,21 +108,18 @@ const ObrasPage = ({
                 progressData[obra.id] = totalHours.toFixed(1);
 
             } else if (currentContractType === 'metrosQuadrados') {
-                 // Garante que sectors é um array
                  (Array.isArray(obra.sectors) ? obra.sectors : []).forEach(sector => {
                     totalKm += parseFloat(sector.kmConcluido || 0);
                 });
-                // A unidade agora é adicionada na renderização
                 progressData[obra.id] = totalKm.toFixed(1);
             }
         });
         return progressData;
-    }, [obras, vehicles, vehicleGroups]); // Removido equipmentTypesForHours (não usado aqui)
+    }, [obras, vehicles, vehicleGroups]);
 
-    // Reativar obra (usa apiClient)
+    // Reativar obra
     const handleReactivateObra = async (obra) => {
         try {
-            // A API deve definir o status como 'ativa' e limpar dataFim
             await apiClient.updateObra(obra.id, { status: 'ativa' });
             setAlertMessage("Obra reativada com sucesso!");
             reloadData();
@@ -140,37 +129,38 @@ const ObrasPage = ({
         }
     };
 
-    // Exportação CSV (ajustada para datas da API)
+    // Exportação CSV
     const exportToCSV = () => {
         if (!filteredObras || filteredObras.length === 0) {
              setAlertMessage("Nenhuma obra para exportar.");
              return;
          }
-        const headers = ['Nome', 'Status', 'Data Início', 'Data Fim', 'Tipo de Contrato', 'Horas Contratadas', 'Horas Totais', 'Km Prancha Contratado', 'Km Prancha Concluído', 'Setores'];
+        const headers = ['Nome', 'Status', 'Data Início', 'Data Fim', 'Tipo de Contrato', 'Horas Contratadas', 'Horas Totais', 'Km Prancha Contratado', 'Km Prancha Concluído', 'Setores', 'Latitude', 'Longitude'];
         const rows = filteredObras.map(o => {
             const contractedHours = Object.values(o.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
-            const sectorsData = (Array.isArray(o.sectors) ? o.sectors : []) // Garante array
+            const sectorsData = (Array.isArray(o.sectors) ? o.sectors : [])
                 .map(s => `${s.name}: ${s.kmContratado || 0} Km (Concluído: ${s.kmConcluido || 0} Km)`)
-                .join('; '); // Usa ; como separador interno
+                .join('; ');
             const progress = calculateProgress[o.id] || '0.0';
             const unit = o.contractType === 'metrosQuadrados' ? ' Km' : ' hrs';
 
             return [
                 o.nome,
                 o.status,
-                o.dataInicio ? new Date(o.dataInicio).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', // Formata data UTC
-                o.dataFim ? new Date(o.dataFim).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', // Formata data UTC
+                o.dataInicio ? new Date(o.dataInicio).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A',
+                o.dataFim ? new Date(o.dataFim).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A',
                 o.contractType === 'horas' ? 'Horas Trabalhadas' : 'Metros Quadrados',
-                contractedHours.toFixed(1), // Formata horas contratadas
-                progress + unit, // Adiciona unidade ao progresso
+                contractedHours.toFixed(1),
+                progress + unit,
                 o.kmContratadoPrancha || 0,
                 o.kmConcluidoPrancha || 0,
-                sectorsData
+                sectorsData,
+                o.latitude || '',
+                o.longitude || ''
             ];
         });
-        // Cria CSV
         const csvRows = rows.map(row =>
-            row.map(field => `"${String(field || '').replace(/"/g, '""')}"`).join(',') // Trata aspas e junta com vírgula
+            row.map(field => `"${String(field || '').replace(/"/g, '""')}"`).join(',')
         ).join('\n');
 
         let csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + '\n' + csvRows;
@@ -209,8 +199,16 @@ const ObrasPage = ({
                     return (
                         <div key={obra.id} className="grid grid-cols-1 md:grid-cols-5 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm">
                             {/* Nome da Obra */}
-                            <div className="md:col-span-2 font-bold text-gray-800 text-base">{obra.nome}</div>
-                            {/* Progresso (Horas ou Km) */}
+                            <div className="md:col-span-2">
+                                <div className="font-bold text-gray-800 text-base">{obra.nome}</div>
+                                {obra.latitude && obra.longitude && (
+                                    <div className="flex items-center gap-1 text-xs text-blue-600 mt-1">
+                                        <MapPin size={10} />
+                                        <span>Localização definida</span>
+                                    </div>
+                                )}
+                            </div>
+                            {/* Progresso */}
                             {obra.contractType === 'horas' ? (
                                 <>
                                     <div className="text-gray-600"><strong>Contratadas:</strong> {totalContratadoHoras.toFixed(1) || 'N/A'} hrs</div>
@@ -256,37 +254,39 @@ const ObrasPage = ({
 
 // --- Modal de Criação/Edição de Obra (usa apiClient) ---
 const ObraModal = ({ user, obra, onClose, equipmentTypesForHours, apiClient, reloadData, setAlertMessage }) => {
-    // Estado inicial ajustado para datas YYYY-MM-DD
+    // Estado inicial
     const [nome, setNome] = useState(obra?.nome || '');
     const [dataInicio, setDataInicio] = useState(obra?.dataInicio ? new Date(obra.dataInicio).toISOString().split('T')[0] : '');
     const [dataFim, setDataFim] = useState(obra?.dataFim ? new Date(obra.dataFim).toISOString().split('T')[0] : '');
     const [contractType, setContractType] = useState(obra?.contractType || 'horas');
-    // Inicializa horas com base em equipmentTypesForHours
+    
+    // --- NOVOS CAMPOS DE LOCALIZAÇÃO ---
+    const [latitude, setLatitude] = useState(obra?.latitude || '');
+    const [longitude, setLongitude] = useState(obra?.longitude || '');
+
     const [horasPorTipo, setHorasPorTipo] = useState(() => {
         return (equipmentTypesForHours || []).reduce((acc, type) => {
-            acc[type] = obra?.horasContratadasPorTipo?.[type]?.toString() || ''; // Garante string
+            acc[type] = obra?.horasContratadasPorTipo?.[type]?.toString() || '';
             return acc;
         }, {});
     });
-    const [kmContratadoPrancha, setKmContratadoPrancha] = useState(obra?.kmContratadoPrancha?.toString() || ''); // Garante string
-    // Garante que sectors seja um array e inicializa kmConcluido
+    const [kmContratadoPrancha, setKmContratadoPrancha] = useState(obra?.kmContratadoPrancha?.toString() || '');
     const [sectors, setSectors] = useState((Array.isArray(obra?.sectors) ? obra.sectors : []).map(s => ({ ...s, kmConcluido: s.kmConcluido || 0 })) || [{ name: '', kmContratado: '', kmConcluido: 0 }]);
     const [isSaving, setIsSaving] = useState(false);
 
     const handleHourChange = (type, value) => setHorasPorTipo(prev => ({ ...prev, [type]: value }));
     const handleSectorChange = (index, field, value) => {
         const newSectors = [...sectors];
-        newSectors[index] = { ...newSectors[index], [field]: value }; // Atualiza campo específico
+        newSectors[index] = { ...newSectors[index], [field]: value };
         setSectors(newSectors);
     };
     const addSector = () => setSectors([...sectors, { name: '', kmContratado: '', kmConcluido: 0 }]);
     const removeSector = (index) => setSectors(sectors.filter((_, i) => i !== index));
 
-    // Cálculos de totais (sem mudanças)
     const totalHoras = useMemo(() => Object.values(horasPorTipo).reduce((sum, h) => sum + (parseFloat(h) || 0), 0), [horasPorTipo]);
     const totalKmContratadoSetores = useMemo(() => sectors.reduce((sum, s) => sum + (parseFloat(s.kmContratado) || 0), 0), [sectors]);
 
-    // Submissão (usa apiClient)
+    // Submissão
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!nome) {
@@ -295,18 +295,17 @@ const ObraModal = ({ user, obra, onClose, equipmentTypesForHours, apiClient, rel
         }
         setIsSaving(true);
 
-        // Prepara dados para API
         let dataToSave = {
             nome,
             contractType,
-            dataInicio: dataInicio || null, // Envia null se vazio
-            dataFim: dataFim || null,     // Envia null se vazio
-            // status é definido pelo backend baseado em dataFim ou passado explicitamente se necessário
-            // ultimaAlteracao é adicionado pelo backend
+            dataInicio: dataInicio || null,
+            dataFim: dataFim || null,
+            // --- INCLUINDO LATITUDE E LONGITUDE ---
+            latitude: latitude || null,
+            longitude: longitude || null,
         };
 
         if (contractType === 'horas') {
-            // Converte horas para número ou 0
             const numericHorasPorTipo = Object.entries(horasPorTipo).reduce((acc, [type, val]) => {
                 acc[type] = parseFloat(val) || 0;
                 return acc;
@@ -316,7 +315,6 @@ const ObraModal = ({ user, obra, onClose, equipmentTypesForHours, apiClient, rel
                 ...dataToSave,
                 horasContratadasPorTipo: numericHorasPorTipo,
                 kmContratadoPrancha: parseFloat(kmContratadoPrancha) || 0,
-                // Limpa campos do outro tipo
                 sectors: [],
             };
         } else if (contractType === 'metrosQuadrados') {
@@ -325,32 +323,24 @@ const ObraModal = ({ user, obra, onClose, equipmentTypesForHours, apiClient, rel
                 sectors: sectors.map(s => ({
                     name: s.name,
                     kmContratado: parseFloat(s.kmContratado) || 0,
-                    // Garante que kmConcluido seja enviado, mesmo que 0
                     kmConcluido: parseFloat(s.kmConcluido) || 0,
-                })).filter(s => s.name.trim() !== ''), // Filtra setores sem nome
-                 // Limpa campos do outro tipo
+                })).filter(s => s.name.trim() !== ''),
                 horasContratadasPorTipo: {},
                 kmContratadoPrancha: 0,
-                // Mantém valores existentes se estiver editando
                 kmConcluidoPrancha: obra?.kmConcluidoPrancha || 0,
                 horasAdicionaisCaminhao: obra?.horasAdicionaisCaminhao || 0,
             };
         }
 
         try {
-            if (obra) { // Editando
+            if (obra) {
                 await apiClient.updateObra(obra.id, dataToSave);
                 setAlertMessage('Obra atualizada com sucesso!');
-            } else { // Criando
-                // Adiciona campos que só existem na criação (backend inicializa)
-                // dataToSave.historicoVeiculos = []; // Backend inicializa
-                // dataToSave.horasAdicionaisCaminhao = 0; // Backend inicializa
-                // dataToSave.kmConcluidoPrancha = 0; // Backend inicializa
-                // dataToSave.status = 'ativa'; // Backend define
+            } else {
                 await apiClient.createObra(dataToSave);
                 setAlertMessage('Obra criada com sucesso!');
             }
-            reloadData(); // Recarrega os dados
+            reloadData();
             onClose();
         } catch (error) {
             console.error("Erro ao salvar obra:", error);
@@ -386,8 +376,41 @@ const ObraModal = ({ user, obra, onClose, equipmentTypesForHours, apiClient, rel
                                 <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full p-2 border rounded mt-1" />
                             </div>
                         </div>
+
+                        {/* --- SEÇÃO DE LOCALIZAÇÃO --- */}
+                        <div className="pt-4 border-t mt-4">
+                            <h3 className="text-base font-semibold mb-2 text-gray-800 flex items-center gap-2">
+                                <MapPin size={16} className="text-blue-600"/> Localização (GPS)
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-700">Latitude</label>
+                                    <input 
+                                        type="text" 
+                                        value={latitude} 
+                                        onChange={(e) => setLatitude(e.target.value)} 
+                                        placeholder="Ex: -29.6914" 
+                                        className="w-full p-2 border rounded mt-1 text-sm bg-blue-50/50" 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-700">Longitude</label>
+                                    <input 
+                                        type="text" 
+                                        value={longitude} 
+                                        onChange={(e) => setLongitude(e.target.value)} 
+                                        placeholder="Ex: -53.8008" 
+                                        className="w-full p-2 border rounded mt-1 text-sm bg-blue-50/50" 
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-gray-500 mt-1">
+                                Dica: Copie as coordenadas diretamente do Google Maps.
+                            </p>
+                        </div>
+
                         <div>
-                            <label className="block font-medium text-gray-700">Tipo de Contrato</label>
+                            <label className="block font-medium text-gray-700 mt-4">Tipo de Contrato</label>
                             <select name="contractType" value={contractType} onChange={(e) => setContractType(e.target.value)} className="w-full p-2 border rounded mt-1 bg-white">
                                 <option value="horas">Horas Trabalhadas</option>
                                 <option value="metrosQuadrados">Metros Quadrados</option>
@@ -541,14 +564,10 @@ const FinishObraModal = ({ obra, onClose, apiClient, reloadData, setAlertMessage
 };
 
 // --- Modal de Edição de Alocação Ativa (usa apiClient via onSave) ---
-// *** CORREÇÃO: Lê de h.dataEntrada, h.employeeId, etc. (nível superior) ***
 const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [], onClose, onSave, apiClient, setAlertMessage, reloadData, obraId }) => {
-    // Estado inicial ajustado para datas e prioridade de horímetro
     const [editedData, setEditedData] = useState({
-        // *** CORREÇÃO: usa dataEntrada (do obras_historico_veiculos) ***
         dataEntrada: assignment?.dataEntrada ? new Date(assignment.dataEntrada).toISOString().split('T')[0] : '',
-        employeeId: assignment?.employeeId || '', // Pega de details
-        // *** CORREÇÃO: Prioriza horimetro, depois odometro (ambos do nível superior) ***
+        employeeId: assignment?.employeeId || '',
         leituraEntrada: assignment?.horimetroEntrada ?? assignment?.odometroEntrada ?? '',
     });
     const [isSaving, setIsSaving] = useState(false);
@@ -568,20 +587,17 @@ const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [],
 
         setIsSaving(true);
         try {
-            // *** CORREÇÃO: Passa o 'assignment.id' (ID único do histórico) como identificador ***
-            await onSave(vehicle.id, assignment.id, editedData); // Chama a função de salvar passada pelo ObraDetailModal
-            // reloadData(); // reloadData é chamado dentro de onSave
-            onClose(); // Fecha este modal
+            await onSave(vehicle.id, assignment.id, editedData);
+            onClose();
         } catch (error) {
            // O erro já é tratado em onSave
-           // setAlertMessage(error.message || "Erro ao salvar edição."); // Pode adicionar aqui se onSave não tratar
         } finally {
             setIsSaving(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"> {/* z-index maior que o modal de detalhes */}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
                  {/* Cabeçalho */}
                  <div className="p-6 border-b flex justify-between items-center">
@@ -623,16 +639,11 @@ const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [],
 
 
 // --- Modal de Edição de Histórico Passado (usa apiClient via onSave) ---
-// *** CORREÇÃO: Lê de h.dataEntrada, h.horimetroEntrada, etc. (nível superior) ***
 const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], onClose, onSave, apiClient, setAlertMessage, reloadData, obraId }) => {
-    // Estado inicial ajustado para datas e leituras
     const [editedData, setEditedData] = useState({
-        // Adiciona T12:00:00 para evitar problemas de fuso horário no input date
-        // *** CORREÇÃO: usa dataEntrada, dataSaida (do obras_historico_veiculos) ***
         dataEntrada: assignment?.dataEntrada ? new Date(assignment.dataEntrada).toISOString().split('T')[0] : '',
         dataSaida: assignment?.dataSaida ? new Date(assignment.dataSaida).toISOString().split('T')[0] : '',
         employeeId: assignment?.employeeId || '',
-        // *** CORREÇÃO: usa horimetroEntrada, etc. (do obras_historico_veiculos) ***
         leituraEntrada: assignment?.horimetroEntrada ?? assignment?.odometroEntrada ?? '',
         leituraSaida: assignment?.horimetroSaida ?? assignment?.odometroSaida ?? '',
     });
@@ -662,21 +673,18 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
         }
 
         setIsSaving(true);
-        // *** CORREÇÃO: Passa o 'assignment.id' (ID único do histórico) como identificador ***
         try {
-            await onSave(vehicle.id, assignment.id, editedData); // Chama a função do ObraDetailModal
-            // reloadData(); // reloadData é chamado dentro de onSave
-            onClose(); // Fecha este modal
+            await onSave(vehicle.id, assignment.id, editedData);
+            onClose();
         } catch (error) {
             // O erro já é tratado em onSave
-            // setAlertMessage(error.message || "Erro ao salvar histórico."); // Pode adicionar se onSave não tratar
         } finally {
             setIsSaving(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"> {/* z-index maior */}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
                  {/* Cabeçalho */}
                  <div className="p-6 border-b flex justify-between items-center">
@@ -733,75 +741,62 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
 const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, equipmentTypesForHours = [], vehicleGroups = {}, employees = [], apiClient, reloadData }) => {
     const [isSaving, setIsSaving] = useState(false);
     // Estados locais para campos editáveis
-    const [additionalTruckHours, setAdditionalTruckHours] = useState(obra?.horasAdicionaisCaminhao?.toString() || ''); // Garante string
-    const [kmConcluidoPrancha, setKmConcluidoPrancha] = useState(obra?.kmConcluidoPrancha?.toString() || ''); // Garante string
-    // Estado para km concluído dos setores (chave é o nome do setor)
+    const [additionalTruckHours, setAdditionalTruckHours] = useState(obra?.horasAdicionaisCaminhao?.toString() || '');
+    const [kmConcluidoPrancha, setKmConcluidoPrancha] = useState(obra?.kmConcluidoPrancha?.toString() || '');
     const [editedSectorsKm, setEditedSectorsKm] = useState(() =>
-        (Array.isArray(obra.sectors) ? obra.sectors : []) // Garante array
-        .reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {}) // Garante string
+        (Array.isArray(obra.sectors) ? obra.sectors : [])
+        .reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})
     );
-    // Estado para leituras atuais editáveis (chave é o ID do veículo)
     const [updatingReadings, setUpdatingReadings] = useState({});
 
-    // Estados para modais de edição de alocação
     const [isEditAssignmentModalOpen, setIsEditAssignmentModalOpen] = useState(false);
-    const [assignmentToEdit, setAssignmentToEdit] = useState(null); // Guarda a entrada do histórico a editar
+    const [assignmentToEdit, setAssignmentToEdit] = useState(null);
     const [isEditPastAssignmentModalOpen, setIsEditPastAssignmentModalOpen] = useState(false);
-    const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null); // Guarda a entrada do histórico PASSADO
+    const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null);
 
-    // Separa veículos ativos/passados (sem mudanças)
-    // *** CORREÇÃO: usa dataSaida (nível superior) em vez de endDate ***
     const { activeVehicles, pastVehicles } = useMemo(() => {
-        const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []; // Garante array
-        const active = historico.filter(h => !h.dataSaida) // Usa dataSaida
+        const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [];
+        const active = historico.filter(h => !h.dataSaida)
             .map(h => ({ ...h, vehicleRegistroInterno: vehicles.find(v => v.id === h.veiculoId)?.registroInterno || 'N/A' }))
             .sort((a, b) => (a.vehicleRegistroInterno || '').localeCompare(b.vehicleRegistroInterno || ''));
-        const past = historico.filter(h => h.dataSaida) // Usa dataSaida
+        const past = historico.filter(h => h.dataSaida)
              .map(h => ({ ...h, vehicleRegistroInterno: vehicles.find(v => v.id === h.veiculoId)?.registroInterno || 'N/A' }))
-             .sort((a, b) => new Date(b.dataSaida) - new Date(a.dataSaida)); // Ordena por data de saída
+             .sort((a, b) => new Date(b.dataSaida) - new Date(a.dataSaida));
         return { activeVehicles: active, pastVehicles: past };
     }, [obra, vehicles]);
 
-    // Cálculo de progresso (usa estados locais para campos editáveis)
-    // *** CORREÇÃO: Lê de h.horimetroEntrada, h.dataSaida, etc. (nível superior) ***
      const progressData = useMemo(() => {
         const data = { contratado: {}, concluido: {}, totalContratado: 0, totalConcluido: 0, totalKmContratado: 0, totalKmConcluido: 0, totalHorasCaminhoes: 0, totalHorasMaquinas: 0 };
         const currentContractType = obra.contractType || 'horas';
-        const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []; // Garante array
+        const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [];
 
         if (currentContractType === 'horas') {
-             // Calcula contratado
              (equipmentTypesForHours || []).forEach(type => {
                 const contracted = parseFloat(obra.horasContratadasPorTipo?.[type] || 0);
                 data.contratado[type] = contracted;
                 data.totalContratado += contracted;
-                data.concluido[type] = 0; // Inicializa concluído
+                data.concluido[type] = 0;
             });
 
-             // Calcula concluído
             historico.forEach(h => {
                 const vehicle = vehicles.find(v => v.id === h.veiculoId);
                 if (!vehicle) return;
                 const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
                 if (vehicleGroup === 'Veículos Leves') return;
 
-                // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
                 let startReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
                 let endReading = parseFloat(h.horimetroSaida ?? h.odometroSaida ?? 0);
 
-                // Se não houver data de saída (dataSaida), usa a leitura atual do veículo
                 if (!h.dataSaida) {
-                     // Verifica se há leitura editada no estado local `updatingReadings`
                      const updatedReadingStr = updatingReadings[h.veiculoId];
                      if (updatedReadingStr !== undefined && updatedReadingStr !== '') {
                          endReading = parseFloat(updatedReadingStr) || 0;
-                     } else { // Senão, pega do veículo
+                     } else {
                          if (vehicleGroup === 'Máquinas Pesadas') {
                             endReading = parseFloat(vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital) || 0;
                          } else if (vehicleGroup === 'Caminhões') {
                             endReading = parseFloat(vehicle.horimetro) || 0;
                          }
-                         // Se for tipo 'odometro' (ex: leve ativo), pega do veículo (embora leves sejam ignorados aqui)
                          else if (h.odometroEntrada != null) {
                               endReading = parseFloat(vehicle.odometro) || 0;
                          }
@@ -810,7 +805,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
                 if (endReading >= startReading) {
                     const hours = endReading - startReading;
-                    // Encontra o tipo exato do equipamento para somar corretamente
                      const equipType = (equipmentTypesForHours || []).find(t => vehicle.tipo === t);
                      if (equipType) {
                         data.concluido[equipType] = (data.concluido[equipType] || 0) + hours;
@@ -818,72 +812,63 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 }
             });
 
-            // Usa o estado local para as horas adicionais
             const truckHours = parseFloat(additionalTruckHours || 0);
             if (data.concluido['Caminhão'] !== undefined) {
                  data.concluido['Caminhão'] += truckHours;
              } else {
-                 data.concluido['Caminhão'] = truckHours; // Inicializa se não houver caminhões no histórico
+                 data.concluido['Caminhão'] = truckHours;
              }
 
-            // Calcula totais
             data.totalHorasCaminhoes = data.concluido['Caminhão'] || 0;
             data.totalHorasMaquinas = Object.entries(data.concluido).reduce((sum, [type, hours]) => type !== 'Caminhão' ? sum + (hours || 0) : sum, 0);
             data.totalConcluido = data.totalHorasCaminhoes + data.totalHorasMaquinas;
 
         } else if (currentContractType === 'metrosQuadrados') {
-             // Garante que sectors é um array
              (Array.isArray(obra.sectors) ? obra.sectors : []).forEach(sector => {
                 const contracted = parseFloat(sector.kmContratado || 0);
-                 // Usa o estado local `editedSectorsKm` para km concluído
                 const concluded = parseFloat(editedSectorsKm[sector.name] ?? 0);
                 data.totalKmContratado += contracted;
                 data.totalKmConcluido += concluded;
             });
         }
         return data;
-    }, [obra, vehicles, equipmentTypesForHours, vehicleGroups, additionalTruckHours, kmConcluidoPrancha, editedSectorsKm, updatingReadings]); // Adiciona dependências de estado local
+    }, [obra, vehicles, equipmentTypesForHours, vehicleGroups, additionalTruckHours, kmConcluidoPrancha, editedSectorsKm, updatingReadings]);
 
-    // Handlers (sem mudanças)
+    // Handlers
     const handleReadingChange = (vehicleId, value) => setUpdatingReadings(prev => ({ ...prev, [vehicleId]: value }));
     const openEditAssignmentModal = (assignment) => { setAssignmentToEdit(assignment); setIsEditAssignmentModalOpen(true); };
     const openEditPastAssignmentModal = (assignment) => { setPastAssignmentToEdit(assignment); setIsEditPastAssignmentModalOpen(true); };
     const handleSectorKmChange = (sectorName, value) => setEditedSectorsKm(prev => ({ ...prev, [sectorName]: value }));
 
     // Função para salvar edição da alocação ATIVA (chama API)
-    // *** CORREÇÃO: Passa 'historyEntryId' (PK da tabela) em vez de vehicleId ***
     const handleSaveAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         setIsSaving(true);
         try {
-            // *** CORREÇÃO: Chama nova rota 'updateObraHistoryEntry' do apiClient ***
-            // Esta rota (PUT /api/obras/historico/:historyId) foi adicionada ao obraController/obraRoutes
             await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
             setAlertMessage("Alocação ativa atualizada com sucesso!");
-            reloadData(); // Recarrega todos os dados
-            setIsEditAssignmentModalOpen(false); // Fecha modal de edição
+            reloadData();
+            setIsEditAssignmentModalOpen(false);
         } catch (error) {
             console.error("Erro ao salvar alocação ativa:", error);
             setAlertMessage(error.message || "Falha ao atualizar alocação ativa.");
-            throw error; // Propaga erro para modal saber que falhou
+            throw error;
         } finally {
             setIsSaving(false);
         }
     };
 
     // Função para salvar edição do histórico PASSADO (chama API)
-    // *** CORREÇÃO: Passa 'historyEntryId' (PK da tabela) ***
     const handleSavePastAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         setIsSaving(true);
         try {
-            // *** CORREÇÃO: Chama nova rota 'updateObraHistoryEntry' do apiClient ***
-            await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData); // Rota hipotética
+            await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
             setAlertMessage("Histórico atualizado com sucesso!");
-            reloadData(); // Recarrega todos os dados
-            setIsEditPastAssignmentModalOpen(false); // Fecha modal de edição
+            reloadData();
+            setIsEditPastAssignmentModalOpen(false);
         } catch (error) {
             console.error("Erro ao salvar histórico:", error);
             setAlertMessage(error.message || "Falha ao atualizar histórico.");
-            throw error; // Propaga erro
+            throw error;
         } finally {
             setIsSaving(false);
         }
@@ -893,10 +878,9 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     // Função para salvar alterações gerais da obra (usa apiClient)
     const handleSaveChanges = async () => {
         setIsSaving(true);
-        let obraUpdatePayload = {}; // Payload para a rota de updateObra
-        let vehicleUpdates = []; // Array de payloads para updateVehicle
+        let obraUpdatePayload = {};
+        let vehicleUpdates = [];
 
-        // Verifica alterações nos campos editáveis da obra
         const newTruckHours = parseFloat(additionalTruckHours) || 0;
         if (newTruckHours !== (obra.horasAdicionaisCaminhao || 0)) {
             obraUpdatePayload.horasAdicionaisCaminhao = newTruckHours;
@@ -909,12 +893,10 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
         if (obra.contractType === 'metrosQuadrados') {
             let sectorsChanged = false;
-            // Garante que sectors é um array
             const currentSectors = Array.isArray(obra.sectors) ? obra.sectors : [];
             const updatedSectors = currentSectors.map(sector => {
-                 // Usa ?? para fallback seguro e parseFloat
                 const currentKm = parseFloat(sector.kmConcluido || 0);
-                const newKm = parseFloat(editedSectorsKm[sector.name] ?? currentKm); // Usa estado ou valor atual
+                const newKm = parseFloat(editedSectorsKm[sector.name] ?? currentKm);
 
                 if (newKm !== currentKm) {
                     sectorsChanged = true;
@@ -927,7 +909,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             }
         }
 
-        // Verifica alterações nas leituras dos veículos ativos
         Object.entries(updatingReadings).forEach(([vehicleId, newReadingStr]) => {
              if (newReadingStr !== undefined && newReadingStr !== '') {
                  const newReading = parseFloat(newReadingStr);
@@ -935,24 +916,22 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                  if (vehicle && !isNaN(newReading)) {
                      const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
                      const updateData = {};
-                     // Define qual campo de leitura atualizar no veículo
                      if (vehicleGroup === 'Máquinas Pesadas') {
                          if (vehicle.possuiHorimetroAnalogico && newReading !== (parseFloat(vehicle.horimetroAnalogico) || 0)) updateData.horimetroAnalogico = newReading;
                          else if (!vehicle.possuiHorimetroAnalogico && newReading !== (parseFloat(vehicle.horimetroDigital) || 0)) updateData.horimetroDigital = newReading;
                      } else if (vehicleGroup === 'Caminhões' && newReading !== (parseFloat(vehicle.horimetro) || 0)) {
-                         updateData.horimetro = newReading; // Atualiza horímetro do caminhão
+                         updateData.horimetro = newReading;
                      } else if (vehicleGroup === 'Veículos Leves' && newReading !== (parseFloat(vehicle.odometro) || 0)) {
-                          updateData.odometro = newReading; // Atualiza odômetro do leve
+                          updateData.odometro = newReading;
                      }
 
                      if (Object.keys(updateData).length > 0) {
-                         vehicleUpdates.push({ id: vehicleId, data: updateData }); // Estrutura { id, data }
+                         vehicleUpdates.push({ id: vehicleId, data: updateData });
                      }
                  }
              }
         });
 
-        // Verifica se há algo para salvar
         if (Object.keys(obraUpdatePayload).length === 0 && vehicleUpdates.length === 0) {
              setAlertMessage("Nenhuma alteração para salvar.");
              setIsSaving(false);
@@ -960,7 +939,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
         }
 
         try {
-            // Executa as atualizações via API
             const promises = [];
             if (Object.keys(obraUpdatePayload).length > 0) {
                 promises.push(apiClient.updateObra(obra.id, obraUpdatePayload));
@@ -972,9 +950,8 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             await Promise.all(promises);
 
             setAlertMessage("Alterações salvas com sucesso!");
-            setUpdatingReadings({}); // Limpa leituras pendentes após salvar
-            reloadData(); // Recarrega os dados
-            // Manter modal aberto para ver o resultado? Ou fechar? onClose();
+            setUpdatingReadings({});
+            reloadData();
         } catch (error) {
             console.error("Erro ao salvar alterações:", error);
             setAlertMessage(error.message || "Ocorreu um erro ao salvar as alterações.");
@@ -1003,7 +980,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     <div className="bg-gray-50 p-4 rounded-lg border">
                         <h3 className="text-base font-semibold mb-3 text-gray-800">Progresso</h3>
                         <div className="space-y-3">
-                            {/* Lógica de exibição de progresso */}
                              {(obra.contractType || 'horas') === 'horas' && (
                                 <>
                                     <div className="flex justify-between mb-1 text-xs font-medium">
@@ -1011,7 +987,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                         <span>{progressData.totalConcluido.toFixed(1)} / {progressData.totalContratado.toFixed(1)} hrs</span>
                                     </div>
                                     <ProgressBar value={progressData.totalConcluido} max={progressData.totalContratado} />
-                                    {/* Progresso da Prancha */}
                                     {obra.kmContratadoPrancha > 0 && (
                                         <div className="mt-2">
                                             <div className="flex justify-between mb-1 text-[11px] font-medium text-gray-600">
@@ -1021,7 +996,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                             <ProgressBar value={parseFloat(kmConcluidoPrancha) || 0} max={obra.kmContratadoPrancha || 0} color="bg-blue-400" />
                                         </div>
                                     )}
-                                    {/* Detalhes por Equipamento */}
                                     <div className="space-y-1 pt-3 mt-3 border-t">
                                         <h4 className="text-xs font-semibold text-gray-700">Detalhes por Equipamento:</h4>
                                          {(equipmentTypesForHours || []).map(type => {
@@ -1050,7 +1024,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                         <span>{progressData.totalKmConcluido.toFixed(1)} / {progressData.totalKmContratado.toFixed(1)} Km</span>
                                     </div>
                                     <ProgressBar value={progressData.totalKmConcluido} max={progressData.totalKmContratado} color="bg-green-400" />
-                                     {/* Progresso da Prancha */}
                                      {obra.kmContratadoPrancha > 0 && (
                                         <div className="mt-2">
                                             <div className="flex justify-between mb-1 text-[11px] font-medium text-gray-600">
@@ -1060,7 +1033,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                             <ProgressBar value={parseFloat(kmConcluidoPrancha) || 0} max={obra.kmContratadoPrancha || 0} color="bg-blue-400" />
                                         </div>
                                     )}
-                                    {/* Progresso por Setor */}
                                     <div className="space-y-1 pt-3 mt-3 border-t">
                                         <h4 className="text-xs font-semibold text-gray-700">Progresso por Setor (Km):</h4>
                                         {(Array.isArray(obra.sectors) ? obra.sectors : []).length > 0 ? (Array.isArray(obra.sectors) ? obra.sectors : []).map(sector => {
@@ -1115,7 +1087,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     </ProtectedComponent>
 
                     {/* Veículos Ativos */}
-                    {/* *** CORREÇÃO: Lê de h.dataEntrada, h.horimetroEntrada, h.employeeName (nível superior) *** */}
                     <div>
                         <h3 className="text-base font-semibold mb-2 text-gray-800">Veículos Ativos na Obra</h3>
                          <div className="space-y-2">
@@ -1130,14 +1101,13 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                     currentReading = parseFloat(vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital) || 0;
                                     readingLabel = 'Horímetro';
                                 } else if (vehicleGroup === 'Caminhões') {
-                                    currentReading = parseFloat(vehicle.horimetro) || 0; // Prioriza horímetro
+                                    currentReading = parseFloat(vehicle.horimetro) || 0;
                                     readingLabel = 'Horímetro';
-                                } else { // Leves ou outros
+                                } else { 
                                     currentReading = parseFloat(vehicle.odometro) || 0;
                                     readingLabel = 'Odômetro';
                                 }
 
-                                // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
                                 const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
                                 const readingInState = updatingReadings[h.veiculoId];
                                 const readingToCalculate = (readingInState !== undefined && readingInState !== '') ? (parseFloat(readingInState) || 0) : currentReading;
@@ -1147,27 +1117,21 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                 return (
                                     <div key={h.veiculoId} className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs">
                                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-x-4 gap-y-1 items-center">
-                                            {/* Veículo */}
                                             <div className="font-semibold sm:col-span-1">
                                                 <p>{vehicle.registroInterno} - {vehicle.modelo}</p>
                                                 <p className="text-[11px] text-gray-600 font-normal">{vehicle.tipo}</p>
                                             </div>
-                                            {/* Alocação */}
                                             <div className="sm:col-span-1">
-                                                {/* *** CORREÇÃO: Usa h.dataEntrada *** */}
                                                 <p><strong>Início:</strong> {h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
                                                 <p><strong>Leitura Inicial:</strong> {initialReading.toFixed(1) || 'N/A'}</p>
-                                                {/* *** CORREÇÃO: Usa h.employeeName *** */}
                                                 <p><strong>Operador:</strong> {h.employeeName || 'N/A'}</p>
                                             </div>
-                                            {/* Leitura Atual (Editável) */}
                                              <ProtectedComponent requiredPermission="editor">
                                                 <div className="flex items-center gap-1 sm:col-span-1">
                                                     <label className="text-[11px] font-medium text-gray-700 shrink-0">{readingLabel} Atual:</label>
                                                     <input type="number" step="0.1" placeholder={`${currentReading.toFixed(1)}`} value={updatingReadings[h.veiculoId] ?? ''} onChange={(e) => handleReadingChange(h.veiculoId, e.target.value)} className="flex-1 p-1 border rounded text-xs w-20"/>
                                                 </div>
                                              </ProtectedComponent>
-                                             {/* Horas Parciais e Ações */}
                                             <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:col-span-1">
                                                 <div className="text-right font-semibold text-blue-700 text-sm whitespace-nowrap">
                                                     Parcial: {partialReading.toFixed(1)} {readingUnit}
@@ -1181,7 +1145,6 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                 )
                             }) : <p className="text-xs text-gray-500 italic">Nenhum veículo ativo nesta obra.</p>}
                          </div>
-                        {/* Botão Salvar Alterações */}
                         <ProtectedComponent requiredPermission="editor">
                              {(Object.keys(updatingReadings).length > 0 || additionalTruckHours !== (obra.horasAdicionaisCaminhao?.toString() || '') || kmConcluidoPrancha !== (obra.kmConcluidoPrancha?.toString() || '') || (obra.contractType === 'metrosQuadrados' && (Array.isArray(obra.sectors) ? obra.sectors : []).some(s => editedSectorsKm[s.name] !== (s.kmConcluido?.toString() || '')))) && (
                                 <button onClick={handleSaveChanges} disabled={isSaving} className="mt-4 w-full px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-green-400 flex items-center justify-center gap-2 text-sm">
@@ -1192,30 +1155,24 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     </div>
 
                     {/* Histórico */}
-                    {/* *** CORREÇÃO: Lê de h.dataEntrada, h.horimetroEntrada, h.employeeName (nível superior) *** */}
                     <div>
                         <h3 className="text-base font-semibold mb-2 text-gray-800">Histórico de Veículos na Obra</h3>
                         <div className="space-y-1 max-h-60 overflow-y-auto pr-1 custom-scrollbar border rounded-md p-2 bg-gray-50">
                             {pastVehicles.length > 0 ? pastVehicles.map(h => {
                                 const vehicle = vehicles.find(v => v.id === h.veiculoId);
                                 const isHourBased = vehicleGroups['Máquinas Pesadas']?.includes(vehicle?.tipo) || vehicleGroups['Caminhões']?.includes(vehicle?.tipo);
-                                // *** CORREÇÃO: Lê dos campos de nível superior (ex: h.horimetroEntrada) ***
                                 const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
                                 const finalReading = parseFloat(h.horimetroSaida ?? h.odometroSaida ?? 0);
                                 const totalReading = (finalReading >= initialReading) ? (finalReading - initialReading) : 0;
                                 const readingLabel = isHourBased ? 'Horas' : 'Km';
                                 return (
-                                    // *** CORREÇÃO: Usa h.id (PK da tabela) como chave ***
                                     <div key={h.id} className="p-2 bg-white rounded border text-xs">
                                         <div className="grid grid-cols-1 sm:grid-cols-5 gap-x-2 gap-y-0.5 items-center">
                                             <div className="font-semibold sm:col-span-1">{h.registroInterno} <span className="text-gray-500 font-normal">({vehicle?.modelo})</span></div>
-                                            {/* *** CORREÇÃO: Usa h.dataEntrada *** */}
                                             <div className="sm:col-span-1">Início: {h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
-                                            {/* *** CORREÇÃO: Usa h.dataSaida *** */}
                                             <div className="sm:col-span-1">Fim: {h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
                                             <div className="sm:col-span-1">Total: <span className="font-bold">{totalReading.toFixed(1)} {readingLabel}</span> <span className="text-gray-500">({initialReading.toFixed(1)} - {finalReading.toFixed(1)})</span></div>
                                             <div className="flex justify-end items-center sm:col-span-1 gap-1">
-                                                 {/* *** CORREÇÃO: Usa h.employeeName *** */}
                                                  <span className="text-gray-600 truncate" title={h.employeeName || 'Sem operador'}>Op: {h.employeeName || 'N/A'}</span>
                                                 <ProtectedComponent requiredPermission="editor">
                                                     <button onClick={() => openEditPastAssignmentModal(h)} className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full" title="Editar Histórico"><Edit size={12} /></button>
@@ -1243,7 +1200,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     vehicle={vehicles.find(v => v.id === assignmentToEdit.veiculoId)}
                     employees={employees}
                     onClose={() => setIsEditAssignmentModalOpen(false)}
-                    onSave={handleSaveAssignmentEdit} // Passa a função de salvar
+                    onSave={handleSaveAssignmentEdit}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
                     reloadData={reloadData}
@@ -1256,7 +1213,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     vehicle={vehicles.find(v => v.id === pastAssignmentToEdit.veiculoId)}
                     employees={employees}
                     onClose={() => setIsEditPastAssignmentModalOpen(false)}
-                    onSave={handleSavePastAssignmentEdit} // Passa a função de salvar
+                    onSave={handleSavePastAssignmentEdit}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
                     reloadData={reloadData}
