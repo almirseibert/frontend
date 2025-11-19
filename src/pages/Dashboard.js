@@ -939,7 +939,7 @@ const Dashboard = ({
                     {/* Coluna Direita (1/3) */}
                     <div className="space-y-6">
                         {/* Quadro de Avisos (Expandido) */}
-                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[800px] flex flex-col">
+                        <section className="bg-white rounded-xl shadow-sm border border-gray-200 h-[950px] flex flex-col">
                             <div className="p-4 border-b border-gray-100 bg-indigo-50/50 rounded-t-xl">
                                 <h2 className="text-md font-bold text-gray-800 flex items-center gap-2">
                                     <Bell size={18} className="text-indigo-600" />
