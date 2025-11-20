@@ -29,33 +29,71 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
-    // --- VERIFICAÇÃO DE RESTRIÇÕES ---
+    // --- VERIFICAÇÃO DE RESTRIÇÕES (REFINADA) ---
     const checkRestrictions = () => {
         const issues = [];
         const now = new Date();
-        const thirtyDays = new Date(); thirtyDays.setDate(now.getDate() + 30);
+        now.setHours(0, 0, 0, 0);
+        
+        const thirtyDaysFromNow = new Date(now);
+        thirtyDaysFromNow.setDate(now.getDate() + 30);
 
-        if (vehicle.canCirculate === false) issues.push("• O veículo está marcado como 'NÃO PODE CIRCULAR'.");
-
-        const revision = revisions?.find(r => r.vehicleId === vehicle.id);
-        if (revision) {
-            const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-            const mainReading = getVehicleMainReading(vehicle); 
-            const current = mainReading.raw || 0;
-            const proximoOdo = revision.proximaRevisaoOdometro || 0;
-            const aviso = revision.avisoAntecedenciaKmHr || 0;
-            
-            if (proximaData && now >= proximaData) issues.push("• Revisão VENCIDA por data.");
-            if (proximoOdo > 0 && current >= proximoOdo) issues.push("• Revisão VENCIDA por leitura.");
-            else if (proximoOdo > 0 && aviso > 0 && current >= (proximoOdo - aviso)) issues.push("• Revisão PRÓXIMA do vencimento.");
+        // 1. Bloqueio direto
+        if (vehicle.canCirculate === false) {
+            issues.push("• O veículo está marcado como 'NÃO PODE CIRCULAR'.");
         }
 
-        if (['Caminhão', 'Caminhões'].some(t => vehicle.tipo?.includes(t))) {
+        // 2. Revisões
+        const revision = revisions?.find(r => r.vehicleId === vehicle.id);
+        if (revision) {
+            // Datas
+            const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
+            const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
+
+            if (proximaData) {
+                proximaData.setHours(0, 0, 0, 0);
+                
+                if (now >= proximaData) {
+                    issues.push(`• Revisão VENCIDA por data (${proximaData.toLocaleDateString('pt-BR')}).`);
+                } 
+                else if (avisoDias > 0) {
+                    const dataAviso = new Date(proximaData);
+                    dataAviso.setDate(dataAviso.getDate() - avisoDias);
+                    if (now >= dataAviso) {
+                        issues.push(`• Revisão PRÓXIMA do vencimento por data (${proximaData.toLocaleDateString('pt-BR')}).`);
+                    }
+                }
+            }
+
+            // Leituras
+            const mainReading = getVehicleMainReading(vehicle); 
+            const current = mainReading.raw || 0;
+            const proximoOdo = parseFloat(revision.proximaRevisaoOdometro || 0);
+            const aviso = parseFloat(revision.avisoAntecedenciaKmHr || 0);
+            
+            if (proximoOdo > 0) {
+                if (current >= proximoOdo) {
+                    issues.push(`• Revisão VENCIDA por leitura (Atual: ${current}).`);
+                } 
+                else if (aviso > 0 && current >= (proximoOdo - aviso)) {
+                    issues.push(`• Revisão PRÓXIMA do vencimento por leitura (Faltam ${proximoOdo - current}).`);
+                }
+            }
+        }
+
+        // 3. Documentos
+        if (vehicle.tipo && (vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Caminhões'))) {
              [{ n: 'Tacógrafo', d: vehicle.validadeTacografo }, { n: 'AET DAER', d: vehicle.validadeAET_DAER }, { n: 'AET DNIT', d: vehicle.validadeAET_DNIT }].forEach(doc => {
                 if (doc.d) {
-                    const d = new Date(doc.d);
-                    if (d < now) issues.push(`• ${doc.n} VENCIDO.`);
-                    else if (d <= thirtyDays) issues.push(`• ${doc.n} próximo do vencimento.`);
+                    const docDate = new Date(doc.d);
+                    docDate.setHours(0, 0, 0, 0);
+                    docDate.setHours(12); // Margem UTC
+
+                    if (docDate < now) {
+                        issues.push(`• ${doc.n} VENCIDO (${docDate.toLocaleDateString('pt-BR')}).`);
+                    } else if (docDate <= thirtyDaysFromNow) {
+                        issues.push(`• ${doc.n} próximo do vencimento (${docDate.toLocaleDateString('pt-BR')}).`);
+                    }
                 }
             });
         }
@@ -67,11 +105,14 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
             setAlertMessage("Selecione o subgrupo e o funcionário.");
             return;
         }
+        
+        // Verifica restrições
         const issues = checkRestrictions();
         if (issues.length > 0) {
             setRestrictionAlert(issues);
-            return;
+            return; // PARE AQUI
         }
+
         executeAssign();
     };
 
@@ -116,7 +157,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
 
                     {/* ALERTA DE RESTRIÇÃO */}
                     {restrictionAlert && !currentAssignment && (
-                        <div className="p-4 bg-red-50 border-b border-red-100">
+                        <div className="p-4 bg-red-50 border-b border-red-100 animate-fade-in">
                             <div className="flex items-start gap-3">
                                 <AlertTriangle className="text-red-600 shrink-0 mt-1" />
                                 <div>
@@ -124,6 +165,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                                     <div className="text-red-600 text-sm mt-1 space-y-1">
                                         {restrictionAlert.map((issue, idx) => <p key={idx}>{issue}</p>)}
                                     </div>
+                                    <p className="text-xs text-red-500 mt-3 font-semibold">Autorização com senha necessária.</p>
                                     <button 
                                         type="button"
                                         onClick={() => setShowPasswordConfirm(true)}

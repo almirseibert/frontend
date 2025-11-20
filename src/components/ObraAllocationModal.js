@@ -19,7 +19,7 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
     const [restrictionAlert, setRestrictionAlert] = useState(null);
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
-    // --- LÓGICA DE LEITURA (NOVAS REGRAS O/H) ---
+    // --- LÓGICA DE LEITURA ---
     const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
     const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
     
@@ -50,13 +50,17 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
     const [isFinishObraModalOpen, setIsFinishObraModalOpen] = useState(false);
     const [obraToFinalize, setObraToFinalize] = useState(null);
 
-    // --- LÓGICA DE VERIFICAÇÃO DE RESTRIÇÕES ---
+    // --- LÓGICA DE VERIFICAÇÃO DE RESTRIÇÕES (REFINADA) ---
     const checkRestrictions = () => {
         const issues = [];
         const now = new Date();
-        const thirtyDays = new Date(); thirtyDays.setDate(now.getDate() + 30);
+        now.setHours(0, 0, 0, 0); // Normaliza hoje
+        
+        const thirtyDaysFromNow = new Date(now);
+        thirtyDaysFromNow.setDate(now.getDate() + 30);
 
-        // 1. Bloqueio direto
+        // 1. Bloqueio direto (Checkbox "Não Pode Circular")
+        // Verifica explicitamente se é false (assumindo que true é o padrão seguro)
         if (vehicle.canCirculate === false) {
             issues.push("• O veículo está marcado como 'NÃO PODE CIRCULAR'.");
         }
@@ -64,32 +68,82 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
         // 2. Revisões
         const revision = revisions?.find(r => r.vehicleId === vehicle.id);
         if (revision) {
+            // --- Datas ---
             const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-            const proximoOdo = revision.proximaRevisaoOdometro || 0;
-            const mainReading = getVehicleMainReading(vehicle); 
-            const current = mainReading.raw || parseFloat(readingValue || 0);
-            const aviso = revision.avisoAntecedenciaKmHr || 0;
+            const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
+
+            if (proximaData) {
+                // Normaliza data da revisão
+                proximaData.setHours(0, 0, 0, 0); 
+                
+                // Vencida
+                if (now >= proximaData) {
+                    issues.push(`• Revisão VENCIDA por data (${proximaData.toLocaleDateString('pt-BR')}).`);
+                } 
+                // Próxima (Aviso de dias)
+                else if (avisoDias > 0) {
+                    const dataAviso = new Date(proximaData);
+                    dataAviso.setDate(dataAviso.getDate() - avisoDias);
+                    if (now >= dataAviso) {
+                        issues.push(`• Revisão PRÓXIMA do vencimento por data (${proximaData.toLocaleDateString('pt-BR')}).`);
+                    }
+                }
+            }
+
+            // --- Leituras (Km/Hr) ---
+            const proximoOdo = parseFloat(revision.proximaRevisaoOdometro || 0);
+            const avisoKmHr = parseFloat(revision.avisoAntecedenciaKmHr || 0);
             
-            if (proximaData && now >= proximaData) issues.push("• Revisão VENCIDA por data.");
-            if (proximoOdo > 0 && current >= proximoOdo) issues.push("• Revisão VENCIDA por leitura.");
-            else if (proximoOdo > 0 && aviso > 0 && current >= (proximoOdo - aviso)) issues.push("• Revisão PRÓXIMA do vencimento.");
+            // Usa o valor que o usuário digitou no input (se válido) ou a leitura atual do veículo
+            const inputReading = parseFloat(readingValue);
+            const currentReading = !isNaN(inputReading) && inputReading > 0 
+                ? inputReading 
+                : (getVehicleMainReading(vehicle).raw || 0);
+
+            if (proximoOdo > 0) {
+                // Vencida
+                if (currentReading >= proximoOdo) {
+                    issues.push(`• Revisão VENCIDA por leitura (Atual: ${currentReading} / Meta: ${proximoOdo}).`);
+                }
+                // Próxima
+                else if (avisoKmHr > 0 && currentReading >= (proximoOdo - avisoKmHr)) {
+                    issues.push(`• Revisão PRÓXIMA do vencimento por leitura (Faltam ${proximoOdo - currentReading}).`);
+                }
+            }
         }
 
         // 3. Documentos (Caminhões)
-        if (['Caminhão', 'Caminhões'].some(t => vehicle.tipo?.includes(t))) {
-            [{ n: 'Tacógrafo', d: vehicle.validadeTacografo }, { n: 'AET DAER', d: vehicle.validadeAET_DAER }, { n: 'AET DNIT', d: vehicle.validadeAET_DNIT }].forEach(doc => {
-                if (doc.d) {
-                    const d = new Date(doc.d);
-                    if (d < now) issues.push(`• ${doc.n} VENCIDO.`);
-                    else if (d <= thirtyDays) issues.push(`• ${doc.n} próximo do vencimento.`);
+        // Verifica se o tipo contem "Caminh" para pegar Caminhão e Caminhões
+        if (vehicle.tipo && (vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Caminhões'))) {
+            const docs = [
+                { name: 'Tacógrafo', date: vehicle.validadeTacografo },
+                { name: 'AET DAER', date: vehicle.validadeAET_DAER },
+                { name: 'AET DNIT', date: vehicle.validadeAET_DNIT }
+            ];
+
+            docs.forEach(doc => {
+                if (doc.date) {
+                    const docDate = new Date(doc.date);
+                    docDate.setHours(0, 0, 0, 0); // Normaliza
+                    // Ajuste de fuso horário simples: adiciona meio dia para evitar problemas de UTC-3 virando dia anterior
+                    docDate.setHours(12); 
+
+                    if (docDate < now) {
+                        issues.push(`• ${doc.name} VENCIDO (${docDate.toLocaleDateString('pt-BR')}).`);
+                    } else if (docDate <= thirtyDaysFromNow) {
+                        issues.push(`• ${doc.name} próximo do vencimento (${docDate.toLocaleDateString('pt-BR')}).`);
+                    }
                 }
             });
         }
+
         return issues;
     };
 
-    const handleAllocateClick = () => {
+    const handleAllocateClick = (e) => {
+        e.preventDefault(); // Previne reload se estiver num form
         const readingFloat = parseFloat(readingValue);
+        
         if (!obraId || !employeeId || readingValue === '' || isNaN(readingFloat)) {
             setAlertMessage(`Preencha a Obra, Funcionário e ${readingLabel} de Entrada.`);
             return;
@@ -99,9 +153,10 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
         const issues = checkRestrictions();
         if (issues.length > 0) {
             setRestrictionAlert(issues);
-            return; // PARE AQUI
+            return; // PARE AQUI e mostre o alerta
         }
 
+        // Se não houver restrições, segue normal
         executeAllocate();
     };
 
@@ -188,7 +243,7 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
 
                      {/* ALERTA DE RESTRIÇÃO (Se houver) */}
                      {restrictionAlert && !currentObraAllocation && (
-                        <div className="p-4 bg-red-50 border-b border-red-100">
+                        <div className="p-4 bg-red-50 border-b border-red-100 animate-fade-in">
                             <div className="flex items-start gap-3">
                                 <AlertTriangle className="text-red-600 shrink-0 mt-1" />
                                 <div>
@@ -198,6 +253,9 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
                                             <p key={idx}>{issue}</p>
                                         ))}
                                     </div>
+                                    <p className="text-xs text-red-500 mt-3 font-semibold">
+                                        É necessário autorização via senha para prosseguir.
+                                    </p>
                                     <button 
                                         type="button"
                                         onClick={() => setShowPasswordConfirm(true)}
