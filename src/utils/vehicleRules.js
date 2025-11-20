@@ -25,14 +25,14 @@ export const getAllowedReadingTypes = (vehicleType) => {
 };
 
 /**
- * Retorna a leitura principal (Valor, Unidade e Label)
+ * Retorna a leitura principal (Valor, Unidade e Label) de forma robusta.
  */
 export const getVehicleMainReading = (vehicle) => {
     if (!vehicle) return { value: 0, unit: '', label: 'N/A', raw: 0 };
 
     const tipo = vehicle.tipo || '';
-    // Verifica variação de plural/singular
-    const isCaminhaoDeTrecho = vehicleGroups['Caminhões de Trecho'].includes(tipo);
+    // Verifica variação de plural/singular para Caminhões Prancha (Exceção Km)
+    const isCaminhaoDeTrecho = vehicleGroups['Caminhões de Trecho'].includes(tipo) || tipo === 'Caminhões Prancha' || tipo === 'Caminhão Prancha';
     
     if (isCaminhaoDeTrecho) {
         return { value: vehicle.odometro, unit: 'Km', label: 'Odômetro', raw: parseFloat(vehicle.odometro || 0) };
@@ -40,7 +40,9 @@ export const getVehicleMainReading = (vehicle) => {
 
     const groupName = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(tipo));
 
+    // MÁQUINAS E CAMINHÕES (PADRÃO) -> HORAS
     if (groupName === 'Máquinas Pesadas') {
+        // Prioriza digital, depois analógico, depois o campo genérico
         const val = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro;
         return { value: val, unit: 'Hr', label: 'Horímetro', raw: parseFloat(val || 0) };
     }
@@ -49,13 +51,13 @@ export const getVehicleMainReading = (vehicle) => {
         return { value: vehicle.horimetro, unit: 'Hr', label: 'Horímetro', raw: parseFloat(vehicle.horimetro || 0) };
     }
 
+    // VEÍCULOS LEVES / PADRÃO -> KM
     return { value: vehicle.odometro, unit: 'Km', label: 'Odômetro', raw: parseFloat(vehicle.odometro || 0) };
 };
 
 /**
- * FUNÇÃO CENTRAL DE VALIDAÇÃO DE RESTRIÇÕES
- * Retorna uma lista de problemas encontrados (vencimentos, avisos, bloqueios).
- * Usada tanto na listagem (cores) quanto nos modais (senha).
+ * FUNÇÃO CENTRAL DE VALIDAÇÃO DE RESTRIÇÕES (Atualizada e Robusta)
+ * Verifica bloqueios manuais, revisões (Data/Km/Hr) e documentos.
  */
 export const checkVehicleRestrictions = (vehicle, revisions = []) => {
     const issues = [];
@@ -66,41 +68,64 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
     thirtyDaysFromNow.setDate(now.getDate() + 30);
 
     // 1. Bloqueio Manual (Checkbox "Não Pode Circular")
-    if (vehicle.canCirculate === false) {
-        issues.push({ type: 'bloqueio', message: "Veículo marcado como 'NÃO PODE CIRCULAR'." });
+    // Robustez: Verifica 0 (number), false (boolean) e '0' (string)
+    const isBlocked = vehicle.canCirculate === false || vehicle.canCirculate === 0 || vehicle.canCirculate === '0';
+    if (isBlocked) {
+        issues.push({ type: 'bloqueio', message: "BLOQUEIO MANUAL: Veículo marcado como 'NÃO PODE CIRCULAR'." });
     }
 
     // 2. Revisões
+    // Encontra a revisão ativa para o veículo
     const revision = revisions.find(r => r.vehicleId === vehicle.id);
+    
     if (revision) {
         // --- Validação por DATA ---
         if (revision.proximaRevisaoData) {
             const revDate = new Date(revision.proximaRevisaoData);
             revDate.setHours(0, 0, 0, 0);
+            // Ajuste de timezone simples se necessário, mas mantendo raw date
             
             const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
             const dataAviso = new Date(revDate);
             dataAviso.setDate(dataAviso.getDate() - avisoDias);
 
             if (now >= revDate) {
-                issues.push({ type: 'vencido', message: `Revisão VENCIDA por data (${revDate.toLocaleDateString('pt-BR')}).` });
+                issues.push({ type: 'vencido', message: `REVISÃO VENCIDA: Data limite era ${revDate.toLocaleDateString('pt-BR')}.` });
             } else if (avisoDias > 0 && now >= dataAviso) {
-                issues.push({ type: 'aviso', message: `Revisão PRÓXIMA do vencimento por data (${revDate.toLocaleDateString('pt-BR')}).` });
+                issues.push({ type: 'aviso', message: `Revisão PRÓXIMA: Vence em ${revDate.toLocaleDateString('pt-BR')}.` });
             }
         }
 
         // --- Validação por LEITURA (Km/Hr) ---
-        const proximoOdo = parseFloat(revision.proximaRevisaoOdometro || 0);
-        const avisoKmHr = parseFloat(revision.avisoAntecedenciaKmHr || 0);
-        
-        // Obtém a leitura correta (Km ou Hr) usando a regra central
-        const currentReading = getVehicleMainReading(vehicle).raw;
+        const readingInfo = getVehicleMainReading(vehicle);
+        const unit = readingInfo.unit; // 'Km' ou 'Hr'
+        const currentReading = readingInfo.raw;
 
-        if (proximoOdo > 0) {
-            if (currentReading >= proximoOdo) {
-                issues.push({ type: 'vencido', message: `Revisão VENCIDA por leitura (Atual: ${currentReading} / Meta: ${proximoOdo}).` });
-            } else if (avisoKmHr > 0 && currentReading >= (proximoOdo - avisoKmHr)) {
-                issues.push({ type: 'aviso', message: `Revisão PRÓXIMA do vencimento (Faltam ${proximoOdo - currentReading}).` });
+        // Lógica inteligente para buscar o valor alvo correto
+        let proximaLeitura = 0;
+        
+        if (unit === 'Hr') {
+            // Se é máquina/caminhão, tenta pegar o valor de Horas primeiro
+            proximaLeitura = parseFloat(revision.proximaRevisaoHorimetro || 0);
+            
+            // Fallback: Se proximaRevisaoHorimetro for 0 ou nulo, verifica se o usuário salvou em Odometro por engano
+            // (Comum em sistemas migrados onde 'odometro' era campo genérico)
+            if (proximaLeitura === 0 && revision.proximaRevisaoOdometro > 0) {
+                proximaLeitura = parseFloat(revision.proximaRevisaoOdometro);
+            }
+        } else {
+            // Veículos leves e Prancha
+            proximaLeitura = parseFloat(revision.proximaRevisaoOdometro || 0);
+        }
+
+        const avisoAntecedencia = parseFloat(revision.avisoAntecedenciaKmHr || 0);
+        
+        if (proximaLeitura > 0) {
+            if (currentReading >= proximaLeitura) {
+                issues.push({ type: 'vencido', message: `REVISÃO VENCIDA: Atual ${currentReading} ${unit} (Meta: ${proximaLeitura} ${unit}).` });
+            } else if (avisoAntecedencia > 0 && currentReading >= (proximaLeitura - avisoAntecedencia)) {
+                const faltam = (proximaLeitura - currentReading).toFixed(1);
+                issues.push({ type: 'aviso', message: `Revisão PRÓXIMA: Faltam ${faltam} ${unit}.` });
             }
         }
     }
@@ -120,14 +145,14 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
             if (doc.date) {
                 const d = new Date(doc.date);
                 d.setHours(0, 0, 0, 0);
-                // Adiciona 12h para evitar bugs de fuso horário
+                // Adiciona 12h para evitar bugs de fuso horário na conversão
                 const compareDate = new Date(d); 
                 compareDate.setHours(12);
 
                 if (now > compareDate) {
-                    issues.push({ type: 'vencido', message: `Documento ${doc.name} VENCIDO.` });
+                    issues.push({ type: 'vencido', message: `DOCUMENTO VENCIDO: ${doc.name}.` });
                 } else if (compareDate <= thirtyDaysFromNow) {
-                    issues.push({ type: 'aviso', message: `Documento ${doc.name} próximo do vencimento.` });
+                    issues.push({ type: 'aviso', message: `Documento ${doc.name} vence em breve.` });
                 }
             }
         });

@@ -13,7 +13,7 @@ import OperationalAssignmentModal from '../components/OperationalAssignmentModal
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
 
-// IMPORTA AS FUNÇÕES CENTRALIZADAS
+// IMPORTA AS FUNÇÕES CENTRALIZADAS ATUALIZADAS
 import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
 
 const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], navigate, setAlertMessage, initialFilter, PasswordConfirmationModal, ConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
@@ -103,7 +103,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         setSortConfig({ key, direction });
     };
 
-    // --- LÓGICA VISUAL CENTRALIZADA ---
+    // --- LÓGICA VISUAL CENTRALIZADA (Agora usa o checkVehicleRestrictions atualizado) ---
     const getRowAlerts = (vehicle) => {
         const issues = checkVehicleRestrictions(vehicle, revisions);
         
@@ -116,14 +116,14 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         if (hasCritical) {
             return {
                 className: 'bg-red-50 border-l-4 border-red-500',
-                icon: <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-red-600 border-2 border-white rounded-full text-white tooltip" data-tip={msg}><AlertTriangle size={12} /></span>
+                icon: <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-red-600 border-2 border-white rounded-full text-white tooltip z-10" data-tip={msg}><AlertTriangle size={12} /></span>
             };
         }
 
         // Apenas Avisos
         return {
             className: 'bg-yellow-50 border-l-4 border-yellow-400',
-            icon: <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-yellow-500 border-2 border-white rounded-full text-white tooltip" data-tip={msg}><Info size={12} /></span>
+            icon: <span className="absolute -top-1.5 -left-1.5 p-0.5 bg-yellow-500 border-2 border-white rounded-full text-white tooltip z-10" data-tip={msg}><Info size={12} /></span>
         };
     };
 
@@ -194,15 +194,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     const handleFileUpload = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                // ... lógica de CSV mantida ...
-                setAlertMessage("Upload de CSV não implementado na prévia.");
-            };
-            reader.readAsText(file);
-        }
+        setAlertMessage("Funcionalidade de upload de CSV em manutenção.");
     };
 
     const exportToCSV = () => {
@@ -288,7 +280,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                         : 'https://placehold.co/80x60/e2e8f0/cbd5e0?text=S/Foto';
 
                     return (
-                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${getVehicleRowClass(vehicle)}`}>
+                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm relative ${getVehicleRowClass(vehicle)}`}>
                             
                             <div className="md:col-span-4 flex items-center gap-3">
                                 <div className="relative shrink-0">
@@ -298,7 +290,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                      {/* Ícone de alerta de Revisão/Doc/Bloqueio */}
                                      {alertIcon}
                                      
-                                     {hasPendingFine && <span className="absolute -bottom-1.5 -right-1.5 p-0.5 bg-orange-500 border-2 border-white rounded-full text-white tooltip" data-tip="Multa pendente"><ShieldAlert size={12} /></span>}
+                                     {hasPendingFine && <span className="absolute -bottom-1.5 -right-1.5 p-0.5 bg-orange-500 border-2 border-white rounded-full text-white tooltip z-10" data-tip="Multa pendente"><ShieldAlert size={12} /></span>}
                                 </div>
                                 <div className="overflow-hidden">
                                     <p className="font-bold text-gray-900 truncate" title={`${vehicle.marca} ${vehicle.modelo}`}>{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>

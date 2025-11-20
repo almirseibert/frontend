@@ -25,7 +25,8 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         validadeTacografo: vehicle?.validadeTacografo ? new Date(vehicle.validadeTacografo).toISOString().split('T')[0] : '',
         validadeAET_DAER: vehicle?.validadeAET_DAER ? new Date(vehicle.validadeAET_DAER).toISOString().split('T')[0] : '',
         validadeAET_DNIT: vehicle?.validadeAET_DNIT ? new Date(vehicle.validadeAET_DNIT).toISOString().split('T')[0] : '',
-        canCirculate: vehicle?.canCirculate !== undefined ? vehicle.canCirculate : true,
+        // Garante que canCirculate nunca seja null/undefined
+        canCirculate: (vehicle?.canCirculate === false || vehicle?.canCirculate === 0) ? false : true,
     });
     
     const [fotoFile, setFotoFile] = useState(null);
@@ -36,6 +37,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         const { name, value, type, checked } = e.target;
         
         // LÓGICA INVERTIDA: Checkbox "Não Pode Circular"
+        // Se estiver marcado (checked=true), canCirculate vira FALSE
         if (name === 'naoPodeCircular') {
             setFormData(prev => ({ ...prev, canCirculate: !checked }));
             return;
@@ -59,7 +61,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                     const groups = vehicleGroups || {};
                     const newGroup = Object.keys(groups).find(group => groups[group]?.includes(value));
                     if (newGroup === 'Caminhões') {
-                         newState.mediaCalculo = 'horimetro'; // Padrão para caminhões agora é Hr? Se for, ajuste aqui.
+                         newState.mediaCalculo = 'horimetro'; 
                     }
                 }
             }
@@ -176,13 +178,10 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         ? URL.createObjectURL(fotoFile)
         : (vehicle?.fotoURL ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${apiBaseUrl}${vehicle.fotoURL}`) : 'https://placehold.co/100x75/e2e8f0/cbd5e0?text=S/Foto');
 
-    // Determina se deve mostrar Odômetro
-    // REGRA: Caminhões NÃO mostram Odômetro, EXCETO se for "Caminhões Prancha"
     const showOdometro = useMemo(() => {
         if (currentGroup === 'Caminhões') {
             return formData.tipo === 'Caminhões Prancha' || formData.tipo === 'Caminhão Prancha';
         }
-        // Para outros grupos (Leves), mostra. Máquinas Pesadas já tem lógica própria abaixo.
         if (currentGroup === 'Máquinas Pesadas') return false;
         return true; 
     }, [currentGroup, formData.tipo]);
@@ -230,7 +229,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
                          {/* --- Coluna 2: Leituras e Detalhes --- */}
                         <div className="space-y-4">
-                            {/* Máquinas Pesadas */}
                             {currentGroup === 'Máquinas Pesadas' && (
                                 <>
                                     <div>
@@ -250,23 +248,18 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                 </>
                             )}
 
-                            {/* Caminhões (Standard e Trecho) */}
                             {currentGroup === 'Caminhões' && (
                                 <>
-                                    {/* Só mostra Odômetro se for Prancha */}
                                     {showOdometro && (
                                         <div>
                                             <label className="block font-medium text-gray-700 mb-1">Odômetro (Km)</label>
                                             <input name="odometro" value={formData.odometro} onChange={handleChange} type="number" step="any" className="p-2 border rounded w-full" />
                                         </div>
                                     )}
-                                     
-                                     {/* Sempre mostra Horímetro para Caminhões */}
                                      <div>
                                         <label className="block font-medium text-gray-700 mb-1">Horímetro (Hrs)</label>
                                         <input name="horimetro" value={formData.horimetro} onChange={handleChange} type="number" step="0.1" className="p-2 border rounded w-full" />
                                     </div>
-
                                      <div>
                                         <label className="block font-medium text-gray-700 mb-1">Calcular Média Por</label>
                                         <select 
@@ -279,17 +272,10 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                             <option value="odometro">Odômetro (Km/L)</option>
                                             <option value="horimetro">Horímetro (L/Hr)</option>
                                         </select>
-                                        {formData.tipo === 'Caminhões Prancha' && (
-                                            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
-                                                <p className="text-xs font-semibold text-blue-700">Exceção: Caminhão de Trecho</p>
-                                                <p className="text-xs text-blue-600">Usa estritamente Odômetro (Km).</p>
-                                            </div>
-                                        )}
                                     </div>
                                 </>
                             )}
 
-                            {/* Veículos Leves / Outros */}
                             {(currentGroup === 'Veículos Leves' || !currentGroup) && ( 
                                 <div>
                                     <label className="block font-medium text-gray-700 mb-1">Odômetro (Km)</label>

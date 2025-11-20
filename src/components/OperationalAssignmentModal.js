@@ -2,8 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Shield } from 'lucide-react';
 import { checkVehicleRestrictions } from '../utils/vehicleRules';
 
-// --- Modal de Alocação Operacional ---
 const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [], PasswordConfirmationModal }) => {
+    
     // Tenta obter dados da alocação atual
     let currentAssignment = null;
     if (vehicle.operationalAssignment) {
@@ -33,9 +33,14 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
 
     // --- VERIFICAÇÃO DE RESTRIÇÕES ---
     const validateRestrictions = () => {
+        setRestrictionAlert(null);
         const issues = checkVehicleRestrictions(vehicle, revisions);
-        if (issues.length > 0) {
-            setRestrictionAlert(issues.map(i => `• ${i.message}`));
+        
+        const blockingIssues = issues.filter(i => i.type === 'bloqueio' || i.type === 'vencido');
+        const warningIssues = issues.filter(i => i.type === 'aviso');
+
+        if (blockingIssues.length > 0 || warningIssues.length > 0) {
+            setRestrictionAlert(issues.map(i => i.message));
             return false;
         }
         return true;
@@ -47,9 +52,8 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
             return;
         }
         
-        // Valida antes de prosseguir
         if (!validateRestrictions()) {
-            return; // Bloqueia e mostra alerta
+            return;
         }
 
         executeAssign();
@@ -92,29 +96,31 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
     return (
         <>
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
                     <div className="p-6 border-b flex justify-between items-center bg-blue-50">
                         <h2 className="text-xl font-bold text-blue-800">Alocação Operacional</h2>
                          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                     </div>
 
                     {/* --- ALERTA DE RESTRIÇÃO --- */}
-                    {restrictionAlert && !currentAssignment && (
-                        <div className="p-4 bg-red-50 border-b border-red-100 animate-fade-in">
+                    {restrictionAlert && restrictionAlert.length > 0 && !currentAssignment && (
+                        <div className="bg-red-50 p-4 border-b border-red-100 animate-pulse-once">
                             <div className="flex items-start gap-3">
-                                <AlertTriangle className="text-red-600 shrink-0 mt-1" />
-                                <div>
-                                    <h3 className="font-bold text-red-700 text-sm uppercase">Restrições Detectadas</h3>
-                                    <div className="text-red-600 text-sm mt-1 space-y-1">
-                                        {restrictionAlert.map((issue, idx) => <p key={idx}>{issue}</p>)}
+                                <AlertTriangle className="text-red-600 shrink-0 mt-1" size={24} />
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">Restrições Detectadas</h3>
+                                    <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+                                        {restrictionAlert.map((msg, idx) => <li key={idx}>{msg}</li>)}
+                                    </ul>
+                                    <div className="mt-3 bg-white bg-opacity-50 p-2 rounded text-xs text-red-800 font-semibold border border-red-100">
+                                        Autorização de supervisor necessária.
                                     </div>
-                                    <p className="text-xs text-red-500 mt-2 font-semibold">Autorização necessária.</p>
                                     <button 
                                         type="button"
                                         onClick={() => setShowPasswordConfirm(true)}
-                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 shadow-sm flex items-center justify-center gap-2 transition-all"
                                     >
-                                        <Shield size={16} /> Autorizar com Senha
+                                        <Shield size={16} /> AUTORIZAR COM SENHA
                                     </button>
                                 </div>
                             </div>
@@ -122,12 +128,11 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                     )}
 
                     <div className="p-6 space-y-4">
-                        <div className="text-sm text-gray-600 mb-2">
+                        <div className="text-sm text-gray-600 mb-2 bg-gray-100 p-2 rounded">
                             <strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}
                         </div>
 
                         {currentAssignment ? (
-                             // --- MODO DESALOCAR ---
                             <div className="space-y-4">
                                 <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
                                     <p>Alocado no grupo: <strong>{currentAssignment.subGroup || 'N/A'}</strong></p>
@@ -149,7 +154,6 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                                 </button>
                             </div>
                         ) : (
-                             // --- MODO ALOCAR ---
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Alocar no Grupo *</label>
@@ -178,7 +182,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                                 <button 
                                     onClick={handleAssignClick} 
                                     disabled={isSaving || !subGroup || !employeeId || restrictionAlert !== null} 
-                                    className="w-full px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                                    className="w-full px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm transition-colors"
                                 >
                                     {isSaving ? <Loader className="animate-spin" size={18}/> : "Alocar Veículo"}
                                 </button>
@@ -188,10 +192,9 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                 </div>
             </div>
 
-            {/* Modal de Senha */}
             {showPasswordConfirm && PasswordConfirmationModal && (
                 <PasswordConfirmationModal
-                    message="Veículo com restrições (revisão, documentos ou bloqueio). Digite sua senha para liberar a alocação."
+                    message="ATENÇÃO: Existem impedimentos (Bloqueio ou Vencimentos). Confirme com sua senha para forçar a alocação."
                     onConfirm={async () => {
                         await executeAssign();
                         setShowPasswordConfirm(false);
