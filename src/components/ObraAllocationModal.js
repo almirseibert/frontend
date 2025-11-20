@@ -1,10 +1,23 @@
 import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Shield } from 'lucide-react';
 import FinishObraModal from './FinishObraModal';
-import { getVehicleMainReading } from '../utils/vehicleRules';
+import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
 
-// --- Modal de Alocação em Obra ---
-const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisions = [], onClose, setAlertMessage, apiClient, reloadData, vehicles = [], vehicleGroups = {}, PasswordConfirmationModal }) => {
+const ObraAllocationModal = ({ 
+    user, 
+    vehicle, 
+    obras = [], 
+    employees = [], 
+    revisions = [], 
+    onClose, 
+    setAlertMessage, 
+    apiClient, 
+    reloadData, 
+    vehicles = [], 
+    vehicleGroups = {}, 
+    PasswordConfirmationModal 
+}) => {
+    // Verifica se o veículo já está em obra
     const currentObraAllocation = (Array.isArray(vehicle.history) ? vehicle.history : [])
                                     .find(h => (h.type === 'obra' || h.historyType === 'obra') && !h.endDate && !h.dataSaida);
 
@@ -15,28 +28,20 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
     const [locationAfterDeallocate, setLocationAfterDeallocate] = useState('Pátio MAK Lajeado');
     const [isSaving, setIsSaving] = useState(false);
 
-    // --- ESTADOS DE SEGURANÇA ---
+    // Estados de Segurança
     const [restrictionAlert, setRestrictionAlert] = useState(null);
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
-    // --- LÓGICA DE LEITURA ---
-    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-    const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
-    
-    let readingType;
-    if (vehicleGroup === 'Caminhões de Trecho' || (vehicleGroup === 'Caminhões' && vehicle.tipo === 'Caminhões Prancha')) {
-        readingType = 'odometro';
-    } else if (vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') {
-        readingType = 'horimetro';
-    } else {
-        readingType = 'odometro';
-    }
-
+    // --- LÓGICA DE LEITURA CENTRALIZADA ---
+    // Usa a regra central para definir se pede Km ou Hr
+    const allowedTypes = getAllowedReadingTypes(vehicle.tipo); 
+    const readingType = allowedTypes.includes('horimetro') ? 'horimetro' : 'odometro';
     const readingLabel = readingType === 'horimetro' ? 'Horímetro' : 'Odômetro';
     
+    // Define leitura inicial (da alocação atual ou do veículo)
     const initialReading = currentObraAllocation
                             ? (currentObraAllocation.details?.[`${readingType}Entrada`] || '') 
-                            : (vehicle[readingType] || '');
+                            : (getVehicleMainReading(vehicle).value || '');
 
     const [readingValue, setReadingValue] = useState(initialReading.toString());
 
@@ -50,113 +55,34 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
     const [isFinishObraModalOpen, setIsFinishObraModalOpen] = useState(false);
     const [obraToFinalize, setObraToFinalize] = useState(null);
 
-    // --- LÓGICA DE VERIFICAÇÃO DE RESTRIÇÕES (REFINADA) ---
-    const checkRestrictions = () => {
-        const issues = [];
-        const now = new Date();
-        now.setHours(0, 0, 0, 0); // Normaliza hoje
+    // --- VERIFICAÇÃO DE RESTRIÇÕES (USANDO UTILITÁRIO CENTRAL) ---
+    const validateRestrictions = () => {
+        // Chama a função central que verifica datas, km, checkbox e documentos
+        const issues = checkVehicleRestrictions(vehicle, revisions);
         
-        const thirtyDaysFromNow = new Date(now);
-        thirtyDaysFromNow.setDate(now.getDate() + 30);
-
-        // 1. Bloqueio direto (Checkbox "Não Pode Circular")
-        // Verifica explicitamente se é false (assumindo que true é o padrão seguro)
-        if (vehicle.canCirculate === false) {
-            issues.push("• O veículo está marcado como 'NÃO PODE CIRCULAR'.");
+        if (issues.length > 0) {
+            // Formata as mensagens para exibir no alerta
+            setRestrictionAlert(issues.map(i => `• ${i.message}`));
+            return false; // Bloqueia
         }
-
-        // 2. Revisões
-        const revision = revisions?.find(r => r.vehicleId === vehicle.id);
-        if (revision) {
-            // --- Datas ---
-            const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-            const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
-
-            if (proximaData) {
-                // Normaliza data da revisão
-                proximaData.setHours(0, 0, 0, 0); 
-                
-                // Vencida
-                if (now >= proximaData) {
-                    issues.push(`• Revisão VENCIDA por data (${proximaData.toLocaleDateString('pt-BR')}).`);
-                } 
-                // Próxima (Aviso de dias)
-                else if (avisoDias > 0) {
-                    const dataAviso = new Date(proximaData);
-                    dataAviso.setDate(dataAviso.getDate() - avisoDias);
-                    if (now >= dataAviso) {
-                        issues.push(`• Revisão PRÓXIMA do vencimento por data (${proximaData.toLocaleDateString('pt-BR')}).`);
-                    }
-                }
-            }
-
-            // --- Leituras (Km/Hr) ---
-            const proximoOdo = parseFloat(revision.proximaRevisaoOdometro || 0);
-            const avisoKmHr = parseFloat(revision.avisoAntecedenciaKmHr || 0);
-            
-            // Usa o valor que o usuário digitou no input (se válido) ou a leitura atual do veículo
-            const inputReading = parseFloat(readingValue);
-            const currentReading = !isNaN(inputReading) && inputReading > 0 
-                ? inputReading 
-                : (getVehicleMainReading(vehicle).raw || 0);
-
-            if (proximoOdo > 0) {
-                // Vencida
-                if (currentReading >= proximoOdo) {
-                    issues.push(`• Revisão VENCIDA por leitura (Atual: ${currentReading} / Meta: ${proximoOdo}).`);
-                }
-                // Próxima
-                else if (avisoKmHr > 0 && currentReading >= (proximoOdo - avisoKmHr)) {
-                    issues.push(`• Revisão PRÓXIMA do vencimento por leitura (Faltam ${proximoOdo - currentReading}).`);
-                }
-            }
-        }
-
-        // 3. Documentos (Caminhões)
-        // Verifica se o tipo contem "Caminh" para pegar Caminhão e Caminhões
-        if (vehicle.tipo && (vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Caminhões'))) {
-            const docs = [
-                { name: 'Tacógrafo', date: vehicle.validadeTacografo },
-                { name: 'AET DAER', date: vehicle.validadeAET_DAER },
-                { name: 'AET DNIT', date: vehicle.validadeAET_DNIT }
-            ];
-
-            docs.forEach(doc => {
-                if (doc.date) {
-                    const docDate = new Date(doc.date);
-                    docDate.setHours(0, 0, 0, 0); // Normaliza
-                    // Ajuste de fuso horário simples: adiciona meio dia para evitar problemas de UTC-3 virando dia anterior
-                    docDate.setHours(12); 
-
-                    if (docDate < now) {
-                        issues.push(`• ${doc.name} VENCIDO (${docDate.toLocaleDateString('pt-BR')}).`);
-                    } else if (docDate <= thirtyDaysFromNow) {
-                        issues.push(`• ${doc.name} próximo do vencimento (${docDate.toLocaleDateString('pt-BR')}).`);
-                    }
-                }
-            });
-        }
-
-        return issues;
+        return true; // Permite
     };
 
     const handleAllocateClick = (e) => {
-        e.preventDefault(); // Previne reload se estiver num form
+        e.preventDefault();
         const readingFloat = parseFloat(readingValue);
-        
+
         if (!obraId || !employeeId || readingValue === '' || isNaN(readingFloat)) {
             setAlertMessage(`Preencha a Obra, Funcionário e ${readingLabel} de Entrada.`);
             return;
         }
 
-        // Verifica restrições antes de prosseguir
-        const issues = checkRestrictions();
-        if (issues.length > 0) {
-            setRestrictionAlert(issues);
-            return; // PARE AQUI e mostre o alerta
+        // Executa validação antes de prosseguir
+        const isValid = validateRestrictions();
+        if (!isValid) {
+            return; // Se inválido, o estado restrictionAlert foi setado e o UI vai mudar
         }
 
-        // Se não houver restrições, segue normal
         executeAllocate();
     };
 
@@ -174,8 +100,8 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
             reloadData();
             onClose();
         } catch (error) {
-            console.error("Erro ao alocar veículo:", error);
-            setAlertMessage(error.response?.data?.message || "Falha ao alocar o veículo.");
+            console.error(error);
+            setAlertMessage("Erro ao alocar veículo: " + error.message);
         } finally {
             setIsSaving(false);
         }
@@ -187,6 +113,8 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
              setAlertMessage(`Preencha o ${readingLabel} de Saída.`);
              return;
          }
+         
+         // Validação básica de leitura de saída >= entrada
          const entryReading = currentObraAllocation?.details?.[`${readingType}Entrada`] || 0;
          if (currentObraAllocation && readingFloat < entryReading) {
              setAlertMessage(`A leitura de saída (${readingFloat}) não pode ser menor que a leitura de entrada (${entryReading}).`);
@@ -221,10 +149,13 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
             handleDeallocate();
             return;
         }
-         const historico = Array.isArray(obraData.historicoVeiculos) ? obraData.historicoVeiculos : [];
+        
+        const historico = Array.isArray(obraData.historicoVeiculos) ? obraData.historicoVeiculos : [];
+        // Verifica se há outros veículos ativos nesta obra
         const otherActiveVehicles = historico.filter(h => h.veiculoId !== vehicle.id && !h.dataSaida);
 
         if (otherActiveVehicles.length === 0) { 
+            // Se for o último veículo, sugere finalizar a obra
             setObraToFinalize(obraData);
             setIsFinishObraModalOpen(true); 
         } else {
@@ -237,12 +168,12 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
                     <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-                        <h2 className="text-xl font-bold">Alocação de Veículo em Obra</h2>
+                        <h2 className="text-xl font-bold text-gray-800">Alocação de Veículo em Obra</h2>
                         <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                     </div>
 
-                     {/* ALERTA DE RESTRIÇÃO (Se houver) */}
-                     {restrictionAlert && !currentObraAllocation && (
+                    {/* --- ALERTA DE RESTRIÇÃO E BLOQUEIO --- */}
+                    {restrictionAlert && !currentObraAllocation && (
                         <div className="p-4 bg-red-50 border-b border-red-100 animate-fade-in">
                             <div className="flex items-start gap-3">
                                 <AlertTriangle className="text-red-600 shrink-0 mt-1" />
@@ -253,13 +184,13 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
                                             <p key={idx}>{issue}</p>
                                         ))}
                                     </div>
-                                    <p className="text-xs text-red-500 mt-3 font-semibold">
+                                    <p className="text-xs text-red-500 mt-2 font-semibold">
                                         É necessário autorização via senha para prosseguir.
                                     </p>
                                     <button 
                                         type="button"
                                         onClick={() => setShowPasswordConfirm(true)}
-                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 flex items-center justify-center gap-2"
+                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <Shield size={16} /> Autorizar com Senha
                                     </button>
@@ -268,36 +199,41 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
                         </div>
                     )}
 
-                    <div className="p-6">
-                         <p className="text-sm mb-4"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo} ({vehicle.placa})</p>
-                        {/* DESALOCAR */}
+                    <div className="p-6 space-y-4">
+                        <div className="text-sm text-gray-600 mb-2">
+                            <strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo} ({vehicle.placa})
+                        </div>
+
+                        {/* --- MODO DESALOCAR --- */}
                         {currentObraAllocation ? (
                             <div className="space-y-4">
-                                <p className="text-sm">Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>.</p>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700">Data de Saída *</label>
-                                    <input type="date" value={dataSaida} onChange={e => setDataSaida(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm" required/>
+                                <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
+                                    Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">{readingLabel} de Saída *</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Data de Saída *</label>
+                                    <input type="date" value={dataSaida} onChange={e => setDataSaida(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" required/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Saída *</label>
                                     <input
                                         type="number"
                                         step="any"
                                         value={readingValue}
                                         onChange={e => setReadingValue(e.target.value)}
-                                        placeholder={currentObraAllocation.details?.[`${readingType}Entrada`] ? `Leitura de entrada: ${currentObraAllocation.details[`${readingType}Entrada`]}` : ''}
-                                        className="mt-1 w-full p-2 border rounded-md text-sm"
+                                        placeholder={currentObraAllocation.details?.[`${readingType}Entrada`] ? `Entrada: ${currentObraAllocation.details[`${readingType}Entrada`]}` : ''}
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
                                         required
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Local de Disponibilidade após Saída *</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Local de Disponibilidade após Saída *</label>
                                      <input
                                          type="text"
                                          value={locationAfterDeallocate}
                                          onChange={e => setLocationAfterDeallocate(e.target.value)}
                                          placeholder="Ex: Pátio MAK Lajeado"
-                                         className="mt-1 w-full p-2 border rounded-md text-sm"
+                                         className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
                                          required
                                      />
                                 </div>
@@ -306,79 +242,83 @@ const ObraAllocationModal = ({ user, vehicle, obras = [], employees = [], revisi
                                 </button>
                             </div>
                         ) : (
-                             // ALOCAR
+                             // --- MODO ALOCAR ---
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Alocar na Obra *</label>
-                                    <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Obra Destino *</label>
+                                    <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 text-sm" required>
                                         <option value="">Selecione...</option>
                                         {activeObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Alocar Funcionário *</label>
-                                    <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Funcionário Responsável *</label>
+                                    <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 text-sm" required>
                                         <option value="">Selecione...</option>
                                         {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} ({e.funcao})</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Data de Entrada *</label>
-                                    <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm" required/>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Data de Entrada *</label>
+                                    <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm" required/>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">{readingLabel} de Entrada *</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Entrada *</label>
                                     <input
                                         type="number"
                                         step="any"
                                         value={readingValue} 
                                         onChange={e => setReadingValue(e.target.value)}
-                                        className="mt-1 w-full p-2 border rounded-md text-sm"
+                                        placeholder="Leitura atual"
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm"
                                         required
                                     />
                                 </div>
                                 <button 
                                     onClick={handleAllocateClick} 
+                                    // Desabilita botão se houver restrição ativa que não foi autorizada
                                     disabled={isSaving || !obraId || !employeeId || readingValue === '' || restrictionAlert !== null} 
-                                    className="w-full px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-gray-300 flex items-center justify-center gap-2 text-sm"
+                                    className="w-full px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                                 >
                                     {isSaving ? <><Loader className="animate-spin" size={18}/> Alocando...</> : "Alocar Veículo"}
                                 </button>
                             </div>
                         )}
                     </div>
-                     
-                     <div className="p-4 bg-gray-50 border-t flex justify-end">
-                        <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Fechar</button>
+                    
+                    {/* Rodapé Padrão */}
+                    <div className="p-4 bg-gray-50 border-t flex justify-end">
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-300" disabled={isSaving}>Fechar</button>
                     </div>
                 </div>
-
-                {isFinishObraModalOpen && (
-                    <FinishObraModal
-                        obra={obraToFinalize}
-                        onClose={() => {
-                            setIsFinishObraModalOpen(false);
-                            handleDeallocate(false);
-                        }}
-                        onConfirm={(dataFim) => {
-                            setIsFinishObraModalOpen(false);
-                            handleDeallocate(true, dataFim);
-                        }}
-                    />
-                )}
-
-                {/* MODAL DE SENHA */}
-                {showPasswordConfirm && PasswordConfirmationModal && (
-                    <PasswordConfirmationModal
-                        message="Este veículo possui restrições (documentos, revisão ou bloqueio de circulação). Digite sua senha para autorizar a alocação excepcional."
-                        onConfirm={async () => {
-                            await executeAllocate();
-                            setShowPasswordConfirm(false);
-                        }}
-                        onClose={() => setShowPasswordConfirm(false)}
-                    />
-                )}
             </div>
+
+            {/* Modal de Confirmação para Finalizar Obra */}
+            {isFinishObraModalOpen && (
+                <FinishObraModal
+                    obra={obraToFinalize}
+                    onClose={() => {
+                        setIsFinishObraModalOpen(false);
+                        handleDeallocate(false); // Apenas desaloca se o usuário cancelar a finalização da obra
+                    }}
+                    onConfirm={(dataFim) => {
+                        setIsFinishObraModalOpen(false);
+                        handleDeallocate(true, dataFim); // Desaloca E finaliza obra
+                    }}
+                />
+            )}
+
+            {/* Modal de Senha para Autorização Excepcional */}
+            {showPasswordConfirm && PasswordConfirmationModal && (
+                <PasswordConfirmationModal
+                    message="Este veículo possui restrições (documentos vencidos, revisão pendente ou bloqueio de circulação). Digite sua senha para autorizar a alocação."
+                    onConfirm={async () => {
+                        await executeAllocate(); // Executa a ação bloqueada
+                        setShowPasswordConfirm(false);
+                    }}
+                    onClose={() => setShowPasswordConfirm(false)}
+                />
+            )}
         </>
     );
 };

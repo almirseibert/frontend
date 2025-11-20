@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Shield } from 'lucide-react';
-import { getVehicleMainReading } from '../utils/vehicleRules';
+import { checkVehicleRestrictions } from '../utils/vehicleRules';
 
 // --- Modal de Alocação Operacional ---
 const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [], PasswordConfirmationModal }) => {
+    // Tenta obter dados da alocação atual
     let currentAssignment = null;
     if (vehicle.operationalAssignment) {
         if (typeof vehicle.operationalAssignment === 'string') {
-            try { currentAssignment = JSON.parse(vehicle.operationalAssignment); } catch { }
+            try { currentAssignment = JSON.parse(vehicle.operationalAssignment); } catch { /* ignora erro */ }
         } else {
             currentAssignment = vehicle.operationalAssignment;
         }
@@ -19,85 +20,25 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
     const [isSaving, setIsSaving] = useState(false);
     const [locationAfterUnassign, setLocationAfterUnassign] = useState('Pátio MAK Lajeado');
 
-    // --- ESTADOS DE SEGURANÇA ---
+    // Estados de Segurança
     const [restrictionAlert, setRestrictionAlert] = useState(null);
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
+    // Filtra funcionários disponíveis
     const availableEmployees = useMemo(() =>
         (employees || [])
-            .filter(e => e.status !== 'inativo')
+            .filter(e => e.status !== 'inativo') 
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
-    // --- VERIFICAÇÃO DE RESTRIÇÕES (REFINADA) ---
-    const checkRestrictions = () => {
-        const issues = [];
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        
-        const thirtyDaysFromNow = new Date(now);
-        thirtyDaysFromNow.setDate(now.getDate() + 30);
-
-        // 1. Bloqueio direto
-        if (vehicle.canCirculate === false) {
-            issues.push("• O veículo está marcado como 'NÃO PODE CIRCULAR'.");
+    // --- VERIFICAÇÃO DE RESTRIÇÕES ---
+    const validateRestrictions = () => {
+        const issues = checkVehicleRestrictions(vehicle, revisions);
+        if (issues.length > 0) {
+            setRestrictionAlert(issues.map(i => `• ${i.message}`));
+            return false;
         }
-
-        // 2. Revisões
-        const revision = revisions?.find(r => r.vehicleId === vehicle.id);
-        if (revision) {
-            // Datas
-            const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-            const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
-
-            if (proximaData) {
-                proximaData.setHours(0, 0, 0, 0);
-                
-                if (now >= proximaData) {
-                    issues.push(`• Revisão VENCIDA por data (${proximaData.toLocaleDateString('pt-BR')}).`);
-                } 
-                else if (avisoDias > 0) {
-                    const dataAviso = new Date(proximaData);
-                    dataAviso.setDate(dataAviso.getDate() - avisoDias);
-                    if (now >= dataAviso) {
-                        issues.push(`• Revisão PRÓXIMA do vencimento por data (${proximaData.toLocaleDateString('pt-BR')}).`);
-                    }
-                }
-            }
-
-            // Leituras
-            const mainReading = getVehicleMainReading(vehicle); 
-            const current = mainReading.raw || 0;
-            const proximoOdo = parseFloat(revision.proximaRevisaoOdometro || 0);
-            const aviso = parseFloat(revision.avisoAntecedenciaKmHr || 0);
-            
-            if (proximoOdo > 0) {
-                if (current >= proximoOdo) {
-                    issues.push(`• Revisão VENCIDA por leitura (Atual: ${current}).`);
-                } 
-                else if (aviso > 0 && current >= (proximoOdo - aviso)) {
-                    issues.push(`• Revisão PRÓXIMA do vencimento por leitura (Faltam ${proximoOdo - current}).`);
-                }
-            }
-        }
-
-        // 3. Documentos
-        if (vehicle.tipo && (vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Caminhões'))) {
-             [{ n: 'Tacógrafo', d: vehicle.validadeTacografo }, { n: 'AET DAER', d: vehicle.validadeAET_DAER }, { n: 'AET DNIT', d: vehicle.validadeAET_DNIT }].forEach(doc => {
-                if (doc.d) {
-                    const docDate = new Date(doc.d);
-                    docDate.setHours(0, 0, 0, 0);
-                    docDate.setHours(12); // Margem UTC
-
-                    if (docDate < now) {
-                        issues.push(`• ${doc.n} VENCIDO (${docDate.toLocaleDateString('pt-BR')}).`);
-                    } else if (docDate <= thirtyDaysFromNow) {
-                        issues.push(`• ${doc.n} próximo do vencimento (${docDate.toLocaleDateString('pt-BR')}).`);
-                    }
-                }
-            });
-        }
-        return issues;
+        return true;
     };
 
     const handleAssignClick = () => {
@@ -106,11 +47,9 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
             return;
         }
         
-        // Verifica restrições
-        const issues = checkRestrictions();
-        if (issues.length > 0) {
-            setRestrictionAlert(issues);
-            return; // PARE AQUI
+        // Valida antes de prosseguir
+        if (!validateRestrictions()) {
+            return; // Bloqueia e mostra alerta
         }
 
         executeAssign();
@@ -120,7 +59,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
         setIsSaving(true);
         try {
             await apiClient.assignVehicleToOperational(vehicle.id, { subGroup, employeeId, observacoes });
-            setAlertMessage("Veículo alocado para operação com sucesso.");
+            setAlertMessage("Veículo alocado para operação com sucesso!");
             reloadData();
             onClose();
         } catch (error) {
@@ -132,6 +71,10 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
     };
 
     const handleUnassign = async () => {
+        if (!locationAfterUnassign) {
+            setAlertMessage("Informe o local de disponibilidade.");
+            return;
+        }
         setIsSaving(true);
         try {
             await apiClient.unassignVehicleFromOperational(vehicle.id, { location: locationAfterUnassign });
@@ -155,7 +98,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                     </div>
 
-                    {/* ALERTA DE RESTRIÇÃO */}
+                    {/* --- ALERTA DE RESTRIÇÃO --- */}
                     {restrictionAlert && !currentAssignment && (
                         <div className="p-4 bg-red-50 border-b border-red-100 animate-fade-in">
                             <div className="flex items-start gap-3">
@@ -165,11 +108,11 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                                     <div className="text-red-600 text-sm mt-1 space-y-1">
                                         {restrictionAlert.map((issue, idx) => <p key={idx}>{issue}</p>)}
                                     </div>
-                                    <p className="text-xs text-red-500 mt-3 font-semibold">Autorização com senha necessária.</p>
+                                    <p className="text-xs text-red-500 mt-2 font-semibold">Autorização necessária.</p>
                                     <button 
                                         type="button"
                                         onClick={() => setShowPasswordConfirm(true)}
-                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 flex items-center justify-center gap-2"
+                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <Shield size={16} /> Autorizar com Senha
                                     </button>
@@ -178,60 +121,66 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                         </div>
                     )}
 
-                    <div className="p-6">
-                         <p className="text-sm mb-4"><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
-                        {/* DESALOCAR */}
+                    <div className="p-6 space-y-4">
+                        <div className="text-sm text-gray-600 mb-2">
+                            <strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}
+                        </div>
+
                         {currentAssignment ? (
+                             // --- MODO DESALOCAR ---
                             <div className="space-y-4">
-                                <p className="text-sm">Este veículo está alocado para <strong>{currentAssignment.subGroup || 'N/A'}</strong> com <strong>{currentAssignment.employeeName || 'N/A'}</strong>.</p>
-                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Local de Disponibilidade após Desalocar *</label>
+                                <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
+                                    <p>Alocado no grupo: <strong>{currentAssignment.subGroup || 'N/A'}</strong></p>
+                                    <p>Responsável: <strong>{currentAssignment.employeeName || 'N/A'}</strong></p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Local de Disponibilidade após Desalocar *</label>
                                     <input
                                          type="text"
                                          value={locationAfterUnassign}
                                          onChange={e => setLocationAfterUnassign(e.target.value)}
                                          placeholder="Ex: Pátio MAK Lajeado"
-                                         className="mt-1 w-full p-2 border rounded-md text-sm"
+                                         className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
                                          required
                                      />
                                 </div>
                                 <button onClick={handleUnassign} disabled={isSaving || !locationAfterUnassign} className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-300 flex items-center justify-center gap-2 text-sm">
-                                    {isSaving ? <><Loader className="animate-spin" size={18}/> Finalizando...</> : "Finalizar Alocação"}
+                                    {isSaving ? <Loader className="animate-spin" size={18}/> : "Finalizar Operação"}
                                 </button>
                             </div>
                         ) : (
-                             // ALOCAR
+                             // --- MODO ALOCAR ---
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Alocar no Grupo *</label>
-                                    <select value={subGroup} onChange={e => setSubGroup(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Alocar no Grupo *</label>
+                                    <select value={subGroup} onChange={e => setSubGroup(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-blue-500 text-sm" required>
                                         <option value="">Selecione...</option>
                                         {(operationalSubGroups || []).map(g => <option key={g} value={g}>{g}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Alocar para Funcionário *</label>
-                                    <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="mt-1 w-full p-2 border rounded-md text-sm bg-white" required>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Alocar para Funcionário *</label>
+                                    <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-blue-500 text-sm" required>
                                         <option value="">Selecione...</option>
                                         {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} ({e.funcao})</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700">Observações</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
                                     <textarea
                                         value={observacoes}
                                         onChange={e => setObservacoes(e.target.value)}
-                                        rows="2"
-                                        className="mt-1 w-full p-2 border rounded-md text-sm"
+                                        rows="3"
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
                                         placeholder="Detalhes adicionais..."
                                     />
                                 </div>
                                 <button 
                                     onClick={handleAssignClick} 
                                     disabled={isSaving || !subGroup || !employeeId || restrictionAlert !== null} 
-                                    className="w-full px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm"
+                                    className="w-full px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
                                 >
-                                    {isSaving ? <><Loader className="animate-spin" size={18}/> Alocando...</> : "Alocar Veículo"}
+                                    {isSaving ? <Loader className="animate-spin" size={18}/> : "Alocar Veículo"}
                                 </button>
                             </div>
                         )}
@@ -239,10 +188,10 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                 </div>
             </div>
 
-            {/* MODAL DE SENHA */}
+            {/* Modal de Senha */}
             {showPasswordConfirm && PasswordConfirmationModal && (
                 <PasswordConfirmationModal
-                    message="Veículo com restrições. Digite sua senha para liberar a alocação."
+                    message="Veículo com restrições (revisão, documentos ou bloqueio). Digite sua senha para liberar a alocação."
                     onConfirm={async () => {
                         await executeAssign();
                         setShowPasswordConfirm(false);
