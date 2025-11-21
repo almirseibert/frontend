@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Disc, Truck, Plus, ArrowRight, ArrowLeft, Printer, Search, 
-    Filter, Activity, AlertCircle, Save, X, Clock, History, Shield, Briefcase, AlertTriangle 
+    Activity, AlertCircle, X, History, Briefcase, AlertTriangle 
 } from 'lucide-react';
-import { useReactToPrint } from 'react-to-print';
+// Importações para gerar PDF direto
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
 import { getVehicleMainReading, checkReadingConsistency, checkVehicleRestrictions } from '../utils/vehicleRules';
 
 // --- CONFIGURAÇÃO COMPLETA DE POSIÇÕES DE PNEUS ---
@@ -69,9 +72,6 @@ const TiresPage = ({
     const [selectedTireForTransaction, setSelectedTireForTransaction] = useState(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-    // Ref para Impressão
-    const componentRef = useRef(null);
-
     const loadTires = async () => {
         setLoading(true);
         try {
@@ -129,23 +129,96 @@ const TiresPage = ({
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
 
-    // --- CONFIGURAÇÃO DO REACT-TO-PRINT ---
-    const handlePrint = useReactToPrint({
-        content: () => componentRef.current,
-        documentTitle: `OS_Pneus_${selectedVehicle?.placa || 'Geral'}`,
-        onBeforeGetContent: () => {
-            if (!selectedVehicle) {
-                setAlertMessage("Selecione um veículo para imprimir.");
-                return Promise.reject();
-            }
-            // Verificação extra de segurança
-            if (!componentRef.current) {
-                setAlertMessage("Erro interno: O componente de impressão não foi renderizado corretamente.");
-                return Promise.reject();
-            }
-            return Promise.resolve();
-        },
-    });
+    // --- NOVA FUNÇÃO DE GERAÇÃO DE PDF (SUBSTITUI O REACT-TO-PRINT) ---
+    const handleGeneratePDF = () => {
+        if (!selectedVehicle) {
+            setAlertMessage("Selecione um veículo para gerar a ficha.");
+            return;
+        }
+
+        try {
+            const doc = new jsPDF();
+            const positions = getTireLayout(selectedVehicle.tipo);
+            const today = new Date().toLocaleDateString('pt-BR');
+
+            // --- CABEÇALHO ---
+            doc.setFontSize(18);
+            doc.setFont("helvetica", "bold");
+            doc.text("ORDEM DE SERVIÇO - PNEUS", 105, 20, { align: "center" });
+            
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            doc.text("Frotas MAK", 105, 26, { align: "center" });
+
+            // --- INFO DA OS ---
+            doc.setFontSize(11);
+            doc.text(`Data: ${today}`, 14, 40);
+            doc.text("OS Nº: ______", 160, 40);
+
+            // --- INFO DO VEÍCULO (Box) ---
+            doc.setDrawColor(0);
+            doc.setFillColor(245, 245, 245);
+            doc.rect(14, 45, 182, 25, "F"); // Fundo cinza
+            doc.rect(14, 45, 182, 25, "S"); // Borda
+
+            doc.setFont("helvetica", "bold");
+            doc.text("VEÍCULO / REGISTRO", 20, 52);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(14);
+            doc.text(`${selectedVehicle.registroInterno || "N/A"}`, 20, 62);
+
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "bold");
+            doc.text("PLACA / MODELO", 100, 52);
+            doc.setFont("helvetica", "normal");
+            doc.text(`${selectedVehicle.placa || ""} - ${selectedVehicle.modelo || ""}`, 100, 62);
+
+            // --- TABELA DE POSIÇÕES (Usando autoTable) ---
+            const tableBody = positions.map(pos => [
+                pos, // Posição
+                "",  // Saiu (Vazio para preencher)
+                "",  // Entrou (Vazio para preencher)
+                ""   // Obs (Vazio para preencher)
+            ]);
+
+            autoTable(doc, {
+                startY: 80,
+                head: [['Posição', 'SAIU (Fogo/Marca)', 'ENTROU (Fogo/Marca)', 'Observações']],
+                body: tableBody,
+                theme: 'grid',
+                headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
+                columnStyles: {
+                    0: { cellWidth: 40, fontStyle: 'bold' }, // Coluna Posição
+                    1: { cellWidth: 45 },
+                    2: { cellWidth: 45 },
+                    3: { cellWidth: 'auto' }
+                },
+                styles: {
+                    minCellHeight: 12, // Altura da linha para facilitar escrita manual
+                    valign: 'middle',
+                    fontSize: 10
+                }
+            });
+
+            // --- ASSINATURAS (Rodapé) ---
+            const pageHeight = doc.internal.pageSize.height;
+            const footerY = pageHeight - 40;
+
+            doc.line(20, footerY, 90, footerY); // Linha Esq
+            doc.line(120, footerY, 190, footerY); // Linha Dir
+
+            doc.setFontSize(10);
+            doc.text("Assinatura Supervisor", 55, footerY + 5, { align: "center" });
+            doc.text("Assinatura Borracheiro/Mecânico", 155, footerY + 5, { align: "center" });
+
+            // Salvar Arquivo
+            doc.save(`OS_Pneus_${selectedVehicle.placa || selectedVehicle.registroInterno}.pdf`);
+
+        } catch (error) {
+            console.error(error);
+            setAlertMessage("Erro ao gerar PDF: " + error.message);
+        }
+    };
 
     return (
         <div className="container mx-auto p-4 md:p-6">
@@ -253,7 +326,8 @@ const TiresPage = ({
                                 
                                 <div className="pt-2 space-y-2">
                                     <button onClick={() => setShowHistoryModal(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><History size={16} /> Histórico de Trocas</button>
-                                    <button onClick={handlePrint} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><Printer size={16} /> Imprimir Ficha</button>
+                                    {/* Botão atualizado para usar handleGeneratePDF */}
+                                    <button onClick={handleGeneratePDF} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><Printer size={16} /> Baixar Ficha (PDF)</button>
                                 </div>
                             </div>
                         )}
@@ -332,11 +406,8 @@ const TiresPage = ({
             )}
 
             {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
-
-            {/* COMPONENTE DE IMPRESSÃO - CORREÇÃO: Posicionamento absoluto fora da tela garante renderização para o Ref */}
-            <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
-                <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} />
-            </div>
+            
+            {/* O componente PrintableTireOrder foi removido pois foi substituído pelo jsPDF */}
         </div>
     );
 };
@@ -487,72 +558,5 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
         </div>
     );
 };
-
-// Componente de Impressão Corrigido e Reforçado
-const PrintableTireOrder = React.forwardRef(({ vehicle }, ref) => {
-    // Renderiza sempre o container, mesmo vazio, para garantir que a ref seja atribuída
-    if (!vehicle) return <div ref={ref} className="hidden"></div>;
-    
-    const positions = getTireLayout(vehicle.tipo);
-    const today = new Date().toLocaleDateString('pt-BR');
-
-    return (
-        <div ref={ref} className="p-8 font-sans text-gray-900 bg-white" style={{ width: '210mm', minHeight: '297mm' }}>
-            <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-center">
-                <div>
-                    <h1 className="text-2xl font-bold uppercase">Ordem de Serviço - Pneus</h1>
-                    <p className="text-sm text-gray-600">Frotas MAK</p>
-                </div>
-                <div className="text-right">
-                    <p className="font-bold">Data: {today}</p>
-                    <p>OS Nº: ______</p>
-                </div>
-            </div>
-            
-            <div className="mb-6 border p-4 rounded bg-gray-50">
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <p className="text-xs text-gray-500 uppercase">Veículo</p>
-                        <p className="font-bold text-xl">{vehicle.registroInterno}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs text-gray-500 uppercase">Placa/Modelo</p>
-                        <p className="font-bold">{vehicle.placa} - {vehicle.modelo}</p>
-                    </div>
-                </div>
-            </div>
-
-            <table className="w-full border-collapse border border-black text-sm mb-8">
-                <thead>
-                    <tr className="bg-gray-200">
-                        <th className="border border-black p-2 w-1/4 text-left">Posição</th>
-                        <th className="border border-black p-2 w-1/4">SAIU (Fogo/Marca)</th>
-                        <th className="border border-black p-2 w-1/4">ENTROU (Fogo/Marca)</th>
-                        <th className="border border-black p-2 w-1/4">Observações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {positions.map(pos => (
-                        <tr key={pos}>
-                            <td className="border border-black p-3 font-bold bg-gray-50">{pos}</td>
-                            <td className="border border-black p-3"></td>
-                            <td className="border border-black p-3"></td>
-                            <td className="border border-black p-3"></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-
-            <div className="mt-12 flex justify-between gap-8">
-                <div className="border-t border-black pt-2 w-1/2 text-center">
-                    <p>Assinatura Supervisor</p>
-                </div>
-                <div className="border-t border-black pt-2 w-1/2 text-center">
-                    <p>Assinatura Borracheiro/Mecânico</p>
-                </div>
-            </div>
-        </div>
-    );
-});
 
 export default TiresPage;
