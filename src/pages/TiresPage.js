@@ -39,7 +39,16 @@ const getTireLayout = (vehicleType) => {
     return TIRE_LAYOUTS[vehicleType] || TIRE_LAYOUTS['Padrão'];
 };
 
-// Componente StatCard (Definição Restaurada)
+// Helper para identificar grupo
+const getVehicleGroup = (type) => {
+    if (!type) return 'Leves';
+    if (type.includes('Prancha') || type.includes('Caminhão Prancha')) return 'Caminhões de Trecho'; // Grupo especial
+    if (['Caminhão', 'Caçamba', 'Cavalo'].some(t => type.includes(t))) return 'Caminhões';
+    if (['Escavadeira', 'Rolo', 'Trator', 'Retroescavadeira', 'Motoniveladora', 'Pá Carregadeira'].some(t => type.includes(t))) return 'Máquinas';
+    return 'Leves';
+};
+
+// Componente StatCard
 const StatCard = ({ label, value, icon, color }) => (
     <div className={`p-4 rounded-lg shadow-sm flex items-center justify-between ${color}`}>
         <div>
@@ -60,7 +69,7 @@ const TiresPage = ({
     // Estados Estoque
     const [searchTerm, setSearchTerm] = useState('');
     const [showNewTireModal, setShowNewTireModal] = useState(false);
-    const [showSpareTireModal, setShowSpareTireModal] = useState(false); // Novo Modal Step
+    const [showSpareTireModal, setShowSpareTireModal] = useState(false); 
 
     // Estados Veículo
     const [vehicleSearchTerm, setVehicleSearchTerm] = useState(''); 
@@ -127,10 +136,11 @@ const TiresPage = ({
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
 
-    // Impressão (Fix: Usando ref corretamente)
+    // Impressão (Configuração mais robusta)
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `OS_Pneus_${selectedVehicle?.placa || 'Geral'}`,
+        // Removemos onBeforeGetContent para evitar conflitos de promessa/ref
     });
 
     return (
@@ -332,7 +342,8 @@ const TiresPage = ({
 
             {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
 
-            {/* --- COMPONENTE DE IMPRESSÃO (OCULTO MAS RENDERIZADO) --- */}
+            {/* --- COMPONENTE DE IMPRESSÃO --- */}
+            {/* Usamos overflow hidden e height 0 para esconder, mas manter renderizado para o ref funcionar */}
             <div style={{ overflow: 'hidden', height: 0, width: 0 }}>
                 <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} />
             </div>
@@ -377,7 +388,21 @@ const NewTireModal = ({ onClose, onSave }) => {
 
 const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
     const [formData, setFormData] = useState({ tireId: '', employeeId: '', obraId: '', observation: '' });
-    const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
+    
+    const handleSubmit = (e) => { 
+        e.preventDefault(); 
+        
+        const employee = employees.find(e => e.id === formData.employeeId);
+        const obra = obras.find(o => o.id === formData.obraId);
+        
+        // Envia o nome para salvar no histórico/localização
+        onSave({
+            ...formData,
+            employeeName: employee ? employee.nome : 'Desc.',
+            obraName: obra ? obra.nome : 'Desc.'
+        }); 
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
@@ -487,19 +512,36 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
 const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
-    useEffect(() => { apiClient.getVehicleTireHistory(vehicle.id).then(setHistory).finally(() => setLoading(false)); }, [vehicle, apiClient]);
+    
+    useEffect(() => { 
+        setLoading(true);
+        apiClient.getVehicleTireHistory(vehicle.id)
+            .then(data => setHistory(data || []))
+            .catch(err => {
+                console.error(err);
+                setHistory([]); // Garante array vazio em erro
+            })
+            .finally(() => setLoading(false)); 
+    }, [vehicle, apiClient]);
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white"><h3 className="font-bold">Histórico: {vehicle.registroInterno}</h3><button onClick={onClose}><X size={18}/></button></div>
                 <div className="p-4 flex-1 overflow-y-auto space-y-3">
-                    {loading ? <p>Carregando...</p> : history.map(h => (
-                        <div key={h.id} className="p-3 border rounded bg-gray-50 text-sm">
-                            <div className="flex justify-between"><span className={`font-bold ${h.type==='install'?'text-green-700':'text-red-700'}`}>{h.type==='install'?'Instalação':'Remoção'}</span><span>{new Date(h.date).toLocaleDateString()}</span></div>
-                            <p>Pneu: {h.fireNumber} | Posição: {h.position}</p>
-                            <p>Leitura: {h.odometer || h.horimeter || '-'} | Obs: {h.observation}</p>
-                        </div>
-                    ))}
+                    {loading ? (
+                        <p className="text-center text-gray-500">Carregando...</p>
+                    ) : history.length === 0 ? (
+                        <p className="text-center text-gray-500 p-4">Nenhum histórico encontrado para este veículo.</p>
+                    ) : (
+                        history.map(h => (
+                            <div key={h.id} className="p-3 border rounded bg-gray-50 text-sm">
+                                <div className="flex justify-between"><span className={`font-bold ${h.type==='install'?'text-green-700':'text-red-700'}`}>{h.type==='install'?'Instalação':'Remoção'}</span><span>{new Date(h.date).toLocaleDateString()}</span></div>
+                                <p>Pneu: {h.fireNumber} | Posição: {h.position}</p>
+                                <p>Leitura: {h.odometer > 0 ? `${h.odometer} Km` : h.horimeter > 0 ? `${h.horimeter} Hr` : '-'} | Obs: {h.observation}</p>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
         </div>
@@ -507,17 +549,31 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
 };
 
 const PrintableTireOrder = React.forwardRef(({ vehicle }, ref) => {
-    if (!vehicle) return <div ref={ref} className="p-8 text-center">Selecione um veículo para imprimir.</div>;
-    const positions = getTireLayout(vehicle.tipo);
+    // Renderiza o conteúdo apenas se vehicle existir, mas o container ref sempre existe
     return (
         <div ref={ref} className="p-8 font-sans text-gray-900">
-            <div className="border-b-2 border-black pb-4 mb-6 flex justify-between"><h1 className="text-2xl font-bold">OS Pneus</h1><p>Data: ___/___/___</p></div>
-            <div className="mb-6"><p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p><p>{vehicle.marca} {vehicle.modelo}</p></div>
-            <table className="w-full border-collapse border border-black text-sm">
-                <thead><tr className="bg-gray-200"><th className="border border-black p-2">Posição</th><th className="border border-black p-2">SAIU (Fogo)</th><th className="border border-black p-2">ENTROU (Fogo)</th><th className="border border-black p-2">Obs</th></tr></thead>
-                <tbody>{positions.map(pos => <tr key={pos}><td className="border border-black p-3 font-bold">{pos}</td><td className="border border-black p-3"></td><td className="border border-black p-3"></td><td className="border border-black p-3"></td></tr>)}</tbody>
-            </table>
-            <div className="mt-12 pt-4 border-t border-black flex justify-between"><p>Assinatura Supervisor</p><p>Assinatura Borracheiro</p></div>
+            {vehicle ? (
+                <>
+                    <div className="border-b-2 border-black pb-4 mb-6 flex justify-between"><h1 className="text-2xl font-bold">OS Pneus</h1><p>Data: ___/___/___</p></div>
+                    <div className="mb-6"><p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p><p>{vehicle.marca} {vehicle.modelo}</p></div>
+                    <table className="w-full border-collapse border border-black text-sm">
+                        <thead><tr className="bg-gray-200"><th className="border border-black p-2">Posição</th><th className="border border-black p-2">SAIU (Fogo)</th><th className="border border-black p-2">ENTROU (Fogo)</th><th className="border border-black p-2">Obs</th></tr></thead>
+                        <tbody>
+                            {getTireLayout(vehicle.tipo).map(pos => (
+                                <tr key={pos}>
+                                    <td className="border border-black p-3 font-bold">{pos}</td>
+                                    <td className="border border-black p-3"></td>
+                                    <td className="border border-black p-3"></td>
+                                    <td className="border border-black p-3"></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    <div className="mt-12 pt-4 border-t border-black flex justify-between"><p>Assinatura Supervisor</p><p>Assinatura Borracheiro</p></div>
+                </>
+            ) : (
+                <div className="p-8 text-center">Selecione um veículo para imprimir a ordem.</div>
+            )}
         </div>
     );
 });
