@@ -106,7 +106,12 @@ const TiresPage = ({
         loadTires();
     }, []);
 
-    // Filtros da Tabela Estoque
+    // Lista completa de pneus em estoque (independente de filtro visual) para usar nos modais
+    const availableStockTires = useMemo(() => {
+        return tires.filter(t => t.status === 'Estoque');
+    }, [tires]);
+
+    // Filtros da Tabela Estoque (Visual apenas)
     const filteredTires = useMemo(() => {
         return tires.filter(t => {
             const matchSearch = 
@@ -612,7 +617,7 @@ const TiresPage = ({
                     vehicle={selectedVehicle} 
                     position={selectedPosition} 
                     tire={selectedTireForTransaction} 
-                    stockTires={stockTires} 
+                    stockTires={availableStockTires} 
                     vehicleAlerts={vehicleAlerts} 
                     onClose={() => { setShowTransactionModal(false); setSelectedTireForTransaction(null); }} 
                     onSave={async (data) => { 
