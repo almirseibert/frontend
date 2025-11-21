@@ -40,7 +40,12 @@ const TiresPage = ({
             setTires(data || []);
         } catch (error) {
             console.error(error);
-            setAlertMessage('Erro ao carregar pneus.');
+            // Mensagem amigável caso a tabela ainda não exista (antes do redeploy do back)
+            if (error.message && error.message.includes('500')) {
+                setAlertMessage('Erro de conexão ou tabelas de pneus não inicializadas. Aguarde o sistema atualizar.');
+            } else {
+                setAlertMessage('Erro ao carregar pneus.');
+            }
         } finally {
             setLoading(false);
         }
@@ -352,36 +357,64 @@ const getVehicleGroup = (type) => {
     return 'Leves';
 };
 
-// --- Subcomponente: Modal Novo Pneu ---
+// --- Subcomponente: Modal Novo Pneu (COM FORM E VALIDAÇÃO) ---
 const NewTireModal = ({ onClose, onSave }) => {
     const [data, setData] = useState({
         fireNumber: '', brand: '', model: '', size: '', 
         tireCondition: 'Novo', purchaseDate: '', price: ''
     });
 
+    const handleSubmit = (e) => {
+        e.preventDefault(); // Impede recarregamento e ativa validação HTML
+        onSave(data);
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
                 <h3 className="text-xl font-bold mb-4">Cadastrar Novo Pneu</h3>
-                <div className="space-y-3">
-                    <input placeholder="Marca de Fogo (ID Único)" className="w-full p-2 border rounded" value={data.fireNumber} onChange={e => setData({...data, fireNumber: e.target.value})} />
-                    <input placeholder="Marca" className="w-full p-2 border rounded" value={data.brand} onChange={e => setData({...data, brand: e.target.value})} />
-                    <input placeholder="Modelo" className="w-full p-2 border rounded" value={data.model} onChange={e => setData({...data, model: e.target.value})} />
-                    <input placeholder="Medida (ex: 295/80R22.5)" className="w-full p-2 border rounded" value={data.size} onChange={e => setData({...data, size: e.target.value})} />
-                    <select className="w-full p-2 border rounded" value={data.tireCondition} onChange={e => setData({...data, tireCondition: e.target.value})}>
-                        <option value="Novo">Novo</option>
-                        <option value="Usado">Usado</option>
-                        <option value="Recapado">Recapado</option>
-                    </select>
-                    <div className="grid grid-cols-2 gap-2">
-                        <input type="date" className="w-full p-2 border rounded" value={data.purchaseDate} onChange={e => setData({...data, purchaseDate: e.target.value})} />
-                        <input type="number" placeholder="Preço (R$)" className="w-full p-2 border rounded" value={data.price} onChange={e => setData({...data, price: e.target.value})} />
+                <form onSubmit={handleSubmit}>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-sm font-bold mb-1">Marca de Fogo *</label>
+                            <input required placeholder="ID Único" className="w-full p-2 border rounded" value={data.fireNumber} onChange={e => setData({...data, fireNumber: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold mb-1">Marca *</label>
+                            <input required placeholder="Ex: Michelin" className="w-full p-2 border rounded" value={data.brand} onChange={e => setData({...data, brand: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold mb-1">Modelo</label>
+                            <input placeholder="Ex: X Multi Z" className="w-full p-2 border rounded" value={data.model} onChange={e => setData({...data, model: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold mb-1">Medida *</label>
+                            <input required placeholder="Ex: 295/80R22.5" className="w-full p-2 border rounded" value={data.size} onChange={e => setData({...data, size: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold mb-1">Condição</label>
+                            <select className="w-full p-2 border rounded" value={data.tireCondition} onChange={e => setData({...data, tireCondition: e.target.value})}>
+                                <option value="Novo">Novo</option>
+                                <option value="Usado">Usado</option>
+                                <option value="Recapado">Recapado</option>
+                            </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-sm font-bold mb-1">Data Compra</label>
+                                <input type="date" className="w-full p-2 border rounded" value={data.purchaseDate} onChange={e => setData({...data, purchaseDate: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold mb-1">Preço (R$)</label>
+                                <input type="number" placeholder="0.00" className="w-full p-2 border rounded" value={data.price} onChange={e => setData({...data, price: e.target.value})} />
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div className="mt-6 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
-                    <button onClick={() => onSave(data)} className="px-4 py-2 bg-blue-600 text-white rounded">Salvar</button>
-                </div>
+                    <div className="mt-6 flex justify-end gap-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
+                        <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Salvar</button>
+                    </div>
+                </form>
             </div>
         </div>
     );
