@@ -2,12 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Disc, Truck, Plus, ArrowRight, ArrowLeft, Printer, Search, 
     Activity, AlertCircle, X, History, Briefcase, AlertTriangle,
-    Settings, FileText, Trash2, Recycle, RotateCcw, Edit
+    Settings, FileText, Trash2, RotateCcw, Edit, FileCheck
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-import { getVehicleMainReading, checkReadingConsistency, checkVehicleRestrictions, vehicleGroups } from '../utils/vehicleRules';
+import { getVehicleMainReading, checkVehicleRestrictions, vehicleGroups } from '../utils/vehicleRules';
 
 // --- CONFIGURAÇÃO COMPLETA DE POSIÇÕES DE PNEUS ---
 const TIRE_LAYOUTS = {
@@ -62,15 +62,15 @@ const StatCard = ({ label, value, icon, color }) => (
 const TiresPage = ({ 
     user, vehicles = [], employees = [], obras = [], revisions = [], apiClient, setAlertMessage, reloadData, PasswordConfirmationModal 
 }) => {
-    const [activeTab, setActiveTab] = useState('stock'); // stock, vehicles, reports
+    const [activeTab, setActiveTab] = useState('stock'); 
     const [tires, setTires] = useState([]);
     const [loading, setLoading] = useState(false);
     
     // Estados Estoque
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('todos'); // Novo filtro de status
+    const [statusFilter, setStatusFilter] = useState('todos'); 
     const [showNewTireModal, setShowNewTireModal] = useState(false);
-    const [showStockActionModal, setShowStockActionModal] = useState(false); // Modal de ação genérica
+    const [showStockActionModal, setShowStockActionModal] = useState(false); 
     const [selectedTireForAction, setSelectedTireForAction] = useState(null);
     const [showEditTireModal, setShowEditTireModal] = useState(false);
 
@@ -82,11 +82,12 @@ const TiresPage = ({
     const [selectedPosition, setSelectedPosition] = useState('');
     const [selectedTireForTransaction, setSelectedTireForTransaction] = useState(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
-    const [tireHistoryId, setTireHistoryId] = useState(null); // ID para histórico específico de um pneu
+    const [tireHistoryId, setTireHistoryId] = useState(null);
 
     // Estados Relatórios
     const [reportFilters, setReportFilters] = useState({
-        estoque: true, emUso: true, step: true, recapagem: true, sucata: true
+        estoque: true, emUso: true, step: true, recapagem: true, sucata: true,
+        size: '' // Novo filtro de medida
     });
 
     const loadTires = async () => {
@@ -106,12 +107,12 @@ const TiresPage = ({
         loadTires();
     }, []);
 
-    // Lista completa de pneus em estoque (independente de filtro visual) para usar nos modais
+    // Disponível para instalação em veículos (Estoque e Retornados)
     const availableStockTires = useMemo(() => {
         return tires.filter(t => t.status === 'Estoque');
     }, [tires]);
 
-    // Filtros da Tabela Estoque (Visual apenas)
+    // Filtros da Tabela Estoque (Visual)
     const filteredTires = useMemo(() => {
         return tires.filter(t => {
             const matchSearch = 
@@ -125,7 +126,6 @@ const TiresPage = ({
         });
     }, [tires, searchTerm, statusFilter]);
 
-    // Dados para Cards
     const stats = useMemo(() => ({
         total: tires.length,
         estoque: tires.filter(t => t.status === 'Estoque').length,
@@ -166,6 +166,10 @@ const TiresPage = ({
     // --- GERAÇÃO DE RELATÓRIO DE PNEUS ---
     const handleGenerateReport = () => {
         const reportData = tires.filter(t => {
+            // Filtro por medida
+            if (reportFilters.size && !t.size.toLowerCase().includes(reportFilters.size.toLowerCase())) return false;
+
+            // Filtros por status
             if (t.status === 'Estoque' && reportFilters.estoque) return true;
             if (t.status === 'Em Uso' && reportFilters.emUso) return true;
             if (t.status === 'Step/Reserva' && reportFilters.step) return true;
@@ -178,6 +182,9 @@ const TiresPage = ({
         doc.text("Relatório Geral de Pneus - Frotas MAK", 14, 15);
         doc.setFontSize(10);
         doc.text(`Gerado em: ${new Date().toLocaleDateString()} - Total de Registros: ${reportData.length}`, 14, 22);
+        if (reportFilters.size) {
+            doc.text(`Filtro de Medida: ${reportFilters.size}`, 14, 27);
+        }
 
         const tableBody = reportData.map(t => [
             t.fireNumber,
@@ -189,7 +196,7 @@ const TiresPage = ({
         ]);
 
         autoTable(doc, {
-            startY: 28,
+            startY: reportFilters.size ? 32 : 28,
             head: [['Fogo', 'Marca/Modelo', 'Medida', 'Status', 'Local/Veículo', 'Condição']],
             body: tableBody,
             theme: 'striped',
@@ -200,8 +207,87 @@ const TiresPage = ({
         doc.save('Relatorio_Pneus.pdf');
     };
 
-    // --- GERAÇÃO DE OS (CROQUI) ---
-    const handleGeneratePDF = () => {
+    // --- GERAÇÃO DE TERMO DE RESPONSABILIDADE (STEP) ---
+    const handleGenerateSpareTermPDF = (data) => {
+        try {
+            const doc = new jsPDF();
+            const today = new Date().toLocaleDateString('pt-BR');
+            
+            // Cabeçalho
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text("TERMO DE RESPONSABILIDADE - PNEU RESERVA/STEP", 105, 20, { align: "center" });
+            
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            doc.text("Frotas MAK - Controle de Patrimônio", 105, 26, { align: "center" });
+
+            doc.setLineWidth(0.5);
+            doc.line(20, 30, 190, 30);
+
+            // Texto do Termo
+            doc.setFontSize(11);
+            const text = `Eu, ${data.employeeName}, declaro que recebi nesta data (${today}), para uso exclusivo em serviço na obra ${data.obraName}, o pneu abaixo discriminado, assumindo total responsabilidade pela sua guarda, conservação e correta utilização.`;
+            
+            doc.text(doc.splitTextToSize(text, 170), 20, 45);
+
+            // Dados do Pneu
+            doc.setFillColor(240, 240, 240);
+            doc.rect(20, 65, 170, 35, "F");
+            doc.setFont("helvetica", "bold");
+            doc.text("DADOS DO PNEU", 25, 72);
+            doc.setFont("helvetica", "normal");
+            doc.text(`Marca de Fogo: ${data.fireNumber || '________________'}`, 25, 80);
+            doc.text(`Marca/Modelo: ${data.brand || ''} / ${data.model || ''}`, 25, 87);
+            doc.text(`Medida: ${data.size || ''}`, 100, 80);
+            doc.text(`Estado: ${data.tireCondition || ''}`, 100, 87);
+
+            // Observações e Valor
+            doc.setFont("helvetica", "bold");
+            doc.text("OBSERVAÇÕES / ITENS ADICIONAIS:", 20, 115);
+            doc.setFont("helvetica", "normal");
+            
+            // Campo de observação preenchido ou linhas
+            if (data.observation) {
+                doc.text(doc.splitTextToSize(data.observation, 170), 20, 122);
+            } else {
+                doc.text("__________________________________________________________________________", 20, 125);
+                doc.text("__________________________________________________________________________", 20, 135);
+            }
+
+            // Campo de Valor
+            doc.setFont("helvetica", "bold");
+            doc.text("VALOR DECLARADO DO MATERIAL (R$): _________________________", 20, 150);
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "italic");
+            doc.text("(Campo para preenchimento obrigatório do valor de referência do material)", 20, 155);
+
+            // Compromisso
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "normal");
+            const commitment = "Estou ciente de que, em caso de perda, dano por mau uso ou extravio, o valor correspondente poderá ser descontado ou cobrado conforme as normas da empresa.";
+            doc.text(doc.splitTextToSize(commitment, 170), 20, 170);
+
+            // Assinaturas
+            doc.text("Local e Data: ______________________, _____ de _______________ de _______", 20, 200);
+
+            doc.line(20, 230, 90, 230);
+            doc.line(110, 230, 180, 230);
+            
+            doc.setFontSize(10);
+            doc.text("Assinatura do Responsável", 55, 235, { align: "center" });
+            doc.text("Assinatura Almoxarifado/Frotas", 145, 235, { align: "center" });
+
+            doc.save(`Termo_Step_${data.fireNumber}_${data.employeeName.replace(/\s/g, '_')}.pdf`);
+
+        } catch (e) {
+            console.error("Erro PDF Termo:", e);
+            setAlertMessage("Erro ao gerar Termo de Responsabilidade.");
+        }
+    };
+
+    // --- GERAÇÃO DE OS (CROQUI VISUAL CORRIGIDO) ---
+    const handleGenerateOSCroqui = () => {
         if (!selectedVehicle) {
             setAlertMessage("Selecione um veículo para gerar a ficha.");
             return;
@@ -215,136 +301,122 @@ const TiresPage = ({
             // --- CABEÇALHO ---
             doc.setFontSize(16);
             doc.setFont("helvetica", "bold");
-            doc.text("ORDEM DE SERVIÇO - TROCA DE PNEUS", 105, 20, { align: "center" });
-            
+            doc.text("ORDEM DE SERVIÇO - PNEUS", 105, 20, { align: "center" });
             doc.setFontSize(10);
             doc.setFont("helvetica", "normal");
-            doc.text("Frotas MAK", 105, 26, { align: "center" });
+            doc.text("Frotas MAK - Controle de Manutenção", 105, 26, { align: "center" });
 
             // --- DADOS DO VEÍCULO ---
             doc.setDrawColor(0);
             doc.setFillColor(240, 240, 240);
-            doc.rect(14, 35, 182, 30, "F"); 
-            doc.rect(14, 35, 182, 30, "S");
+            doc.rect(14, 35, 182, 25, "F"); 
+            doc.rect(14, 35, 182, 25, "S");
 
             doc.setFontSize(11);
             doc.setFont("helvetica", "bold");
             doc.text(`Veículo: ${selectedVehicle.registroInterno} - ${selectedVehicle.placa}`, 20, 45);
-            doc.text(`Modelo: ${selectedVehicle.modelo} / ${selectedVehicle.tipo}`, 20, 52);
+            doc.text(`Modelo: ${selectedVehicle.modelo}`, 20, 52);
             doc.text(`Data: ${today}`, 120, 45);
             doc.text("OS Nº: ________", 120, 52);
             
-            // Campo para KM/Horímetro
-            doc.text("Leitura Atual (Km/Hr): ____________________", 20, 60);
+            doc.text("Leitura Atual (Km/Hr): ____________________", 20, 58);
 
-            // --- CROQUI VISUAL (Esqueleto) ---
+            // --- CROQUI VISUAL LÓGICO ---
             doc.setFontSize(12);
-            doc.text("Mapa de Pneus (Croqui)", 14, 75);
+            doc.text("Mapa de Substituição (Croqui)", 14, 75);
             
-            let currentY = 85;
+            // Lógica: ESQUERDA = [ENTROU] [SAIU/ATUAL] --- EIXO --- [SAIU/ATUAL] [ENTROU] = DIREITA
             const centerX = 105;
-            const chassisWidth = 40;
-            
-            // Desenha o "Chassi" central
-            const axleCount = Math.ceil(positions.length / 2); // Aproximação
-            const chassisHeight = (axleCount * 25) + 20;
-            
-            // Desenha chassi se não for "Automóvel" simples, mas simplificando: desenharemos eixos
-            doc.setLineWidth(0.5);
-            doc.setDrawColor(100);
-            
-            // Itera sobre as posições para desenhar
-            // Separando Esquerda e Direita
+            let drawY = 90;
+
             const leftTires = positions.filter(p => p.includes('Esq') || p.includes('Interno'));
             const rightTires = positions.filter(p => p.includes('Dir') || p.includes('Externo'));
-            // Estepes
             const spares = positions.filter(p => p.includes('Estepe') || p.includes('Reserva'));
-            
-            // Função auxiliar para desenhar pneu
-            const drawTireBox = (x, y, label, currentTire) => {
-                doc.setDrawColor(0);
-                doc.setFillColor(255, 255, 255);
-                doc.rect(x, y, 30, 15, "FD"); // Caixa do pneu
-                
-                doc.setFontSize(7);
-                doc.setFont("helvetica", "bold");
-                doc.text(label.substring(0, 15), x + 15, y - 2, { align: "center" }); // Label posição
-                
-                if (currentTire) {
-                    doc.setFont("helvetica", "normal");
-                    doc.setTextColor(0, 100, 0);
-                    doc.text(`Atual: ${currentTire.fireNumber}`, x + 2, y + 5);
-                    doc.text(`${currentTire.brand}`, x + 2, y + 10);
-                    doc.setTextColor(0);
-                } else {
-                    doc.setTextColor(150);
-                    doc.text("Vazio", x + 15, y + 9, { align: "center" });
-                    doc.setTextColor(0);
-                }
 
-                // Caixa para anotar o NOVO
-                doc.rect(x + 32, y, 30, 15);
-                doc.text("Entrou:", x + 34, y + 4);
-            };
-
-            // Desenha Eixos (Simplificado: Pares Esq/Dir)
-            // Assume-se que a ordem no array reflete a ordem dos eixos aproximadamente
-            // Isso é uma representação esquemática
-            let drawY = 90;
-            
-            // Agrupando por "eixo" (pares)
-            // Logica simples: Pega um da esq, um da dir e desenha na mesma linha
             const maxRows = Math.max(leftTires.length, rightTires.length);
             
-            // Desenha linha central (Cardã/Eixo)
-            doc.line(centerX, drawY - 10, centerX, drawY + (maxRows * 25));
+            // Linha Central (Chassi)
+            doc.setLineWidth(2);
+            doc.setDrawColor(200);
+            doc.line(centerX, drawY - 10, centerX, drawY + (maxRows * 30));
+            doc.setLineWidth(0.5);
+            doc.setDrawColor(0);
+
+            // Função de caixa
+            const drawBox = (x, y, label, subLabel, content) => {
+                doc.rect(x, y, 28, 16);
+                doc.setFontSize(6);
+                doc.setTextColor(100);
+                doc.text(subLabel, x + 14, y + 3, { align: "center" });
+                doc.setTextColor(0);
+                
+                if (content) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(8);
+                    doc.text(content.fireNumber, x + 14, y + 8, { align: "center" });
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(6);
+                    doc.text(content.brand.substring(0,10), x + 14, y + 13, { align: "center" });
+                }
+            };
 
             for (let i = 0; i < maxRows; i++) {
                 const posLeft = leftTires[i];
                 const posRight = rightTires[i];
 
-                // Esquerda
+                // Eixo
+                doc.line(centerX - 35, drawY + 8, centerX + 35, drawY + 8);
+
+                // LADO ESQUERDO
                 if (posLeft) {
                     const tire = vehicleTires.find(t => t.position === posLeft);
-                    // Caixa Esq: X = Center - 70
-                    drawTireBox(centerX - 70, drawY, posLeft, tire);
-                    // Eixo
-                    doc.line(centerX - 40, drawY + 7, centerX, drawY + 7);
+                    // Caixa "ENTROU" (Mais externa)
+                    drawBox(centerX - 75, drawY, posLeft, "ENTROU (Novo)", null);
+                    // Caixa "SAIU/ATUAL" (Mais interna)
+                    drawBox(centerX - 45, drawY, posLeft, "ATUAL (Saiu)", tire);
+                    
+                    // Label Posição
+                    doc.setFontSize(7);
+                    doc.text(posLeft, centerX - 60, drawY - 2, { align: "center" });
                 }
 
-                // Direita
+                // LADO DIREITO
                 if (posRight) {
                     const tire = vehicleTires.find(t => t.position === posRight);
-                    // Caixa Dir: X = Center + 10 (Caixa Pneu) + 32 (Caixa Novo) -> Não, layout visual
-                    // Pneu atual em X = Center + 10. Novo em X = Center + 42
-                    drawTireBox(centerX + 10, drawY, posRight, tire);
-                    doc.line(centerX, drawY + 7, centerX + 10, drawY + 7);
+                    // Caixa "SAIU/ATUAL" (Mais interna)
+                    drawBox(centerX + 17, drawY, posRight, "ATUAL (Saiu)", tire);
+                    // Caixa "ENTROU" (Mais externa)
+                    drawBox(centerX + 47, drawY, posRight, "ENTROU (Novo)", null);
+
+                    // Label Posição
+                    doc.setFontSize(7);
+                    doc.text(posRight, centerX + 60, drawY - 2, { align: "center" });
                 }
 
-                drawY += 25; // Próximo eixo
+                drawY += 30;
             }
 
             // Estepes
             if (spares.length > 0) {
                 drawY += 10;
-                doc.text("Estepes / Reservas", 14, drawY);
+                doc.setFontSize(10);
+                doc.text("Estepes", 14, drawY);
                 drawY += 10;
                 spares.forEach((pos, idx) => {
                     const tire = vehicleTires.find(t => t.position === pos);
-                    drawTireBox(20 + (idx * 70), drawY, pos, tire);
+                    const xBase = 30 + (idx * 80);
+                    drawBox(xBase, drawY, pos, "ATUAL (Saiu)", tire);
+                    drawBox(xBase + 30, drawY, pos, "ENTROU (Novo)", null);
+                    doc.text(pos, xBase + 30, drawY - 2, { align: "center" });
                 });
             }
 
-            // --- ASSINATURAS (Rodapé) ---
+            // Rodapé Assinaturas
             const pageHeight = doc.internal.pageSize.height;
-            const footerY = pageHeight - 30;
-
-            doc.line(20, footerY, 90, footerY); 
-            doc.line(120, footerY, 190, footerY); 
-
-            doc.setFontSize(10);
-            doc.text("Assinatura Supervisor", 55, footerY + 5, { align: "center" });
-            doc.text("Assinatura Borracheiro/Mecânico", 155, footerY + 5, { align: "center" });
+            doc.line(20, pageHeight - 30, 90, pageHeight - 30); 
+            doc.line(120, pageHeight - 30, 190, pageHeight - 30); 
+            doc.text("Assinatura Supervisor", 55, pageHeight - 25, { align: "center" });
+            doc.text("Assinatura Borracheiro", 155, pageHeight - 25, { align: "center" });
 
             doc.save(`OS_Croqui_${selectedVehicle.placa}.pdf`);
 
@@ -439,11 +511,11 @@ const TiresPage = ({
                                             <button onClick={() => { setTireHistoryId(tire.id); }} title="Histórico" className="p-1.5 text-gray-500 hover:bg-gray-200 rounded"><History size={16} /></button>
                                             <button onClick={() => { setSelectedTireForAction(tire); setShowEditTireModal(true); }} title="Editar" className="p-1.5 text-blue-500 hover:bg-blue-100 rounded"><Edit size={16} /></button>
                                             
-                                            {/* Botão de Ação apenas se NÃO estiver Em Uso (Em Uso deve ser removido pelo veículo) */}
+                                            {/* Botão de Movimentar disponível para todos, EXCETO os que já estão instalados em veículos (Em Uso) */}
                                             {tire.status !== 'Em Uso' && (
                                                 <button 
                                                     onClick={() => { setSelectedTireForAction(tire); setShowStockActionModal(true); }} 
-                                                    title="Movimentar" 
+                                                    title="Movimentar / Ações" 
                                                     className="p-1.5 text-green-600 hover:bg-green-100 rounded bg-green-50 border border-green-200"
                                                 >
                                                     <Settings size={16} />
@@ -502,7 +574,7 @@ const TiresPage = ({
                                 
                                 <div className="pt-2 space-y-2">
                                     <button onClick={() => setShowHistoryModal(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><History size={16} /> Histórico Veículo</button>
-                                    <button onClick={handleGeneratePDF} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><Printer size={16} /> Baixar Ficha Croqui</button>
+                                    <button onClick={handleGenerateOSCroqui} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><Printer size={16} /> Baixar Ficha Croqui</button>
                                 </div>
                             </div>
                         )}
@@ -556,12 +628,26 @@ const TiresPage = ({
                     <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FileText /> Gerador de Relatório de Pneus</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
-                            <h3 className="font-bold text-gray-700">Filtrar por Status</h3>
-                            <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.estoque} onChange={e => setReportFilters({...reportFilters, estoque: e.target.checked})} /> Estoque</label>
-                            <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.emUso} onChange={e => setReportFilters({...reportFilters, emUso: e.target.checked})} /> Em Uso (Veículos)</label>
-                            <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.step} onChange={e => setReportFilters({...reportFilters, step: e.target.checked})} /> Step/Reserva</label>
-                            <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.recapagem} onChange={e => setReportFilters({...reportFilters, recapagem: e.target.checked})} /> Em Recapagem</label>
-                            <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.sucata} onChange={e => setReportFilters({...reportFilters, sucata: e.target.checked})} /> Sucata/Descarte</label>
+                            <h3 className="font-bold text-gray-700">Filtros</h3>
+                            
+                            <div className="mb-4">
+                                <label className="block text-sm font-bold mb-1">Medida (Ex: 295/80)</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full p-2 border rounded bg-white" 
+                                    placeholder="Todas as medidas"
+                                    value={reportFilters.size}
+                                    onChange={e => setReportFilters({...reportFilters, size: e.target.value})}
+                                />
+                            </div>
+
+                            <div className="border-t pt-3 space-y-2">
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.estoque} onChange={e => setReportFilters({...reportFilters, estoque: e.target.checked})} /> Estoque</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.emUso} onChange={e => setReportFilters({...reportFilters, emUso: e.target.checked})} /> Em Uso (Veículos)</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.step} onChange={e => setReportFilters({...reportFilters, step: e.target.checked})} /> Step/Reserva</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.recapagem} onChange={e => setReportFilters({...reportFilters, recapagem: e.target.checked})} /> Em Recapagem</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={reportFilters.sucata} onChange={e => setReportFilters({...reportFilters, sucata: e.target.checked})} /> Sucata/Descarte</label>
+                            </div>
                         </div>
                         <div className="flex flex-col justify-center items-center space-y-4">
                             <p className="text-sm text-gray-600 text-center">O relatório incluirá todos os pneus cadastrados que correspondam aos filtros selecionados ao lado.</p>
@@ -574,7 +660,6 @@ const TiresPage = ({
             {/* MODAIS */}
             {showNewTireModal && <NewTireModal onClose={() => setShowNewTireModal(false)} onSave={async (data) => { try { await apiClient.createTire(data); setAlertMessage('Pneu cadastrado!'); loadTires(); setShowNewTireModal(false); } catch (e) { setAlertMessage(e.message || 'Erro ao salvar.'); } }} />}
             
-            {/* MODAL DE AÇÃO GENÉRICA (Estoque/Step) */}
             {showStockActionModal && selectedTireForAction && (
                 <StockActionModal 
                     tire={selectedTireForAction}
@@ -584,7 +669,16 @@ const TiresPage = ({
                     onSave={async (data) => { 
                         try { 
                             await apiClient.registerTireTransaction(data); 
-                            setAlertMessage('Movimentação realizada!'); 
+                            setAlertMessage('Movimentação realizada!');
+                            
+                            // SE FOR STEP, GERA TERMO AUTOMATICAMENTE
+                            if (data.type === 'transfer') {
+                                handleGenerateSpareTermPDF({
+                                    ...data,
+                                    ...selectedTireForAction
+                                });
+                            }
+
                             loadTires(); 
                             setShowStockActionModal(false); 
                         } catch (e) { 
@@ -594,7 +688,6 @@ const TiresPage = ({
                 />
             )}
 
-            {/* MODAL DE EDIÇÃO */}
             {showEditTireModal && selectedTireForAction && (
                 <EditTireModal
                     tire={selectedTireForAction}
@@ -610,7 +703,6 @@ const TiresPage = ({
                 />
             )}
 
-            {/* MODAL TRANSAÇÃO VEÍCULO */}
             {showTransactionModal && (
                 <TireTransactionModal 
                     type={transactionType} 
@@ -636,9 +728,10 @@ const TiresPage = ({
                 />
             )}
 
-            {/* Modais de Histórico */}
             {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
             {tireHistoryId && <SingleTireHistoryModal tireId={tireHistoryId} apiClient={apiClient} onClose={() => setTireHistoryId(null)} />}
+            
+            {showSpareTireModal && <SpareTireModal stockTires={availableStockTires} employees={employees} obras={obras} onClose={() => setShowSpareTireModal(false)} onSave={async (data) => { try { await apiClient.registerTireTransaction({ ...data, type: 'transfer' }); setAlertMessage('Step enviado com sucesso! Gerando termo...'); const selectedTire = availableStockTires.find(t => t.id === data.tireId); if(selectedTire) handleGenerateSpareTermPDF({...data, ...selectedTire}); loadTires(); setShowSpareTireModal(false); } catch (e) { setAlertMessage(e.message); } }} />}
         </div>
     );
 };
@@ -692,7 +785,7 @@ const EditTireModal = ({ tire, onClose, onSave }) => {
 
 // --- NOVO MODAL: AÇÕES DE ESTOQUE/STEP ---
 const StockActionModal = ({ tire, employees, obras, onClose, onSave }) => {
-    const [actionType, setActionType] = useState('transfer'); // transfer (Step), maintenance (Recap), scrap (Sucata), restock (Estoque)
+    const [actionType, setActionType] = useState(tire.status === 'Step/Reserva' ? 'restock' : 'transfer'); 
     const [formData, setFormData] = useState({ employeeId: '', obraId: '', vendorName: '', observation: '' });
 
     const handleSubmit = (e) => {
@@ -715,9 +808,13 @@ const StockActionModal = ({ tire, employees, obras, onClose, onSave }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
                 <h3 className="text-xl font-bold mb-4">Movimentar Pneu: {tire.fireNumber}</h3>
+                <p className="text-sm text-gray-500 mb-4">Status Atual: <span className="font-bold">{tire.status}</span></p>
                 
                 <div className="flex gap-2 mb-4 flex-wrap">
-                    <button type="button" onClick={() => setActionType('transfer')} className={`px-3 py-1 rounded text-sm ${actionType === 'transfer' ? 'bg-orange-600 text-white' : 'bg-gray-200'}`}>Step/Reserva</button>
+                    {/* Se está em Step, permitir devolver. Se está em Estoque, permitir Step */}
+                    {tire.status !== 'Step/Reserva' && <button type="button" onClick={() => setActionType('transfer')} className={`px-3 py-1 rounded text-sm ${actionType === 'transfer' ? 'bg-orange-600 text-white' : 'bg-gray-200'}`}>Step/Reserva</button>}
+                    
+                    {/* Sempre permitir Recap/Sucata/Devolver */}
                     <button type="button" onClick={() => setActionType('maintenance')} className={`px-3 py-1 rounded text-sm ${actionType === 'maintenance' ? 'bg-yellow-500 text-white' : 'bg-gray-200'}`}>Recapagem</button>
                     <button type="button" onClick={() => setActionType('scrap')} className={`px-3 py-1 rounded text-sm ${actionType === 'scrap' ? 'bg-red-600 text-white' : 'bg-gray-200'}`}>Sucata</button>
                     {tire.status !== 'Estoque' && <button type="button" onClick={() => setActionType('restock')} className={`px-3 py-1 rounded text-sm ${actionType === 'restock' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Devolver Estoque</button>}
@@ -727,6 +824,7 @@ const StockActionModal = ({ tire, employees, obras, onClose, onSave }) => {
                     <div className="space-y-3">
                         {actionType === 'transfer' && (
                             <>
+                                <div className="p-2 bg-orange-50 text-orange-800 text-xs rounded">Ao confirmar, será gerado um Termo de Responsabilidade PDF para download.</div>
                                 <div><label className="block text-sm font-bold mb-1">Funcionário Resp.</label><select required className="w-full p-2 border rounded" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})}><option value="">-- Selecione --</option>{employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
                                 <div><label className="block text-sm font-bold mb-1">Obra</label><select required className="w-full p-2 border rounded" value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})}><option value="">-- Selecione --</option>{obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></div>
                             </>
@@ -743,6 +841,33 @@ const StockActionModal = ({ tire, employees, obras, onClose, onSave }) => {
                         <div><label className="block text-sm font-bold mb-1">Observação</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
                     </div>
                     <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Confirmar</button></div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+// --- MODAL DE STEP RÁPIDO (Botão da aba estoque) ---
+const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
+    const [formData, setFormData] = useState({ tireId: '', employeeId: '', obraId: '', observation: '' });
+    const handleSubmit = (e) => { 
+        e.preventDefault(); 
+        const employee = employees.find(e => e.id === formData.employeeId);
+        const obra = obras.find(o => o.id === formData.obraId);
+        onSave({ ...formData, employeeName: employee?.nome || 'N/A', obraName: obra?.nome || 'N/A', date: new Date().toISOString().split('T')[0] }); 
+    };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+                <h3 className="text-xl font-bold mb-4">Enviar Step/Reserva (Rápido)</h3>
+                <form onSubmit={handleSubmit}>
+                    <div className="space-y-3">
+                        <div><label className="block text-sm font-bold mb-1">Pneu</label><select required className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Funcionário</label><select required className="w-full p-2 border rounded" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})}><option value="">-- Selecione --</option>{employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Obra</label><select required className="w-full p-2 border rounded" value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})}><option value="">-- Selecione --</option>{obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Obs</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
+                    </div>
+                    <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded">Enviar</button></div>
                 </form>
             </div>
         </div>
@@ -766,7 +891,7 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
                 <p className="text-sm text-gray-600 mb-4">{vehicle.placa} - {position}</p>
                 <div className="space-y-3">
                     {type === 'install' ? (
-                        <div><label className="block text-sm font-bold mb-1">Selecionar Pneu</label><select className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand} ({t.size})</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Selecionar Pneu do Estoque</label><select className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand} ({t.size})</option>)}</select></div>
                     ) : <div className="p-3 bg-red-50 font-bold text-red-800">Removendo: {tire?.fireNumber}</div>}
                     <div className="grid grid-cols-2 gap-2">
                         <div className="col-span-2"><label className="block text-sm font-bold mb-1">Data</label><input type="date" className="w-full p-2 border rounded" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
@@ -797,7 +922,6 @@ const SingleTireHistoryModal = ({ tireId, apiClient, onClose }) => {
 };
 
 const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
-    // ... (Mantido idêntico à versão anterior, apenas re-renderizando para garantir integridade)
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     useEffect(() => { apiClient.getVehicleTireHistory(vehicle.id).then(data => setHistory(data || [])).finally(() => setLoading(false)); }, [vehicle, apiClient]);
