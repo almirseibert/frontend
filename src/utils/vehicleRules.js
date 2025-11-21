@@ -56,35 +56,76 @@ export const getVehicleMainReading = (vehicle) => {
 };
 
 /**
- * FUNÇÃO CENTRAL DE VALIDAÇÃO DE RESTRIÇÕES (Atualizada e Robusta)
- * Verifica bloqueios manuais, revisões (Data/Km/Hr) e documentos.
+ * NOVA REGRA: Valida consistência da leitura inserida vs leitura atual.
+ * Retorna erro se for menor que a atual ou se o salto for muito grande.
+ */
+export const checkReadingConsistency = (vehicle, newReadingValue) => {
+    const currentInfo = getVehicleMainReading(vehicle);
+    const currentVal = currentInfo.raw || 0;
+    const unit = currentInfo.unit;
+    const newVal = parseFloat(newReadingValue);
+
+    if (isNaN(newVal)) return null; // Ignora se não for número válido
+
+    // 1. Verifica se é menor que a atual (Regressão)
+    // Aceita uma tolerância mínima de 0.1 para arredondamentos, mas bloqueia regressão real
+    if (newVal < currentVal) {
+        return { 
+            type: 'bloqueio', 
+            message: `ERRO DE LEITURA: O valor informado (${newVal} ${unit}) é MENOR que a leitura atual do veículo (${currentVal} ${unit}).` 
+        };
+    }
+
+    // 2. Verifica salto excessivo (Erro de digitação provável)
+    const diff = newVal - currentVal;
+    const tipo = vehicle.tipo || '';
+    const isLightVehicle = vehicleGroups['Veículos Leves'].includes(tipo);
+    const isPrancha = vehicleGroups['Caminhões de Trecho'].includes(tipo) || tipo.includes('Prancha');
+
+    // Definição dos limites
+    let limit = 0;
+    if (unit === 'Km') {
+        // Regra: 500 Km para leves e prancha
+        limit = 500;
+    } else {
+        // Regra: 50 Horas para os demais (Máquinas, Caminhões)
+        limit = 50;
+    }
+
+    if (diff > limit) {
+        return { 
+            type: 'bloqueio', // Bloqueio exige senha
+            message: `ALERTA DE CONSISTÊNCIA: A diferença de leitura (${diff.toFixed(1)} ${unit}) é superior ao limite de segurança (${limit} ${unit}). Verifique se houve erro de digitação.` 
+        };
+    }
+
+    return null; // Tudo ok
+};
+
+/**
+ * FUNÇÃO CENTRAL DE VALIDAÇÃO DE RESTRIÇÕES (Atualizada)
  */
 export const checkVehicleRestrictions = (vehicle, revisions = []) => {
     const issues = [];
     const now = new Date();
-    now.setHours(0, 0, 0, 0); // Zera hora para comparação justa de datas
+    now.setHours(0, 0, 0, 0); 
     
     const thirtyDaysFromNow = new Date(now);
     thirtyDaysFromNow.setDate(now.getDate() + 30);
 
-    // 1. Bloqueio Manual (Checkbox "Não Pode Circular")
-    // Robustez: Verifica 0 (number), false (boolean) e '0' (string)
+    // 1. Bloqueio Manual
     const isBlocked = vehicle.canCirculate === false || vehicle.canCirculate === 0 || vehicle.canCirculate === '0';
     if (isBlocked) {
         issues.push({ type: 'bloqueio', message: "BLOQUEIO MANUAL: Veículo marcado como 'NÃO PODE CIRCULAR'." });
     }
 
     // 2. Revisões
-    // Encontra a revisão ativa para o veículo
     const revision = revisions.find(r => r.vehicleId === vehicle.id);
-    
     if (revision) {
-        // --- Validação por DATA ---
+        // Por Data
         if (revision.proximaRevisaoData) {
             const revDate = new Date(revision.proximaRevisaoData);
             revDate.setHours(0, 0, 0, 0);
-            // Ajuste de timezone simples se necessário, mas mantendo raw date
-            
             const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
             const dataAviso = new Date(revDate);
             dataAviso.setDate(dataAviso.getDate() - avisoDias);
@@ -96,25 +137,18 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
             }
         }
 
-        // --- Validação por LEITURA (Km/Hr) ---
+        // Por Leitura
         const readingInfo = getVehicleMainReading(vehicle);
-        const unit = readingInfo.unit; // 'Km' ou 'Hr'
+        const unit = readingInfo.unit; 
         const currentReading = readingInfo.raw;
-
-        // Lógica inteligente para buscar o valor alvo correto
         let proximaLeitura = 0;
         
         if (unit === 'Hr') {
-            // Se é máquina/caminhão, tenta pegar o valor de Horas primeiro
             proximaLeitura = parseFloat(revision.proximaRevisaoHorimetro || 0);
-            
-            // Fallback: Se proximaRevisaoHorimetro for 0 ou nulo, verifica se o usuário salvou em Odometro por engano
-            // (Comum em sistemas migrados onde 'odometro' era campo genérico)
             if (proximaLeitura === 0 && revision.proximaRevisaoOdometro > 0) {
                 proximaLeitura = parseFloat(revision.proximaRevisaoOdometro);
             }
         } else {
-            // Veículos leves e Prancha
             proximaLeitura = parseFloat(revision.proximaRevisaoOdometro || 0);
         }
 
@@ -130,7 +164,7 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
         }
     }
 
-    // 3. Documentos (Apenas para Caminhões e Caminhões de Trecho)
+    // 3. Documentos
     const tipo = vehicle.tipo || '';
     const isTruck = vehicleGroups['Caminhões'].includes(tipo) || vehicleGroups['Caminhões de Trecho'].includes(tipo) || tipo.includes('Caminhão');
 
@@ -145,7 +179,6 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
             if (doc.date) {
                 const d = new Date(doc.date);
                 d.setHours(0, 0, 0, 0);
-                // Adiciona 12h para evitar bugs de fuso horário na conversão
                 const compareDate = new Date(d); 
                 compareDate.setHours(12);
 

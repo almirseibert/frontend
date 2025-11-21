@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Shield } from 'lucide-react';
 import FinishObraModal from './FinishObraModal';
-import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
+import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions, checkReadingConsistency } from '../utils/vehicleRules';
 
 const ObraAllocationModal = ({ 
     user, 
@@ -31,6 +31,8 @@ const ObraAllocationModal = ({
     // Estados de Segurança e Alertas
     const [restrictionAlert, setRestrictionAlert] = useState(null);
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+    // Estado para controlar qual ação (Alocar ou Desalocar) foi bloqueada e precisa de senha
+    const [blockedAction, setBlockedAction] = useState(null); 
 
     // --- LÓGICA DE LEITURA CENTRALIZADA ---
     const allowedTypes = getAllowedReadingTypes(vehicle.tipo); 
@@ -59,14 +61,21 @@ const ObraAllocationModal = ({
         // Zera alertas anteriores
         setRestrictionAlert(null);
 
-        const issues = checkVehicleRestrictions(vehicle, revisions);
+        // 1. Checa restrições estáticas (Documentos, Revisão, Bloqueio Manual)
+        const staticIssues = checkVehicleRestrictions(vehicle, revisions);
         
-        // Filtra apenas erros bloqueantes ou avisos sérios
-        const blockingIssues = issues.filter(i => i.type === 'bloqueio' || i.type === 'vencido');
-        const warningIssues = issues.filter(i => i.type === 'aviso');
+        // 2. Checa consistência da leitura (Km menor ou salto absurdo)
+        const consistencyIssue = checkReadingConsistency(vehicle, readingValue);
+        if (consistencyIssue) {
+            staticIssues.push(consistencyIssue);
+        }
+
+        // Filtra erros bloqueantes ou avisos
+        const blockingIssues = staticIssues.filter(i => i.type === 'bloqueio' || i.type === 'vencido');
+        const warningIssues = staticIssues.filter(i => i.type === 'aviso');
 
         if (blockingIssues.length > 0 || warningIssues.length > 0) {
-            setRestrictionAlert(issues.map(i => i.message));
+            setRestrictionAlert(staticIssues.map(i => i.message));
             return false; // Impede execução direta
         }
         return true; // Tudo limpo
@@ -83,7 +92,7 @@ const ObraAllocationModal = ({
 
         // Verifica restrições ANTES de alocar
         if (!validateRestrictions()) {
-            // Se retornou false, o estado restrictionAlert foi preenchido e o UI vai mostrar o alerta
+            setBlockedAction(() => executeAllocate); // Armazena a ação para executar após senha
             return; 
         }
 
@@ -112,18 +121,19 @@ const ObraAllocationModal = ({
     };
 
     const handleDeallocate = async (shouldFinalizeObra = false, dataFimObra = null) => {
-        const readingFloat = parseFloat(readingValue);
-         if (readingValue === '' || isNaN(readingFloat)) {
-             setAlertMessage(`Preencha o ${readingLabel} de Saída.`);
-             return;
-         }
-         
-         const entryReading = currentObraAllocation?.details?.[`${readingType}Entrada`] || 0;
-         if (currentObraAllocation && readingFloat < entryReading) {
-             setAlertMessage(`A leitura de saída (${readingFloat}) não pode ser menor que a leitura de entrada (${entryReading}).`);
-             return;
+         // Valida restrições também na saída (importante para validar o Km de saída)
+         if (!validateRestrictions()) {
+            // Armazena a ação de desalocar (com os parâmetros corretos)
+            setBlockedAction(() => () => executeDeallocate(shouldFinalizeObra, dataFimObra));
+            return;
          }
 
+         executeDeallocate(shouldFinalizeObra, dataFimObra);
+    };
+
+    const executeDeallocate = async (shouldFinalizeObra, dataFimObra) => {
+        const readingFloat = parseFloat(readingValue);
+        
         setIsSaving(true);
         try {
             await apiClient.deallocateVehicleFromObra(vehicle.id, {
@@ -147,6 +157,12 @@ const ObraAllocationModal = ({
     };
 
     const checkAndDeallocate = () => {
+        const readingFloat = parseFloat(readingValue);
+        if (readingValue === '' || isNaN(readingFloat)) {
+            setAlertMessage(`Preencha o ${readingLabel} de Saída.`);
+            return;
+        }
+
         const obraData = obras.find(o => o.id === vehicle.obraAtualId);
         if (!obraData) { 
             handleDeallocate();
@@ -174,26 +190,26 @@ const ObraAllocationModal = ({
                     </div>
 
                     {/* --- PAINEL DE ALERTA DE RESTRIÇÕES --- */}
-                    {restrictionAlert && restrictionAlert.length > 0 && !currentObraAllocation && (
+                    {restrictionAlert && restrictionAlert.length > 0 && (
                         <div className="bg-red-50 p-4 border-b border-red-100 animate-pulse-once">
                             <div className="flex items-start gap-3">
                                 <AlertTriangle className="text-red-600 shrink-0 mt-1" size={24} />
                                 <div className="flex-1">
-                                    <h3 className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">Veículo com Restrições</h3>
+                                    <h3 className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">Atenção: Restrições Detectadas</h3>
                                     <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
                                         {restrictionAlert.map((msg, idx) => (
                                             <li key={idx}>{msg}</li>
                                         ))}
                                     </ul>
                                     <div className="mt-3 bg-white bg-opacity-50 p-2 rounded text-xs text-red-800 font-semibold border border-red-100">
-                                        É necessária autorização de supervisor (Senha) para prosseguir.
+                                        É necessária autorização de supervisor (Senha) para prosseguir com esta leitura ou status.
                                     </div>
                                     <button 
                                         type="button"
                                         onClick={() => setShowPasswordConfirm(true)}
                                         className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 shadow-sm flex items-center justify-center gap-2 transition-all"
                                     >
-                                        <Shield size={16} /> AUTORIZAR ALOCAÇÃO
+                                        <Shield size={16} /> AUTORIZAR AÇÃO
                                     </button>
                                 </div>
                             </div>
@@ -206,6 +222,7 @@ const ObraAllocationModal = ({
                         </div>
 
                         {currentObraAllocation ? (
+                            // --- DESALOCAÇÃO ---
                             <div className="space-y-4">
                                 <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
                                     Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>
@@ -237,11 +254,17 @@ const ObraAllocationModal = ({
                                          required
                                      />
                                 </div>
-                                <button onClick={checkAndDeallocate} disabled={isSaving || !dataSaida || readingValue === '' || !locationAfterDeallocate} className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-300 flex items-center justify-center gap-2 text-sm">
+                                <button 
+                                    onClick={checkAndDeallocate} 
+                                    // Botão desabilitado se houver restrição ativa (restrictionAlert != null) para forçar o uso do botão "Autorizar"
+                                    disabled={isSaving || !dataSaida || readingValue === '' || !locationAfterDeallocate || restrictionAlert !== null} 
+                                    className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-gray-400 flex items-center justify-center gap-2 text-sm"
+                                >
                                      {isSaving ? <><Loader className="animate-spin" size={18}/> Finalizando...</> : "Finalizar Alocação"}
                                 </button>
                             </div>
                         ) : (
+                            // --- ALOCAÇÃO ---
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Obra Destino *</label>
@@ -275,7 +298,6 @@ const ObraAllocationModal = ({
                                 </div>
                                 <button 
                                     onClick={handleAllocateClick} 
-                                    // Se houver alerta (restrictionAlert != null), o botão fica desabilitado visualmente para forçar o usuário a ler o erro, ou usa a senha
                                     disabled={isSaving || !obraId || !employeeId || readingValue === '' || restrictionAlert !== null} 
                                     className="w-full px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm transition-colors"
                                 >
@@ -307,12 +329,18 @@ const ObraAllocationModal = ({
 
             {showPasswordConfirm && PasswordConfirmationModal && (
                 <PasswordConfirmationModal
-                    message="ATENÇÃO: Este veículo possui restrições críticas (Bloqueio Manual, Documentos Vencidos ou Revisão Vencida). Digite sua senha de supervisor para autorizar esta alocação."
+                    message="ATENÇÃO: O valor informado está fora dos padrões (menor que o atual ou diferença muito grande). Digite sua senha de supervisor para CONFIRMAR e ATUALIZAR o veículo com este novo valor."
                     onConfirm={async () => {
-                        await executeAllocate(); 
+                        if (blockedAction) {
+                            await blockedAction(); // Executa a função que estava bloqueada (alocar ou desalocar)
+                        }
                         setShowPasswordConfirm(false);
+                        setBlockedAction(null);
                     }}
-                    onClose={() => setShowPasswordConfirm(false)}
+                    onClose={() => {
+                        setShowPasswordConfirm(false);
+                        setBlockedAction(null);
+                    }}
                 />
             )}
         </>
