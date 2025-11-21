@@ -31,7 +31,6 @@ const ObraAllocationModal = ({
     // Estados de Segurança e Alertas
     const [restrictionAlert, setRestrictionAlert] = useState(null);
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
-    // Estado para controlar qual ação (Alocar ou Desalocar) foi bloqueada e precisa de senha
     const [blockedAction, setBlockedAction] = useState(null); 
 
     // --- LÓGICA DE LEITURA CENTRALIZADA ---
@@ -58,27 +57,21 @@ const ObraAllocationModal = ({
 
     // --- VERIFICAÇÃO DE RESTRIÇÕES ---
     const validateRestrictions = () => {
-        // Zera alertas anteriores
         setRestrictionAlert(null);
-
-        // 1. Checa restrições estáticas (Documentos, Revisão, Bloqueio Manual)
         const staticIssues = checkVehicleRestrictions(vehicle, revisions);
-        
-        // 2. Checa consistência da leitura (Km menor ou salto absurdo)
         const consistencyIssue = checkReadingConsistency(vehicle, readingValue);
         if (consistencyIssue) {
             staticIssues.push(consistencyIssue);
         }
 
-        // Filtra erros bloqueantes ou avisos
         const blockingIssues = staticIssues.filter(i => i.type === 'bloqueio' || i.type === 'vencido');
         const warningIssues = staticIssues.filter(i => i.type === 'aviso');
 
         if (blockingIssues.length > 0 || warningIssues.length > 0) {
             setRestrictionAlert(staticIssues.map(i => i.message));
-            return false; // Impede execução direta
+            return false; 
         }
-        return true; // Tudo limpo
+        return true; 
     };
 
     const handleAllocateClick = (e) => {
@@ -90,9 +83,8 @@ const ObraAllocationModal = ({
             return;
         }
 
-        // Verifica restrições ANTES de alocar
         if (!validateRestrictions()) {
-            setBlockedAction(() => executeAllocate); // Armazena a ação para executar após senha
+            setBlockedAction(() => executeAllocate); 
             return; 
         }
 
@@ -121,13 +113,10 @@ const ObraAllocationModal = ({
     };
 
     const handleDeallocate = async (shouldFinalizeObra = false, dataFimObra = null) => {
-         // Valida restrições também na saída (importante para validar o Km de saída)
          if (!validateRestrictions()) {
-            // Armazena a ação de desalocar (com os parâmetros corretos)
             setBlockedAction(() => () => executeDeallocate(shouldFinalizeObra, dataFimObra));
             return;
          }
-
          executeDeallocate(shouldFinalizeObra, dataFimObra);
     };
 
@@ -182,132 +171,141 @@ const ObraAllocationModal = ({
 
     return (
         <>
+            {/* Fundo escuro */}
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
-                    <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                {/* Container Modal: flex-col e max-h-[90vh] para garantir que cabe na tela */}
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
+                    
+                    {/* 1. CABEÇALHO FIXO */}
+                    <div className="p-6 border-b flex justify-between items-center bg-gray-50 flex-none rounded-t-lg">
                         <h2 className="text-xl font-bold text-gray-800">Alocação de Veículo em Obra</h2>
                         <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                     </div>
 
-                    {/* --- PAINEL DE ALERTA DE RESTRIÇÕES --- */}
-                    {restrictionAlert && restrictionAlert.length > 0 && (
-                        <div className="bg-red-50 p-4 border-b border-red-100 animate-pulse-once">
-                            <div className="flex items-start gap-3">
-                                <AlertTriangle className="text-red-600 shrink-0 mt-1" size={24} />
-                                <div className="flex-1">
-                                    <h3 className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">Atenção: Restrições Detectadas</h3>
-                                    <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
-                                        {restrictionAlert.map((msg, idx) => (
-                                            <li key={idx}>{msg}</li>
-                                        ))}
-                                    </ul>
-                                    <div className="mt-3 bg-white bg-opacity-50 p-2 rounded text-xs text-red-800 font-semibold border border-red-100">
-                                        É necessária autorização de supervisor (Senha) para prosseguir com esta leitura ou status.
+                    {/* 2. ÁREA DE ROLAGEM (Alertas + Formulário) */}
+                    <div className="flex-1 overflow-y-auto">
+                        
+                        {/* Painel de Alerta (dentro da rolagem) */}
+                        {restrictionAlert && restrictionAlert.length > 0 && (
+                            <div className="bg-red-50 p-4 border-b border-red-100 animate-pulse-once">
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle className="text-red-600 shrink-0 mt-1" size={24} />
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-red-800 text-sm uppercase tracking-wide mb-1">Atenção: Restrições Detectadas</h3>
+                                        <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+                                            {restrictionAlert.map((msg, idx) => (
+                                                <li key={idx}>{msg}</li>
+                                            ))}
+                                        </ul>
+                                        <div className="mt-3 bg-white bg-opacity-50 p-2 rounded text-xs text-red-800 font-semibold border border-red-100">
+                                            É necessária autorização de supervisor (Senha) para prosseguir.
+                                        </div>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setShowPasswordConfirm(true)}
+                                            className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 shadow-sm flex items-center justify-center gap-2 transition-all"
+                                        >
+                                            <Shield size={16} /> AUTORIZAR AÇÃO
+                                        </button>
                                     </div>
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowPasswordConfirm(true)}
-                                        className="mt-3 w-full py-2 bg-red-600 text-white rounded font-bold text-sm hover:bg-red-700 shadow-sm flex items-center justify-center gap-2 transition-all"
-                                    >
-                                        <Shield size={16} /> AUTORIZAR AÇÃO
-                                    </button>
                                 </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                        <div className="text-sm text-gray-600 mb-2 bg-gray-100 p-2 rounded">
-                            <strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo} ({vehicle.placa})
-                        </div>
-
-                        {currentObraAllocation ? (
-                            // --- DESALOCAÇÃO ---
-                            <div className="space-y-4">
-                                <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
-                                    Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Data de Saída *</label>
-                                    <input type="date" value={dataSaida} onChange={e => setDataSaida(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" required/>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Saída *</label>
-                                    <input
-                                        type="number"
-                                        step="any"
-                                        value={readingValue}
-                                        onChange={e => setReadingValue(e.target.value)}
-                                        placeholder={currentObraAllocation.details?.[`${readingType}Entrada`] ? `Entrada: ${currentObraAllocation.details[`${readingType}Entrada`]}` : ''}
-                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Local de Disponibilidade após Saída *</label>
-                                     <input
-                                         type="text"
-                                         value={locationAfterDeallocate}
-                                         onChange={e => setLocationAfterDeallocate(e.target.value)}
-                                         placeholder="Ex: Pátio MAK Lajeado"
-                                         className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
-                                         required
-                                     />
-                                </div>
-                                <button 
-                                    onClick={checkAndDeallocate} 
-                                    // Botão desabilitado se houver restrição ativa (restrictionAlert != null) para forçar o uso do botão "Autorizar"
-                                    disabled={isSaving || !dataSaida || readingValue === '' || !locationAfterDeallocate || restrictionAlert !== null} 
-                                    className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-gray-400 flex items-center justify-center gap-2 text-sm"
-                                >
-                                     {isSaving ? <><Loader className="animate-spin" size={18}/> Finalizando...</> : "Finalizar Alocação"}
-                                </button>
-                            </div>
-                        ) : (
-                            // --- ALOCAÇÃO ---
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Obra Destino *</label>
-                                    <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 text-sm" required>
-                                        <option value="">Selecione...</option>
-                                        {activeObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Funcionário Responsável *</label>
-                                    <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 text-sm" required>
-                                        <option value="">Selecione...</option>
-                                        {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} ({e.funcao})</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Data de Entrada *</label>
-                                    <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm" required/>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Entrada *</label>
-                                    <input
-                                        type="number"
-                                        step="any"
-                                        value={readingValue} 
-                                        onChange={e => setReadingValue(e.target.value)}
-                                        placeholder="Leitura atual"
-                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <button 
-                                    onClick={handleAllocateClick} 
-                                    disabled={isSaving || !obraId || !employeeId || readingValue === '' || restrictionAlert !== null} 
-                                    className="w-full px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm transition-colors"
-                                >
-                                    {isSaving ? <><Loader className="animate-spin" size={18}/> Alocando...</> : "Alocar Veículo"}
-                                </button>
                             </div>
                         )}
+
+                        {/* Formulário */}
+                        <div className="p-6 space-y-4">
+                            <div className="text-sm text-gray-600 mb-2 bg-gray-100 p-2 rounded">
+                                <strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo} ({vehicle.placa})
+                            </div>
+
+                            {currentObraAllocation ? (
+                                // --- MODO DESALOCAR ---
+                                <div className="space-y-4">
+                                    <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
+                                        Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Data de Saída *</label>
+                                        <input type="date" value={dataSaida} onChange={e => setDataSaida(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" required/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Saída *</label>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={readingValue}
+                                            onChange={e => setReadingValue(e.target.value)}
+                                            placeholder={currentObraAllocation.details?.[`${readingType}Entrada`] ? `Entrada: ${currentObraAllocation.details[`${readingType}Entrada`]}` : ''}
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Local de Disponibilidade após Saída *</label>
+                                         <input
+                                             type="text"
+                                             value={locationAfterDeallocate}
+                                             onChange={e => setLocationAfterDeallocate(e.target.value)}
+                                             placeholder="Ex: Pátio MAK Lajeado"
+                                             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                                             required
+                                         />
+                                    </div>
+                                    <button 
+                                        onClick={checkAndDeallocate} 
+                                        disabled={isSaving || !dataSaida || readingValue === '' || !locationAfterDeallocate || restrictionAlert !== null} 
+                                        className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-gray-400 flex items-center justify-center gap-2 text-sm"
+                                    >
+                                         {isSaving ? <><Loader className="animate-spin" size={18}/> Finalizando...</> : "Finalizar Alocação"}
+                                    </button>
+                                </div>
+                            ) : (
+                                // --- MODO ALOCAR ---
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Obra Destino *</label>
+                                        <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 text-sm" required>
+                                            <option value="">Selecione...</option>
+                                            {activeObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Funcionário Responsável *</label>
+                                        <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full p-2 border rounded bg-white focus:ring-2 focus:ring-green-500 text-sm" required>
+                                            <option value="">Selecione...</option>
+                                            {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} ({e.funcao})</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Data de Entrada *</label>
+                                        <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm" required/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Entrada *</label>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={readingValue} 
+                                            onChange={e => setReadingValue(e.target.value)}
+                                            placeholder="Leitura atual"
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm"
+                                            required
+                                        />
+                                    </div>
+                                    <button 
+                                        onClick={handleAllocateClick} 
+                                        disabled={isSaving || !obraId || !employeeId || readingValue === '' || restrictionAlert !== null} 
+                                        className="w-full px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm transition-colors"
+                                    >
+                                        {isSaving ? <><Loader className="animate-spin" size={18}/> Alocando...</> : "Alocar Veículo"}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     
-                    <div className="p-4 bg-gray-50 border-t flex justify-end">
+                    {/* 3. RODAPÉ FIXO */}
+                    <div className="p-4 bg-gray-50 border-t flex justify-end flex-none rounded-b-lg">
                         <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-300" disabled={isSaving}>Fechar</button>
                     </div>
                 </div>
@@ -329,10 +327,10 @@ const ObraAllocationModal = ({
 
             {showPasswordConfirm && PasswordConfirmationModal && (
                 <PasswordConfirmationModal
-                    message="ATENÇÃO: O valor informado está fora dos padrões (menor que o atual ou diferença muito grande). Digite sua senha de supervisor para CONFIRMAR e ATUALIZAR o veículo com este novo valor."
+                    message="ATENÇÃO: Existem restrições ou inconsistências de leitura. Digite sua senha de supervisor para CONFIRMAR."
                     onConfirm={async () => {
                         if (blockedAction) {
-                            await blockedAction(); // Executa a função que estava bloqueada (alocar ou desalocar)
+                            await blockedAction();
                         }
                         setShowPasswordConfirm(false);
                         setBlockedAction(null);
