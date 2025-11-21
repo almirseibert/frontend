@@ -70,6 +70,7 @@ const TiresPage = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('todos'); 
     const [showNewTireModal, setShowNewTireModal] = useState(false);
+    const [showSpareTireModal, setShowSpareTireModal] = useState(false); // CORREÇÃO: Estado reintroduzido
     const [showStockActionModal, setShowStockActionModal] = useState(false); 
     const [selectedTireForAction, setSelectedTireForAction] = useState(null);
     const [showEditTireModal, setShowEditTireModal] = useState(false);
@@ -87,7 +88,7 @@ const TiresPage = ({
     // Estados Relatórios
     const [reportFilters, setReportFilters] = useState({
         estoque: true, emUso: true, step: true, recapagem: true, sucata: true,
-        size: '' // Novo filtro de medida
+        size: ''
     });
 
     const loadTires = async () => {
@@ -107,7 +108,7 @@ const TiresPage = ({
         loadTires();
     }, []);
 
-    // Disponível para instalação em veículos (Estoque e Retornados)
+    // Disponível para instalação em veículos (Estoque)
     const availableStockTires = useMemo(() => {
         return tires.filter(t => t.status === 'Estoque');
     }, [tires]);
@@ -511,7 +512,7 @@ const TiresPage = ({
                                             <button onClick={() => { setTireHistoryId(tire.id); }} title="Histórico" className="p-1.5 text-gray-500 hover:bg-gray-200 rounded"><History size={16} /></button>
                                             <button onClick={() => { setSelectedTireForAction(tire); setShowEditTireModal(true); }} title="Editar" className="p-1.5 text-blue-500 hover:bg-blue-100 rounded"><Edit size={16} /></button>
                                             
-                                            {/* Botão de Movimentar disponível para todos, EXCETO os que já estão instalados em veículos (Em Uso) */}
+                                            {/* Botão de Ação disponível para todos, EXCETO os que já estão instalados em veículos (Em Uso) */}
                                             {tire.status !== 'Em Uso' && (
                                                 <button 
                                                     onClick={() => { setSelectedTireForAction(tire); setShowStockActionModal(true); }} 
