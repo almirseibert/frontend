@@ -6,31 +6,27 @@ import {
     CheckCircle,
     X,
     Loader,
-    ShieldAlert // Ícone para o aviso de liberação
+    AlertTriangle
 } from 'lucide-react';
 
-// Importa o componente de proteção
 import ProtectedComponent from '../components/ProtectedComponent';
+// IMPORTA A REGRA DE CONSISTÊNCIA
+import { checkReadingConsistency } from '../utils/vehicleRules';
 
-// --- Função Auxiliar de Data (Nova) ---
-// Verifica se a string da DB é uma data válida (não nula, não vazia, não '0000-00-00')
 const isValidDbDate = (dateString) => {
-    // Retorna true se a string for válida e começar com um ano razoável (ex: '2025-')
     return dateString && dateString.length > 8 && !dateString.startsWith('0000');
 };
 
-// --- Componente Principal ---
 const RevisionsPage = ({
     user, vehicles = [], revisions = [],
-    setAlertMessage, vehicleGroups = {}, apiClient, reloadData
+    setAlertMessage, vehicleGroups = {}, apiClient, reloadData,
+    PasswordConfirmationModal // Recebe o Modal de Senha padrão
 }) => {
-    // Estados da UI
     const [editingRevision, setEditingRevision] = useState(null);
     const [completingRevision, setCompletingRevision] = useState(null);
     const [historyModalVehicle, setHistoryModalVehicle] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Combina dados de veículos e revisões
     const combinedData = useMemo(() => {
         const validVehicles = Array.isArray(vehicles) ? vehicles : [];
         const validRevisions = Array.isArray(revisions) ? revisions : [];
@@ -39,10 +35,7 @@ const RevisionsPage = ({
 
         return sortedVehicles.map(vehicle => {
             if (!vehicle) return null;
-
-            // O backend (getAllRevisionPlans) agora *sempre* envia o `vehicleId` correto.
             const revision = validRevisions.find(r => r.vehicleId === vehicle.id) || { vehicleId: vehicle.id, historico: [] };
-
             return { ...vehicle, revision };
         }).filter(item => {
             if (!item) return false;
@@ -55,7 +48,6 @@ const RevisionsPage = ({
         });
     }, [vehicles, revisions, searchTerm]);
 
-     // Formata data da próxima revisão
      const formatNextRevisionDate = (dateString) => {
          if (!isValidDbDate(dateString)) return 'N/A';
          try {
@@ -63,7 +55,6 @@ const RevisionsPage = ({
          } catch (e) { return 'Inválida'; }
      };
 
-     // Formata próxima leitura (Odometro/Horimetro)
      const formatNextRevisionReading = (revision, vehicleType) => {
         if (!revision) return 'N/A';
         
@@ -71,12 +62,10 @@ const RevisionsPage = ({
         const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicleType));
         
         let reading, unit;
-        // Regras de Negócio (13/11/2025)
         if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
             reading = revision.proximaRevisaoHorimetro;
             unit = 'Hr';
         } else {
-            // Leves e Caminhões de Trecho
             reading = revision.proximaRevisaoOdometro;
             unit = 'Km';
         }
@@ -85,11 +74,9 @@ const RevisionsPage = ({
         return `${parseFloat(reading).toFixed(1)} ${unit}`;
      };
 
-    // Renderização Principal
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h1 className="text-3xl font-bold mb-6 text-gray-800">Agendamento de Revisões</h1>
-            {/* Busca */}
             <div className="mb-6 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
                 <input
                     type="text"
@@ -99,9 +86,7 @@ const RevisionsPage = ({
                     className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500 text-sm"
                 />
             </div>
-            {/* Tabela */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                 {/* Cabeçalho Desktop */}
                 <div className="hidden md:grid grid-cols-8 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
                     <div className="col-span-2">Veículo</div>
                     <div className="text-right">Leitura Atual</div>
@@ -110,20 +95,15 @@ const RevisionsPage = ({
                     <div className="col-span-2">Descrição</div>
                     <div className="text-center">Ações</div>
                 </div>
-                 {/* Linhas */}
                 {combinedData.map(item => {
                     if (!item || !item.revision) return null;
                     
                     const { revision, ...vehicle } = item;
 
-                    // --- MELHORIA (Highlight de Linha) ---
-                    
-                    // 1. Determina tipo de leitura
                     const vehicleGroup = Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo));
                     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
                     const readingUnit = isHourBased ? 'Hr' : 'Km';
 
-                    // 2. Pega Leitura Atual (como número e string)
                     let currentReading = 0;
                     if (isHourBased) {
                         currentReading = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
@@ -132,62 +112,39 @@ const RevisionsPage = ({
                     }
                     const currentReadingStr = `${parseFloat(currentReading).toFixed(1)} ${readingUnit}`;
 
-                    // 3. Pega Leitura e Data Agendada
                     const plannedReading = (isHourBased ? revision.proximaRevisaoHorimetro : revision.proximaRevisaoOdometro) || 0;
                     const plannedDateStr = revision.proximaRevisaoData;
 
-                    // 4. Pega Limites de Aviso (com defaults)
                     const warningDays = revision.avisoAntecedenciaDias || 30;
                     const warningReading = revision.avisoAntecedenciaKmHr || (isHourBased ? 50 : 500);
 
-                    // 5. Calcula Status
                     let isOverdue = false;
                     let isWarning = false;
                     const today = new Date();
-                    today.setHours(0, 0, 0, 0); // Normaliza para meia-noite
+                    today.setHours(0, 0, 0, 0); 
 
-                    // Verifica Data
                     if (isValidDbDate(plannedDateStr)) {
                         try {
                             const plannedDate = new Date(plannedDateStr); 
                             const diffTime = plannedDate.getTime() - today.getTime();
                             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            
-                            if (diffDays <= 0) {
-                                isOverdue = true;
-                            } else if (diffDays <= warningDays) {
-                                isWarning = true;
-                            }
-                        } catch (e) { /* ignora data inválida */ }
+                            if (diffDays <= 0) isOverdue = true;
+                            else if (diffDays <= warningDays) isWarning = true;
+                        } catch (e) { }
                     }
 
-                    // Verifica Leitura
                     if (plannedReading > 0 && currentReading > 0) {
                         const diffReading = plannedReading - currentReading;
-
-                        if (diffReading <= 0) {
-                            isOverdue = true; 
-                        } else if (diffReading <= warningReading) {
-                            isWarning = true;
-                        }
+                        if (diffReading <= 0) isOverdue = true; 
+                        else if (diffReading <= warningReading) isWarning = true;
                     }
 
-                    // 6. Define a classe da linha
-                    let rowBgClass = 'bg-white hover:bg-gray-50'; // Default
-                    if (isOverdue) {
-                        rowBgClass = 'bg-red-50 hover:bg-red-100'; // Vermelho (Vencido)
-                    } else if (isWarning) {
-                        rowBgClass = 'bg-yellow-50 hover:bg-yellow-100'; // Amarelo (Alerta)
-                    }
-                    // --- FIM MELHORIA (Highlight de Linha) ---
+                    let rowBgClass = 'bg-white hover:bg-gray-50'; 
+                    if (isOverdue) rowBgClass = 'bg-red-50 hover:bg-red-100'; 
+                    else if (isWarning) rowBgClass = 'bg-yellow-50 hover:bg-yellow-100'; 
 
-
-                    // --- MELHORIA (Ícone Histórico Verde) ---
                     const hasHistory = revision.historico && revision.historico.length > 0;
-                    const historyIconClass = hasHistory 
-                        ? 'text-green-600 hover:text-green-700' // Verde
-                        : 'text-gray-400 hover:text-blue-600'; // Padrão
-                    // --- FIM MELHORIA (Ícone Histórico Verde) ---
+                    const historyIconClass = hasHistory ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-blue-600';
 
                     const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
                     const nextReadingStr = formatNextRevisionReading(revision, vehicle.tipo);
@@ -195,68 +152,53 @@ const RevisionsPage = ({
                     const description = revision.descricao || '-'; 
 
                     return (
-                        <div 
-                            key={vehicle.id} 
-                            className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm ${rowBgClass}`}
-                        >
-                            {/* Veículo */}
+                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm ${rowBgClass}`}>
                             <div className="md:col-span-2">
                                 <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
                                 <p className="text-xs text-gray-500">{vehicle.placa}</p>
                             </div>
-                            {/* Leitura Atual */}
                             <div className="text-left md:text-right font-semibold text-blue-600">{currentReadingStr}</div>
-                             {/* Próxima Data */}
                             <div className="text-left md:text-center">{nextDateStr}</div>
-                             {/* Próxima Leitura */}
                             <div className="text-left md:text-right">{nextReadingStr}</div>
-                            {/* Descrição */}
                             <div className="md:col-span-2 text-gray-700">{description}</div>
-                            {/* Ações */}
                             <div className="flex gap-1 justify-start md:justify-center flex-wrap mt-2 md:mt-0">
                                 <ProtectedComponent requiredPermission="editor">
                                     <button onClick={() => setEditingRevision(item)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition-colors" title="Agendar/Editar"><Edit size={14} /></button>
                                      {hasScheduledRevision && <button onClick={() => setCompletingRevision(item)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full transition-colors" title="Concluir"><CheckCircle size={14} /></button>}
                                 </ProtectedComponent>
-                                <button 
-                                    onClick={() => setHistoryModalVehicle(item)} 
-                                    className={`p-1.5 hover:bg-gray-100 rounded-full transition-colors ${historyIconClass}`} 
-                                    title="Histórico"
-                                >
-                                    <Clock size={14} />
-                                </button>
+                                <button onClick={() => setHistoryModalVehicle(item)} className={`p-1.5 hover:bg-gray-100 rounded-full transition-colors ${historyIconClass}`} title="Histórico"><Clock size={14} /></button>
                             </div>
                         </div>
                     );
                 })}
-                 {/* Mensagem Vazia */}
                  {combinedData.length === 0 && (
                      <p className="p-6 text-center text-gray-500 italic">Nenhum veículo encontrado.</p>
                  )}
             </div>
-            {/* Modais */}
+            
             {editingRevision && <ScheduleRevisionModal user={user} vehicle={editingRevision} onClose={() => setEditingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} />}
-            {completingRevision && <CompleteRevisionModal user={user} vehicle={completingRevision} onClose={() => setCompletingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} />}
+            
+            {/* Modal de Conclusão recebe o PasswordConfirmationModal */}
+            {completingRevision && <CompleteRevisionModal user={user} vehicle={completingRevision} onClose={() => setCompletingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />}
+            
             {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} vehicleGroups={vehicleGroups} />}
         </div>
     );
 };
 
-// Modal para concluir revisão (Usa apiClient)
-const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
+// Modal para concluir revisão (ATUALIZADO COM VALIDAÇÃO)
+const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData, PasswordConfirmationModal }) => {
     const [currentReadingInput, setCurrentReadingInput] = useState(''); 
     const [isSaving, setIsSaving] = useState(false);
     const [detalhes, setDetalhes] = useState('');
 
-    // --- (Senha de Liberação) ---
-    const [showOverride, setShowOverride] = useState(false); 
-    const [overridePassword, setOverridePassword] = useState(''); // Armazena a senha digitada
-    const [overrideMessage, setOverrideMessage] = useState(''); 
-    // --- FIM ---
+    // Estados para controle de Senha e Bloqueio
+    const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+    const [alertReason, setAlertReason] = useState(null);
+    const [blockedAction, setBlockedAction] = useState(null);
 
     const revision = vehicle?.revision;
 
-    // Regras de Negócio
     const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
     
@@ -267,31 +209,25 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         if (isHourBased) {
             currentReadingValue = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
             readingLabel = 'Horímetro Atual (Hr)';
-        } else { // Leves e Caminhões de Trecho
+        } else { 
             currentReadingValue = vehicle.odometro ?? 0;
             readingLabel = 'Odômetro Atual (Km)';
         }
     }
-
 
     useEffect(() => {
         setCurrentReadingInput(currentReadingValue.toString());
         if (revision) {
             setDetalhes(revision.descricao || '');
         }
-        // Reseta o estado de override ao reabrir o modal
-        setShowOverride(false);
-        setOverridePassword('');
-        setOverrideMessage('');
+        setAlertReason(null);
+        setShowPasswordConfirm(false);
     }, [currentReadingValue, revision]);
 
     if (!vehicle || !revision) return null; 
 
-    // Separa a lógica de salvar em uma função reutilizável
-    // --- ALTERAÇÃO: Recebe a senha de liberação ---
-    const performSave = async (liberationPassword = null) => {
+    const performSave = async () => {
         setIsSaving(true);
-        
         const description = detalhes || 'Revisão Padrão';
         const readingFloat = parseFloat(currentReadingInput);
 
@@ -302,25 +238,22 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             realizadaEm: new Date().toISOString(), 
             realizadaPor: user?.email || 'Sistema', 
             descricao: description, 
-            // --- ALTERAÇÃO: Envia a senha para o backend ---
-            overridePassword: liberationPassword 
         };
 
         try {
             await apiClient.completeRevision(dataParaApi);
-            setAlertMessage('Revisão concluída!');
+            setAlertMessage('Revisão concluída e veículo atualizado!');
             reloadData(); 
             onClose();
         } catch (error) {
             console.error("Erro ao concluir revisão:", error);
-            // --- ALTERAÇÃO: Exibe a mensagem de erro vinda do backend (ex: "Senha incorreta") ---
             setAlertMessage(error.message || "Falha ao concluir a revisão.");
         } finally {
             setIsSaving(false);
         }
     };
 
-    // Função do botão "Concluir Revisão" (valida)
+    // Função do botão "Concluir Revisão"
     const handleComplete = async () => {
         const readingFloat = parseFloat(currentReadingInput);
         if (currentReadingInput === '' || isNaN(readingFloat)) {
@@ -328,150 +261,135 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             return;
         }
 
-         const scheduledReading = (isHourBased ? revision?.proximaRevisaoHorimetro : revision?.proximaRevisaoOdometro) || 0;
-         
-         // 1. Validação Leitura vs Leitura Agendada
-         if (scheduledReading > 0 && readingFloat < scheduledReading) {
-             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Agendada (${scheduledReading}). Para salvar, insira sua senha de acesso.`);
-             setShowOverride(true); // Mostra o campo de senha
-             return; // Para a execução
-         }
-         // 2. Validação Leitura vs Leitura Atual do Veículo
-         if (readingFloat < (currentReadingValue - 0.1) ) { 
-             setOverrideMessage(`Leitura atual (${readingFloat}) é menor que a Leitura Registrada no Veículo (${currentReadingValue}). Para salvar, insira sua senha de acesso.`);
-             setShowOverride(true); // Mostra o campo de senha
-             return; // Para a execução
-         }
-
-        // Se passou em ambas as validações, salva direto (sem senha)
-        await performSave(null);
-    };
-
-    // --- (Senha de Liberação) ---
-    // Função do botão "Confirmar Liberação"
-    const handleOverrideSave = async () => {
-        if (isSaving) return;
+        // --- VALIDAÇÃO DE CONSISTÊNCIA (Nova) ---
+        setAlertReason(null);
+        const issue = checkReadingConsistency(vehicle, currentReadingInput);
         
-        if (!overridePassword) {
-            setAlertMessage('Por favor, insira sua senha de acesso para liberar.');
+        if (issue) {
+            // Se houver inconsistência (menor que atual ou salto grande), bloqueia e pede senha
+            setAlertReason(issue.message);
+            setBlockedAction(() => performSave); // Guarda a ação para executar depois
+            setShowPasswordConfirm(true); // Abre o modal de senha (se estiver disponível na UI)
             return;
         }
 
-        // --- ALTERAÇÃO: Não verifica a senha aqui. Apenas envia para o backend ---
-        // O backend fará a verificação.
-        await performSave(overridePassword);
+        // Se não houver problema, salva direto
+        await performSave();
     };
-    // --- FIM ---
 
-    // Renderização do Modal
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-                {/* Cabeçalho */}
-                <div className="p-6 border-b flex justify-between items-center">
-                    <h2 className="text-xl font-bold">Concluir Revisão</h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
-                </div>
-                {/* Corpo */}
-                <div className="p-6 space-y-4 text-sm">
-                    <p><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
-                    <p><strong>Serviço Planejado:</strong> {revision?.descricao || 'N/A'}</p>
-                    
-                    {/* Input Leitura Atual */}
-                    <div>
-                        <label className="block font-medium text-gray-700 mb-1">
-                            {readingLabel} *
-                        </label>
-                        <input
-                            type="number"
-                            step="any" 
-                            value={currentReadingInput}
-                            onChange={e => setCurrentReadingInput(e.target.value)}
-                            disabled={showOverride}
-                            className={`w-full p-2 border rounded-lg ${showOverride ? 'bg-gray-200' : 'bg-gray-50'}`}
-                            required
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Informe a leitura no momento da conclusão da revisão.</p>
+        <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
+                    {/* Cabeçalho */}
+                    <div className="p-6 border-b flex justify-between items-center bg-gray-50 flex-none rounded-t-lg">
+                        <h2 className="text-xl font-bold">Concluir Revisão</h2>
+                        <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                     </div>
 
-                    {/* Input Observações */}
-                    <div>
-                        <label className="block font-medium text-gray-700 mb-1">
-                            Serviços Realizados / Observações
-                        </label>
-                        <textarea
-                            value={detalhes}
-                            onChange={e => setDetalhes(e.target.value)}
-                            rows={3}
-                            disabled={showOverride}
-                            className={`w-full p-2 border rounded-lg ${showOverride ? 'bg-gray-200' : 'bg-gray-50'}`}
-                            placeholder="Ex: Troca de óleo e filtros realizada na filial Lajeado."
-                        />
-                    </div>
-
-                    {/* --- (Senha de Liberação) --- */}
-                    {showOverride && (
-                        <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
-                            <div className="flex">
-                                <div className="flex-shrink-0">
-                                    <ShieldAlert className="h-5 w-5 text-yellow-500" />
-                                </div>
-                                <div className="ml-3">
-                                    <p className="font-bold text-yellow-800">Liberação Necessária</p>
-                                    <p className="text-sm text-yellow-700 mb-2">{overrideMessage}</p>
-                                    
-                                    <label htmlFor="liberationPassword" className="block font-medium text-gray-700 mb-1">Sua Senha de Acesso</label>
-                                    <input
-                                        id="liberationPassword"
-                                        type="password"
-                                        value={overridePassword}
-                                        onChange={e => setOverridePassword(e.target.value)}
-                                        className="w-full p-2 border rounded-lg bg-white"
-                                        autoFocus
-                                    />
+                    {/* Corpo com Rolagem */}
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4 text-sm">
+                        {/* ALERTA DE INCONSISTÊNCIA */}
+                        {alertReason && (
+                            <div className="bg-red-50 p-4 border-b border-red-100 mb-4 rounded">
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle className="text-red-600 shrink-0 mt-1" size={20} />
+                                    <div>
+                                        <h3 className="font-bold text-red-800 text-sm">Inconsistência Detectada</h3>
+                                        <p className="text-red-700 text-xs mt-1">{alertReason}</p>
+                                        <p className="text-red-800 font-semibold text-xs mt-2">É necessária autorização de supervisor.</p>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setShowPasswordConfirm(true)}
+                                            className="mt-2 w-full py-2 bg-red-600 text-white rounded font-bold text-xs hover:bg-red-700"
+                                        >
+                                            Autorizar com Senha
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
+                        )}
+
+                        <p><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
+                        <p><strong>Serviço Planejado:</strong> {revision?.descricao || 'N/A'}</p>
+                        
+                        {/* Input Leitura Atual */}
+                        <div>
+                            <label className="block font-medium text-gray-700 mb-1">
+                                {readingLabel} (Nova Leitura) *
+                            </label>
+                            <input
+                                type="number"
+                                step="any" 
+                                value={currentReadingInput}
+                                onChange={e => setCurrentReadingInput(e.target.value)}
+                                className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500"
+                                required
+                            />
+                            <p className="text-xs text-gray-500 mt-1">A leitura informada aqui irá atualizar o cadastro do veículo.</p>
                         </div>
-                    )}
-                    {/* --- FIM --- */}
 
-                </div>
-                {/* Rodapé */}
-                <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
-                    
-                    {/* --- (Botão Condicional) --- */}
-                    {!showOverride ? (
-                        // Botão Padrão
-                        <button onClick={handleComplete} disabled={isSaving} className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-green-300 flex items-center justify-center gap-2 text-sm">
-                            {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir Revisão'}
-                        </button>
-                    ) : (
-                        // Botão de Liberação
-                        <button onClick={handleOverrideSave} disabled={isSaving} className="px-4 py-2 bg-yellow-500 text-black font-semibold rounded-lg hover:bg-yellow-600 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm">
-                            {isSaving ? <><Loader className="animate-spin" size={18}/> Confirmando...</> : 'Confirmar Liberação'}
-                        </button>
-                    )}
-                    {/* --- FIM --- */}
+                        {/* Input Observações */}
+                        <div>
+                            <label className="block font-medium text-gray-700 mb-1">
+                                Serviços Realizados / Observações
+                            </label>
+                            <textarea
+                                value={detalhes}
+                                onChange={e => setDetalhes(e.target.value)}
+                                rows={3}
+                                className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500"
+                                placeholder="Ex: Troca de óleo e filtros realizada na filial Lajeado."
+                            />
+                        </div>
+                    </div>
 
+                    {/* Rodapé */}
+                    <div className="p-4 bg-gray-50 border-t flex justify-end gap-4 flex-none rounded-b-lg">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300" disabled={isSaving}>Cancelar</button>
+                        <button 
+                            onClick={handleComplete} 
+                            disabled={isSaving || (alertReason && !showPasswordConfirm)} // Bloqueia se tiver alerta e não estiver no fluxo de senha
+                            className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-400 flex items-center justify-center gap-2 text-sm"
+                        >
+                            {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir e Atualizar Veículo'}
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+
+            {/* MODAL DE SENHA COMPARTILHADO */}
+            {showPasswordConfirm && PasswordConfirmationModal && (
+                <PasswordConfirmationModal
+                    message={`ATENÇÃO: O sistema detectou uma inconsistência na leitura (${alertReason}). Digite sua senha de supervisor para confirmar a atualização do veículo.`}
+                    onConfirm={async () => {
+                        if (blockedAction) {
+                            await blockedAction();
+                        }
+                        setShowPasswordConfirm(false);
+                        setBlockedAction(null);
+                        setAlertReason(null);
+                    }}
+                    onClose={() => {
+                        setShowPasswordConfirm(false);
+                        // Não limpa o alertReason para manter o aviso na tela caso o usuário só feche o modal de senha
+                    }}
+                />
+            )}
+        </>
     );
 };
 
 
-// Modal para agendar revisão (Usa apiClient)
+// Modal para agendar revisão (Sem Alterações)
 const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
-    
     const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
     const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
     const readingUnit = isHourBased ? 'Hr' : 'Km';
 
-    // Estado inicial
     const [formData, setFormData] = useState({
         proximaRevisaoData: '',
-        leituraUnica: '', // Campo unificado
+        leituraUnica: '', 
         avisoAntecedenciaDias: '',
         avisoAntecedenciaKmHr: '',
         descricao: '',
@@ -480,7 +398,6 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     
     const revision = vehicle?.revision;
 
-    // Efeito para carregar dados do agendamento
     useEffect(() => {
         if (revision) {
             const leituraAgendada = (isHourBased 
@@ -509,7 +426,6 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // Salvar
     const handleSave = async (e) => {
         e.preventDefault();
          if (!formData.proximaRevisaoData && !formData.leituraUnica) {
@@ -527,7 +443,6 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
          if (proxLeitura > 0 && proxLeitura <= currentReadingValue) {
              console.warn(`A próxima leitura (${proxLeitura}) é menor ou igual à leitura atual (${currentReadingValue}). Salvando mesmo assim.`);
          }
-
 
         setIsSaving(true);
         
@@ -552,16 +467,13 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         }
     };
 
-    // Renderização do Modal
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl">
-                {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center">
                      <h2 className="text-xl font-bold">Agendar Próxima Revisão</h2>
                      <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                 </div>
-                {/* Formulário */}
                 <form onSubmit={handleSave}>
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
                          <p className="md:col-span-2 font-medium">Veículo: {vehicle.registroInterno} - {vehicle.placa}</p>
@@ -586,7 +498,6 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             <input type="text" name="descricao" value={formData.descricao} onChange={handleChange} placeholder="Ex: Troca de óleo e filtros" className="w-full p-2 border rounded-lg bg-gray-50" />
                         </div>
                     </div>
-                     {/* Rodapé */}
                     <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
                         <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm">
@@ -599,7 +510,7 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     );
 };
 
-// Modal de Histórico
+// Modal de Histórico (Sem Alterações)
 const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
     if (!vehicle || !vehicle.revision) return null;
     
@@ -617,18 +528,15 @@ const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
         } catch (e) { return 'Inválida'; }
     };
 
-    // Formata a leitura (Odometro ou Horimetro) do histórico
     const formatHistoryReading = (historyEntry) => {
         const reading = isHourBased ? historyEntry.horimetro : historyEntry.odometro;
         if (reading == null) return 'N/A';
         return `${parseFloat(reading).toFixed(1)} ${readingUnit}`;
     };
 
-    // Renderização do Modal
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col my-auto">
-                 {/* Cabeçalho */}
                 <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
                     <div>
                         <h2 className="text-xl font-bold">Histórico de Revisões</h2>
@@ -636,11 +544,9 @@ const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
                     </div>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={18}/></button>
                 </div>
-                {/* Conteúdo */}
                 <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                     {history.length > 0 ? (
                         <ul className="space-y-3">
-                            {/* Ordena histórico (realizadaEm ou data) */}
                             {[...history].sort((a,b) => new Date(b.realizadaEm || b.data) - new Date(a.realizadaEm || a.data)).map((h, index) => (
                                 <li key={index} className="p-3 bg-gray-50 rounded-lg border text-sm">
                                     <p className="font-semibold">{h.descricao || 'Revisão Padrão'}</p>
@@ -657,7 +563,6 @@ const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
                         <p className="text-gray-500 text-center italic py-10">Nenhum histórico de revisão encontrado.</p>
                     )}
                 </div>
-                 {/* Rodapé */}
                  <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium">Fechar</button>
                 </div>
