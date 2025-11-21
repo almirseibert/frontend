@@ -7,7 +7,8 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-import { getVehicleMainReading, checkReadingConsistency, checkVehicleRestrictions } from '../utils/vehicleRules';
+// ADICIONADO: vehicleGroups importado para a função auxiliar funcionar
+import { getVehicleMainReading, checkReadingConsistency, checkVehicleRestrictions, vehicleGroups } from '../utils/vehicleRules';
 
 // --- CONFIGURAÇÃO COMPLETA DE POSIÇÕES DE PNEUS ---
 const TIRE_LAYOUTS = {
@@ -39,6 +40,15 @@ const TIRE_LAYOUTS = {
 
 const getTireLayout = (vehicleType) => {
     return TIRE_LAYOUTS[vehicleType] || TIRE_LAYOUTS['Padrão'];
+};
+
+// --- FUNÇÃO AUXILIAR CORRIGIDA (Faltava essa definição) ---
+const getVehicleGroup = (type) => {
+    if (!vehicleGroups) return 'Outros';
+    for (const [group, types] of Object.entries(vehicleGroups)) {
+        if (types.includes(type)) return group;
+    }
+    return 'Outros';
 };
 
 const StatCard = ({ label, value, icon, color }) => (
@@ -129,7 +139,7 @@ const TiresPage = ({
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
 
-    // --- NOVA FUNÇÃO DE GERAÇÃO DE PDF (SUBSTITUI O REACT-TO-PRINT) ---
+    // --- FUNÇÃO DE GERAÇÃO DE PDF ---
     const handleGeneratePDF = () => {
         if (!selectedVehicle) {
             setAlertMessage("Selecione um veículo para gerar a ficha.");
@@ -475,6 +485,33 @@ const NewTireModal = ({ onClose, onSave }) => {
     );
 };
 
+// --- Subcomponente: Modal de Step Reserva (REINTRODUZIDO) ---
+const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
+    const [formData, setFormData] = useState({ tireId: '', employeeId: '', obraId: '', observation: '' });
+    const handleSubmit = (e) => { 
+        e.preventDefault(); 
+        const employee = employees.find(e => e.id === formData.employeeId);
+        const obra = obras.find(o => o.id === formData.obraId);
+        onSave({ ...formData, employeeName: employee?.nome || 'N/A', obraName: obra?.nome || 'N/A', date: new Date().toISOString().split('T')[0] }); 
+    };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+                <h3 className="text-xl font-bold mb-4">Enviar Step/Reserva</h3>
+                <form onSubmit={handleSubmit}>
+                    <div className="space-y-3">
+                        <div><label className="block text-sm font-bold mb-1">Pneu</label><select required className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Funcionário</label><select required className="w-full p-2 border rounded" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})}><option value="">-- Selecione --</option>{employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Obra</label><select required className="w-full p-2 border rounded" value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})}><option value="">-- Selecione --</option>{obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Obs</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
+                    </div>
+                    <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded">Enviar</button></div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 // --- Subcomponente: Modal de Transação (COM FILTRO DE KM/HR) ---
 const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClose, onSave }) => {
     const [formData, setFormData] = useState({
@@ -491,7 +528,7 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
     // Define qual campo usar baseado no tipo do veículo
     const group = getVehicleGroup(vehicle.tipo);
     // Regra: Leves e Caminhões de Trecho = KM. Outros = Horas.
-    const usesKm = group === 'Leves' || group === 'Caminhões de Trecho';
+    const usesKm = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
     const usesHr = !usesKm; // Máquinas e Caminhões (Padrão de Operação)
 
     return (
