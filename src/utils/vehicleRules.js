@@ -1,15 +1,15 @@
 // src/utils/vehicleRules.js
 
 export const vehicleGroups = {
-    'Veículos Leves': ['Camionete', 'Automóvel', 'Moto', 'Utilitário'],
-    'Caminhões': ['Caçamba Traçado', 'Caçamba Truckado', 'Caçamba Toco', 'Caminhão Pipa', 'Caminhão Tanque', 'Cavalo', 'Caminhão carroceria', 'Bitruck', 'Caçamba Bitruck'],
-    'Caminhões de Trecho': ['Caminhão Prancha', 'Caminhões Prancha'], 
-    'Máquinas Pesadas': ['Rolo', 'Motoniveladora', 'Escavadeira', 'Fresadora', 'Pá Carregadeira', 'Trator', 'Trator de Esteiras', 'Retroescavadeira']
+    'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
+    'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
+    'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques'], 
+    'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Fresadora', 'Trator Esteira']
 };
 
 export const extraObraOptions = ['Administração', 'Oficina', 'Pátio', 'Rampa', 'Diversos'];
 export const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional', 'Supervisor'];
-export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras'];
+export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras', 'Bitruck', 'Caçamba'];
 
 /**
  * Define quais tipos de leitura são permitidos para inserção de dados.
@@ -17,11 +17,15 @@ export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retr
 export const getAllowedReadingTypes = (vehicleType) => {
     const group = Object.keys(vehicleGroups).find(key => vehicleGroups[key].includes(vehicleType));
 
-    if (group === 'Caminhões') return ['horimetro']; 
+    // Regra estrita conforme solicitado:
+    if (group === 'Veículos Leves') return ['odometro'];
     if (group === 'Caminhões de Trecho') return ['odometro'];
+    
+    // Caminhões e Máquinas usam Horímetro
+    if (group === 'Caminhões') return ['horimetro']; 
     if (group === 'Máquinas Pesadas') return ['horimetro'];
 
-    return ['odometro'];
+    return ['odometro']; // Default
 };
 
 /**
@@ -31,27 +35,21 @@ export const getVehicleMainReading = (vehicle) => {
     if (!vehicle) return { value: 0, unit: '', label: 'N/A', raw: 0 };
 
     const tipo = vehicle.tipo || '';
-    // Verifica variação de plural/singular para Caminhões Prancha (Exceção Km)
-    const isCaminhaoDeTrecho = vehicleGroups['Caminhões de Trecho'].includes(tipo) || tipo === 'Caminhões Prancha' || tipo === 'Caminhão Prancha';
-    
-    if (isCaminhaoDeTrecho) {
+    const groupName = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(tipo));
+
+    // 1. Veículos Leves e Caminhões de Trecho -> KM
+    if (groupName === 'Veículos Leves' || groupName === 'Caminhões de Trecho') {
         return { value: vehicle.odometro, unit: 'Km', label: 'Odômetro', raw: parseFloat(vehicle.odometro || 0) };
     }
 
-    const groupName = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(tipo));
-
-    // MÁQUINAS E CAMINHÕES (PADRÃO) -> HORAS
-    if (groupName === 'Máquinas Pesadas') {
+    // 2. Caminhões e Máquinas -> HORAS
+    if (groupName === 'Caminhões' || groupName === 'Máquinas Pesadas') {
         // Prioriza digital, depois analógico, depois o campo genérico
         const val = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro;
         return { value: val, unit: 'Hr', label: 'Horímetro', raw: parseFloat(val || 0) };
     }
 
-    if (groupName === 'Caminhões') {
-        return { value: vehicle.horimetro, unit: 'Hr', label: 'Horímetro', raw: parseFloat(vehicle.horimetro || 0) };
-    }
-
-    // VEÍCULOS LEVES / PADRÃO -> KM
+    // Default
     return { value: vehicle.odometro, unit: 'Km', label: 'Odômetro', raw: parseFloat(vehicle.odometro || 0) };
 };
 
@@ -69,7 +67,7 @@ export const checkReadingConsistency = (vehicle, newReadingValue) => {
 
     // 1. Verifica se é menor que a atual (Regressão)
     // Aceita uma tolerância mínima de 0.1 para arredondamentos, mas bloqueia regressão real
-    if (newVal < currentVal) {
+    if (newVal < (currentVal - 0.1)) {
         return { 
             type: 'bloqueio', 
             message: `ERRO DE LEITURA: O valor informado (${newVal} ${unit}) é MENOR que a leitura atual do veículo (${currentVal} ${unit}).` 
@@ -78,18 +76,13 @@ export const checkReadingConsistency = (vehicle, newReadingValue) => {
 
     // 2. Verifica salto excessivo (Erro de digitação provável)
     const diff = newVal - currentVal;
-    const tipo = vehicle.tipo || '';
-    const isLightVehicle = vehicleGroups['Veículos Leves'].includes(tipo);
-    const isPrancha = vehicleGroups['Caminhões de Trecho'].includes(tipo) || tipo.includes('Prancha');
-
+    
     // Definição dos limites
     let limit = 0;
     if (unit === 'Km') {
-        // Regra: 500 Km para leves e prancha
-        limit = 500;
+        limit = 500; // Regra: 500 Km
     } else {
-        // Regra: 50 Horas para os demais (Máquinas, Caminhões)
-        limit = 50;
+        limit = 50; // Regra: 50 Horas
     }
 
     if (diff > limit) {
