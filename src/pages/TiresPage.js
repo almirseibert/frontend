@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Disc, Truck, Plus, ArrowRight, ArrowLeft, Printer, Search, 
-    Filter, Activity, AlertCircle, Save, X, Clock, History, Shield, Briefcase 
+    Filter, Activity, AlertCircle, Save, X, Clock, History, Shield, Briefcase, AlertTriangle 
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
-import { getVehicleMainReading, checkReadingConsistency } from '../utils/vehicleRules';
+import { getVehicleMainReading, checkReadingConsistency, checkVehicleRestrictions } from '../utils/vehicleRules';
 
 // --- CONFIGURAÇÃO COMPLETA DE POSIÇÕES DE PNEUS ---
 const TIRE_LAYOUTS = {
@@ -38,14 +38,6 @@ const getTireLayout = (vehicleType) => {
     return TIRE_LAYOUTS[vehicleType] || TIRE_LAYOUTS['Padrão'];
 };
 
-const getVehicleGroup = (type) => {
-    if (!type) return 'Leves';
-    if (type.includes('Prancha') || type.includes('Caminhão Prancha')) return 'Caminhões de Trecho';
-    if (['Caminhão', 'Caçamba', 'Cavalo'].some(t => type.includes(t))) return 'Caminhões';
-    if (['Escavadeira', 'Rolo', 'Trator', 'Retroescavadeira', 'Motoniveladora', 'Pá Carregadeira'].some(t => type.includes(t))) return 'Máquinas';
-    return 'Leves';
-};
-
 const StatCard = ({ label, value, icon, color }) => (
     <div className={`p-4 rounded-lg shadow-sm flex items-center justify-between ${color}`}>
         <div>
@@ -57,7 +49,7 @@ const StatCard = ({ label, value, icon, color }) => (
 );
 
 const TiresPage = ({ 
-    user, vehicles = [], employees = [], obras = [], apiClient, setAlertMessage, reloadData, PasswordConfirmationModal 
+    user, vehicles = [], employees = [], obras = [], revisions = [], apiClient, setAlertMessage, reloadData, PasswordConfirmationModal 
 }) => {
     const [activeTab, setActiveTab] = useState('stock'); 
     const [tires, setTires] = useState([]);
@@ -77,8 +69,8 @@ const TiresPage = ({
     const [selectedTireForTransaction, setSelectedTireForTransaction] = useState(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-    // Ref para Impressão
-    const componentRef = useRef();
+    // Ref para Impressão (Inicializa nulo, atribuído no JSX)
+    const componentRef = useRef(null);
 
     const loadTires = async () => {
         setLoading(true);
@@ -127,6 +119,12 @@ const TiresPage = ({
         vehicles.find(v => v.id === selectedVehicleId), 
     [vehicles, selectedVehicleId]);
 
+    // --- CHECK DE RESTRIÇÕES ---
+    const vehicleAlerts = useMemo(() => {
+        if (!selectedVehicle) return [];
+        return checkVehicleRestrictions(selectedVehicle, revisions);
+    }, [selectedVehicle, revisions]);
+
     const vehicleTires = useMemo(() => 
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
@@ -135,6 +133,12 @@ const TiresPage = ({
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `OS_Pneus_${selectedVehicle?.placa || 'Geral'}`,
+        onBeforeGetContent: () => {
+            if (!selectedVehicle) {
+                setAlertMessage("Selecione um veículo para imprimir.");
+                return Promise.reject();
+            }
+        }
     });
 
     return (
@@ -215,19 +219,31 @@ const TiresPage = ({
                         </div>
 
                         {selectedVehicle && (
-                            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
-                                <div className="border-b border-blue-200 pb-2 mb-2">
-                                    <p className="text-xs text-blue-600 font-bold uppercase">Veículo Selecionado</p>
-                                    <p className="font-bold text-lg text-gray-800">{selectedVehicle.registroInterno}</p>
-                                    <p className="text-sm text-gray-600">{selectedVehicle.tipo} - {selectedVehicle.placa}</p>
+                            <div className="space-y-4">
+                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
+                                    <div className="border-b border-blue-200 pb-2 mb-2">
+                                        <p className="text-xs text-blue-600 font-bold uppercase">Veículo Selecionado</p>
+                                        <p className="font-bold text-lg text-gray-800">{selectedVehicle.registroInterno}</p>
+                                        <p className="text-sm text-gray-600">{selectedVehicle.tipo} - {selectedVehicle.placa}</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                        {getVehicleMainReading(selectedVehicle).unit === 'Km' ? (
+                                            <div><p className="text-xs text-gray-500">Odômetro</p><p className="font-mono font-bold">{selectedVehicle.odometro} Km</p></div>
+                                        ) : (
+                                            <div><p className="text-xs text-gray-500">Horímetro</p><p className="font-mono font-bold">{selectedVehicle.horimetro} Hr</p></div>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2 text-sm">
-                                    {getVehicleMainReading(selectedVehicle).unit === 'Km' ? (
-                                        <div><p className="text-xs text-gray-500">Odômetro</p><p className="font-mono font-bold">{selectedVehicle.odometro} Km</p></div>
-                                    ) : (
-                                        <div><p className="text-xs text-gray-500">Horímetro</p><p className="font-mono font-bold">{selectedVehicle.horimetro} Hr</p></div>
-                                    )}
-                                </div>
+
+                                {/* ÁREA DE ALERTAS DE RESTRIÇÃO */}
+                                {vehicleAlerts.length > 0 && (
+                                    <div className="p-3 bg-red-50 border-l-4 border-red-500 rounded-r text-sm space-y-1">
+                                        <h4 className="font-bold text-red-700 flex items-center gap-1"><AlertTriangle size={14}/> Restrições Detectadas</h4>
+                                        {vehicleAlerts.map((alert, index) => (
+                                            <p key={index} className="text-red-600">{alert.message}</p>
+                                        ))}
+                                    </div>
+                                )}
                                 
                                 <div className="pt-2 space-y-2">
                                     <button onClick={() => setShowHistoryModal(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><History size={16} /> Histórico de Trocas</button>
@@ -279,16 +295,40 @@ const TiresPage = ({
                 </div>
             )}
 
+            {/* MODAIS */}
             {showNewTireModal && <NewTireModal onClose={() => setShowNewTireModal(false)} onSave={async (data) => { try { await apiClient.createTire(data); setAlertMessage('Pneu cadastrado!'); loadTires(); setShowNewTireModal(false); } catch (e) { setAlertMessage(e.message || 'Erro ao salvar.'); } }} />}
             
-            {showSpareTireModal && <SpareTireModal stockTires={stockTires} employees={employees} obras={obras} onClose={() => setShowSpareTireModal(false)} onSave={async (data) => { try { await apiClient.registerTireTransaction({ ...data, type: 'transfer_responsibility' }); setAlertMessage('Step enviado com sucesso!'); loadTires(); setShowSpareTireModal(false); } catch (e) { setAlertMessage(e.message); } }} />}
+            {showSpareTireModal && <SpareTireModal stockTires={stockTires} employees={employees} obras={obras} onClose={() => setShowSpareTireModal(false)} onSave={async (data) => { try { await apiClient.registerTireTransaction({ ...data, type: 'transfer' }); setAlertMessage('Step enviado com sucesso!'); loadTires(); setShowSpareTireModal(false); } catch (e) { setAlertMessage(e.message); } }} />}
 
-            {showTransactionModal && <TireTransactionModal type={transactionType} vehicle={selectedVehicle} position={selectedPosition} tire={selectedTireForTransaction} stockTires={stockTires} onClose={() => { setShowTransactionModal(false); setSelectedTireForTransaction(null); }} onSave={async (data) => { try { await apiClient.registerTireTransaction(data); setAlertMessage('Movimentação realizada!'); loadTires(); reloadData(); setShowTransactionModal(false); setSelectedTireForTransaction(null); } catch (e) { setAlertMessage(e.message || 'Erro na movimentação.'); } }} PasswordConfirmationModal={PasswordConfirmationModal} />}
+            {showTransactionModal && (
+                <TireTransactionModal 
+                    type={transactionType} 
+                    vehicle={selectedVehicle} 
+                    position={selectedPosition} 
+                    tire={selectedTireForTransaction} 
+                    stockTires={stockTires} 
+                    vehicleAlerts={vehicleAlerts} // Passa os alertas para o modal
+                    onClose={() => { setShowTransactionModal(false); setSelectedTireForTransaction(null); }} 
+                    onSave={async (data) => { 
+                        try { 
+                            await apiClient.registerTireTransaction(data); 
+                            setAlertMessage('Movimentação realizada!'); 
+                            loadTires(); 
+                            reloadData(); 
+                            setShowTransactionModal(false); 
+                            setSelectedTireForTransaction(null); 
+                        } catch (e) { 
+                            setAlertMessage(e.message || 'Erro na movimentação.'); 
+                        } 
+                    }} 
+                    PasswordConfirmationModal={PasswordConfirmationModal} 
+                />
+            )}
 
             {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
 
-            {/* COMPONENTE DE IMPRESSÃO - VISÍVEL NO DOM MAS FORA DA TELA PARA FUNCIONAR O REF */}
-            <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
+            {/* COMPONENTE DE IMPRESSÃO - SEMPRE RENDERIZADO (Visibilidade controlada por CSS se necessário, mas aqui apenas fora de fluxo) */}
+            <div style={{ display: 'none' }}>
                 <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} />
             </div>
         </div>
@@ -336,6 +376,7 @@ const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
         e.preventDefault(); 
         const employee = employees.find(e => e.id === formData.employeeId);
         const obra = obras.find(o => o.id === formData.obraId);
+        // MUDANÇA: Agora envia type='transfer' que é aceito pelo backend
         onSave({ ...formData, employeeName: employee?.nome || 'N/A', obraName: obra?.nome || 'N/A', date: new Date().toISOString().split('T')[0] }); 
     };
     return (
@@ -356,7 +397,7 @@ const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
     );
 };
 
-const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClose, onSave, PasswordConfirmationModal }) => {
+const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, vehicleAlerts, onClose, onSave, PasswordConfirmationModal }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
     const [formData, setFormData] = useState({
         tireId: tire ? tire.id : '', vehicleId: vehicle.id, type: type, position: position,
@@ -369,9 +410,24 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
     const performSave = () => onSave({ ...formData, odometer: readingInfo.unit === 'Km' ? formData.readingValue : null, horimeter: readingInfo.unit === 'Hr' ? formData.readingValue : null });
 
     const handleConfirm = () => {
+        // 1. Checa se o veículo tem restrições de bloqueio
+        const blocked = vehicleAlerts.find(a => a.type === 'bloqueio');
+        if (blocked) {
+            setAlertReason(`O VEÍCULO POSSUI RESTRIÇÃO DE BLOQUEIO: ${blocked.message}. É necessário autorização para movimentar pneus.`);
+            setBlockedAction(() => performSave);
+            setShowPasswordConfirm(true);
+            return;
+        }
+
+        // 2. Checa consistência de leitura (Km/Hr)
         const issue = checkReadingConsistency(vehicle, formData.readingValue);
-        if (issue) { setAlertReason(issue.message); setBlockedAction(() => performSave); setShowPasswordConfirm(true); } 
-        else { performSave(); }
+        if (issue) { 
+            setAlertReason(issue.message); 
+            setBlockedAction(() => performSave); 
+            setShowPasswordConfirm(true); 
+        } else { 
+            performSave(); 
+        }
     };
 
     return (
@@ -380,17 +436,26 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
                     <h3 className="text-xl font-bold mb-2">{type === 'install' ? 'Instalar Pneu' : 'Remover Pneu'}</h3>
                     <p className="text-sm text-gray-600 mb-4">{vehicle.placa} - {position}</p>
+                    
+                    {/* ALERTA VISUAL NO MODAL */}
+                    {vehicleAlerts.length > 0 && (
+                        <div className="mb-4 p-2 bg-red-100 border border-red-300 rounded text-red-800 text-xs">
+                            <strong>Atenção:</strong> Este veículo possui pendências. A operação poderá exigir senha.
+                        </div>
+                    )}
+
                     <div className="space-y-3">
                         {type === 'install' ? (
                             <div><label className="block text-sm font-bold mb-1">Pneu</label><select className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}</select></div>
                         ) : <div className="p-2 bg-red-50 rounded text-red-800 font-bold">Removendo: {tire?.fireNumber}</div>}
-                        <div><label className="block text-sm font-bold mb-1">{readingInfo.label}</label><input type="number" className="w-full p-2 border rounded" value={formData.readingValue} onChange={e => setFormData({...formData, readingValue: e.target.value})} /></div>
+                        
+                        <div><label className="block text-sm font-bold mb-1">{readingInfo.label} Atual: {readingInfo.value}</label><input type="number" className="w-full p-2 border rounded" value={formData.readingValue} onChange={e => setFormData({...formData, readingValue: e.target.value})} /></div>
                         <div><label className="block text-sm font-bold mb-1">Obs</label><textarea className="w-full p-2 border rounded" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
                     </div>
                     <div className="mt-6 flex justify-end gap-2"><button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button onClick={handleConfirm} className="px-4 py-2 bg-blue-600 text-white rounded">Confirmar</button></div>
                 </div>
             </div>
-            {showPasswordConfirm && PasswordConfirmationModal && <PasswordConfirmationModal message={`ALERTA: ${alertReason}`} onConfirm={() => { blockedAction(); setShowPasswordConfirm(false); }} onClose={() => setShowPasswordConfirm(false)} />}
+            {showPasswordConfirm && PasswordConfirmationModal && <PasswordConfirmationModal message={`ALERTA DE SEGURANÇA: ${alertReason}`} onConfirm={() => { blockedAction(); setShowPasswordConfirm(false); }} onClose={() => setShowPasswordConfirm(false)} />}
         </>
     );
 };
@@ -417,18 +482,69 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
     );
 };
 
+// Componente de Impressão Corrigido
 const PrintableTireOrder = React.forwardRef(({ vehicle }, ref) => {
-    if (!vehicle) return <div ref={ref} className="p-8 text-center">Selecione um veículo para imprimir.</div>;
+    // Mesmo sem veículo selecionado, renderiza o container vazio para evitar erro de ref
+    if (!vehicle) return <div ref={ref}></div>;
+    
     const positions = getTireLayout(vehicle.tipo);
+    const today = new Date().toLocaleDateString('pt-BR');
+
     return (
-        <div ref={ref} className="p-8 font-sans text-gray-900">
-            <div className="border-b-2 border-black pb-4 mb-6 flex justify-between"><h1 className="text-2xl font-bold">OS Pneus</h1><p>Data: ___/___/___</p></div>
-            <div className="mb-6"><p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p><p>{vehicle.marca} {vehicle.modelo}</p></div>
-            <table className="w-full border-collapse border border-black text-sm">
-                <thead><tr className="bg-gray-200"><th className="border border-black p-2">Posição</th><th className="border border-black p-2">SAIU (Fogo)</th><th className="border border-black p-2">ENTROU (Fogo)</th><th className="border border-black p-2">Obs</th></tr></thead>
-                <tbody>{positions.map(pos => <tr key={pos}><td className="border border-black p-3 font-bold">{pos}</td><td className="border border-black p-3"></td><td className="border border-black p-3"></td><td className="border border-black p-3"></td></tr>)}</tbody>
+        <div ref={ref} className="p-8 font-sans text-gray-900 bg-white">
+            <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-center">
+                <div>
+                    <h1 className="text-2xl font-bold uppercase">Ordem de Serviço - Pneus</h1>
+                    <p className="text-sm text-gray-600">Frotas MAK</p>
+                </div>
+                <div className="text-right">
+                    <p className="font-bold">Data: {today}</p>
+                    <p>OS Nº: ______</p>
+                </div>
+            </div>
+            
+            <div className="mb-6 border p-4 rounded bg-gray-50">
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <p className="text-xs text-gray-500 uppercase">Veículo</p>
+                        <p className="font-bold text-xl">{vehicle.registroInterno}</p>
+                    </div>
+                    <div>
+                        <p className="text-xs text-gray-500 uppercase">Placa/Modelo</p>
+                        <p className="font-bold">{vehicle.placa} - {vehicle.modelo}</p>
+                    </div>
+                </div>
+            </div>
+
+            <table className="w-full border-collapse border border-black text-sm mb-8">
+                <thead>
+                    <tr className="bg-gray-200">
+                        <th className="border border-black p-2 w-1/4 text-left">Posição</th>
+                        <th className="border border-black p-2 w-1/4">SAIU (Fogo/Marca)</th>
+                        <th className="border border-black p-2 w-1/4">ENTROU (Fogo/Marca)</th>
+                        <th className="border border-black p-2 w-1/4">Observações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {positions.map(pos => (
+                        <tr key={pos}>
+                            <td className="border border-black p-3 font-bold bg-gray-50">{pos}</td>
+                            <td className="border border-black p-3"></td>
+                            <td className="border border-black p-3"></td>
+                            <td className="border border-black p-3"></td>
+                        </tr>
+                    ))}
+                </tbody>
             </table>
-            <div className="mt-12 pt-4 border-t border-black flex justify-between"><p>Assinatura Supervisor</p><p>Assinatura Borracheiro</p></div>
+
+            <div className="mt-12 flex justify-between gap-8">
+                <div className="border-t border-black pt-2 w-1/2 text-center">
+                    <p>Assinatura Supervisor</p>
+                </div>
+                <div className="border-t border-black pt-2 w-1/2 text-center">
+                    <p>Assinatura Borracheiro/Mecânico</p>
+                </div>
+            </div>
         </div>
     );
 });

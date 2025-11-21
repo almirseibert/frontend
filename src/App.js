@@ -404,7 +404,7 @@ const AppContent = () => {
             case 'expenses': return <ExpensesPage {...commonProps} />;
             case 'employees': return <EmployeesPage {...commonProps} />;
             case 'fines': return <FinesPage {...commonProps} />;
-            case 'tires': return <TiresPage {...commonProps} />; // NOVA ROTA
+            case 'tires': return <TiresPage {...commonProps} revisions={revisions} />; // PASSA AS REVISÕES
             case 'reports': return <ReportsPage {...commonProps} />; 
             case 'admin': return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <AccessDenied />; 
             default: return <Dashboard {...commonProps} />; 
