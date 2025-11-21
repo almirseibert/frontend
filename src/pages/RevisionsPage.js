@@ -6,12 +6,13 @@ import {
     CheckCircle,
     X,
     Loader,
-    AlertTriangle
+    AlertTriangle,
+    Info
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
-// IMPORTA A REGRA DE CONSISTÊNCIA
-import { checkReadingConsistency } from '../utils/vehicleRules';
+// IMPORTA AS REGRAS CENTRALIZADAS (Consistência e Validação)
+import { checkReadingConsistency, checkVehicleRestrictions, getVehicleMainReading } from '../utils/vehicleRules';
 
 const isValidDbDate = (dateString) => {
     return dateString && dateString.length > 8 && !dateString.startsWith('0000');
@@ -20,7 +21,7 @@ const isValidDbDate = (dateString) => {
 const RevisionsPage = ({
     user, vehicles = [], revisions = [],
     setAlertMessage, vehicleGroups = {}, apiClient, reloadData,
-    PasswordConfirmationModal // Recebe o Modal de Senha padrão
+    PasswordConfirmationModal
 }) => {
     const [editingRevision, setEditingRevision] = useState(null);
     const [completingRevision, setCompletingRevision] = useState(null);
@@ -51,23 +52,26 @@ const RevisionsPage = ({
      const formatNextRevisionDate = (dateString) => {
          if (!isValidDbDate(dateString)) return 'N/A';
          try {
-             return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+             // Ajuste de timezone para exibição correta (evita D-1)
+             const date = new Date(dateString);
+             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
          } catch (e) { return 'Inválida'; }
      };
 
-     const formatNextRevisionReading = (revision, vehicleType) => {
+     const formatNextRevisionReading = (revision, vehicle) => {
         if (!revision) return 'N/A';
         
-        const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-        const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicleType));
+        // Usa a regra central para saber a unidade correta (Km ou Hr)
+        const readingInfo = getVehicleMainReading(vehicle);
+        const unit = readingInfo.unit;
         
-        let reading, unit;
-        if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
+        let reading;
+        if (unit === 'Hr') {
             reading = revision.proximaRevisaoHorimetro;
-            unit = 'Hr';
+            // Fallback visual caso tenha sido salvo no campo errado antigamente
+            if (!reading && revision.proximaRevisaoOdometro) reading = revision.proximaRevisaoOdometro;
         } else {
             reading = revision.proximaRevisaoOdometro;
-            unit = 'Km';
         }
 
         if (reading == null || reading <= 0) return 'N/A';
@@ -100,67 +104,57 @@ const RevisionsPage = ({
                     
                     const { revision, ...vehicle } = item;
 
-                    const vehicleGroup = Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo));
-                    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
-                    const readingUnit = isHourBased ? 'Hr' : 'Km';
-
-                    let currentReading = 0;
-                    if (isHourBased) {
-                        currentReading = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
-                    } else {
-                        currentReading = vehicle.odometro ?? 0;
-                    }
-                    const currentReadingStr = `${parseFloat(currentReading).toFixed(1)} ${readingUnit}`;
-
-                    const plannedReading = (isHourBased ? revision.proximaRevisaoHorimetro : revision.proximaRevisaoOdometro) || 0;
-                    const plannedDateStr = revision.proximaRevisaoData;
-
-                    const warningDays = revision.avisoAntecedenciaDias || 30;
-                    const warningReading = revision.avisoAntecedenciaKmHr || (isHourBased ? 50 : 500);
-
-                    let isOverdue = false;
-                    let isWarning = false;
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0); 
-
-                    if (isValidDbDate(plannedDateStr)) {
-                        try {
-                            const plannedDate = new Date(plannedDateStr); 
-                            const diffTime = plannedDate.getTime() - today.getTime();
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            if (diffDays <= 0) isOverdue = true;
-                            else if (diffDays <= warningDays) isWarning = true;
-                        } catch (e) { }
-                    }
-
-                    if (plannedReading > 0 && currentReading > 0) {
-                        const diffReading = plannedReading - currentReading;
-                        if (diffReading <= 0) isOverdue = true; 
-                        else if (diffReading <= warningReading) isWarning = true;
-                    }
+                    // --- LÓGICA DE AVISO RECUPERADA E CENTRALIZADA ---
+                    // Usamos checkVehicleRestrictions passando o veículo e a revisão atual.
+                    // Isso garante que a lógica de "Vencido" (Vermelho) e "Próximo" (Amarelo)
+                    // seja IDÊNTICA à da tela de veículos.
+                    const issues = checkVehicleRestrictions(vehicle, [revision]);
+                    
+                    const isOverdue = issues.some(i => i.type === 'vencido');
+                    const isWarning = issues.some(i => i.type === 'aviso');
+                    
+                    // Captura a mensagem para tooltip (opcional)
+                    const alertMessage = issues.map(i => i.message).join('\n');
 
                     let rowBgClass = 'bg-white hover:bg-gray-50'; 
-                    if (isOverdue) rowBgClass = 'bg-red-50 hover:bg-red-100'; 
-                    else if (isWarning) rowBgClass = 'bg-yellow-50 hover:bg-yellow-100'; 
+                    if (isOverdue) rowBgClass = 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500'; 
+                    else if (isWarning) rowBgClass = 'bg-yellow-50 hover:bg-yellow-100 border-l-4 border-yellow-400'; 
+                    // ---------------------------------------------------
 
+                    // Dados para exibição
+                    const readingInfo = getVehicleMainReading(vehicle);
+                    const currentReadingStr = `${parseFloat(readingInfo.raw).toFixed(1)} ${readingInfo.unit}`;
+                    const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
+                    const nextReadingStr = formatNextRevisionReading(revision, vehicle);
+                    const hasScheduledRevision = nextDateStr !== 'N/A' || nextReadingStr !== 'N/A';
+                    const description = revision.descricao || '-'; 
+                    
                     const hasHistory = revision.historico && revision.historico.length > 0;
                     const historyIconClass = hasHistory ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-blue-600';
 
-                    const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
-                    const nextReadingStr = formatNextRevisionReading(revision, vehicle.tipo);
-                    const hasScheduledRevision = nextDateStr !== 'N/A' || nextReadingStr !== 'N/A';
-                    const description = revision.descricao || '-'; 
-
                     return (
-                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm ${rowBgClass}`}>
+                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm relative ${rowBgClass}`}>
+                            {/* Ícone de Alerta Flutuante (para mobile ou visual rápido) */}
+                            {(isOverdue || isWarning) && (
+                                <div className="absolute top-2 right-2 md:hidden">
+                                    {isOverdue ? <AlertTriangle size={16} className="text-red-600"/> : <Info size={16} className="text-yellow-600"/>}
+                                </div>
+                            )}
+
                             <div className="md:col-span-2">
-                                <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
-                                <p className="text-xs text-gray-500">{vehicle.placa}</p>
+                                <div className="flex items-center gap-2">
+                                    {isOverdue && <AlertTriangle size={14} className="text-red-500 hidden md:block" title={alertMessage}/>}
+                                    {isWarning && <Info size={14} className="text-yellow-500 hidden md:block" title={alertMessage}/>}
+                                    <div>
+                                        <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
+                                        <p className="text-xs text-gray-500">{vehicle.placa}</p>
+                                    </div>
+                                </div>
                             </div>
                             <div className="text-left md:text-right font-semibold text-blue-600">{currentReadingStr}</div>
                             <div className="text-left md:text-center">{nextDateStr}</div>
                             <div className="text-left md:text-right">{nextReadingStr}</div>
-                            <div className="md:col-span-2 text-gray-700">{description}</div>
+                            <div className="md:col-span-2 text-gray-700 truncate" title={description}>{description}</div>
                             <div className="flex gap-1 justify-start md:justify-center flex-wrap mt-2 md:mt-0">
                                 <ProtectedComponent requiredPermission="editor">
                                     <button onClick={() => setEditingRevision(item)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition-colors" title="Agendar/Editar"><Edit size={14} /></button>
@@ -178,7 +172,6 @@ const RevisionsPage = ({
             
             {editingRevision && <ScheduleRevisionModal user={user} vehicle={editingRevision} onClose={() => setEditingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} />}
             
-            {/* Modal de Conclusão recebe o PasswordConfirmationModal */}
             {completingRevision && <CompleteRevisionModal user={user} vehicle={completingRevision} onClose={() => setCompletingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />}
             
             {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} vehicleGroups={vehicleGroups} />}
@@ -186,34 +179,23 @@ const RevisionsPage = ({
     );
 };
 
-// Modal para concluir revisão (ATUALIZADO COM VALIDAÇÃO)
+// Modal para concluir revisão (ATUALIZADO COM VALIDAÇÃO E SENHA)
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData, PasswordConfirmationModal }) => {
     const [currentReadingInput, setCurrentReadingInput] = useState(''); 
     const [isSaving, setIsSaving] = useState(false);
     const [detalhes, setDetalhes] = useState('');
 
-    // Estados para controle de Senha e Bloqueio
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
     const [alertReason, setAlertReason] = useState(null);
     const [blockedAction, setBlockedAction] = useState(null);
 
     const revision = vehicle?.revision;
 
-    const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
-    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
-    
-    let currentReadingValue = 0;
-    let readingLabel = 'Leitura Atual';
-
-    if (vehicle) { 
-        if (isHourBased) {
-            currentReadingValue = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0;
-            readingLabel = 'Horímetro Atual (Hr)';
-        } else { 
-            currentReadingValue = vehicle.odometro ?? 0;
-            readingLabel = 'Odômetro Atual (Km)';
-        }
-    }
+    // Usa regra central para determinar unidade e valor
+    const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
+    const isHourBased = readingInfo.unit === 'Hr';
+    const readingLabel = `Leitura Atual (${readingInfo.unit})`;
+    const currentReadingValue = readingInfo.raw;
 
     useEffect(() => {
         setCurrentReadingInput(currentReadingValue.toString());
@@ -253,7 +235,6 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         }
     };
 
-    // Função do botão "Concluir Revisão"
     const handleComplete = async () => {
         const readingFloat = parseFloat(currentReadingInput);
         if (currentReadingInput === '' || isNaN(readingFloat)) {
@@ -261,19 +242,17 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
             return;
         }
 
-        // --- VALIDAÇÃO DE CONSISTÊNCIA (Nova) ---
+        // --- VALIDAÇÃO DE CONSISTÊNCIA ---
         setAlertReason(null);
         const issue = checkReadingConsistency(vehicle, currentReadingInput);
         
         if (issue) {
-            // Se houver inconsistência (menor que atual ou salto grande), bloqueia e pede senha
             setAlertReason(issue.message);
-            setBlockedAction(() => performSave); // Guarda a ação para executar depois
-            setShowPasswordConfirm(true); // Abre o modal de senha (se estiver disponível na UI)
+            setBlockedAction(() => performSave);
+            setShowPasswordConfirm(true);
             return;
         }
 
-        // Se não houver problema, salva direto
         await performSave();
     };
 
@@ -281,17 +260,14 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
         <>
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
-                    {/* Cabeçalho */}
                     <div className="p-6 border-b flex justify-between items-center bg-gray-50 flex-none rounded-t-lg">
                         <h2 className="text-xl font-bold">Concluir Revisão</h2>
                         <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
                     </div>
 
-                    {/* Corpo com Rolagem */}
                     <div className="flex-1 overflow-y-auto p-6 space-y-4 text-sm">
-                        {/* ALERTA DE INCONSISTÊNCIA */}
                         {alertReason && (
-                            <div className="bg-red-50 p-4 border-b border-red-100 mb-4 rounded">
+                            <div className="bg-red-50 p-4 border-b border-red-100 mb-4 rounded animate-pulse-once">
                                 <div className="flex items-start gap-3">
                                     <AlertTriangle className="text-red-600 shrink-0 mt-1" size={20} />
                                     <div>
@@ -301,7 +277,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                                         <button 
                                             type="button"
                                             onClick={() => setShowPasswordConfirm(true)}
-                                            className="mt-2 w-full py-2 bg-red-600 text-white rounded font-bold text-xs hover:bg-red-700"
+                                            className="mt-2 w-full py-2 bg-red-600 text-white rounded font-bold text-xs hover:bg-red-700 flex items-center gap-1 justify-center"
                                         >
                                             Autorizar com Senha
                                         </button>
@@ -313,7 +289,6 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                         <p><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
                         <p><strong>Serviço Planejado:</strong> {revision?.descricao || 'N/A'}</p>
                         
-                        {/* Input Leitura Atual */}
                         <div>
                             <label className="block font-medium text-gray-700 mb-1">
                                 {readingLabel} (Nova Leitura) *
@@ -329,7 +304,6 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                             <p className="text-xs text-gray-500 mt-1">A leitura informada aqui irá atualizar o cadastro do veículo.</p>
                         </div>
 
-                        {/* Input Observações */}
                         <div>
                             <label className="block font-medium text-gray-700 mb-1">
                                 Serviços Realizados / Observações
@@ -344,36 +318,29 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
                         </div>
                     </div>
 
-                    {/* Rodapé */}
                     <div className="p-4 bg-gray-50 border-t flex justify-end gap-4 flex-none rounded-b-lg">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300" disabled={isSaving}>Cancelar</button>
                         <button 
                             onClick={handleComplete} 
-                            disabled={isSaving || (alertReason && !showPasswordConfirm)} // Bloqueia se tiver alerta e não estiver no fluxo de senha
+                            disabled={isSaving || (alertReason && !showPasswordConfirm)} 
                             className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-400 flex items-center justify-center gap-2 text-sm"
                         >
-                            {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir e Atualizar Veículo'}
+                            {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir e Atualizar'}
                         </button>
                     </div>
                 </div>
             </div>
 
-            {/* MODAL DE SENHA COMPARTILHADO */}
             {showPasswordConfirm && PasswordConfirmationModal && (
                 <PasswordConfirmationModal
                     message={`ATENÇÃO: O sistema detectou uma inconsistência na leitura (${alertReason}). Digite sua senha de supervisor para confirmar a atualização do veículo.`}
                     onConfirm={async () => {
-                        if (blockedAction) {
-                            await blockedAction();
-                        }
+                        if (blockedAction) await blockedAction();
                         setShowPasswordConfirm(false);
                         setBlockedAction(null);
                         setAlertReason(null);
                     }}
-                    onClose={() => {
-                        setShowPasswordConfirm(false);
-                        // Não limpa o alertReason para manter o aviso na tela caso o usuário só feche o modal de senha
-                    }}
+                    onClose={() => setShowPasswordConfirm(false)}
                 />
             )}
         </>
@@ -381,11 +348,12 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
 };
 
 
-// Modal para agendar revisão (Sem Alterações)
+// Modal para agendar revisão
 const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
-    const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(group => group && vehicleGroups[group]?.includes(vehicle.tipo)) : null;
-    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
-    const readingUnit = isHourBased ? 'Hr' : 'Km';
+    // Usa regra central para determinar unidade
+    const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
+    const isHourBased = readingInfo.unit === 'Hr';
+    const readingUnit = readingInfo.unit;
 
     const [formData, setFormData] = useState({
         proximaRevisaoData: '',
@@ -434,12 +402,8 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
          }
          
          const proxLeitura = parseFloat(formData.leituraUnica) || 0;
-         let currentReadingValue = 0;
-         if (isHourBased) {
-             currentReadingValue = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
-         } else {
-             currentReadingValue = parseFloat(vehicle.odometro ?? 0);
-         }
+         const currentReadingValue = readingInfo.raw;
+
          if (proxLeitura > 0 && proxLeitura <= currentReadingValue) {
              console.warn(`A próxima leitura (${proxLeitura}) é menor ou igual à leitura atual (${currentReadingValue}). Salvando mesmo assim.`);
          }
@@ -510,14 +474,14 @@ const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicl
     );
 };
 
-// Modal de Histórico (Sem Alterações)
+// Modal de Histórico
 const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
     if (!vehicle || !vehicle.revision) return null;
     
-    const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
-    const vehicleGroup = Object.keys(groups).find(group => group && groups[group]?.includes(vehicle.tipo));
-    const isHourBased = vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões';
-    const readingUnit = isHourBased ? 'Hr' : 'Km';
+    // Usa regra central para unidade
+    const readingInfo = getVehicleMainReading(vehicle);
+    const isHourBased = readingInfo.unit === 'Hr';
+    const readingUnit = readingInfo.unit;
 
     const history = Array.isArray(vehicle.revision.historico) ? vehicle.revision.historico : [];
 
