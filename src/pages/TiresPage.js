@@ -20,8 +20,8 @@ const TIRE_LAYOUTS = {
     'Caçamba Toco': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Estepe 1', 'Estepe 2'],
     'Caçamba Traçado': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
     'Caçamba Truckado': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Escavadeira': [], // Esteira
-    'Fresadora': [], // Esteira
+    'Escavadeira': [], 
+    'Fresadora': [], 
     'Moto': ['Dianteiro', 'Traseiro'],
     'Motoniveladora': ['Direcional Esq', 'Direcional Dir', 'Tração 1 Esq', 'Tração 2 Esq', 'Tração 1 Dir Int', 'Tração 2 Dir'],
     'Pá Carregadeira': ['Direcional Esq', 'Direcional Dir', 'Tração Esq', 'Tração Dir'],
@@ -29,26 +29,23 @@ const TIRE_LAYOUTS = {
     'Rolo': ['Tração Esq', 'Tração Dir'],
     'Semirreboques': ['Carreta 1º E Esq Int', 'Carreta 1º E Esq Ext', 'Carreta 1º E Dir Int', 'Carreta 1º E Dir Ext', 'Carreta 2º E Esq Int', 'Carreta 2º E Esq Ext', 'Carreta 2º E Dir Int', 'Carreta 2º E Dir Ext', 'Carreta 3º E Esq Int', 'Carreta 3º E Esq Ext', 'Carreta 3º E Dir Int', 'Carreta 3º E Dir Ext', 'Estepe 1', 'Estepe 2'],
     'Trator': ['Direcional Esq', 'Direcional Dir', 'Tração Esq', 'Tração Dir'],
-    'Trator Esteira': [], // Esteira
+    'Trator Esteira': [], 
     'Utilitários': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Estepe'],
-    'Padrão': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir'] // Fallback
+    'Padrão': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir'] 
 };
 
-// Helper para buscar layout
 const getTireLayout = (vehicleType) => {
     return TIRE_LAYOUTS[vehicleType] || TIRE_LAYOUTS['Padrão'];
 };
 
-// Helper para identificar grupo
 const getVehicleGroup = (type) => {
     if (!type) return 'Leves';
-    if (type.includes('Prancha') || type.includes('Caminhão Prancha')) return 'Caminhões de Trecho'; // Grupo especial
+    if (type.includes('Prancha') || type.includes('Caminhão Prancha')) return 'Caminhões de Trecho';
     if (['Caminhão', 'Caçamba', 'Cavalo'].some(t => type.includes(t))) return 'Caminhões';
     if (['Escavadeira', 'Rolo', 'Trator', 'Retroescavadeira', 'Motoniveladora', 'Pá Carregadeira'].some(t => type.includes(t))) return 'Máquinas';
     return 'Leves';
 };
 
-// Componente StatCard
 const StatCard = ({ label, value, icon, color }) => (
     <div className={`p-4 rounded-lg shadow-sm flex items-center justify-between ${color}`}>
         <div>
@@ -100,7 +97,6 @@ const TiresPage = ({
         loadTires();
     }, []);
 
-    // Filtragem Estoque
     const filteredTires = useMemo(() => {
         return tires.filter(t => 
             t.fireNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -112,7 +108,6 @@ const TiresPage = ({
     const stockTires = filteredTires.filter(t => t.status === 'Estoque');
     const inUseTires = filteredTires.filter(t => t.status === 'Em Uso');
 
-    // Veículos Filtrados
     const filteredVehicles = useMemo(() => {
         return vehicles
             .filter(v => {
@@ -136,11 +131,10 @@ const TiresPage = ({
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
 
-    // Impressão (Configuração mais robusta)
+    // --- CONFIGURAÇÃO DO REACT-TO-PRINT ---
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `OS_Pneus_${selectedVehicle?.placa || 'Geral'}`,
-        // Removemos onBeforeGetContent para evitar conflitos de promessa/ref
     });
 
     return (
@@ -155,7 +149,6 @@ const TiresPage = ({
                 </div>
             </div>
 
-            {/* --- ABA ESTOQUE --- */}
             {activeTab === 'stock' && (
                 <div className="bg-white rounded-lg shadow-md border p-4">
                     <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
@@ -170,18 +163,8 @@ const TiresPage = ({
                             />
                         </div>
                         <div className="flex gap-2">
-                            <button 
-                                onClick={() => setShowSpareTireModal(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 shadow-sm"
-                            >
-                                <Briefcase size={18} /> Enviar Step/Reserva
-                            </button>
-                            <button 
-                                onClick={() => setShowNewTireModal(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm"
-                            >
-                                <Plus size={18} /> Cadastrar Pneu
-                            </button>
+                            <button onClick={() => setShowSpareTireModal(true)} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 shadow-sm"><Briefcase size={18} /> Enviar Step/Reserva</button>
+                            <button onClick={() => setShowNewTireModal(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm"><Plus size={18} /> Cadastrar Pneu</button>
                         </div>
                     </div>
 
@@ -195,14 +178,7 @@ const TiresPage = ({
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left text-gray-600">
                             <thead className="bg-gray-50 text-gray-700 uppercase font-medium">
-                                <tr>
-                                    <th className="px-4 py-3">Marca de Fogo</th>
-                                    <th className="px-4 py-3">Marca/Modelo</th>
-                                    <th className="px-4 py-3">Medida</th>
-                                    <th className="px-4 py-3">Status</th>
-                                    <th className="px-4 py-3">Condição</th>
-                                    <th className="px-4 py-3">Localização</th>
-                                </tr>
+                                <tr><th className="px-4 py-3">Marca de Fogo</th><th className="px-4 py-3">Marca/Modelo</th><th className="px-4 py-3">Medida</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Condição</th><th className="px-4 py-3">Localização</th></tr>
                             </thead>
                             <tbody>
                                 {filteredTires.map(tire => (
@@ -210,22 +186,9 @@ const TiresPage = ({
                                         <td className="px-4 py-3 font-bold text-gray-900">{tire.fireNumber}</td>
                                         <td className="px-4 py-3">{tire.brand} {tire.model}</td>
                                         <td className="px-4 py-3">{tire.size}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                                tire.status === 'Estoque' ? 'bg-blue-100 text-blue-800' : 
-                                                tire.status === 'Em Uso' ? 'bg-green-100 text-green-800' : 
-                                                tire.status === 'Sob Responsabilidade' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800'
-                                            }`}>
-                                                {tire.status}
-                                            </span>
-                                        </td>
+                                        <td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${tire.status === 'Estoque' ? 'bg-blue-100 text-blue-800' : tire.status === 'Em Uso' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{tire.status}</span></td>
                                         <td className="px-4 py-3">{tire.tireCondition}</td>
-                                        <td className="px-4 py-3">
-                                            {tire.status === 'Em Uso' ? 
-                                                <span className="flex items-center gap-1"><Truck size={12}/> {tire.vehicleRegistro}</span> : 
-                                                tire.location
-                                            }
-                                        </td>
+                                        <td className="px-4 py-3">{tire.status === 'Em Uso' ? <span className="flex items-center gap-1"><Truck size={12}/> {tire.vehicleRegistro}</span> : tire.location}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -234,10 +197,8 @@ const TiresPage = ({
                 </div>
             )}
 
-            {/* --- ABA VEÍCULOS --- */}
             {activeTab === 'vehicles' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Painel de Seleção */}
                     <div className="bg-white p-4 rounded-lg shadow-md border lg:col-span-1 h-fit">
                         <h3 className="font-bold text-lg mb-2 text-gray-700">Selecione o Veículo</h3>
                         <div className="relative mb-3">
@@ -262,15 +223,9 @@ const TiresPage = ({
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-sm">
                                     {getVehicleMainReading(selectedVehicle).unit === 'Km' ? (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Odômetro</p>
-                                            <p className="font-mono font-bold">{selectedVehicle.odometro} Km</p>
-                                        </div>
+                                        <div><p className="text-xs text-gray-500">Odômetro</p><p className="font-mono font-bold">{selectedVehicle.odometro} Km</p></div>
                                     ) : (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Horímetro</p>
-                                            <p className="font-mono font-bold">{selectedVehicle.horimetro} Hr</p>
-                                        </div>
+                                        <div><p className="text-xs text-gray-500">Horímetro</p><p className="font-mono font-bold">{selectedVehicle.horimetro} Hr</p></div>
                                     )}
                                 </div>
                                 
@@ -282,7 +237,6 @@ const TiresPage = ({
                         )}
                     </div>
 
-                    {/* Visualizador de Pneus */}
                     <div className="bg-white p-4 rounded-lg shadow-md border lg:col-span-2">
                         {selectedVehicle ? (
                             <div>
@@ -300,13 +254,8 @@ const TiresPage = ({
                                                     <div>
                                                         <span className="text-xs font-bold text-gray-500 uppercase block">{pos}</span>
                                                         {installedTire ? (
-                                                            <div>
-                                                                <p className="font-bold text-lg text-gray-800">{installedTire.fireNumber}</p>
-                                                                <p className="text-xs text-gray-600">{installedTire.brand} - {installedTire.size}</p>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-sm text-gray-400 italic">Vazio</span>
-                                                        )}
+                                                            <div><p className="font-bold text-lg text-gray-800">{installedTire.fireNumber}</p><p className="text-xs text-gray-600">{installedTire.brand} - {installedTire.size}</p></div>
+                                                        ) : <span className="text-sm text-gray-400 italic">Vazio</span>}
                                                     </div>
                                                     <div>
                                                         {installedTire ? (
@@ -324,16 +273,12 @@ const TiresPage = ({
                                 )}
                             </div>
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
-                                <Truck size={48} className="mb-2" />
-                                <p>Selecione um veículo à esquerda para gerenciar os pneus.</p>
-                            </div>
+                            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20"><Truck size={48} className="mb-2" /><p>Selecione um veículo à esquerda para gerenciar os pneus.</p></div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* --- MODAIS --- */}
             {showNewTireModal && <NewTireModal onClose={() => setShowNewTireModal(false)} onSave={async (data) => { try { await apiClient.createTire(data); setAlertMessage('Pneu cadastrado!'); loadTires(); setShowNewTireModal(false); } catch (e) { setAlertMessage(e.message || 'Erro ao salvar.'); } }} />}
             
             {showSpareTireModal && <SpareTireModal stockTires={stockTires} employees={employees} obras={obras} onClose={() => setShowSpareTireModal(false)} onSave={async (data) => { try { await apiClient.registerTireTransaction({ ...data, type: 'transfer_responsibility' }); setAlertMessage('Step enviado com sucesso!'); loadTires(); setShowSpareTireModal(false); } catch (e) { setAlertMessage(e.message); } }} />}
@@ -342,16 +287,15 @@ const TiresPage = ({
 
             {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
 
-            {/* --- COMPONENTE DE IMPRESSÃO --- */}
-            {/* Usamos overflow hidden e height 0 para esconder, mas manter renderizado para o ref funcionar */}
-            <div style={{ overflow: 'hidden', height: 0, width: 0 }}>
+            {/* COMPONENTE DE IMPRESSÃO - VISÍVEL NO DOM MAS FORA DA TELA PARA FUNCIONAR O REF */}
+            <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                 <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} />
             </div>
         </div>
     );
 };
 
-// --- SUBCOMPONENTES (Modais e Fichas) ---
+// --- SUBCOMPONENTES ---
 
 const NewTireModal = ({ onClose, onSave }) => {
     const [data, setData] = useState({ fireNumber: '', brand: '', model: '', size: '', tireCondition: 'Novo', purchaseDate: '', price: '' });
@@ -388,57 +332,24 @@ const NewTireModal = ({ onClose, onSave }) => {
 
 const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
     const [formData, setFormData] = useState({ tireId: '', employeeId: '', obraId: '', observation: '' });
-    
     const handleSubmit = (e) => { 
         e.preventDefault(); 
-        
         const employee = employees.find(e => e.id === formData.employeeId);
         const obra = obras.find(o => o.id === formData.obraId);
-        
-        // Envia o nome para salvar no histórico/localização
-        onSave({
-            ...formData,
-            employeeName: employee ? employee.nome : 'Desc.',
-            obraName: obra ? obra.nome : 'Desc.'
-        }); 
+        onSave({ ...formData, employeeName: employee?.nome || 'N/A', obraName: obra?.nome || 'N/A', date: new Date().toISOString().split('T')[0] }); 
     };
-
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
                 <h3 className="text-xl font-bold mb-4">Enviar Step/Reserva</h3>
                 <form onSubmit={handleSubmit}>
                     <div className="space-y-3">
-                        <div>
-                            <label className="block text-sm font-bold mb-1">Pneu (Estoque)</label>
-                            <select required className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}>
-                                <option value="">-- Selecione --</option>
-                                {stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold mb-1">Funcionário Responsável</label>
-                            <select required className="w-full p-2 border rounded" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})}>
-                                <option value="">-- Selecione --</option>
-                                {employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold mb-1">Obra Destino</label>
-                            <select required className="w-full p-2 border rounded" value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})}>
-                                <option value="">-- Selecione --</option>
-                                {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold mb-1">Observações (Aro, Borracharia, etc)</label>
-                            <textarea className="w-full p-2 border rounded" rows="3" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea>
-                        </div>
+                        <div><label className="block text-sm font-bold mb-1">Pneu</label><select required className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Funcionário</label><select required className="w-full p-2 border rounded" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})}><option value="">-- Selecione --</option>{employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Obra</label><select required className="w-full p-2 border rounded" value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})}><option value="">-- Selecione --</option>{obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></div>
+                        <div><label className="block text-sm font-bold mb-1">Obs</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
                     </div>
-                    <div className="mt-6 flex justify-end gap-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
-                        <button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded">Enviar</button>
-                    </div>
+                    <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded">Enviar</button></div>
                 </form>
             </div>
         </div>
@@ -451,7 +362,6 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
         tireId: tire ? tire.id : '', vehicleId: vehicle.id, type: type, position: position,
         date: new Date().toISOString().split('T')[0], readingValue: readingInfo.raw || '', observation: ''
     });
-    
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
     const [alertReason, setAlertReason] = useState(null);
     const [blockedAction, setBlockedAction] = useState(null);
@@ -460,13 +370,8 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
 
     const handleConfirm = () => {
         const issue = checkReadingConsistency(vehicle, formData.readingValue);
-        if (issue) {
-            setAlertReason(issue.message);
-            setBlockedAction(() => performSave);
-            setShowPasswordConfirm(true);
-        } else {
-            performSave();
-        }
+        if (issue) { setAlertReason(issue.message); setBlockedAction(() => performSave); setShowPasswordConfirm(true); } 
+        else { performSave(); }
     };
 
     return (
@@ -477,34 +382,15 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
                     <p className="text-sm text-gray-600 mb-4">{vehicle.placa} - {position}</p>
                     <div className="space-y-3">
                         {type === 'install' ? (
-                            <div>
-                                <label className="block text-sm font-bold mb-1">Pneu</label>
-                                <select className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}>
-                                    <option value="">-- Selecione --</option>
-                                    {stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}
-                                </select>
-                            </div>
-                        ) : (
-                            <div className="p-2 bg-red-50 rounded text-red-800 font-bold">Removendo: {tire?.fireNumber}</div>
-                        )}
-                        <div>
-                            <label className="block text-sm font-bold mb-1">{readingInfo.label}</label>
-                            <input type="number" className="w-full p-2 border rounded" value={formData.readingValue} onChange={e => setFormData({...formData, readingValue: e.target.value})} />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold mb-1">Obs</label>
-                            <textarea className="w-full p-2 border rounded" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea>
-                        </div>
+                            <div><label className="block text-sm font-bold mb-1">Pneu</label><select className="w-full p-2 border rounded" value={formData.tireId} onChange={e => setFormData({...formData, tireId: e.target.value})}><option value="">-- Selecione --</option>{stockTires.map(t => <option key={t.id} value={t.id}>{t.fireNumber} - {t.brand}</option>)}</select></div>
+                        ) : <div className="p-2 bg-red-50 rounded text-red-800 font-bold">Removendo: {tire?.fireNumber}</div>}
+                        <div><label className="block text-sm font-bold mb-1">{readingInfo.label}</label><input type="number" className="w-full p-2 border rounded" value={formData.readingValue} onChange={e => setFormData({...formData, readingValue: e.target.value})} /></div>
+                        <div><label className="block text-sm font-bold mb-1">Obs</label><textarea className="w-full p-2 border rounded" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
                     </div>
-                    <div className="mt-6 flex justify-end gap-2">
-                        <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
-                        <button onClick={handleConfirm} className="px-4 py-2 bg-blue-600 text-white rounded">Confirmar</button>
-                    </div>
+                    <div className="mt-6 flex justify-end gap-2"><button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button onClick={handleConfirm} className="px-4 py-2 bg-blue-600 text-white rounded">Confirmar</button></div>
                 </div>
             </div>
-            {showPasswordConfirm && PasswordConfirmationModal && (
-                <PasswordConfirmationModal message={`ALERTA: ${alertReason} Digite sua senha para confirmar.`} onConfirm={() => { blockedAction(); setShowPasswordConfirm(false); }} onClose={() => setShowPasswordConfirm(false)} />
-            )}
+            {showPasswordConfirm && PasswordConfirmationModal && <PasswordConfirmationModal message={`ALERTA: ${alertReason}`} onConfirm={() => { blockedAction(); setShowPasswordConfirm(false); }} onClose={() => setShowPasswordConfirm(false)} />}
         </>
     );
 };
@@ -512,36 +398,19 @@ const TireTransactionModal = ({ type, vehicle, position, tire, stockTires, onClo
 const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
-    
-    useEffect(() => { 
-        setLoading(true);
-        apiClient.getVehicleTireHistory(vehicle.id)
-            .then(data => setHistory(data || []))
-            .catch(err => {
-                console.error(err);
-                setHistory([]); // Garante array vazio em erro
-            })
-            .finally(() => setLoading(false)); 
-    }, [vehicle, apiClient]);
-
+    useEffect(() => { apiClient.getVehicleTireHistory(vehicle.id).then(data => setHistory(data || [])).catch(() => setHistory([])).finally(() => setLoading(false)); }, [vehicle, apiClient]);
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white"><h3 className="font-bold">Histórico: {vehicle.registroInterno}</h3><button onClick={onClose}><X size={18}/></button></div>
                 <div className="p-4 flex-1 overflow-y-auto space-y-3">
-                    {loading ? (
-                        <p className="text-center text-gray-500">Carregando...</p>
-                    ) : history.length === 0 ? (
-                        <p className="text-center text-gray-500 p-4">Nenhum histórico encontrado para este veículo.</p>
-                    ) : (
-                        history.map(h => (
-                            <div key={h.id} className="p-3 border rounded bg-gray-50 text-sm">
-                                <div className="flex justify-between"><span className={`font-bold ${h.type==='install'?'text-green-700':'text-red-700'}`}>{h.type==='install'?'Instalação':'Remoção'}</span><span>{new Date(h.date).toLocaleDateString()}</span></div>
-                                <p>Pneu: {h.fireNumber} | Posição: {h.position}</p>
-                                <p>Leitura: {h.odometer > 0 ? `${h.odometer} Km` : h.horimeter > 0 ? `${h.horimeter} Hr` : '-'} | Obs: {h.observation}</p>
-                            </div>
-                        ))
-                    )}
+                    {loading ? <p className="text-center text-gray-500">Carregando...</p> : history.length === 0 ? <p className="text-center text-gray-500">Nenhum histórico encontrado.</p> : history.map(h => (
+                        <div key={h.id} className="p-3 border rounded bg-gray-50 text-sm">
+                            <div className="flex justify-between"><span className={`font-bold ${h.type==='install'?'text-green-700':'text-red-700'}`}>{h.type==='install'?'Instalação':'Remoção'}</span><span>{new Date(h.date).toLocaleDateString()}</span></div>
+                            <p>Pneu: {h.fireNumber} | Posição: {h.position}</p>
+                            <p>Leitura: {h.odometer > 0 ? `${h.odometer} Km` : h.horimeter > 0 ? `${h.horimeter} Hr` : '-'} | Obs: {h.observation}</p>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
@@ -549,31 +418,17 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
 };
 
 const PrintableTireOrder = React.forwardRef(({ vehicle }, ref) => {
-    // Renderiza o conteúdo apenas se vehicle existir, mas o container ref sempre existe
+    if (!vehicle) return <div ref={ref} className="p-8 text-center">Selecione um veículo para imprimir.</div>;
+    const positions = getTireLayout(vehicle.tipo);
     return (
         <div ref={ref} className="p-8 font-sans text-gray-900">
-            {vehicle ? (
-                <>
-                    <div className="border-b-2 border-black pb-4 mb-6 flex justify-between"><h1 className="text-2xl font-bold">OS Pneus</h1><p>Data: ___/___/___</p></div>
-                    <div className="mb-6"><p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p><p>{vehicle.marca} {vehicle.modelo}</p></div>
-                    <table className="w-full border-collapse border border-black text-sm">
-                        <thead><tr className="bg-gray-200"><th className="border border-black p-2">Posição</th><th className="border border-black p-2">SAIU (Fogo)</th><th className="border border-black p-2">ENTROU (Fogo)</th><th className="border border-black p-2">Obs</th></tr></thead>
-                        <tbody>
-                            {getTireLayout(vehicle.tipo).map(pos => (
-                                <tr key={pos}>
-                                    <td className="border border-black p-3 font-bold">{pos}</td>
-                                    <td className="border border-black p-3"></td>
-                                    <td className="border border-black p-3"></td>
-                                    <td className="border border-black p-3"></td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    <div className="mt-12 pt-4 border-t border-black flex justify-between"><p>Assinatura Supervisor</p><p>Assinatura Borracheiro</p></div>
-                </>
-            ) : (
-                <div className="p-8 text-center">Selecione um veículo para imprimir a ordem.</div>
-            )}
+            <div className="border-b-2 border-black pb-4 mb-6 flex justify-between"><h1 className="text-2xl font-bold">OS Pneus</h1><p>Data: ___/___/___</p></div>
+            <div className="mb-6"><p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p><p>{vehicle.marca} {vehicle.modelo}</p></div>
+            <table className="w-full border-collapse border border-black text-sm">
+                <thead><tr className="bg-gray-200"><th className="border border-black p-2">Posição</th><th className="border border-black p-2">SAIU (Fogo)</th><th className="border border-black p-2">ENTROU (Fogo)</th><th className="border border-black p-2">Obs</th></tr></thead>
+                <tbody>{positions.map(pos => <tr key={pos}><td className="border border-black p-3 font-bold">{pos}</td><td className="border border-black p-3"></td><td className="border border-black p-3"></td><td className="border border-black p-3"></td></tr>)}</tbody>
+            </table>
+            <div className="mt-12 pt-4 border-t border-black flex justify-between"><p>Assinatura Supervisor</p><p>Assinatura Borracheiro</p></div>
         </div>
     );
 });
