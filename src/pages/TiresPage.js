@@ -21,6 +21,17 @@ const getVehicleGroup = (type) => {
     return 'Leves';
 };
 
+// Componente StatCard (Restaurado)
+const StatCard = ({ label, value, icon, color }) => (
+    <div className={`p-4 rounded-lg shadow-sm flex items-center justify-between ${color}`}>
+        <div>
+            <p className="text-xs font-bold uppercase opacity-70">{label}</p>
+            <p className="text-2xl font-bold">{value}</p>
+        </div>
+        <div className="opacity-50">{icon}</div>
+    </div>
+);
+
 const TiresPage = ({ 
     user, vehicles = [], apiClient, setAlertMessage, reloadData 
 }) => {
@@ -98,7 +109,7 @@ const TiresPage = ({
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
 
-    // Lógica de Impressão (CORRIGIDA)
+    // Lógica de Impressão
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `OS_Pneus_${selectedVehicle?.placa || 'Geral'}`,
@@ -392,7 +403,7 @@ const TiresPage = ({
             )}
 
             {/* --- COMPONENTE DE IMPRESSÃO --- */}
-            {/* Ajuste: Não usar display: none, mas sim esconder com overflow e height 0 */}
+            {/* Ajuste: Não usar display: none, mas sim esconder com overflow e height 0 para garantir que o ref funcione */}
             <div style={{ overflow: 'hidden', height: 0, width: 0 }}>
                 <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} positions={TIRE_POSITIONS} />
             </div>
@@ -648,67 +659,76 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
 
 // --- Subcomponente: Folha de Impressão ---
 const PrintableTireOrder = React.forwardRef(({ vehicle, positions }, ref) => {
-    if (!vehicle) return null;
-    
-    const group = getVehicleGroup(vehicle.tipo);
-    // Ajuste para Caminhões de Trecho usarem layout de Caminhões se necessário, ou manter lógica atual
-    const mappedGroup = group === 'Caminhões de Trecho' ? 'Caminhões' : group;
-    const positionList = positions[mappedGroup] || positions['Leves'];
-
+    // Sempre retorna um elemento raiz para o ref funcionar, mesmo se vehicle for null
     return (
         <div ref={ref} className="p-8 font-sans text-gray-900">
-            <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-center">
-                <div>
-                    <h1 className="text-2xl font-bold uppercase">Ordem de Serviço - Pneus</h1>
-                    <p className="text-sm">MAK Gestão de Frotas</p>
-                </div>
-                <div className="text-right">
-                    <p>Data: _____/_____/_______</p>
-                    <p>Borracheiro: ____________________</p>
-                </div>
-            </div>
+            {vehicle ? (
+                <>
+                    {/* Cabeçalho */}
+                    <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-2xl font-bold uppercase">Ordem de Serviço - Pneus</h1>
+                            <p className="text-sm">MAK Gestão de Frotas</p>
+                        </div>
+                        <div className="text-right">
+                            <p>Data: _____/_____/_______</p>
+                            <p>Borracheiro: ____________________</p>
+                        </div>
+                    </div>
 
-            <div className="bg-gray-100 p-4 rounded border border-gray-300 mb-6 flex justify-between">
-                <div>
-                    <p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p>
-                    <p>{vehicle.marca} {vehicle.modelo} ({vehicle.tipo})</p>
-                </div>
-                <div className="text-right">
-                    <p>Odômetro Atual: {vehicle.odometro} Km</p>
-                    <p>Horímetro Atual: {vehicle.horimetro} Hr</p>
-                </div>
-            </div>
+                    {/* Dados do Veículo */}
+                    <div className="bg-gray-100 p-4 rounded border border-gray-300 mb-6 flex justify-between">
+                        <div>
+                            <p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p>
+                            <p>{vehicle.marca} {vehicle.modelo} ({vehicle.tipo})</p>
+                        </div>
+                        <div className="text-right">
+                            <p>Odômetro Atual: {vehicle.odometro} Km</p>
+                            <p>Horímetro Atual: {vehicle.horimetro} Hr</p>
+                        </div>
+                    </div>
 
-            <div className="mb-8">
-                <h2 className="font-bold text-lg mb-2 border-b border-gray-400">Registro de Trocas</h2>
-                <p className="text-sm italic mb-4">Anote o número da marca de fogo dos pneus retirados e instalados.</p>
-                
-                <table className="w-full border-collapse border border-black text-sm">
-                    <thead>
-                        <tr className="bg-gray-200">
-                            <th className="border border-black p-2 text-left w-1/4">Posição</th>
-                            <th className="border border-black p-2 text-center w-1/4">SAIU (Fogo Nº)</th>
-                            <th className="border border-black p-2 text-center w-1/4">ENTROU (Fogo Nº)</th>
-                            <th className="border border-black p-2 text-left w-1/4">Obs (Estado/Motivo)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {positionList.map(pos => (
-                            <tr key={pos}>
-                                <td className="border border-black p-3 font-bold">{pos}</td>
-                                <td className="border border-black p-3"></td>
-                                <td className="border border-black p-3"></td>
-                                <td className="border border-black p-3"></td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                    {/* Tabela de Troca */}
+                    <div className="mb-8">
+                        <h2 className="font-bold text-lg mb-2 border-b border-gray-400">Registro de Trocas</h2>
+                        <p className="text-sm italic mb-4">Anote o número da marca de fogo dos pneus retirados e instalados.</p>
+                        
+                        <table className="w-full border-collapse border border-black text-sm">
+                            <thead>
+                                <tr className="bg-gray-200">
+                                    <th className="border border-black p-2 text-left w-1/4">Posição</th>
+                                    <th className="border border-black p-2 text-center w-1/4">SAIU (Fogo Nº)</th>
+                                    <th className="border border-black p-2 text-center w-1/4">ENTROU (Fogo Nº)</th>
+                                    <th className="border border-black p-2 text-left w-1/4">Obs (Estado/Motivo)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(() => {
+                                    const group = getVehicleGroup(vehicle.tipo);
+                                    const mappedGroup = group === 'Caminhões de Trecho' ? 'Caminhões' : group;
+                                    const positionList = positions[mappedGroup] || positions['Leves'];
+                                    
+                                    return positionList.map(pos => (
+                                        <tr key={pos}>
+                                            <td className="border border-black p-3 font-bold">{pos}</td>
+                                            <td className="border border-black p-3"></td>
+                                            <td className="border border-black p-3"></td>
+                                            <td className="border border-black p-3"></td>
+                                        </tr>
+                                    ));
+                                })()}
+                            </tbody>
+                        </table>
+                    </div>
 
-            <div className="mt-12 pt-4 border-t border-black flex justify-between text-sm">
-                <p>Assinatura Supervisor</p>
-                <p>Assinatura Borracheiro</p>
-            </div>
+                    <div className="mt-12 pt-4 border-t border-black flex justify-between text-sm">
+                        <p>Assinatura Supervisor</p>
+                        <p>Assinatura Borracheiro</p>
+                    </div>
+                </>
+            ) : (
+                <div className="p-10 text-center">Selecione um veículo para imprimir.</div>
+            )}
         </div>
     );
 });
