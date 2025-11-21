@@ -1,46 +1,27 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Disc, Truck, Plus, ArrowRight, ArrowLeft, Printer, Search, 
-    Activity, AlertCircle, X, History, Briefcase, AlertTriangle 
+    Filter, Activity, AlertCircle, Save, X, Clock, History 
 } from 'lucide-react';
-// Importações para gerar PDF direto
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { useReactToPrint } from 'react-to-print';
 
-import { getVehicleMainReading, checkReadingConsistency, checkVehicleRestrictions } from '../utils/vehicleRules';
-
-// --- CONFIGURAÇÃO COMPLETA DE POSIÇÕES DE PNEUS ---
-const TIRE_LAYOUTS = {
-    'Automóvel': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir', 'Estepe'],
-    'Bitruck': ['Direcional Esq', 'Direcional Dir', '2º Direcional Esq', '2º Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caminhão Pipa': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caminhão Prancha': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Carreta 1º E Esq Int', 'Carreta 1º E Esq Ext', 'Carreta 1º E Dir Int', 'Carreta 1º E Dir Ext', 'Carreta 2º E Esq Int', 'Carreta 2º E Esq Ext', 'Carreta 2º E Dir Int', 'Carreta 2º E Dir Ext', 'Carreta 3º E Esq Int', 'Carreta 3º E Esq Ext', 'Carreta 3º E Dir Int', 'Carreta 3º E Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caminhão Tanque': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caminhão Carroceria': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Estepe'],
-    'Camionete': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir', 'Estepe'],
-    'Cavalo': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe'],
-    'Caçamba Bitruck': ['Direcional Esq', 'Direcional Dir', '2º Direcional Esq', '2º Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caçamba Toco': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caçamba Traçado': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Caçamba Truckado': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq Int', 'Truck Esq Ext', 'Truck Dir Int', 'Truck Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Escavadeira': [], 
-    'Fresadora': [], 
-    'Moto': ['Dianteiro', 'Traseiro'],
-    'Motoniveladora': ['Direcional Esq', 'Direcional Dir', 'Tração 1 Esq', 'Tração 2 Esq', 'Tração 1 Dir Int', 'Tração 2 Dir'],
-    'Pá Carregadeira': ['Direcional Esq', 'Direcional Dir', 'Tração Esq', 'Tração Dir'],
-    'Retroescavadeira': ['Direcional Esq', 'Direcional Dir', 'Tração Esq', 'Tração Dir'],
-    'Rolo': ['Tração Esq', 'Tração Dir'],
-    'Semirreboques': ['Carreta 1º E Esq Int', 'Carreta 1º E Esq Ext', 'Carreta 1º E Dir Int', 'Carreta 1º E Dir Ext', 'Carreta 2º E Esq Int', 'Carreta 2º E Esq Ext', 'Carreta 2º E Dir Int', 'Carreta 2º E Dir Ext', 'Carreta 3º E Esq Int', 'Carreta 3º E Esq Ext', 'Carreta 3º E Dir Int', 'Carreta 3º E Dir Ext', 'Estepe 1', 'Estepe 2'],
-    'Trator': ['Direcional Esq', 'Direcional Dir', 'Tração Esq', 'Tração Dir'],
-    'Trator Esteira': [], 
-    'Utilitários': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Estepe'],
-    'Padrão': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir'] 
+// Configuração de Posições Padrão
+const TIRE_POSITIONS = {
+    'Leves': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir', 'Estepe'],
+    'Caminhões': ['Direcional Esq', 'Direcional Dir', 'Tração Esq Ext', 'Tração Esq Int', 'Tração Dir Int', 'Tração Dir Ext', 'Truck Esq', 'Truck Dir', 'Estepe'],
+    'Máquinas': ['Dianteiro Esq', 'Dianteiro Dir', 'Traseiro Esq', 'Traseiro Dir']
 };
 
-const getTireLayout = (vehicleType) => {
-    return TIRE_LAYOUTS[vehicleType] || TIRE_LAYOUTS['Padrão'];
+// Helper para identificar grupo
+const getVehicleGroup = (type) => {
+    if (!type) return 'Leves';
+    if (type.includes('Prancha') || type.includes('Caminhão Prancha')) return 'Caminhões de Trecho'; // Grupo especial
+    if (['Caminhão', 'Caçamba', 'Cavalo'].some(t => type.includes(t))) return 'Caminhões';
+    if (['Escavadeira', 'Rolo', 'Trator', 'Retroescavadeira', 'Motoniveladora', 'Pá Carregadeira'].some(t => type.includes(t))) return 'Máquinas';
+    return 'Leves';
 };
 
+// Componente StatCard (Restaurado)
 const StatCard = ({ label, value, icon, color }) => (
     <div className={`p-4 rounded-lg shadow-sm flex items-center justify-between ${color}`}>
         <div>
@@ -52,25 +33,27 @@ const StatCard = ({ label, value, icon, color }) => (
 );
 
 const TiresPage = ({ 
-    user, vehicles = [], employees = [], obras = [], revisions = [], apiClient, setAlertMessage, reloadData, PasswordConfirmationModal 
+    user, vehicles = [], apiClient, setAlertMessage, reloadData 
 }) => {
-    const [activeTab, setActiveTab] = useState('stock'); 
+    const [activeTab, setActiveTab] = useState('stock'); // 'stock' | 'vehicles'
     const [tires, setTires] = useState([]);
     const [loading, setLoading] = useState(false);
     
     // Estados Estoque
     const [searchTerm, setSearchTerm] = useState('');
     const [showNewTireModal, setShowNewTireModal] = useState(false);
-    const [showSpareTireModal, setShowSpareTireModal] = useState(false); 
 
     // Estados Veículo
-    const [vehicleSearchTerm, setVehicleSearchTerm] = useState(''); 
+    const [vehicleSearchTerm, setVehicleSearchTerm] = useState(''); // Filtro de busca
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [showTransactionModal, setShowTransactionModal] = useState(false);
-    const [transactionType, setTransactionType] = useState(''); 
+    const [transactionType, setTransactionType] = useState(''); // 'install' | 'remove'
     const [selectedPosition, setSelectedPosition] = useState('');
     const [selectedTireForTransaction, setSelectedTireForTransaction] = useState(null);
-    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [showHistoryModal, setShowHistoryModal] = useState(false); // Modal Histórico
+
+    // Ref para Impressão
+    const componentRef = useRef();
 
     const loadTires = async () => {
         setLoading(true);
@@ -89,6 +72,7 @@ const TiresPage = ({
         loadTires();
     }, []);
 
+    // Filtragem Estoque
     const filteredTires = useMemo(() => {
         return tires.filter(t => 
             t.fireNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -100,6 +84,7 @@ const TiresPage = ({
     const stockTires = filteredTires.filter(t => t.status === 'Estoque');
     const inUseTires = filteredTires.filter(t => t.status === 'Em Uso');
 
+    // Veículos Filtrados e Ordenados
     const filteredVehicles = useMemo(() => {
         return vehicles
             .filter(v => {
@@ -108,117 +93,34 @@ const TiresPage = ({
                 return (
                     (v.placa || '').toLowerCase().includes(term) ||
                     (v.registroInterno || '').toLowerCase().includes(term) ||
-                    (v.modelo || '').toLowerCase().includes(term) ||
-                    (v.tipo || '').toLowerCase().includes(term)
+                    (v.modelo || '').toLowerCase().includes(term)
                 );
             })
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles, vehicleSearchTerm]);
 
+    // Veículo Selecionado
     const selectedVehicle = useMemo(() => 
         vehicles.find(v => v.id === selectedVehicleId), 
     [vehicles, selectedVehicleId]);
 
-    // --- CHECK DE RESTRIÇÕES ---
-    const vehicleAlerts = useMemo(() => {
-        if (!selectedVehicle) return [];
-        return checkVehicleRestrictions(selectedVehicle, revisions);
-    }, [selectedVehicle, revisions]);
-
+    // Pneus do Veículo Selecionado
     const vehicleTires = useMemo(() => 
         tires.filter(t => t.currentVehicleId === selectedVehicleId),
     [tires, selectedVehicleId]);
 
-    // --- NOVA FUNÇÃO DE GERAÇÃO DE PDF (SUBSTITUI O REACT-TO-PRINT) ---
-    const handleGeneratePDF = () => {
-        if (!selectedVehicle) {
-            setAlertMessage("Selecione um veículo para gerar a ficha.");
-            return;
+    // Lógica de Impressão
+    const handlePrint = useReactToPrint({
+        content: () => componentRef.current,
+        documentTitle: `OS_Pneus_${selectedVehicle?.placa || 'Geral'}`,
+        onBeforeGetContent: () => {
+            if (!selectedVehicle) {
+                setAlertMessage('Selecione um veículo para imprimir.');
+                return Promise.reject();
+            }
+            return Promise.resolve();
         }
-
-        try {
-            const doc = new jsPDF();
-            const positions = getTireLayout(selectedVehicle.tipo);
-            const today = new Date().toLocaleDateString('pt-BR');
-
-            // --- CABEÇALHO ---
-            doc.setFontSize(18);
-            doc.setFont("helvetica", "bold");
-            doc.text("ORDEM DE SERVIÇO - PNEUS", 105, 20, { align: "center" });
-            
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            doc.text("Frotas MAK", 105, 26, { align: "center" });
-
-            // --- INFO DA OS ---
-            doc.setFontSize(11);
-            doc.text(`Data: ${today}`, 14, 40);
-            doc.text("OS Nº: ______", 160, 40);
-
-            // --- INFO DO VEÍCULO (Box) ---
-            doc.setDrawColor(0);
-            doc.setFillColor(245, 245, 245);
-            doc.rect(14, 45, 182, 25, "F"); // Fundo cinza
-            doc.rect(14, 45, 182, 25, "S"); // Borda
-
-            doc.setFont("helvetica", "bold");
-            doc.text("VEÍCULO / REGISTRO", 20, 52);
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(14);
-            doc.text(`${selectedVehicle.registroInterno || "N/A"}`, 20, 62);
-
-            doc.setFontSize(11);
-            doc.setFont("helvetica", "bold");
-            doc.text("PLACA / MODELO", 100, 52);
-            doc.setFont("helvetica", "normal");
-            doc.text(`${selectedVehicle.placa || ""} - ${selectedVehicle.modelo || ""}`, 100, 62);
-
-            // --- TABELA DE POSIÇÕES (Usando autoTable) ---
-            const tableBody = positions.map(pos => [
-                pos, // Posição
-                "",  // Saiu (Vazio para preencher)
-                "",  // Entrou (Vazio para preencher)
-                ""   // Obs (Vazio para preencher)
-            ]);
-
-            autoTable(doc, {
-                startY: 80,
-                head: [['Posição', 'SAIU (Fogo/Marca)', 'ENTROU (Fogo/Marca)', 'Observações']],
-                body: tableBody,
-                theme: 'grid',
-                headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
-                columnStyles: {
-                    0: { cellWidth: 40, fontStyle: 'bold' }, // Coluna Posição
-                    1: { cellWidth: 45 },
-                    2: { cellWidth: 45 },
-                    3: { cellWidth: 'auto' }
-                },
-                styles: {
-                    minCellHeight: 12, // Altura da linha para facilitar escrita manual
-                    valign: 'middle',
-                    fontSize: 10
-                }
-            });
-
-            // --- ASSINATURAS (Rodapé) ---
-            const pageHeight = doc.internal.pageSize.height;
-            const footerY = pageHeight - 40;
-
-            doc.line(20, footerY, 90, footerY); // Linha Esq
-            doc.line(120, footerY, 190, footerY); // Linha Dir
-
-            doc.setFontSize(10);
-            doc.text("Assinatura Supervisor", 55, footerY + 5, { align: "center" });
-            doc.text("Assinatura Borracheiro/Mecânico", 155, footerY + 5, { align: "center" });
-
-            // Salvar Arquivo
-            doc.save(`OS_Pneus_${selectedVehicle.placa || selectedVehicle.registroInterno}.pdf`);
-
-        } catch (error) {
-            console.error(error);
-            setAlertMessage("Erro ao gerar PDF: " + error.message);
-        }
-    };
+    });
 
     return (
         <div className="container mx-auto p-4 md:p-6">
@@ -227,11 +129,22 @@ const TiresPage = ({
                     <Disc className="text-gray-600" /> Gestão de Pneus
                 </h1>
                 <div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border">
-                    <button onClick={() => setActiveTab('stock')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'stock' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Estoque Geral</button>
-                    <button onClick={() => setActiveTab('vehicles')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'vehicles' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Gestão por Veículo</button>
+                    <button 
+                        onClick={() => setActiveTab('stock')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'stock' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                        Estoque Geral
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('vehicles')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'vehicles' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                        Gestão por Veículo
+                    </button>
                 </div>
             </div>
 
+            {/* --- ABA ESTOQUE --- */}
             {activeTab === 'stock' && (
                 <div className="bg-white rounded-lg shadow-md border p-4">
                     <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
@@ -245,10 +158,12 @@ const TiresPage = ({
                                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                             />
                         </div>
-                        <div className="flex gap-2">
-                            <button onClick={() => setShowSpareTireModal(true)} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 shadow-sm"><Briefcase size={18} /> Enviar Step/Reserva</button>
-                            <button onClick={() => setShowNewTireModal(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm"><Plus size={18} /> Cadastrar Pneu</button>
-                        </div>
+                        <button 
+                            onClick={() => setShowNewTireModal(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm"
+                        >
+                            <Plus size={18} /> Cadastrar Pneu
+                        </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -261,7 +176,14 @@ const TiresPage = ({
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left text-gray-600">
                             <thead className="bg-gray-50 text-gray-700 uppercase font-medium">
-                                <tr><th className="px-4 py-3">Marca de Fogo</th><th className="px-4 py-3">Marca/Modelo</th><th className="px-4 py-3">Medida</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Condição</th><th className="px-4 py-3">Localização</th></tr>
+                                <tr>
+                                    <th className="px-4 py-3">Marca de Fogo</th>
+                                    <th className="px-4 py-3">Marca/Modelo</th>
+                                    <th className="px-4 py-3">Medida</th>
+                                    <th className="px-4 py-3">Status</th>
+                                    <th className="px-4 py-3">Condição</th>
+                                    <th className="px-4 py-3">Localização</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 {filteredTires.map(tire => (
@@ -269,9 +191,21 @@ const TiresPage = ({
                                         <td className="px-4 py-3 font-bold text-gray-900">{tire.fireNumber}</td>
                                         <td className="px-4 py-3">{tire.brand} {tire.model}</td>
                                         <td className="px-4 py-3">{tire.size}</td>
-                                        <td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${tire.status === 'Estoque' ? 'bg-blue-100 text-blue-800' : tire.status === 'Em Uso' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{tire.status}</span></td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                                tire.status === 'Estoque' ? 'bg-blue-100 text-blue-800' : 
+                                                tire.status === 'Em Uso' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                            }`}>
+                                                {tire.status}
+                                            </span>
+                                        </td>
                                         <td className="px-4 py-3">{tire.tireCondition}</td>
-                                        <td className="px-4 py-3">{tire.status === 'Em Uso' ? <span className="flex items-center gap-1"><Truck size={12}/> {tire.vehicleRegistro}</span> : tire.location}</td>
+                                        <td className="px-4 py-3">
+                                            {tire.status === 'Em Uso' ? 
+                                                <span className="flex items-center gap-1"><Truck size={12}/> {tire.vehicleRegistro}</span> : 
+                                                tire.location
+                                            }
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -280,17 +214,32 @@ const TiresPage = ({
                 </div>
             )}
 
+            {/* --- ABA VEÍCULOS --- */}
             {activeTab === 'vehicles' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Painel de Seleção */}
                     <div className="bg-white p-4 rounded-lg shadow-md border lg:col-span-1 h-fit">
                         <h3 className="font-bold text-lg mb-2 text-gray-700">Selecione o Veículo</h3>
+                        
+                        {/* Campo de Busca de Veículo */}
                         <div className="relative mb-3">
                             <Search className="absolute left-2 top-2.5 text-gray-400" size={16} />
-                            <input type="text" placeholder="Pesquisar Veículo..." className="w-full pl-8 pr-2 py-2 border rounded-lg text-sm" value={vehicleSearchTerm} onChange={e => setVehicleSearchTerm(e.target.value)} />
+                            <input 
+                                type="text"
+                                placeholder="Pesquisar Veículo..."
+                                className="w-full pl-8 pr-2 py-2 border rounded-lg text-sm"
+                                value={vehicleSearchTerm}
+                                onChange={e => setVehicleSearchTerm(e.target.value)}
+                            />
                         </div>
+
                         <div className="max-h-60 overflow-y-auto border rounded-lg mb-4 bg-gray-50">
                             {filteredVehicles.map(v => (
-                                <div key={v.id} onClick={() => setSelectedVehicleId(v.id)} className={`p-2 cursor-pointer text-sm border-b last:border-b-0 hover:bg-blue-50 ${selectedVehicleId === v.id ? 'bg-blue-100 border-l-4 border-blue-500 font-medium' : ''}`}>
+                                <div 
+                                    key={v.id}
+                                    onClick={() => setSelectedVehicleId(v.id)}
+                                    className={`p-2 cursor-pointer text-sm border-b last:border-b-0 hover:bg-blue-50 ${selectedVehicleId === v.id ? 'bg-blue-100 border-l-4 border-blue-500 font-medium' : ''}`}
+                                >
                                     {v.registroInterno} - {v.tipo} - {v.marca} {v.modelo}
                                 </div>
                             ))}
@@ -298,41 +247,42 @@ const TiresPage = ({
                         </div>
 
                         {selectedVehicle && (
-                            <div className="space-y-4">
-                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
-                                    <div className="border-b border-blue-200 pb-2 mb-2">
-                                        <p className="text-xs text-blue-600 font-bold uppercase">Veículo Selecionado</p>
-                                        <p className="font-bold text-lg text-gray-800">{selectedVehicle.registroInterno}</p>
-                                        <p className="text-sm text-gray-600">{selectedVehicle.tipo} - {selectedVehicle.placa}</p>
+                            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
+                                <div className="border-b border-blue-200 pb-2 mb-2">
+                                    <p className="text-xs text-blue-600 font-bold uppercase">Veículo Selecionado</p>
+                                    <p className="font-bold text-lg text-gray-800">{selectedVehicle.registroInterno}</p>
+                                    <p className="text-sm text-gray-600">{selectedVehicle.tipo} - {selectedVehicle.placa}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <div>
+                                        <p className="text-xs text-gray-500">Odômetro</p>
+                                        <p className="font-mono font-bold">{selectedVehicle.odometro} Km</p>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-2 text-sm">
-                                        {getVehicleMainReading(selectedVehicle).unit === 'Km' ? (
-                                            <div><p className="text-xs text-gray-500">Odômetro</p><p className="font-mono font-bold">{selectedVehicle.odometro} Km</p></div>
-                                        ) : (
-                                            <div><p className="text-xs text-gray-500">Horímetro</p><p className="font-mono font-bold">{selectedVehicle.horimetro} Hr</p></div>
-                                        )}
+                                    <div>
+                                        <p className="text-xs text-gray-500">Horímetro</p>
+                                        <p className="font-mono font-bold">{selectedVehicle.horimetro} Hr</p>
                                     </div>
                                 </div>
-
-                                {/* ÁREA DE ALERTAS DE RESTRIÇÃO */}
-                                {vehicleAlerts.length > 0 && (
-                                    <div className="p-3 bg-red-50 border-l-4 border-red-500 rounded-r text-sm space-y-1">
-                                        <h4 className="font-bold text-red-700 flex items-center gap-1"><AlertTriangle size={14}/> Restrições Detectadas</h4>
-                                        {vehicleAlerts.map((alert, index) => (
-                                            <p key={index} className="text-red-600">{alert.message}</p>
-                                        ))}
-                                    </div>
-                                )}
                                 
                                 <div className="pt-2 space-y-2">
-                                    <button onClick={() => setShowHistoryModal(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><History size={16} /> Histórico de Trocas</button>
-                                    {/* Botão atualizado para usar handleGeneratePDF */}
-                                    <button onClick={handleGeneratePDF} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"><Printer size={16} /> Baixar Ficha (PDF)</button>
+                                    <button 
+                                        onClick={() => setShowHistoryModal(true)}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"
+                                    >
+                                        <History size={16} /> Histórico de Trocas
+                                    </button>
+                                    <button 
+                                        onClick={handlePrint}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 shadow-sm text-sm"
+                                    >
+                                        <Printer size={16} /> Imprimir Ficha
+                                    </button>
                                 </div>
                             </div>
                         )}
                     </div>
 
+                    {/* Visualizador de Pneus */}
                     <div className="bg-white p-4 rounded-lg shadow-md border lg:col-span-2">
                         {selectedVehicle ? (
                             <div>
@@ -341,73 +291,123 @@ const TiresPage = ({
                                     <span className="text-xs bg-gray-100 px-2 py-1 rounded border">Visualização Esquemática</span>
                                 </div>
 
-                                {getTireLayout(selectedVehicle.tipo).length > 0 ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {getTireLayout(selectedVehicle.tipo).map(pos => {
-                                            const installedTire = vehicleTires.find(t => t.position === pos);
-                                            return (
-                                                <div key={pos} className={`p-3 rounded-lg border flex justify-between items-center ${installedTire ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-dashed border-gray-300'}`}>
-                                                    <div>
-                                                        <span className="text-xs font-bold text-gray-500 uppercase block">{pos}</span>
-                                                        {installedTire ? (
-                                                            <div><p className="font-bold text-lg text-gray-800">{installedTire.fireNumber}</p><p className="text-xs text-gray-600">{installedTire.brand} - {installedTire.size}</p></div>
-                                                        ) : <span className="text-sm text-gray-400 italic">Vazio</span>}
-                                                    </div>
-                                                    <div>
-                                                        {installedTire ? (
-                                                            <button onClick={() => { setTransactionType('remove'); setSelectedPosition(pos); setSelectedTireForTransaction(installedTire); setShowTransactionModal(true); }} className="p-2 text-red-600 hover:bg-red-100 rounded-full" title="Remover Pneu"><ArrowRight size={18} /></button>
-                                                        ) : (
-                                                            <button onClick={() => { setTransactionType('install'); setSelectedPosition(pos); setShowTransactionModal(true); }} className="p-2 text-green-600 hover:bg-green-100 rounded-full" title="Instalar Pneu"><ArrowLeft size={18} /></button>
-                                                        )}
-                                                    </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {(TIRE_POSITIONS[getVehicleGroup(selectedVehicle.tipo) === 'Caminhões de Trecho' ? 'Caminhões' : getVehicleGroup(selectedVehicle.tipo)] || TIRE_POSITIONS['Leves']).map(pos => {
+                                        const installedTire = vehicleTires.find(t => t.position === pos);
+                                        return (
+                                            <div key={pos} className={`p-3 rounded-lg border flex justify-between items-center ${installedTire ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-dashed border-gray-300'}`}>
+                                                <div>
+                                                    <span className="text-xs font-bold text-gray-500 uppercase block">{pos}</span>
+                                                    {installedTire ? (
+                                                        <div>
+                                                            <p className="font-bold text-lg text-gray-800">{installedTire.fireNumber}</p>
+                                                            <p className="text-xs text-gray-600">{installedTire.brand} - {installedTire.size}</p>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-sm text-gray-400 italic">Vazio</span>
+                                                    )}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div className="p-10 text-center text-gray-500">Este veículo não utiliza pneus (Esteira).</div>
-                                )}
+                                                <div>
+                                                    {installedTire ? (
+                                                        <button 
+                                                            onClick={() => {
+                                                                setTransactionType('remove');
+                                                                setSelectedPosition(pos);
+                                                                setSelectedTireForTransaction(installedTire);
+                                                                setShowTransactionModal(true);
+                                                            }}
+                                                            className="p-2 text-red-600 hover:bg-red-100 rounded-full" 
+                                                            title="Remover Pneu"
+                                                        >
+                                                            <ArrowRight size={18} />
+                                                        </button>
+                                                    ) : (
+                                                        <button 
+                                                            onClick={() => {
+                                                                setTransactionType('install');
+                                                                setSelectedPosition(pos);
+                                                                setShowTransactionModal(true);
+                                                            }}
+                                                            className="p-2 text-green-600 hover:bg-green-100 rounded-full" 
+                                                            title="Instalar Pneu"
+                                                        >
+                                                            <ArrowLeft size={18} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20"><Truck size={48} className="mb-2" /><p>Selecione um veículo à esquerda para gerenciar os pneus.</p></div>
+                            <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
+                                <Truck size={48} className="mb-2" />
+                                <p>Selecione um veículo à esquerda para gerenciar os pneus.</p>
+                            </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* MODAIS */}
-            {showNewTireModal && <NewTireModal onClose={() => setShowNewTireModal(false)} onSave={async (data) => { try { await apiClient.createTire(data); setAlertMessage('Pneu cadastrado!'); loadTires(); setShowNewTireModal(false); } catch (e) { setAlertMessage(e.message || 'Erro ao salvar.'); } }} />}
-            
-            {showSpareTireModal && <SpareTireModal stockTires={stockTires} employees={employees} obras={obras} onClose={() => setShowSpareTireModal(false)} onSave={async (data) => { try { await apiClient.registerTireTransaction({ ...data, type: 'transfer' }); setAlertMessage('Step enviado com sucesso!'); loadTires(); setShowSpareTireModal(false); } catch (e) { setAlertMessage(e.message); } }} />}
-
-            {showTransactionModal && (
-                <TireTransactionModal 
-                    type={transactionType} 
-                    vehicle={selectedVehicle} 
-                    position={selectedPosition} 
-                    tire={selectedTireForTransaction} 
-                    stockTires={stockTires} 
-                    vehicleAlerts={vehicleAlerts} // Passa os alertas para o modal
-                    onClose={() => { setShowTransactionModal(false); setSelectedTireForTransaction(null); }} 
-                    onSave={async (data) => { 
-                        try { 
-                            await apiClient.registerTireTransaction(data); 
-                            setAlertMessage('Movimentação realizada!'); 
-                            loadTires(); 
-                            reloadData(); 
-                            setShowTransactionModal(false); 
-                            setSelectedTireForTransaction(null); 
-                        } catch (e) { 
-                            setAlertMessage(e.message || 'Erro na movimentação.'); 
-                        } 
+            {/* --- Modais --- */}
+            {showNewTireModal && (
+                <NewTireModal 
+                    onClose={() => setShowNewTireModal(false)} 
+                    onSave={async (data) => {
+                        try {
+                            await apiClient.createTire(data);
+                            setAlertMessage('Pneu cadastrado!');
+                            loadTires();
+                            setShowNewTireModal(false);
+                        } catch (e) {
+                            setAlertMessage(e.message || 'Erro ao salvar.');
+                        }
                     }} 
-                    PasswordConfirmationModal={PasswordConfirmationModal} 
                 />
             )}
 
-            {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
-            
-            {/* O componente PrintableTireOrder foi removido pois foi substituído pelo jsPDF */}
+            {showTransactionModal && (
+                <TireTransactionModal
+                    type={transactionType}
+                    vehicle={selectedVehicle}
+                    position={selectedPosition}
+                    tire={selectedTireForTransaction}
+                    stockTires={stockTires}
+                    onClose={() => {
+                        setShowTransactionModal(false);
+                        setSelectedTireForTransaction(null);
+                    }}
+                    onSave={async (data) => {
+                        try {
+                            await apiClient.registerTireTransaction(data);
+                            setAlertMessage('Movimentação realizada!');
+                            loadTires();
+                            reloadData(); // Recarrega veículos para atualizar Km
+                            setShowTransactionModal(false);
+                            setSelectedTireForTransaction(null);
+                        } catch (e) {
+                            setAlertMessage(e.message || 'Erro na movimentação.');
+                        }
+                    }}
+                />
+            )}
+
+            {/* Modal de Histórico */}
+            {showHistoryModal && selectedVehicle && (
+                <VehicleTireHistoryModal 
+                    vehicle={selectedVehicle} 
+                    apiClient={apiClient} 
+                    onClose={() => setShowHistoryModal(false)} 
+                />
+            )}
+
+            {/* --- COMPONENTE DE IMPRESSÃO --- */}
+            {/* Ajuste: Não usar display: none, mas sim esconder com overflow e height 0 para garantir que o ref funcione */}
+            <div style={{ overflow: 'hidden', height: 0, width: 0 }}>
+                <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} positions={TIRE_POSITIONS} />
+            </div>
+
         </div>
     );
 };
@@ -656,5 +656,81 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
         </div>
     );
 };
+
+// --- Subcomponente: Folha de Impressão ---
+const PrintableTireOrder = React.forwardRef(({ vehicle, positions }, ref) => {
+    // Sempre retorna um elemento raiz para o ref funcionar, mesmo se vehicle for null
+    return (
+        <div ref={ref} className="p-8 font-sans text-gray-900">
+            {vehicle ? (
+                <>
+                    {/* Cabeçalho */}
+                    <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-2xl font-bold uppercase">Ordem de Serviço - Pneus</h1>
+                            <p className="text-sm">MAK Gestão de Frotas</p>
+                        </div>
+                        <div className="text-right">
+                            <p>Data: _____/_____/_______</p>
+                            <p>Borracheiro: ____________________</p>
+                        </div>
+                    </div>
+
+                    {/* Dados do Veículo */}
+                    <div className="bg-gray-100 p-4 rounded border border-gray-300 mb-6 flex justify-between">
+                        <div>
+                            <p className="font-bold text-lg">{vehicle.registroInterno} - {vehicle.placa}</p>
+                            <p>{vehicle.marca} {vehicle.modelo} ({vehicle.tipo})</p>
+                        </div>
+                        <div className="text-right">
+                            <p>Odômetro Atual: {vehicle.odometro} Km</p>
+                            <p>Horímetro Atual: {vehicle.horimetro} Hr</p>
+                        </div>
+                    </div>
+
+                    {/* Tabela de Troca */}
+                    <div className="mb-8">
+                        <h2 className="font-bold text-lg mb-2 border-b border-gray-400">Registro de Trocas</h2>
+                        <p className="text-sm italic mb-4">Anote o número da marca de fogo dos pneus retirados e instalados.</p>
+                        
+                        <table className="w-full border-collapse border border-black text-sm">
+                            <thead>
+                                <tr className="bg-gray-200">
+                                    <th className="border border-black p-2 text-left w-1/4">Posição</th>
+                                    <th className="border border-black p-2 text-center w-1/4">SAIU (Fogo Nº)</th>
+                                    <th className="border border-black p-2 text-center w-1/4">ENTROU (Fogo Nº)</th>
+                                    <th className="border border-black p-2 text-left w-1/4">Obs (Estado/Motivo)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(() => {
+                                    const group = getVehicleGroup(vehicle.tipo);
+                                    const mappedGroup = group === 'Caminhões de Trecho' ? 'Caminhões' : group;
+                                    const positionList = positions[mappedGroup] || positions['Leves'];
+                                    
+                                    return positionList.map(pos => (
+                                        <tr key={pos}>
+                                            <td className="border border-black p-3 font-bold">{pos}</td>
+                                            <td className="border border-black p-3"></td>
+                                            <td className="border border-black p-3"></td>
+                                            <td className="border border-black p-3"></td>
+                                        </tr>
+                                    ));
+                                })()}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="mt-12 pt-4 border-t border-black flex justify-between text-sm">
+                        <p>Assinatura Supervisor</p>
+                        <p>Assinatura Borracheiro</p>
+                    </div>
+                </>
+            ) : (
+                <div className="p-10 text-center">Selecione um veículo para imprimir.</div>
+            )}
+        </div>
+    );
+});
 
 export default TiresPage;
