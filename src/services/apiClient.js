@@ -245,12 +245,14 @@ const apiClient = {
     adminAssignRole: async (data) => apiFetch('/admin/assign-role', { method: 'PUT', body: JSON.stringify(data) }), // Corrigido para PUT /assign-role
     adminMigrateUsers: async () => apiFetch('/admin/migrate-users', { method: 'POST' }), 
 
-    // --- Pneus ---
+   // --- Pneus ---
     getTires: async () => apiFetch('/tires'),
     createTire: async (data) => apiFetch('/tires', { method: 'POST', body: JSON.stringify(data) }),
     updateTire: async (id, data) => apiFetch(`/tires/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     registerTireTransaction: async (data) => apiFetch('/tires/transaction', { method: 'POST', body: JSON.stringify(data) }),
     getTireHistory: async (id) => apiFetch(`/tires/${id}/history`),
+    getVehicleTireHistory: async (vehicleId) => apiFetch(`/tires/vehicle/${vehicleId}/history`), // NOVO
+
 };
 
 export default apiClient;
