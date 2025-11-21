@@ -69,7 +69,7 @@ const TiresPage = ({
     const [selectedTireForTransaction, setSelectedTireForTransaction] = useState(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-    // Ref para Impressão (Inicializa nulo, atribuído no JSX)
+    // Ref para Impressão (Inicializa nulo)
     const componentRef = useRef(null);
 
     const loadTires = async () => {
@@ -136,9 +136,14 @@ const TiresPage = ({
         onBeforeGetContent: () => {
             if (!selectedVehicle) {
                 setAlertMessage("Selecione um veículo para imprimir.");
+                return Promise.reject(); // Cancela a impressão se não houver veículo
+            }
+            if (!componentRef.current) {
+                setAlertMessage("Erro interno: Referência de impressão não encontrada.");
                 return Promise.reject();
             }
-        }
+            return Promise.resolve();
+        },
     });
 
     return (
@@ -327,8 +332,8 @@ const TiresPage = ({
 
             {showHistoryModal && selectedVehicle && <VehicleTireHistoryModal vehicle={selectedVehicle} apiClient={apiClient} onClose={() => setShowHistoryModal(false)} />}
 
-            {/* COMPONENTE DE IMPRESSÃO - SEMPRE RENDERIZADO (Visibilidade controlada por CSS se necessário, mas aqui apenas fora de fluxo) */}
-            <div style={{ display: 'none' }}>
+            {/* COMPONENTE DE IMPRESSÃO - CORREÇÃO: Usar style overflow/height ao invés de display:none */}
+            <div style={{ overflow: 'hidden', height: '0px', width: '0px', position: 'absolute' }}>
                 <PrintableTireOrder ref={componentRef} vehicle={selectedVehicle} />
             </div>
         </div>
@@ -376,7 +381,7 @@ const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
         e.preventDefault(); 
         const employee = employees.find(e => e.id === formData.employeeId);
         const obra = obras.find(o => o.id === formData.obraId);
-        // MUDANÇA: Agora envia type='transfer' que é aceito pelo backend
+        // MUDANÇA CRÍTICA: Envia 'transfer' que é curto o suficiente para evitar erro de coluna se o DB for atualizado
         onSave({ ...formData, employeeName: employee?.nome || 'N/A', obraName: obra?.nome || 'N/A', date: new Date().toISOString().split('T')[0] }); 
     };
     return (
@@ -484,7 +489,7 @@ const VehicleTireHistoryModal = ({ vehicle, apiClient, onClose }) => {
 
 // Componente de Impressão Corrigido
 const PrintableTireOrder = React.forwardRef(({ vehicle }, ref) => {
-    // Mesmo sem veículo selecionado, renderiza o container vazio para evitar erro de ref
+    // Mesmo sem veículo selecionado, renderiza o container vazio para garantir que o ref exista no DOM
     if (!vehicle) return <div ref={ref}></div>;
     
     const positions = getTireLayout(vehicle.tipo);
