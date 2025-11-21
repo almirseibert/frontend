@@ -2,13 +2,13 @@ import React, { useState, useEffect, useMemo, useContext, createContext, useCall
 import { 
     LogOut, HardHat, Building, Clock, Truck, PlusCircle, Trash2, Edit, FileText, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, AlertTriangle, Shield, CalendarClock, ShoppingCart, Loader, X 
+    User, AlertTriangle, Shield, CalendarClock, ShoppingCart, Loader, X, Disc // ADD Disc Icon
 } from 'lucide-react';
 
-// --- CONTEXTO DE AUTENTICAÇÃO ---
+// ... (Context imports mantidos)
 import { AuthProvider, useAuth } from './contexts/AuthContext'; 
 
-// --- IMPORTAÇÃO DAS PÁGINAS ---
+// ... (Page imports mantidos)
 import Dashboard from './pages/Dashboard';
 import ObrasPage from './pages/ObrasPage';
 import PartnersPage from './pages/PartnersPage';
@@ -25,11 +25,10 @@ import AdminPage from './pages/AdminPage';
 import ControleDiarioPage from './pages/ControleDiarioPage';
 import OrdersPage from './pages/OrdersPage'; 
 import LoginScreen from './components/LoginScreen'; 
+import TiresPage from './pages/TiresPage'; // NOVO IMPORT
 
-// --- IMPORTAÇÃO DO CLIENTE DE API ---
+// ... (ApiClient e Utils mantidos)
 import apiClient from './services/apiClient'; 
-
-// --- IMPORTAÇÃO DAS REGRAS DE NEGÓCIO CENTRALIZADAS (NOVO) ---
 import { 
     vehicleGroups, 
     extraObraOptions, 
@@ -38,8 +37,7 @@ import {
     getVehicleMainReading 
 } from './utils/vehicleRules';
 
-// --- COMPONENTES DE UI (MODAIS) ---
-
+// ... (Modais CustomAlert, ConfirmationModal, PasswordConfirmationModal, UpdateMessageModal mantidos)
 const CustomAlert = ({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
         <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-2xl text-center">
@@ -140,6 +138,7 @@ const AppContent = () => {
     const [pageFilter, setPageFilter] = useState(null); 
     const [alertMessage, setAlertMessage] = useState(''); 
 
+    // ... (States de dados mantidos)
     const [vehicles, setVehicles] = useState([]);
     const [obras, setObras] = useState([]);
     const [revisions, setRevisions] = useState([]);
@@ -159,7 +158,7 @@ const AppContent = () => {
     const comboioTransactions = useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
     const fines = useMemo(() => [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime())), [rawFines]);
 
-    // --- ATUALIZADO: Usando a lógica centralizada de regras de negócio ---
+    // ... (processVehiclesWithAlerts mantido)
     const processVehiclesWithAlerts = (vehiclesData, revisionsData, finesData) => {
         const now = new Date();
         const thirtyDaysFromNow = new Date();
@@ -182,7 +181,7 @@ const AppContent = () => {
                 const proximoOdometro = revision.proximaRevisaoOdometro;
                 
                 // --- USO DA REGRA CENTRALIZADA ---
-                const readingData = getVehicleMainReading(vehicle); // <--- Ponto Crítico Atualizado
+                const readingData = getVehicleMainReading(vehicle); 
                 const currentReading = readingData.raw;
                 // --------------------------------
 
@@ -343,7 +342,7 @@ const AppContent = () => {
                     vehicles={processedVehicles} 
                     obras={obras} 
                     setAlertMessage={setAlertMessage}
-                    vehicleGroups={vehicleGroups} // Passando grupos atualizados
+                    vehicleGroups={vehicleGroups} 
                     diarioDeBordoLogs={diarioDeBordoLogs}
                 />
             </>
@@ -363,7 +362,7 @@ const AppContent = () => {
             setAlertMessage, 
             PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
             ConfirmationModal, 
-            vehicleGroups, // Passando grupos centralizados
+            vehicleGroups, 
             extraObraOptions, 
             equipmentTypesForHours, 
             operationalSubGroups,
@@ -405,6 +404,7 @@ const AppContent = () => {
             case 'expenses': return <ExpensesPage {...commonProps} />;
             case 'employees': return <EmployeesPage {...commonProps} />;
             case 'fines': return <FinesPage {...commonProps} />;
+            case 'tires': return <TiresPage {...commonProps} />; // NOVA ROTA
             case 'reports': return <ReportsPage {...commonProps} />; 
             case 'admin': return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <AccessDenied />; 
             default: return <Dashboard {...commonProps} />; 
@@ -455,6 +455,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
     const navItems = [
         { id: 'dashboard', label: 'Painel de Controle', icon: <Building size={15} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={20} /> },
+        { id: 'tires', label: 'Pneus', icon: <Disc size={20} /> }, // NOVO ITEM
         { id: 'obras', label: 'Obras', icon: <HardHat size={20} /> },
         { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={20} /> },
         { id: 'revisions', label: 'Revisões', icon: <Bell size={20} /> },
