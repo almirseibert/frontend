@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useContext, createContext, useCall
 import { 
     LogOut, HardHat, Building, Clock, Truck, PlusCircle, Trash2, Edit, FileText, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, AlertTriangle, Shield, CalendarClock, ShoppingCart, Loader, X, Disc // ADD Disc Icon
+    User, AlertTriangle, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck // ADD ClipboardCheck Icon
 } from 'lucide-react';
 
 // ... (Context imports mantidos)
@@ -25,7 +25,8 @@ import AdminPage from './pages/AdminPage';
 import ControleDiarioPage from './pages/ControleDiarioPage';
 import OrdersPage from './pages/OrdersPage'; 
 import LoginScreen from './components/LoginScreen'; 
-import TiresPage from './pages/TiresPage'; // NOVO IMPORT
+import TiresPage from './pages/TiresPage'; 
+import BillingPage from './pages/BillingPage'; // NOVO IMPORT
 
 // ... (ApiClient e Utils mantidos)
 import apiClient from './services/apiClient'; 
@@ -395,6 +396,7 @@ const AppContent = () => {
             case 'dashboard': return <Dashboard {...commonProps} />;
             case 'vehicles': return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
             case 'obras': return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
+            case 'billing': return <BillingPage {...commonProps} />; // NOVA PÁGINA
             case 'controleDiario': return <ControleDiarioPage {...commonProps} />;
             case 'revisions': return <RevisionsPage {...commonProps} />;
             case 'partners': return <PartnersPage {...commonProps} />;
@@ -404,7 +406,7 @@ const AppContent = () => {
             case 'expenses': return <ExpensesPage {...commonProps} />;
             case 'employees': return <EmployeesPage {...commonProps} />;
             case 'fines': return <FinesPage {...commonProps} />;
-            case 'tires': return <TiresPage {...commonProps} revisions={revisions} />; // PASSA AS REVISÕES
+            case 'tires': return <TiresPage {...commonProps} revisions={revisions} />; 
             case 'reports': return <ReportsPage {...commonProps} />; 
             case 'admin': return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <AccessDenied />; 
             default: return <Dashboard {...commonProps} />; 
@@ -454,8 +456,9 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
     
     const navItems = [
         { id: 'dashboard', label: 'Painel de Controle', icon: <Building size={15} /> },
+        { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={20} /> }, // NOVO ITEM
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={20} /> },
-        { id: 'tires', label: 'Pneus', icon: <Disc size={20} /> }, // NOVO ITEM
+        { id: 'tires', label: 'Pneus', icon: <Disc size={20} /> }, 
         { id: 'obras', label: 'Obras', icon: <HardHat size={20} /> },
         { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={20} /> },
         { id: 'revisions', label: 'Revisões', icon: <Bell size={20} /> },
