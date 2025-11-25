@@ -21,8 +21,9 @@ const BillingPage = ({
     const [selectedObraId, setSelectedObraId] = useState('');
     const [loadingLogs, setLoadingLogs] = useState(false);
     
-    // --- ESTADOS CONTROLE DIÁRIO ---
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    // --- ESTADOS CONTROLE DIÁRIO (NOVO FLUXO) ---
+    const [controlMonth, setControlMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [controlVehicleId, setControlVehicleId] = useState('');
     const [dailyLogs, setDailyLogs] = useState([]); 
     const [localChanges, setLocalChanges] = useState({}); 
     const [isSaving, setIsSaving] = useState(false);
@@ -43,20 +44,37 @@ const BillingPage = ({
         const hours = Math.floor(val);
         const minutes = Math.round((val - hours) * 60);
         
-        // Ajuste caso o arredondamento de minutos dê 60
         const finalHours = minutes === 60 ? hours + 1 : hours;
         const finalMinutes = minutes === 60 ? 0 : minutes;
 
         return `${finalHours.toString().padStart(2, '0')}:${finalMinutes.toString().padStart(2, '0')}`;
     };
 
-    // --- EFEITOS ---
-    useEffect(() => {
-        if (selectedObraId && activeTab === 'controle') {
-            fetchDailyLogsForControl();
+    // --- HELPER: Gerar dias do mês ---
+    const getDaysInMonth = (yearMonth) => {
+        if (!yearMonth) return [];
+        const [year, month] = yearMonth.split('-').map(Number);
+        const date = new Date(year, month - 1, 1);
+        const days = [];
+        while (date.getMonth() === month - 1) {
+            days.push(new Date(date).toISOString().split('T')[0]);
+            date.setDate(date.getDate() + 1);
         }
-    }, [selectedObraId, selectedDate, activeTab]);
+        return days;
+    };
 
+    // --- EFEITOS ---
+    
+    // Carrega logs quando muda Obra, Mês ou Veículo (Aba Controle - Novo Fluxo)
+    useEffect(() => {
+        if (selectedObraId && activeTab === 'controle' && controlVehicleId && controlMonth) {
+            fetchDailyLogsForControl();
+        } else if (activeTab === 'controle') {
+            setDailyLogs([]); // Limpa se faltar seleção
+        }
+    }, [selectedObraId, controlMonth, controlVehicleId, activeTab]);
+
+    // Carrega dados agregados quando muda Obra ou Datas (Aba Relatório)
     useEffect(() => {
         if (selectedObraId && activeTab === 'relatorio' && reportStartDate && reportEndDate) {
             fetchReportData();
@@ -101,13 +119,17 @@ const BillingPage = ({
         });
     }, [selectedObraId, obras, vehicles, vehicleGroups]);
 
-    const getDefaultOperator = (vehicleId) => {
+    const getDefaultOperator = () => {
+        // Tenta pegar o operador mais recente usado nos logs carregados ou do histórico
+        if (dailyLogs.length > 0) {
+            const lastLog = dailyLogs.find(l => l.employeeId);
+            if (lastLog) return lastLog.employeeId;
+        }
+        
         const obra = obras.find(o => o.id === selectedObraId);
         if (!obra) return '';
         const allocation = obra.historicoVeiculos.find(h => 
-            h.veiculoId === vehicleId && 
-            (!h.dataSaida || h.dataSaida >= selectedDate) &&
-            h.dataEntrada <= selectedDate
+            h.veiculoId === controlVehicleId && !h.dataSaida
         );
         return allocation ? allocation.employeeId : '';
     };
@@ -117,9 +139,15 @@ const BillingPage = ({
     const fetchDailyLogsForControl = async () => {
         setLoadingLogs(true);
         try {
+            const [year, month] = controlMonth.split('-');
+            const startDate = `${year}-${month}-01`;
+            const lastDay = new Date(year, month, 0).getDate();
+            const endDate = `${year}-${month}-${lastDay}`;
+
             const logs = await apiClient.getDailyLogs(selectedObraId, { 
-                startDate: selectedDate, 
-                endDate: selectedDate 
+                startDate, 
+                endDate,
+                vehicleId: controlVehicleId 
             });
             setDailyLogs(logs || []);
             setLocalChanges({});
@@ -134,11 +162,18 @@ const BillingPage = ({
     const fetchReportData = async () => {
         setLoadingLogs(true);
         try {
-            const logs = await apiClient.getDailyLogs(selectedObraId, { 
+            // CORREÇÃO: Monta o objeto de filtros manualmente para evitar "vehicleId=undefined" string
+            const filters = { 
                 startDate: reportStartDate, 
-                endDate: reportEndDate,
-                vehicleId: reportVehicleId || undefined // Filtro opcional
-            });
+                endDate: reportEndDate
+            };
+            
+            // Só adiciona o ID se ele existir (não for vazio)
+            if (reportVehicleId) {
+                filters.vehicleId = reportVehicleId;
+            }
+
+            const logs = await apiClient.getDailyLogs(selectedObraId, filters);
             setReportData(logs || []);
         } catch (error) {
             console.error(error);
@@ -152,15 +187,16 @@ const BillingPage = ({
         setIsSaving(true);
         const promises = [];
 
-        Object.keys(localChanges).forEach(vehicleId => {
-            const changes = localChanges[vehicleId];
-            const existingLog = dailyLogs.find(l => l.vehicleId === vehicleId);
+        // Itera sobre as DATAS que tiveram alteração
+        Object.keys(localChanges).forEach(dateKey => {
+            const changes = localChanges[dateKey];
+            const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
             
             const payload = {
                 obraId: selectedObraId,
-                vehicleId: vehicleId,
-                date: selectedDate,
-                employeeId: changes.employeeId !== undefined ? changes.employeeId : (existingLog?.employeeId || getDefaultOperator(vehicleId)),
+                vehicleId: controlVehicleId, // Veículo selecionado no header
+                date: dateKey,
+                employeeId: changes.employeeId !== undefined ? changes.employeeId : (existingLog?.employeeId || getDefaultOperator()),
                 morningStart: changes.morningStart !== undefined ? changes.morningStart : existingLog?.morningStart,
                 morningEnd: changes.morningEnd !== undefined ? changes.morningEnd : existingLog?.morningEnd,
                 afternoonStart: changes.afternoonStart !== undefined ? changes.afternoonStart : existingLog?.afternoonStart,
@@ -177,7 +213,7 @@ const BillingPage = ({
             };
             const morning = calcHours(payload.morningStart, payload.morningEnd);
             const afternoon = calcHours(payload.afternoonStart, payload.afternoonEnd);
-            payload.totalHours = (morning + afternoon).toFixed(2); // Salva em decimal para cálculos futuros
+            payload.totalHours = (morning + afternoon).toFixed(2);
 
             promises.push(apiClient.upsertDailyLog(payload));
         });
@@ -194,10 +230,10 @@ const BillingPage = ({
     };
 
     // --- HANDLERS ---
-    const handleInputChange = (vehicleId, field, value) => {
+    const handleInputChange = (dateKey, field, value) => {
         setLocalChanges(prev => ({
             ...prev,
-            [vehicleId]: { ...prev[vehicleId], [field]: value }
+            [dateKey]: { ...prev[dateKey], [field]: value }
         }));
     };
 
@@ -207,7 +243,8 @@ const BillingPage = ({
             const startLimit = new Date(obra.dataInicio);
             const endLimit = obra.dataFim ? new Date(obra.dataFim) : new Date();
             const checkDate = new Date(value);
-            if (checkDate < startLimit || checkDate > endLimit) {
+            // Simples verificação se é data válida
+            if (!isNaN(checkDate) && (checkDate < startLimit || checkDate > endLimit)) {
                 setPendingDateChange({ field, value });
                 setShowPasswordModal(true);
                 return;
@@ -248,7 +285,7 @@ const BillingPage = ({
             log.employeeName || 'N/A',
             `${log.morningStart ? log.morningStart.slice(0,5) : '-'} / ${log.morningEnd ? log.morningEnd.slice(0,5) : '-'}`,
             `${log.afternoonStart ? log.afternoonStart.slice(0,5) : '-'} / ${log.afternoonEnd ? log.afternoonEnd.slice(0,5) : '-'}`,
-            formatDecimalToTime(log.totalHours), // Formatado
+            formatDecimalToTime(log.totalHours), 
             log.observation || ''
         ]);
 
@@ -261,7 +298,6 @@ const BillingPage = ({
             columnStyles: { 6: { fontStyle: 'bold', halign: 'center' } }
         });
 
-        // Rodapé com totais
         const totalDecimal = reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
         doc.setFontSize(10);
         doc.text(`Total Geral de Horas: ${formatDecimalToTime(totalDecimal)}`, 14, doc.lastAutoTable.finalY + 10);
@@ -274,24 +310,19 @@ const BillingPage = ({
         const obra = obras.find(o => o.id === selectedObraId);
         const vehicleInfo = reportVehicleId ? `Veículo: ${vehicles.find(v => v.id === reportVehicleId)?.registroInterno}` : 'Geral';
 
-        // 1. Resumo por Grupo
         const groupSummary = {};
-        // 2. Resumo por Tipo
         const typeSummary = {};
 
         reportData.forEach(log => {
             const type = log.tipo || 'Outros';
             const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
             
-            // Agrupamento por Tipo
             if (!typeSummary[type]) typeSummary[type] = { hours: 0, vehicles: new Set() };
             typeSummary[type].hours += parseFloat(log.totalHours);
             typeSummary[type].vehicles.add(log.registroInterno);
 
-            // Agrupamento por Grupo
-            if (!groupSummary[group]) groupSummary[group] = { hours: 0, count: 0 };
+            if (!groupSummary[group]) groupSummary[group] = { hours: 0 };
             groupSummary[group].hours += parseFloat(log.totalHours);
-            // Contagem de registros ou veículos únicos? Vamos usar horas totais aqui.
         });
 
         doc.setFontSize(16);
@@ -299,7 +330,6 @@ const BillingPage = ({
         doc.setFontSize(10);
         doc.text(`Filtro: ${vehicleInfo} | Período: ${new Date(reportStartDate).toLocaleDateString('pt-BR')} a ${new Date(reportEndDate).toLocaleDateString('pt-BR')}`, 14, 22);
 
-        // Tabela 1: Por Grupo
         const groupTableData = Object.keys(groupSummary).map(group => [
             group,
             formatDecimalToTime(groupSummary[group].hours)
@@ -315,7 +345,6 @@ const BillingPage = ({
             theme: 'grid'
         });
 
-        // Tabela 2: Por Tipo
         const typeTableData = Object.keys(typeSummary).map(type => [
             type,
             typeSummary[type].vehicles.size,
@@ -374,37 +403,59 @@ const BillingPage = ({
                         </button>
                     </div>
 
-                    {/* CONTEÚDO DA ABA: CONTROLE DIÁRIO */}
+                    {/* CONTEÚDO DA ABA: CONTROLE DIÁRIO (NOVO FLUXO) */}
                     {activeTab === 'controle' && (
                         <div className="space-y-6">
-                            {/* Seletor de Data */}
-                            <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-md border">
-                                <label className="font-semibold text-gray-700">Data de Lançamento:</label>
-                                <input 
-                                    type="date" 
-                                    value={selectedDate} 
-                                    onChange={(e) => setSelectedDate(e.target.value)}
-                                    className="p-2 border rounded-md"
-                                />
-                                <button 
-                                    onClick={handleSaveDailyLogs} 
-                                    disabled={isSaving || Object.keys(localChanges).length === 0}
-                                    className="ml-auto flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
-                                >
-                                    {isSaving ? 'Salvando...' : 'Salvar Alterações'} <Save size={18} />
-                                </button>
+                            {/* Filtros de Seleção: Equipamento e Mês */}
+                            <div className="flex flex-col md:flex-row items-end gap-4 bg-gray-50 p-4 rounded-md border">
+                                <div className="flex-1 w-full">
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">Equipamento</label>
+                                    <select 
+                                        value={controlVehicleId} 
+                                        onChange={(e) => setControlVehicleId(e.target.value)}
+                                        className="w-full p-2 border rounded text-sm bg-white"
+                                    >
+                                        <option value="">-- Selecione o Equipamento --</option>
+                                        {getObraVehicles.map(v => (
+                                            <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo} ({v.statusNaObra === 'presente' ? 'Ativo' : 'Inativo'})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="w-full md:w-auto">
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">Mês de Referência</label>
+                                    <input 
+                                        type="month" 
+                                        value={controlMonth} 
+                                        onChange={(e) => setControlMonth(e.target.value)}
+                                        className="w-full p-2 border rounded text-sm"
+                                    />
+                                </div>
+                                <div className="w-full md:w-auto">
+                                    <button 
+                                        onClick={handleSaveDailyLogs} 
+                                        disabled={isSaving || Object.keys(localChanges).length === 0}
+                                        className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm font-semibold"
+                                    >
+                                        {isSaving ? 'Salvando...' : 'Salvar Mês'} <Save size={16} />
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Lista de Veículos */}
+                            {/* Tabela de Dias do Mês */}
                             <div className="bg-white shadow rounded-lg overflow-hidden">
                                 {loadingLogs ? (
                                     <div className="p-8 text-center text-gray-500">Carregando registros...</div>
+                                ) : !controlVehicleId ? (
+                                    <div className="p-12 text-center text-gray-400 flex flex-col items-center">
+                                        <ArrowRight size={32} className="mb-2 opacity-20"/>
+                                        <p>Selecione um equipamento e o mês para lançar as horas.</p>
+                                    </div>
                                 ) : (
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm text-left">
-                                            <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs">
+                                            <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs sticky top-0">
                                                 <tr>
-                                                    <th className="px-4 py-3">Equipamento</th>
+                                                    <th className="px-4 py-3">Dia</th>
                                                     <th className="px-4 py-3">Operador</th>
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Manhã (Início - Fim)</th>
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Tarde (Início - Fim)</th>
@@ -413,11 +464,12 @@ const BillingPage = ({
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
-                                                {getObraVehicles.length > 0 ? getObraVehicles.map(vehicle => {
-                                                    const existingLog = dailyLogs.find(l => l.vehicleId === vehicle.id) || {};
-                                                    const changes = localChanges[vehicle.id] || {};
+                                                {getDaysInMonth(controlMonth).map(dayDate => {
+                                                    const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
+                                                    const changes = localChanges[dayDate] || {};
                                                     
-                                                    const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator(vehicle.id));
+                                                    // Prioridade: Mudança Local > Banco de Dados > Vazio
+                                                    const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
                                                     const mStart = changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || '');
                                                     const mEnd = changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || '');
                                                     const aStart = changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || '');
@@ -432,67 +484,46 @@ const BillingPage = ({
                                                     };
                                                     const totalDecimal = (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
                                                     
-                                                    const isInactive = vehicle.statusNaObra === 'historico';
-                                                    const warnings = [];
-                                                    if(vehicle.possuiAviso) warnings.push(vehicle.avisoTexto);
-                                                    if(vehicle.canCirculate === false) warnings.push("Não pode circular");
+                                                    const isToday = dayDate === new Date().toISOString().split('T')[0];
+                                                    const dayNumber = dayDate.split('-')[2];
 
                                                     return (
-                                                        <tr key={vehicle.id} className={`hover:bg-gray-50 ${isInactive ? 'bg-gray-100 opacity-70' : ''}`}>
-                                                            <td className="px-4 py-3 border-r relative">
-                                                                <div className="font-bold text-gray-800">{vehicle.registroInterno}</div>
-                                                                <div className="text-xs text-gray-500">{vehicle.modelo}</div>
-                                                                {isInactive && <span className="text-[10px] text-red-500 font-bold uppercase block mt-1">Não está na obra</span>}
-                                                                {warnings.length > 0 && (
-                                                                    <div className="mt-1 flex flex-wrap gap-1">
-                                                                         {warnings.map((w, i) => (
-                                                                             <span key={i} className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded border border-red-200 flex items-center gap-1">
-                                                                                 <AlertTriangle size={10} /> {w}
-                                                                             </span>
-                                                                         ))}
-                                                                    </div>
-                                                                )}
+                                                        <tr key={dayDate} className={`hover:bg-gray-50 ${isToday ? 'bg-yellow-50' : ''}`}>
+                                                            <td className="px-4 py-2 font-medium border-r w-24">
+                                                                {dayNumber} <span className="text-xs text-gray-400 font-normal">/ {dayDate.split('-')[1]}</span>
+                                                                {isToday && <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">Hoje</span>}
                                                             </td>
-                                                            <td className="px-4 py-3">
-                                                                <div className="flex items-center gap-1">
-                                                                    <User size={14} className="text-gray-400" />
-                                                                    <select 
-                                                                        value={employeeId} 
-                                                                        onChange={(e) => handleInputChange(vehicle.id, 'employeeId', e.target.value)}
-                                                                        className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500"
-                                                                    >
-                                                                        <option value="">-- Operador --</option>
-                                                                        {employees.sort((a,b)=>a.nome.localeCompare(b.nome)).map(emp => (
-                                                                            <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </div>
+                                                            <td className="px-2 py-2 w-48">
+                                                                <select 
+                                                                    value={employeeId} 
+                                                                    onChange={(e) => handleInputChange(dayDate, 'employeeId', e.target.value)}
+                                                                    className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500"
+                                                                >
+                                                                    <option value="">-- Operador --</option>
+                                                                    {employees.sort((a,b)=>a.nome.localeCompare(b.nome)).map(emp => (
+                                                                        <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                                                    ))}
+                                                                </select>
                                                             </td>
-                                                            <td className="px-1 py-3"><input type="time" value={mStart} onChange={(e) => handleInputChange(vehicle.id, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
-                                                            <td className="px-1 py-3 border-r"><input type="time" value={mEnd} onChange={(e) => handleInputChange(vehicle.id, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
-                                                            <td className="px-1 py-3"><input type="time" value={aStart} onChange={(e) => handleInputChange(vehicle.id, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
-                                                            <td className="px-1 py-3 border-r"><input type="time" value={aEnd} onChange={(e) => handleInputChange(vehicle.id, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
-                                                            <td className="px-4 py-3 font-bold text-center text-blue-600 bg-blue-50">
-                                                                {formatDecimalToTime(totalDecimal)} {/* Formatado */}
+                                                            <td className="px-1 py-2 w-20"><input type="time" value={mStart} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-1 py-2 w-20"><input type="time" value={aStart} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-4 py-2 font-bold text-center text-blue-600 bg-blue-50 w-24">
+                                                                {formatDecimalToTime(totalDecimal)}
                                                             </td>
-                                                            <td className="px-4 py-3">
+                                                            <td className="px-2 py-2">
                                                                 <input 
                                                                     type="text" 
-                                                                    placeholder="Observação..." 
+                                                                    placeholder="Obs..." 
                                                                     value={obs}
-                                                                    onChange={(e) => handleInputChange(vehicle.id, 'observation', e.target.value)}
+                                                                    onChange={(e) => handleInputChange(dayDate, 'observation', e.target.value)}
                                                                     className="w-full text-xs p-1 border-b focus:border-yellow-500 outline-none bg-transparent"
                                                                 />
                                                             </td>
                                                         </tr>
                                                     );
-                                                }) : (
-                                                    <tr>
-                                                        <td colSpan="8" className="p-8 text-center text-gray-500 italic">
-                                                            Nenhum equipamento pesado ou caminhão alocado nesta obra.
-                                                        </td>
-                                                    </tr>
-                                                )}
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -567,7 +598,7 @@ const BillingPage = ({
                             {/* Resumo por TIPOS (Detalhado) */}
                             <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                                 {Object.entries(reportData.reduce((acc, curr) => {
-                                    const tipo = curr.tipo || 'Outros';
+                                    const type = curr.tipo || 'Outros';
                                     acc[tipo] = (acc[tipo] || 0) + parseFloat(curr.totalHours);
                                     return acc;
                                 }, {})).map(([tipo, hours]) => (
