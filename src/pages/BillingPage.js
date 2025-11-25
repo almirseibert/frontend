@@ -599,7 +599,7 @@ const BillingPage = ({
                             <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                                 {Object.entries(reportData.reduce((acc, curr) => {
                                     const type = curr.tipo || 'Outros';
-                                    acc[tipo] = (acc[tipo] || 0) + parseFloat(curr.totalHours);
+                                    acc[type] = (acc[type] || 0) + parseFloat(curr.totalHours);
                                     return acc;
                                 }, {})).map(([tipo, hours]) => (
                                     <div key={tipo} className="bg-white p-3 rounded shadow border-l-4 border-yellow-400">
