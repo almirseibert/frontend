@@ -4,7 +4,7 @@ import {
     Download, Search, Save, Lock, ArrowRight, User 
 } from 'lucide-react';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable'; // CORREÇÃO: Importação direta da função
 import apiClient from '../services/apiClient';
 
 const BillingPage = ({ 
@@ -12,9 +12,9 @@ const BillingPage = ({
     obras = [], 
     vehicles = [], 
     employees = [], 
+    vehicleGroups = {}, // Recebendo vehicleGroups para filtragem
     setAlertMessage, 
-    PasswordConfirmationModal,
-    apiClient // redundante pois importei em cima, mas mantendo padrão
+    PasswordConfirmationModal
 }) => {
     // --- ESTADOS GERAIS ---
     const [activeTab, setActiveTab] = useState('controle'); // 'controle' ou 'relatorio'
@@ -68,11 +68,18 @@ const BillingPage = ({
             if (isMoreRecent) {
                 const vehicle = vehicles.find(v => v.id === h.veiculoId);
                 if (vehicle) {
-                    vehicleMap.set(h.veiculoId, {
-                        ...vehicle,
-                        statusNaObra: h.dataSaida ? 'historico' : 'presente',
-                        entryData: h
-                    });
+                    // --- CORREÇÃO: FILTRO DE VEÍCULOS LEVES ---
+                    const tipo = vehicle.tipo || '';
+                    const isLight = vehicleGroups['Veículos Leves']?.includes(tipo);
+
+                    // Se for veículo leve, IGNORA e não adiciona na lista
+                    if (!isLight) {
+                        vehicleMap.set(h.veiculoId, {
+                            ...vehicle,
+                            statusNaObra: h.dataSaida ? 'historico' : 'presente',
+                            entryData: h
+                        });
+                    }
                 }
             }
         });
@@ -84,7 +91,7 @@ const BillingPage = ({
             }
             return a.statusNaObra === 'presente' ? -1 : 1;
         });
-    }, [selectedObraId, obras, vehicles]);
+    }, [selectedObraId, obras, vehicles, vehicleGroups]);
 
     // Busca operador padrão baseado no histórico da obra para a data selecionada
     const getDefaultOperator = (vehicleId) => {
@@ -224,7 +231,7 @@ const BillingPage = ({
         }
     };
 
-    // --- GERAÇÃO DE PDF ---
+    // --- GERAÇÃO DE PDF (CORRIGIDO) ---
 
     const generateDetailedPDF = () => {
         const doc = new jsPDF();
@@ -240,13 +247,14 @@ const BillingPage = ({
             log.registroInterno,
             log.modelo,
             log.employeeName || 'N/A',
-            `${log.morningStart || '-'} / ${log.morningEnd || '-'}`,
-            `${log.afternoonStart || '-'} / ${log.afternoonEnd || '-'}`,
+            `${log.morningStart ? log.morningStart.slice(0,5) : '-'} / ${log.morningEnd ? log.morningEnd.slice(0,5) : '-'}`,
+            `${log.afternoonStart ? log.afternoonStart.slice(0,5) : '-'} / ${log.afternoonEnd ? log.afternoonEnd.slice(0,5) : '-'}`,
             log.totalHours,
             log.observation || ''
         ]);
 
-        doc.autoTable({
+        // CORREÇÃO: Usando a função importada diretamente
+        autoTable(doc, {
             startY: 28,
             head: [['Data', 'Equipamento', 'Modelo', 'Operador', 'Manhã', 'Tarde', 'Total (h)', 'Obs']],
             body: tableData,
@@ -279,7 +287,8 @@ const BillingPage = ({
             summary[type].hours.toFixed(2)
         ]);
 
-        doc.autoTable({
+        // CORREÇÃO: Usando a função importada diretamente
+        autoTable(doc, {
             startY: 25,
             head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']],
             body: tableData,
@@ -370,7 +379,7 @@ const BillingPage = ({
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
-                                                {getObraVehicles.map(vehicle => {
+                                                {getObraVehicles.length > 0 ? getObraVehicles.map(vehicle => {
                                                     const existingLog = dailyLogs.find(l => l.vehicleId === vehicle.id) || {};
                                                     const changes = localChanges[vehicle.id] || {};
                                                     
@@ -446,7 +455,13 @@ const BillingPage = ({
                                                             </td>
                                                         </tr>
                                                     );
-                                                })}
+                                                }) : (
+                                                    <tr>
+                                                        <td colSpan="8" className="p-8 text-center text-gray-500 italic">
+                                                            Nenhum equipamento pesado ou caminhão alocado nesta obra.
+                                                        </td>
+                                                    </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
