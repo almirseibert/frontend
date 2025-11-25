@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle, 
-    Download, Search, Save, Lock, ArrowRight, User 
+    Download, Search, Save, Lock, ArrowRight, User, Printer 
 } from 'lucide-react';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable'; // CORREÇÃO: Importação direta da função
+import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
 
 const BillingPage = ({ 
@@ -12,43 +12,56 @@ const BillingPage = ({
     obras = [], 
     vehicles = [], 
     employees = [], 
-    vehicleGroups = {}, // Recebendo vehicleGroups para filtragem
+    vehicleGroups = {}, 
     setAlertMessage, 
     PasswordConfirmationModal
 }) => {
     // --- ESTADOS GERAIS ---
-    const [activeTab, setActiveTab] = useState('controle'); // 'controle' ou 'relatorio'
+    const [activeTab, setActiveTab] = useState('controle'); 
     const [selectedObraId, setSelectedObraId] = useState('');
     const [loadingLogs, setLoadingLogs] = useState(false);
     
     // --- ESTADOS CONTROLE DIÁRIO ---
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [dailyLogs, setDailyLogs] = useState([]); // Logs carregados do backend
-    const [localChanges, setLocalChanges] = useState({}); // Mudanças não salvas
+    const [dailyLogs, setDailyLogs] = useState([]); 
+    const [localChanges, setLocalChanges] = useState({}); 
     const [isSaving, setIsSaving] = useState(false);
 
     // --- ESTADOS RELATÓRIO/FATURAMENTO ---
     const [reportStartDate, setReportStartDate] = useState('');
     const [reportEndDate, setReportEndDate] = useState('');
+    const [reportVehicleId, setReportVehicleId] = useState(''); // Filtro de Veículo
     const [reportData, setReportData] = useState([]);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [pendingDateChange, setPendingDateChange] = useState(null); // { field: 'start'|'end', value: 'yyyy-mm-dd' }
+    const [pendingDateChange, setPendingDateChange] = useState(null);
+
+    // --- HELPER: Formatação de Horas (Decimal -> HH:MM) ---
+    const formatDecimalToTime = (decimal) => {
+        const val = parseFloat(decimal);
+        if (isNaN(val) || val === 0) return '00:00';
+        
+        const hours = Math.floor(val);
+        const minutes = Math.round((val - hours) * 60);
+        
+        // Ajuste caso o arredondamento de minutos dê 60
+        const finalHours = minutes === 60 ? hours + 1 : hours;
+        const finalMinutes = minutes === 60 ? 0 : minutes;
+
+        return `${finalHours.toString().padStart(2, '0')}:${finalMinutes.toString().padStart(2, '0')}`;
+    };
 
     // --- EFEITOS ---
-    
-    // Carrega logs quando muda Obra ou Data (Aba Controle)
     useEffect(() => {
         if (selectedObraId && activeTab === 'controle') {
             fetchDailyLogsForControl();
         }
     }, [selectedObraId, selectedDate, activeTab]);
 
-    // Carrega dados agregados quando muda Obra ou Datas (Aba Relatório)
     useEffect(() => {
         if (selectedObraId && activeTab === 'relatorio' && reportStartDate && reportEndDate) {
             fetchReportData();
         }
-    }, [selectedObraId, reportStartDate, reportEndDate, activeTab]);
+    }, [selectedObraId, reportStartDate, reportEndDate, reportVehicleId, activeTab]);
 
     // --- FUNÇÕES AUXILIARES ---
 
@@ -57,22 +70,18 @@ const BillingPage = ({
         const obra = obras.find(o => o.id === selectedObraId);
         if (!obra || !obra.historicoVeiculos) return [];
 
-        // Agrupa histórico para pegar o status mais recente de cada veículo nesta obra
         const vehicleMap = new Map();
         
         obra.historicoVeiculos.forEach(h => {
-            // Se já processou este veículo, verifica se esse registro é mais recente
             const existing = vehicleMap.get(h.veiculoId);
             const isMoreRecent = !existing || new Date(h.dataEntrada) > new Date(existing.entryData.dataEntrada);
             
             if (isMoreRecent) {
                 const vehicle = vehicles.find(v => v.id === h.veiculoId);
                 if (vehicle) {
-                    // --- CORREÇÃO: FILTRO DE VEÍCULOS LEVES ---
                     const tipo = vehicle.tipo || '';
                     const isLight = vehicleGroups['Veículos Leves']?.includes(tipo);
 
-                    // Se for veículo leve, IGNORA e não adiciona na lista
                     if (!isLight) {
                         vehicleMap.set(h.veiculoId, {
                             ...vehicle,
@@ -84,7 +93,6 @@ const BillingPage = ({
             }
         });
 
-        // Ordena: Presentes primeiro, depois alfabética
         return Array.from(vehicleMap.values()).sort((a, b) => {
             if (a.statusNaObra === b.statusNaObra) {
                 return (a.registroInterno || '').localeCompare(b.registroInterno || '');
@@ -93,18 +101,14 @@ const BillingPage = ({
         });
     }, [selectedObraId, obras, vehicles, vehicleGroups]);
 
-    // Busca operador padrão baseado no histórico da obra para a data selecionada
     const getDefaultOperator = (vehicleId) => {
         const obra = obras.find(o => o.id === selectedObraId);
         if (!obra) return '';
-        
-        // Procura no histórico da obra quem estava com o veículo
         const allocation = obra.historicoVeiculos.find(h => 
             h.veiculoId === vehicleId && 
             (!h.dataSaida || h.dataSaida >= selectedDate) &&
             h.dataEntrada <= selectedDate
         );
-        
         return allocation ? allocation.employeeId : '';
     };
 
@@ -113,13 +117,12 @@ const BillingPage = ({
     const fetchDailyLogsForControl = async () => {
         setLoadingLogs(true);
         try {
-            // Busca logs apenas do dia selecionado
             const logs = await apiClient.getDailyLogs(selectedObraId, { 
                 startDate: selectedDate, 
                 endDate: selectedDate 
             });
             setDailyLogs(logs || []);
-            setLocalChanges({}); // Limpa mudanças locais ao recarregar
+            setLocalChanges({});
         } catch (error) {
             console.error(error);
             setAlertMessage("Erro ao carregar registros diários.");
@@ -133,7 +136,8 @@ const BillingPage = ({
         try {
             const logs = await apiClient.getDailyLogs(selectedObraId, { 
                 startDate: reportStartDate, 
-                endDate: reportEndDate 
+                endDate: reportEndDate,
+                vehicleId: reportVehicleId || undefined // Filtro opcional
             });
             setReportData(logs || []);
         } catch (error) {
@@ -150,7 +154,6 @@ const BillingPage = ({
 
         Object.keys(localChanges).forEach(vehicleId => {
             const changes = localChanges[vehicleId];
-            // Mescla com log existente se houver
             const existingLog = dailyLogs.find(l => l.vehicleId === vehicleId);
             
             const payload = {
@@ -165,7 +168,6 @@ const BillingPage = ({
                 observation: changes.observation !== undefined ? changes.observation : existingLog?.observation,
             };
 
-            // Recalcula total horas
             const calcHours = (start, end) => {
                 if (!start || !end) return 0;
                 const [h1, m1] = start.split(':').map(Number);
@@ -175,7 +177,7 @@ const BillingPage = ({
             };
             const morning = calcHours(payload.morningStart, payload.morningEnd);
             const afternoon = calcHours(payload.afternoonStart, payload.afternoonEnd);
-            payload.totalHours = (morning + afternoon).toFixed(2);
+            payload.totalHours = (morning + afternoon).toFixed(2); // Salva em decimal para cálculos futuros
 
             promises.push(apiClient.upsertDailyLog(payload));
         });
@@ -192,33 +194,25 @@ const BillingPage = ({
     };
 
     // --- HANDLERS ---
-
     const handleInputChange = (vehicleId, field, value) => {
         setLocalChanges(prev => ({
             ...prev,
-            [vehicleId]: {
-                ...prev[vehicleId],
-                [field]: value
-            }
+            [vehicleId]: { ...prev[vehicleId], [field]: value }
         }));
     };
 
     const handleDateRangeChange = (field, value) => {
-        // Verifica restrição de data
         const obra = obras.find(o => o.id === selectedObraId);
         if (obra) {
             const startLimit = new Date(obra.dataInicio);
             const endLimit = obra.dataFim ? new Date(obra.dataFim) : new Date();
             const checkDate = new Date(value);
-
-            // Permite senha se fora do intervalo
             if (checkDate < startLimit || checkDate > endLimit) {
                 setPendingDateChange({ field, value });
                 setShowPasswordModal(true);
                 return;
             }
         }
-        
         if (field === 'start') setReportStartDate(value);
         else setReportEndDate(value);
     };
@@ -231,16 +225,21 @@ const BillingPage = ({
         }
     };
 
-    // --- GERAÇÃO DE PDF (CORRIGIDO) ---
+    // --- GERAÇÃO DE PDF ---
 
     const generateDetailedPDF = () => {
         const doc = new jsPDF();
         const obra = obras.find(o => o.id === selectedObraId);
+        const vehicleInfo = reportVehicleId 
+            ? vehicles.find(v => v.id === reportVehicleId)?.registroInterno + ' - ' + vehicles.find(v => v.id === reportVehicleId)?.modelo 
+            : 'Todos os Equipamentos';
         
         doc.setFontSize(16);
-        doc.text(`Relatório Detalhado de Faturamento: ${obra?.nome || 'N/A'}`, 14, 15);
+        doc.text(`Relatório Detalhado: ${obra?.nome || 'N/A'}`, 14, 15);
+        doc.setFontSize(11);
+        doc.text(`Veículo(s): ${vehicleInfo}`, 14, 22);
         doc.setFontSize(10);
-        doc.text(`Período: ${reportStartDate} a ${reportEndDate}`, 14, 22);
+        doc.text(`Período: ${new Date(reportStartDate).toLocaleDateString('pt-BR')} a ${new Date(reportEndDate).toLocaleDateString('pt-BR')}`, 14, 28);
 
         const tableData = reportData.map(log => [
             new Date(log.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
@@ -249,58 +248,93 @@ const BillingPage = ({
             log.employeeName || 'N/A',
             `${log.morningStart ? log.morningStart.slice(0,5) : '-'} / ${log.morningEnd ? log.morningEnd.slice(0,5) : '-'}`,
             `${log.afternoonStart ? log.afternoonStart.slice(0,5) : '-'} / ${log.afternoonEnd ? log.afternoonEnd.slice(0,5) : '-'}`,
-            log.totalHours,
+            formatDecimalToTime(log.totalHours), // Formatado
             log.observation || ''
         ]);
 
-        // CORREÇÃO: Usando a função importada diretamente
         autoTable(doc, {
-            startY: 28,
+            startY: 32,
             head: [['Data', 'Equipamento', 'Modelo', 'Operador', 'Manhã', 'Tarde', 'Total (h)', 'Obs']],
             body: tableData,
             styles: { fontSize: 8 },
-            headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0] } // Amarelo MAK
+            headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0] },
+            columnStyles: { 6: { fontStyle: 'bold', halign: 'center' } }
         });
 
-        doc.save(`Faturamento_Detalhado_${obra?.nome}_${reportStartDate}.pdf`);
+        // Rodapé com totais
+        const totalDecimal = reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
+        doc.setFontSize(10);
+        doc.text(`Total Geral de Horas: ${formatDecimalToTime(totalDecimal)}`, 14, doc.lastAutoTable.finalY + 10);
+
+        doc.save(`Detalhado_${obra?.nome}_${reportStartDate}.pdf`);
     };
 
     const generateSummaryPDF = () => {
         const doc = new jsPDF();
         const obra = obras.find(o => o.id === selectedObraId);
+        const vehicleInfo = reportVehicleId ? `Veículo: ${vehicles.find(v => v.id === reportVehicleId)?.registroInterno}` : 'Geral';
 
-        // Agrupa por Tipo de Veículo
-        const summary = {};
+        // 1. Resumo por Grupo
+        const groupSummary = {};
+        // 2. Resumo por Tipo
+        const typeSummary = {};
+
         reportData.forEach(log => {
             const type = log.tipo || 'Outros';
-            if (!summary[type]) summary[type] = { hours: 0, vehicles: new Set() };
-            summary[type].hours += parseFloat(log.totalHours);
-            summary[type].vehicles.add(log.registroInterno);
+            const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
+            
+            // Agrupamento por Tipo
+            if (!typeSummary[type]) typeSummary[type] = { hours: 0, vehicles: new Set() };
+            typeSummary[type].hours += parseFloat(log.totalHours);
+            typeSummary[type].vehicles.add(log.registroInterno);
+
+            // Agrupamento por Grupo
+            if (!groupSummary[group]) groupSummary[group] = { hours: 0, count: 0 };
+            groupSummary[group].hours += parseFloat(log.totalHours);
+            // Contagem de registros ou veículos únicos? Vamos usar horas totais aqui.
         });
 
         doc.setFontSize(16);
-        doc.text(`Resumo por Obra: ${obra?.nome}`, 14, 15);
-        
-        const tableData = Object.keys(summary).map(type => [
-            type,
-            summary[type].vehicles.size,
-            summary[type].hours.toFixed(2)
+        doc.text(`Resumo de Horas: ${obra?.nome || 'N/A'}`, 14, 15);
+        doc.setFontSize(10);
+        doc.text(`Filtro: ${vehicleInfo} | Período: ${new Date(reportStartDate).toLocaleDateString('pt-BR')} a ${new Date(reportEndDate).toLocaleDateString('pt-BR')}`, 14, 22);
+
+        // Tabela 1: Por Grupo
+        const groupTableData = Object.keys(groupSummary).map(group => [
+            group,
+            formatDecimalToTime(groupSummary[group].hours)
         ]);
 
-        // CORREÇÃO: Usando a função importada diretamente
+        doc.setFontSize(12);
+        doc.text("Resumo por Grupo de Veículos", 14, 30);
         autoTable(doc, {
-            startY: 25,
+            startY: 32,
+            head: [['Grupo', 'Horas Totais']],
+            body: groupTableData,
+            headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255] },
+            theme: 'grid'
+        });
+
+        // Tabela 2: Por Tipo
+        const typeTableData = Object.keys(typeSummary).map(type => [
+            type,
+            typeSummary[type].vehicles.size,
+            formatDecimalToTime(typeSummary[type].hours)
+        ]);
+
+        doc.setFontSize(12);
+        doc.text("Detalhamento por Tipo de Equipamento", 14, doc.lastAutoTable.finalY + 10);
+        autoTable(doc, {
+            startY: doc.lastAutoTable.finalY + 12,
             head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']],
-            body: tableData,
+            body: typeTableData,
             headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0] }
         });
 
-        doc.save(`Resumo_Obra_${obra?.nome}.pdf`);
+        doc.save(`Resumo_${obra?.nome}_${reportStartDate}.pdf`);
     };
 
-
     // --- RENDERIZAÇÃO ---
-
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
@@ -383,7 +417,6 @@ const BillingPage = ({
                                                     const existingLog = dailyLogs.find(l => l.vehicleId === vehicle.id) || {};
                                                     const changes = localChanges[vehicle.id] || {};
                                                     
-                                                    // Valores mesclados (Input Local > Banco > Padrão)
                                                     const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator(vehicle.id));
                                                     const mStart = changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || '');
                                                     const mEnd = changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || '');
@@ -391,16 +424,14 @@ const BillingPage = ({
                                                     const aEnd = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || '');
                                                     const obs = changes.observation !== undefined ? changes.observation : (existingLog.observation || '');
 
-                                                    // Cálculo Total Visual
                                                     const calcDiff = (s, e) => {
                                                         if(!s || !e) return 0;
                                                         const [h1, m1] = s.split(':').map(Number);
                                                         const [h2, m2] = e.split(':').map(Number);
                                                         return Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
                                                     };
-                                                    const total = (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd)).toFixed(2);
+                                                    const totalDecimal = (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
                                                     
-                                                    // Alertas Visuais
                                                     const isInactive = vehicle.statusNaObra === 'historico';
                                                     const warnings = [];
                                                     if(vehicle.possuiAviso) warnings.push(vehicle.avisoTexto);
@@ -442,7 +473,7 @@ const BillingPage = ({
                                                             <td className="px-1 py-3"><input type="time" value={aStart} onChange={(e) => handleInputChange(vehicle.id, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
                                                             <td className="px-1 py-3 border-r"><input type="time" value={aEnd} onChange={(e) => handleInputChange(vehicle.id, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
                                                             <td className="px-4 py-3 font-bold text-center text-blue-600 bg-blue-50">
-                                                                {total} h
+                                                                {formatDecimalToTime(totalDecimal)} {/* Formatado */}
                                                             </td>
                                                             <td className="px-4 py-3">
                                                                 <input 
@@ -473,51 +504,82 @@ const BillingPage = ({
                     {/* CONTEÚDO DA ABA: RELATÓRIOS & FATURAMENTO */}
                     {activeTab === 'relatorio' && (
                         <div className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg border">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700">Data Inicial</label>
-                                    <input 
-                                        type="date" 
-                                        value={reportStartDate} 
-                                        onChange={(e) => handleDateRangeChange('start', e.target.value)}
-                                        className="w-full p-2 border rounded mt-1"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700">Data Final</label>
-                                    <input 
-                                        type="date" 
-                                        value={reportEndDate} 
-                                        onChange={(e) => handleDateRangeChange('end', e.target.value)}
-                                        className="w-full p-2 border rounded mt-1"
-                                    />
-                                </div>
-                                <div className="flex items-end gap-2">
-                                    <button onClick={generateDetailedPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 flex items-center justify-center gap-2 text-sm">
-                                        <FileText size={16}/> Detalhado
-                                    </button>
-                                    <button onClick={generateSummaryPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:bg-gray-300 flex items-center justify-center gap-2 text-sm">
-                                        <Filter size={16}/> Resumo
-                                    </button>
+                            <div className="bg-gray-50 p-4 rounded-lg border grid gap-4">
+                                <h3 className="text-sm font-bold text-gray-700 uppercase flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-700">Data Inicial</label>
+                                        <input 
+                                            type="date" 
+                                            value={reportStartDate} 
+                                            onChange={(e) => handleDateRangeChange('start', e.target.value)}
+                                            className="w-full p-2 border rounded mt-1 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-700">Data Final</label>
+                                        <input 
+                                            type="date" 
+                                            value={reportEndDate} 
+                                            onChange={(e) => handleDateRangeChange('end', e.target.value)}
+                                            className="w-full p-2 border rounded mt-1 text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-700">Filtrar Equipamento</label>
+                                        <select 
+                                            value={reportVehicleId} 
+                                            onChange={(e) => setReportVehicleId(e.target.value)}
+                                            className="w-full p-2 border rounded mt-1 text-sm"
+                                        >
+                                            <option value="">Todos os Equipamentos</option>
+                                            {getObraVehicles.map(v => (
+                                                <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={generateDetailedPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
+                                            <Printer size={16}/> Detalhado
+                                        </button>
+                                        <button onClick={generateSummaryPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
+                                            <Printer size={16}/> Resumo
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Resumo em Cards */}
+                            {/* Resumo por GRUPOS */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {Object.entries(reportData.reduce((acc, curr) => {
+                                    const type = curr.tipo || 'Outros';
+                                    const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
+                                    acc[group] = (acc[group] || 0) + parseFloat(curr.totalHours);
+                                    return acc;
+                                }, {})).map(([group, hours]) => (
+                                    <div key={group} className="bg-gray-800 text-white p-4 rounded shadow">
+                                        <h3 className="text-xs font-bold uppercase opacity-80">{group}</h3>
+                                        <p className="text-2xl font-bold">{formatDecimalToTime(hours)} h</p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Resumo por TIPOS (Detalhado) */}
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                                 {Object.entries(reportData.reduce((acc, curr) => {
                                     const tipo = curr.tipo || 'Outros';
                                     acc[tipo] = (acc[tipo] || 0) + parseFloat(curr.totalHours);
                                     return acc;
-                                }, {})).map(([tipo, horas]) => (
-                                    <div key={tipo} className="bg-white p-4 rounded shadow border-l-4 border-yellow-400">
-                                        <h3 className="text-xs font-bold text-gray-500 uppercase">{tipo}</h3>
-                                        <p className="text-2xl font-bold text-gray-800">{horas.toFixed(2)} h</p>
+                                }, {})).map(([tipo, hours]) => (
+                                    <div key={tipo} className="bg-white p-3 rounded shadow border-l-4 border-yellow-400">
+                                        <h3 className="text-[10px] font-bold text-gray-500 uppercase">{tipo}</h3>
+                                        <p className="text-lg font-bold text-gray-800">{formatDecimalToTime(hours)} h</p>
                                     </div>
                                 ))}
-                                <div className="bg-blue-600 p-4 rounded shadow text-white">
-                                    <h3 className="text-xs font-bold uppercase opacity-80">Total Geral</h3>
-                                    <p className="text-2xl font-bold">
-                                        {reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0).toFixed(2)} h
+                                <div className="bg-blue-600 p-3 rounded shadow text-white md:col-span-1">
+                                    <h3 className="text-[10px] font-bold uppercase opacity-80">Total Geral</h3>
+                                    <p className="text-lg font-bold">
+                                        {formatDecimalToTime(reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0))} h
                                     </p>
                                 </div>
                             </div>
@@ -535,17 +597,22 @@ const BillingPage = ({
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {reportData.slice(0, 20).map(log => (
-                                                <tr key={log.id} className="border-b">
+                                            {reportData.slice(0, 50).map(log => (
+                                                <tr key={log.id} className="border-b hover:bg-gray-50">
                                                     <td className="px-4 py-2">{new Date(log.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
-                                                    <td className="px-4 py-2">{log.registroInterno}</td>
+                                                    <td className="px-4 py-2 font-medium">{log.registroInterno} <span className="text-gray-500 font-normal text-xs">({log.tipo})</span></td>
                                                     <td className="px-4 py-2">{log.employeeName}</td>
-                                                    <td className="px-4 py-2 font-bold">{log.totalHours}</td>
+                                                    <td className="px-4 py-2 font-bold text-blue-600">{formatDecimalToTime(log.totalHours)}</td>
                                                 </tr>
                                             ))}
-                                            {reportData.length > 20 && (
+                                            {reportData.length > 50 && (
                                                 <tr>
-                                                    <td colSpan="4" className="text-center py-2 text-gray-500 italic">...e mais {reportData.length - 20} registros. Baixe o PDF para ver tudo.</td>
+                                                    <td colSpan="4" className="text-center py-2 text-gray-500 italic">...e mais {reportData.length - 50} registros. Baixe o PDF para ver tudo.</td>
+                                                </tr>
+                                            )}
+                                            {reportData.length === 0 && (
+                                                 <tr>
+                                                    <td colSpan="4" className="text-center py-8 text-gray-500 italic">Nenhum registro encontrado para o período/filtro selecionado.</td>
                                                 </tr>
                                             )}
                                         </tbody>
