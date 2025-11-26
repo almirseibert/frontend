@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { X, Loader, Edit } from 'lucide-react';
-import ProtectedComponent from '../ProtectedComponent'; // Ajuste o caminho se necessário
+import ProtectedComponent from '../ProtectedComponent';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
 
@@ -191,7 +191,7 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
 
 const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, equipmentTypesForHours = [], vehicleGroups = {}, employees = [], apiClient, reloadData }) => {
     const [isSaving, setIsSaving] = useState(false);
-    const [additionalTruckHours, setAdditionalTruckHours] = useState(obra?.horasAdicionaisCaminhao?.toString() || '');
+    // REMOVIDO: const [additionalTruckHours, setAdditionalTruckHours] = useState(obra?.horasAdicionaisCaminhao?.toString() || '');
     const [kmConcluidoPrancha, setKmConcluidoPrancha] = useState(obra?.kmConcluidoPrancha?.toString() || '');
     const [editedSectorsKm, setEditedSectorsKm] = useState(() =>
         (Array.isArray(obra.sectors) ? obra.sectors : [])
@@ -262,12 +262,14 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 }
             });
 
-            const truckHours = parseFloat(additionalTruckHours || 0);
+            // Lógica de horas adicionais de caminhão REMOVIDA, mantendo apenas o que vier do backend se necessário (neste caso, assume-se 0 para cálculo manual)
+            const truckHours = 0; // Removido campo manual
+            
             if (data.concluido['Caminhão'] !== undefined) {
                  data.concluido['Caminhão'] += truckHours;
-             } else {
-                 data.concluido['Caminhão'] = truckHours;
              }
+             // Se 'Caminhão' não estiver em equipmentTypesForHours (foi filtrado), ele não aparecerá no concluído.
+             // Se desejar mostrar horas de caminhão mesmo sem contrato, precisaria de lógica extra, mas seguirei a regra de exclusão.
 
             data.totalHorasCaminhoes = data.concluido['Caminhão'] || 0;
             data.totalHorasMaquinas = Object.entries(data.concluido).reduce((sum, [type, hours]) => type !== 'Caminhão' ? sum + (hours || 0) : sum, 0);
@@ -282,7 +284,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             });
         }
         return data;
-    }, [obra, vehicles, equipmentTypesForHours, vehicleGroups, additionalTruckHours, kmConcluidoPrancha, editedSectorsKm, updatingReadings]);
+    }, [obra, vehicles, equipmentTypesForHours, vehicleGroups, kmConcluidoPrancha, editedSectorsKm, updatingReadings]);
 
     const handleReadingChange = (vehicleId, value) => setUpdatingReadings(prev => ({ ...prev, [vehicleId]: value }));
     const openEditAssignmentModal = (assignment) => { setAssignmentToEdit(assignment); setIsEditAssignmentModalOpen(true); };
@@ -326,10 +328,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
         let obraUpdatePayload = {};
         let vehicleUpdates = [];
 
-        const newTruckHours = parseFloat(additionalTruckHours) || 0;
-        if (newTruckHours !== (obra.horasAdicionaisCaminhao || 0)) {
-            obraUpdatePayload.horasAdicionaisCaminhao = newTruckHours;
-        }
+        // REMOVIDO: Lógica de additionalTruckHours
 
         const newPranchaKm = parseFloat(kmConcluidoPrancha) || 0;
         if (newPranchaKm !== (obra.kmConcluidoPrancha || 0)) {
@@ -501,10 +500,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {(obra.contractType || 'horas') === 'horas' && (
                                     <>
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700">Horas Adicionais Caminhão</label>
-                                            <input type="number" step="0.1" value={additionalTruckHours} onChange={(e) => setAdditionalTruckHours(e.target.value)} className="w-full p-1.5 border rounded mt-1 text-sm" placeholder="Ex: 50.5" />
-                                        </div>
+                                        {/* REMOVIDO: Campo de Horas Adicionais Caminhão */}
                                         <div>
                                             <label className="block text-xs font-medium text-gray-700">Km Concluído Caminhão Prancha</label>
                                             <input type="number" step="0.1" value={kmConcluidoPrancha} onChange={(e) => setKmConcluidoPrancha(e.target.value)} className="w-full p-1.5 border rounded mt-1 text-sm" placeholder="Ex: 120" />
@@ -585,7 +581,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                             }) : <p className="text-xs text-gray-500 italic">Nenhum veículo ativo nesta obra.</p>}
                          </div>
                         <ProtectedComponent requiredPermission="editor">
-                             {(Object.keys(updatingReadings).length > 0 || additionalTruckHours !== (obra.horasAdicionaisCaminhao?.toString() || '') || kmConcluidoPrancha !== (obra.kmConcluidoPrancha?.toString() || '') || (obra.contractType === 'metrosQuadrados' && (Array.isArray(obra.sectors) ? obra.sectors : []).some(s => editedSectorsKm[s.name] !== (s.kmConcluido?.toString() || '')))) && (
+                             {(Object.keys(updatingReadings).length > 0 || kmConcluidoPrancha !== (obra.kmConcluidoPrancha?.toString() || '') || (obra.contractType === 'metrosQuadrados' && (Array.isArray(obra.sectors) ? obra.sectors : []).some(s => editedSectorsKm[s.name] !== (s.kmConcluido?.toString() || '')))) && (
                                 <button onClick={handleSaveChanges} disabled={isSaving} className="mt-4 w-full px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-green-400 flex items-center justify-center gap-2 text-sm">
                                      {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Salvar Alterações'}
                                 </button>

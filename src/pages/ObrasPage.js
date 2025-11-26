@@ -5,10 +5,10 @@ import {
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 
-// Importação dos Modais (Ajuste o caminho '../components/modals/' conforme sua estrutura)
+// Importação dos Modais
 import ObraModal from '../components/modals/ObraModal'; 
 import ObraDetailModal from '../components/modals/ObraDetailModal';
-import ManualFinishObraModal from '../components/modals/ManualFinishObraModal'; // Renomeado para evitar conflito
+import ManualFinishObraModal from '../components/modals/ManualFinishObraModal';
 
 const ObrasPage = ({
     user,
@@ -18,7 +18,6 @@ const ObrasPage = ({
     setAlertMessage,
     vehicleGroups = {},
     employees = [],
-    equipmentTypesForHours = [],
     apiClient,
     reloadData,
 }) => {
@@ -34,6 +33,25 @@ const ObrasPage = ({
         delete: false
     });
     const [selectedObra, setSelectedObra] = useState(null);
+
+    // --- LÓGICA DE TIPOS DE EQUIPAMENTOS ---
+    // Filtra os tipos de veículos, excluindo "Veículos Leves" e "Caminhões de Trecho"
+    const derivedEquipmentTypes = useMemo(() => {
+        const excludedGroups = ['Veículos Leves', 'Caminhões de Trecho'];
+        const types = [];
+
+        Object.entries(vehicleGroups).forEach(([groupName, groupTypes]) => {
+            // Verifica se o grupo atual NÃO está na lista de excluídos (case insensitive parcial)
+            const isExcluded = excludedGroups.some(ex => groupName.toLowerCase().includes(ex.toLowerCase()));
+            
+            if (!isExcluded && Array.isArray(groupTypes)) {
+                types.push(...groupTypes);
+            }
+        });
+
+        // Remove duplicatas e ordena
+        return [...new Set(types)].sort();
+    }, [vehicleGroups]);
 
     // --- HANDLERS ---
     const openModal = (type, obra = null) => {
@@ -268,7 +286,7 @@ const ObrasPage = ({
                 </div>
             )}
 
-            {/* --- MODAIS RENDERIZADOS CONDICIONALMENTE --- */}
+            {/* --- MODAIS --- */}
             
             {modalState.createEdit && (
                 <ObraModal 
@@ -278,7 +296,7 @@ const ObrasPage = ({
                     apiClient={apiClient} 
                     reloadData={reloadData} 
                     setAlertMessage={setAlertMessage}
-                    equipmentTypesForHours={equipmentTypesForHours}
+                    equipmentTypesForHours={derivedEquipmentTypes} // Passando a lista filtrada
                 />
             )}
 
@@ -292,7 +310,7 @@ const ObrasPage = ({
                     apiClient={apiClient} 
                     reloadData={reloadData}
                     vehicleGroups={vehicleGroups}
-                    equipmentTypesForHours={equipmentTypesForHours}
+                    equipmentTypesForHours={derivedEquipmentTypes} // Passando a lista filtrada
                     employees={employees}
                 />
             )}
