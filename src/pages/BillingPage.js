@@ -452,17 +452,31 @@ const BillingPage = ({
 
         const groupSummary = {};
         const typeSummary = {};
+        const vehicleSummary = {}; // NOVO: Objeto para sumarizar por veículo
 
         reportData.forEach(log => {
             const type = log.tipo || 'Outros';
             const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
             
+            // Sumarização por Tipo
             if (!typeSummary[type]) typeSummary[type] = { hours: 0, vehicles: new Set() };
             typeSummary[type].hours += parseFloat(log.totalHours);
             typeSummary[type].vehicles.add(log.registroInterno);
 
+            // Sumarização por Grupo
             if (!groupSummary[group]) groupSummary[group] = { hours: 0 };
             groupSummary[group].hours += parseFloat(log.totalHours);
+
+            // NOVO: Sumarização por Equipamento Individual
+            const vId = log.vehicleId; 
+            if (!vehicleSummary[vId]) {
+                vehicleSummary[vId] = {
+                    label: `${log.registroInterno} - ${log.modelo}`, // Nome para exibição
+                    type: type,
+                    hours: 0
+                };
+            }
+            vehicleSummary[vId].hours += parseFloat(log.totalHours);
         });
 
         doc.setFontSize(16);
@@ -499,6 +513,31 @@ const BillingPage = ({
             startY: doc.lastAutoTable.finalY + 12,
             head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']],
             body: typeTableData,
+            headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' }
+        });
+
+        // --- NOVO: Tabela Detalhada por Equipamento ---
+        const vehicleTableData = Object.values(vehicleSummary)
+            .sort((a, b) => a.label.localeCompare(b.label)) // Ordena por nome do equipamento
+            .map(v => [
+                v.label,
+                v.type,
+                formatDecimalToTime(v.hours)
+            ]);
+
+        // Verifica se precisa de nova página se estiver muito em baixo
+        let finalY = doc.lastAutoTable.finalY; 
+        if (finalY > 240) {
+            doc.addPage();
+            finalY = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.text("Detalhamento por Equipamento", 14, finalY + 10);
+        autoTable(doc, {
+            startY: finalY + 12,
+            head: [['Equipamento', 'Tipo', 'Horas Totais']],
+            body: vehicleTableData,
             headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' }
         });
 
