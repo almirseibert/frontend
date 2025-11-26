@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle } from 'lucide-react';
-import ProtectedComponent from '../components/ProtectedComponent';
+import ProtectedComponent from '../ProtectedComponent'; // <--- CORREÇÃO AQUI (Era ../components/ProtectedComponent)
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
 
