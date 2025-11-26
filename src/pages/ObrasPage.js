@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
     PlusCircle, Download, Edit, Trash2, RefreshCw, MapPin, 
-    AlertTriangle, Search, CheckCircle 
+    AlertTriangle, Search, CheckCircle, Clock 
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 
@@ -34,27 +34,44 @@ const ObrasPage = ({
     });
     const [selectedObra, setSelectedObra] = useState(null);
 
-    // --- LÓGICA DE TIPOS DE EQUIPAMENTOS ---
+    // --- LÓGICA DE TIPOS DE EQUIPAMENTOS (Correção e Garantia de Funcionamento) ---
     const derivedEquipmentTypes = useMemo(() => {
         const types = [];
-
         Object.entries(vehicleGroups).forEach(([groupName, groupTypes]) => {
             const name = groupName.toLowerCase();
-
-            // 1. Exclusões Específicas solicitadas
-            // Exclui "Veículos Leves" e "Caminhões de Trecho"
+            // Exclui categorias não cobráveis por hora no contrato
             if (name.includes('veículos leves') || name.includes('veiculos leves')) return;
             if (name.includes('caminhões de trecho') || name.includes('caminhoes de trecho')) return;
 
-            // 2. Inclusão dos demais (incluindo "Caminhões" genérico e "Máquinas Pesadas")
             if (Array.isArray(groupTypes)) {
                 types.push(...groupTypes);
             }
         });
-
-        // Remove duplicatas e ordena alfabeticamente
         return [...new Set(types)].sort();
     }, [vehicleGroups]);
+
+    // --- HELPER: Cores do Card Baseado em Progresso ---
+    const getCardStatusColor = (obra) => {
+        if (obra.status === 'finalizada') return 'border-gray-400';
+        
+        // Se for contrato por horas
+        if (obra.contractType === 'horas') {
+            const contratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((s, h) => s + (parseFloat(h) || 0), 0);
+            // AGORA USA O CAMPO DO BACKEND (Faturamento)
+            const realizado = obra.totalHorasRealizadas || 0; 
+
+            if (contratado === 0) return 'border-blue-500'; // Sem contrato definido ainda
+
+            const percent = (realizado / contratado) * 100;
+            if (percent >= 100) return 'border-red-600 bg-red-50'; // Estourou
+            if (percent >= 80) return 'border-yellow-500'; // Alerta
+            if (percent >= 50) return 'border-blue-500'; // Meio caminho
+            return 'border-green-500'; // Início
+        }
+        
+        // Se for produção (mantido lógica simples)
+        return 'border-green-500';
+    };
 
     // --- HANDLERS ---
     const openModal = (type, obra = null) => {
@@ -107,7 +124,7 @@ const ObrasPage = ({
              setAlertMessage("Nenhuma obra para exportar.");
              return;
          }
-        const headers = ['Nome', 'Status', 'Data Início', 'Data Fim', 'Tipo de Contrato', 'Horas Contratadas', 'Km Prancha Contratado', 'Latitude', 'Longitude'];
+        const headers = ['Nome', 'Status', 'Data Início', 'Data Fim', 'Tipo de Contrato', 'Horas Contratadas', 'Horas Realizadas', 'Latitude', 'Longitude'];
         const rows = filteredObras.map(o => {
             const contractedHours = Object.values(o.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
             return [
@@ -117,7 +134,7 @@ const ObrasPage = ({
                 o.dataFim ? new Date(o.dataFim).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A',
                 o.contractType === 'horas' ? 'Horas Trabalhadas' : 'Metros Quadrados',
                 contractedHours.toFixed(1),
-                o.kmContratadoPrancha || 0,
+                (o.totalHorasRealizadas || 0).toFixed(1),
                 o.latitude || '',
                 o.longitude || ''
             ];
@@ -189,9 +206,16 @@ const ObrasPage = ({
                     const totalContrato = Object.values(obra.horasContratadasPorTipo || {}).reduce((s, h) => s + (parseFloat(h) || 0), 0);
                     const tipoContratoLabel = obra.contractType === 'metrosQuadrados' ? 'Produção' : 'Horas';
                     const activeCount = (obra.historicoVeiculos || []).filter(h => !h.dataSaida).length;
+                    
+                    // Dados reais vindos do controller (faturamento)
+                    const totalRealizado = parseFloat(obra.totalHorasRealizadas) || 0;
+                    
+                    // Cálculo de porcentagem para barra de progresso do card
+                    const progressPercent = totalContrato > 0 ? (totalRealizado / totalContrato) * 100 : 0;
+                    const cardBorderClass = getCardStatusColor(obra);
 
                     return (
-                        <div key={obra.id} className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow p-5 flex flex-col justify-between h-full">
+                        <div key={obra.id} className={`bg-white rounded-xl shadow-sm border-l-4 ${cardBorderClass} hover:shadow-md transition-shadow p-5 flex flex-col justify-between h-full`}>
                             
                             {/* Header do Card */}
                             <div className="flex justify-between items-start mb-4">
@@ -223,14 +247,27 @@ const ObrasPage = ({
                                     <span className="text-gray-500">Contrato</span>
                                     <span className="font-medium text-gray-700">{tipoContratoLabel}</span>
                                 </div>
-                                <div className="flex justify-between text-sm py-1 border-b border-dashed border-gray-100">
-                                    <span className="text-gray-500">Total Contratado</span>
-                                    <span className="font-bold text-gray-900">
-                                        {obra.contractType === 'horas' ? `${totalContrato.toFixed(1)} hrs` : 'N/A'}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between text-sm py-1">
-                                    <span className="text-gray-500">Equipamentos Ativos</span>
+                                
+                                {obra.contractType === 'horas' && (
+                                    <>
+                                        <div className="flex justify-between text-sm py-1">
+                                            <span className="text-gray-500">Realizado / Contratado</span>
+                                            <span className="font-bold text-gray-900">
+                                                {totalRealizado.toFixed(1)} / {totalContrato.toFixed(1)} hrs
+                                            </span>
+                                        </div>
+                                        {/* Barra de Progresso Rápida no Card */}
+                                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                                            <div 
+                                                className={`h-1.5 rounded-full ${progressPercent > 100 ? 'bg-red-500' : progressPercent > 80 ? 'bg-yellow-500' : 'bg-green-500'}`} 
+                                                style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                                            ></div>
+                                        </div>
+                                    </>
+                                )}
+
+                                <div className="flex justify-between text-sm py-1 mt-2">
+                                    <span className="text-gray-500 flex items-center gap-1"><Clock size={14}/> Equipamentos Ativos</span>
                                     <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${activeCount > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                                         {activeCount}
                                     </span>
@@ -299,6 +336,7 @@ const ObrasPage = ({
                     apiClient={apiClient} 
                     reloadData={reloadData} 
                     setAlertMessage={setAlertMessage}
+                    // Passa a lista filtrada para o modal
                     equipmentTypesForHours={derivedEquipmentTypes}
                 />
             )}

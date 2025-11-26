@@ -1,26 +1,33 @@
 import React, { useState, useMemo } from 'react';
-import { X, Loader, Edit } from 'lucide-react';
-import ProtectedComponent from '../ProtectedComponent';
+import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle } from 'lucide-react';
+import ProtectedComponent from '../components/ProtectedComponent';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
 
-const ProgressBar = ({ value, max, color = 'bg-yellow-400' }) => {
+const ProgressBar = ({ value, max, color = 'bg-yellow-400', label }) => {
     const percentage = max > 0 ? (value / max) * 100 : 0;
     const displayValue = isFinite(value) ? value.toFixed(1) : '0.0';
     const displayMax = isFinite(max) ? max.toFixed(1) : '0.0';
-    const displayPercentage = isFinite(percentage) ? percentage.toFixed(0) : '0';
+    
+    // Cor dinâmica baseada no status se nenhuma cor for forçada
+    let finalColor = color;
+    if (color === 'dynamic') {
+        finalColor = 'bg-blue-600';
+        if (percentage > 80) finalColor = 'bg-yellow-500';
+        if (percentage >= 100) finalColor = 'bg-red-500';
+    }
 
     return (
-         <div className="w-full bg-gray-200 rounded-full h-6 relative overflow-hidden my-1">
-            <div
-                className={`h-full ${color} rounded-full flex items-center justify-start px-2 transition-all duration-500`}
-                style={{ width: `${Math.min(percentage, 100)}%` }}
-            >
+         <div className="mb-3">
+            <div className="flex justify-between mb-1 text-xs font-medium text-gray-700">
+                <span>{label}</span>
+                <span>{displayValue} / {displayMax} {label.includes('Km') ? 'Km' : 'h'} ({percentage.toFixed(0)}%)</span>
             </div>
-            <div className="absolute inset-0 flex items-center justify-between px-2 text-xs font-bold text-gray-900">
-                <span className={percentage > 10 ? 'opacity-100' : 'opacity-0'}>{displayValue}</span>
-                <span className="absolute left-1/2 -translate-x-1/2">{displayPercentage}%</span>
-                <span className={percentage < 90 ? 'opacity-100' : 'opacity-0'}>{displayMax}</span>
+            <div className="w-full bg-gray-200 rounded-full h-3 relative overflow-hidden">
+                <div
+                    className={`h-full ${finalColor} rounded-full transition-all duration-500`}
+                    style={{ width: `${Math.min(percentage, 100)}%` }}
+                ></div>
             </div>
         </div>
     );
@@ -190,137 +197,99 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
 // --- COMPONENTE PRINCIPAL DO MODAL DE DETALHES ---
 
 const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, equipmentTypesForHours = [], vehicleGroups = {}, employees = [], apiClient, reloadData }) => {
+    const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'vehicles'
     const [isSaving, setIsSaving] = useState(false);
-    // REMOVIDO: const [additionalTruckHours, setAdditionalTruckHours] = useState(obra?.horasAdicionaisCaminhao?.toString() || '');
+    
+    // Campos de Edição Manual (Metros Quadrados e Prancha)
     const [kmConcluidoPrancha, setKmConcluidoPrancha] = useState(obra?.kmConcluidoPrancha?.toString() || '');
     const [editedSectorsKm, setEditedSectorsKm] = useState(() =>
         (Array.isArray(obra.sectors) ? obra.sectors : [])
         .reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})
     );
+    
+    // Estado para leituras de veículos ativos (apenas para atualização de manutenção/registro, não impacta faturamento)
     const [updatingReadings, setUpdatingReadings] = useState({});
 
+    // Modais Internos
     const [isEditAssignmentModalOpen, setIsEditAssignmentModalOpen] = useState(false);
     const [assignmentToEdit, setAssignmentToEdit] = useState(null);
     const [isEditPastAssignmentModalOpen, setIsEditPastAssignmentModalOpen] = useState(false);
     const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null);
 
+    // --- CÁLCULOS ---
+
     const { activeVehicles, pastVehicles } = useMemo(() => {
         const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [];
+        
         const active = historico.filter(h => !h.dataSaida)
-            .map(h => ({ ...h, vehicleRegistroInterno: vehicles.find(v => v.id === h.veiculoId)?.registroInterno || 'N/A' }))
-            .sort((a, b) => (a.vehicleRegistroInterno || '').localeCompare(b.vehicleRegistroInterno || ''));
+            .map(h => ({ ...h, vehicle: vehicles.find(v => v.id === h.veiculoId) }))
+            .filter(h => h.vehicle) // Garante que o veículo existe
+            .sort((a, b) => (a.vehicle.registroInterno || '').localeCompare(b.vehicle.registroInterno || ''));
+            
         const past = historico.filter(h => h.dataSaida)
-             .map(h => ({ ...h, vehicleRegistroInterno: vehicles.find(v => v.id === h.veiculoId)?.registroInterno || 'N/A' }))
+             .map(h => ({ ...h, vehicle: vehicles.find(v => v.id === h.veiculoId) }))
              .sort((a, b) => new Date(b.dataSaida) - new Date(a.dataSaida));
+             
         return { activeVehicles: active, pastVehicles: past };
     }, [obra, vehicles]);
 
-     const progressData = useMemo(() => {
-        const data = { contratado: {}, concluido: {}, totalContratado: 0, totalConcluido: 0, totalKmContratado: 0, totalKmConcluido: 0, totalHorasCaminhoes: 0, totalHorasMaquinas: 0 };
+    // Lógica Central de Progresso: AGORA BASEADA NO FATURAMENTO (Backend)
+    const progressData = useMemo(() => {
+        const data = { 
+            contratado: {}, 
+            concluido: {}, 
+            totalContratado: 0, 
+            totalConcluido: 0, 
+            totalKmContratado: 0, 
+            totalKmConcluido: 0 
+        };
+        
         const currentContractType = obra.contractType || 'horas';
-        const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [];
 
         if (currentContractType === 'horas') {
+             // Itera sobre os tipos permitidos (filtrados na ObrasPage - derivedEquipmentTypes)
              (equipmentTypesForHours || []).forEach(type => {
                 const contracted = parseFloat(obra.horasContratadasPorTipo?.[type] || 0);
+                
+                // O valor realizado agora vem direto do Backend (soma dos daily_work_logs)
+                // obra.realizadoPorTipo é injetado pelo controller
+                const realized = parseFloat(obra.realizadoPorTipo?.[type] || 0);
+
                 data.contratado[type] = contracted;
+                data.concluido[type] = realized;
+
                 data.totalContratado += contracted;
-                data.concluido[type] = 0;
+                data.totalConcluido += realized;
             });
-
-            historico.forEach(h => {
-                const vehicle = vehicles.find(v => v.id === h.veiculoId);
-                if (!vehicle) return;
-                const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
-                if (vehicleGroup === 'Veículos Leves') return;
-
-                let startReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
-                let endReading = parseFloat(h.horimetroSaida ?? h.odometroSaida ?? 0);
-
-                if (!h.dataSaida) {
-                     const updatedReadingStr = updatingReadings[h.veiculoId];
-                     if (updatedReadingStr !== undefined && updatedReadingStr !== '') {
-                         endReading = parseFloat(updatedReadingStr) || 0;
-                     } else {
-                         if (vehicleGroup === 'Máquinas Pesadas') {
-                            endReading = parseFloat(vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital) || 0;
-                         } else if (vehicleGroup === 'Caminhões') {
-                            endReading = parseFloat(vehicle.horimetro) || 0;
-                         }
-                         else if (h.odometroEntrada != null) {
-                              endReading = parseFloat(vehicle.odometro) || 0;
-                         }
-                     }
-                }
-
-                if (endReading >= startReading) {
-                    const hours = endReading - startReading;
-                     const equipType = (equipmentTypesForHours || []).find(t => vehicle.tipo === t);
-                     if (equipType) {
-                        data.concluido[equipType] = (data.concluido[equipType] || 0) + hours;
-                    }
-                }
-            });
-
-            // Lógica de horas adicionais de caminhão REMOVIDA, mantendo apenas o que vier do backend se necessário (neste caso, assume-se 0 para cálculo manual)
-            const truckHours = 0; // Removido campo manual
             
-            if (data.concluido['Caminhão'] !== undefined) {
-                 data.concluido['Caminhão'] += truckHours;
-             }
-             // Se 'Caminhão' não estiver em equipmentTypesForHours (foi filtrado), ele não aparecerá no concluído.
-             // Se desejar mostrar horas de caminhão mesmo sem contrato, precisaria de lógica extra, mas seguirei a regra de exclusão.
-
-            data.totalHorasCaminhoes = data.concluido['Caminhão'] || 0;
-            data.totalHorasMaquinas = Object.entries(data.concluido).reduce((sum, [type, hours]) => type !== 'Caminhão' ? sum + (hours || 0) : sum, 0);
-            data.totalConcluido = data.totalHorasCaminhoes + data.totalHorasMaquinas;
-
         } else if (currentContractType === 'metrosQuadrados') {
              (Array.isArray(obra.sectors) ? obra.sectors : []).forEach(sector => {
                 const contracted = parseFloat(sector.kmContratado || 0);
-                const concluded = parseFloat(editedSectorsKm[sector.name] ?? 0);
+                const concluded = parseFloat(editedSectorsKm[sector.name] ?? (sector.kmConcluido || 0)); // Usa estado editado ou valor do banco
                 data.totalKmContratado += contracted;
                 data.totalKmConcluido += concluded;
             });
         }
         return data;
-    }, [obra, vehicles, equipmentTypesForHours, vehicleGroups, kmConcluidoPrancha, editedSectorsKm, updatingReadings]);
+    }, [obra, equipmentTypesForHours, editedSectorsKm]);
+
+    // --- HANDLERS ---
 
     const handleReadingChange = (vehicleId, value) => setUpdatingReadings(prev => ({ ...prev, [vehicleId]: value }));
-    const openEditAssignmentModal = (assignment) => { setAssignmentToEdit(assignment); setIsEditAssignmentModalOpen(true); };
-    const openEditPastAssignmentModal = (assignment) => { setPastAssignmentToEdit(assignment); setIsEditPastAssignmentModalOpen(true); };
     const handleSectorKmChange = (sectorName, value) => setEditedSectorsKm(prev => ({ ...prev, [sectorName]: value }));
 
     const handleSaveAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
-        setIsSaving(true);
-        try {
-            await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
-            setAlertMessage("Alocação ativa atualizada com sucesso!");
-            reloadData();
-            setIsEditAssignmentModalOpen(false);
-        } catch (error) {
-            console.error("Erro ao salvar alocação ativa:", error);
-            setAlertMessage(error.message || "Falha ao atualizar alocação ativa.");
-            throw error;
-        } finally {
-            setIsSaving(false);
-        }
+        await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
+        setAlertMessage("Alocação ativa atualizada com sucesso!");
+        reloadData();
+        setIsEditAssignmentModalOpen(false);
     };
 
     const handleSavePastAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
-        setIsSaving(true);
-        try {
-            await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
-            setAlertMessage("Histórico atualizado com sucesso!");
-            reloadData();
-            setIsEditPastAssignmentModalOpen(false);
-        } catch (error) {
-            console.error("Erro ao salvar histórico:", error);
-            setAlertMessage(error.message || "Falha ao atualizar histórico.");
-            throw error;
-        } finally {
-            setIsSaving(false);
-        }
+        await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
+        setAlertMessage("Histórico atualizado com sucesso!");
+        reloadData();
+        setIsEditPastAssignmentModalOpen(false);
     };
 
     const handleSaveChanges = async () => {
@@ -328,44 +297,46 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
         let obraUpdatePayload = {};
         let vehicleUpdates = [];
 
-        // REMOVIDO: Lógica de additionalTruckHours
-
-        const newPranchaKm = parseFloat(kmConcluidoPrancha) || 0;
-        if (newPranchaKm !== (obra.kmConcluidoPrancha || 0)) {
+        // Atualização de Km de Prancha (Manual)
+        const newPranchaKm = parseFloat(kmConcluidoPrancha);
+        if (!isNaN(newPranchaKm) && newPranchaKm !== (obra.kmConcluidoPrancha || 0)) {
             obraUpdatePayload.kmConcluidoPrancha = newPranchaKm;
         }
 
+        // Atualização de Setores (Se for contrato por produção)
         if (obra.contractType === 'metrosQuadrados') {
-            let sectorsChanged = false;
             const currentSectors = Array.isArray(obra.sectors) ? obra.sectors : [];
             const updatedSectors = currentSectors.map(sector => {
                 const currentKm = parseFloat(sector.kmConcluido || 0);
-                const newKm = parseFloat(editedSectorsKm[sector.name] ?? currentKm);
-
-                if (newKm !== currentKm) {
-                    sectorsChanged = true;
+                const newKm = parseFloat(editedSectorsKm[sector.name]);
+                if (!isNaN(newKm) && newKm !== currentKm) {
                     return { ...sector, kmConcluido: newKm };
                 }
                 return sector;
             });
-            if (sectorsChanged) {
+            
+            // Verifica se houve mudança real
+            if (JSON.stringify(updatedSectors) !== JSON.stringify(currentSectors)) {
                 obraUpdatePayload.sectors = updatedSectors;
             }
         }
 
+        // Atualização de Leituras de Veículos (Apenas atualiza o odômetro/horímetro do veículo, não impacta faturamento da obra)
         Object.entries(updatingReadings).forEach(([vehicleId, newReadingStr]) => {
              if (newReadingStr !== undefined && newReadingStr !== '') {
                  const newReading = parseFloat(newReadingStr);
                  const vehicle = vehicles.find(v => v.id === vehicleId);
+                 
                  if (vehicle && !isNaN(newReading)) {
                      const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
                      const updateData = {};
+                     
                      if (vehicleGroup === 'Máquinas Pesadas') {
-                         if (vehicle.possuiHorimetroAnalogico && newReading !== (parseFloat(vehicle.horimetroAnalogico) || 0)) updateData.horimetroAnalogico = newReading;
-                         else if (!vehicle.possuiHorimetroAnalogico && newReading !== (parseFloat(vehicle.horimetroDigital) || 0)) updateData.horimetroDigital = newReading;
-                     } else if (vehicleGroup === 'Caminhões' && newReading !== (parseFloat(vehicle.horimetro) || 0)) {
+                         if (vehicle.possuiHorimetroAnalogico) updateData.horimetroAnalogico = newReading;
+                         else updateData.horimetroDigital = newReading;
+                     } else if (vehicleGroup === 'Caminhões') {
                          updateData.horimetro = newReading;
-                     } else if (vehicleGroup === 'Veículos Leves' && newReading !== (parseFloat(vehicle.odometro) || 0)) {
+                     } else if (vehicleGroup === 'Veículos Leves') {
                           updateData.odometro = newReading;
                      }
 
@@ -404,228 +375,356 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
         }
     };
 
+    // --- RENDERIZAÇÃO ---
+
     return (
-         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[95vh] flex flex-col my-auto">
-                <div className="p-4 sm:p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col">
+                
+                {/* Header */}
+                <div className="p-6 border-b flex justify-between items-start bg-white rounded-t-xl sticky top-0 z-10">
                     <div>
-                        <h2 className="text-xl sm:text-2xl font-bold">{obra.nome}</h2>
-                        <p className="text-gray-500 text-sm">Status: <span className={`font-medium ${obra.status === 'ativa' ? 'text-green-600' : 'text-red-600'}`}>{obra.status === 'ativa' ? 'Ativa' : 'Finalizada'}</span></p>
-                    </div>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={20}/></button>
-                </div>
-
-                <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-6 text-sm">
-
-                    <div className="bg-gray-50 p-4 rounded-lg border">
-                        <h3 className="text-base font-semibold mb-3 text-gray-800">Progresso</h3>
-                        <div className="space-y-3">
-                             {(obra.contractType || 'horas') === 'horas' && (
-                                <>
-                                    <div className="flex justify-between mb-1 text-xs font-medium">
-                                        <span>Progresso Total (Horas)</span>
-                                        <span>{progressData.totalConcluido.toFixed(1)} / {progressData.totalContratado.toFixed(1)} hrs</span>
-                                    </div>
-                                    <ProgressBar value={progressData.totalConcluido} max={progressData.totalContratado} />
-                                    {obra.kmContratadoPrancha > 0 && (
-                                        <div className="mt-2">
-                                            <div className="flex justify-between mb-1 text-[11px] font-medium text-gray-600">
-                                                <span>Desloc. Prancha (Km)</span>
-                                                <span>{(parseFloat(kmConcluidoPrancha) || 0).toFixed(1)} / {(obra.kmContratadoPrancha || 0).toFixed(1)} Km</span>
-                                            </div>
-                                            <ProgressBar value={parseFloat(kmConcluidoPrancha) || 0} max={obra.kmContratadoPrancha || 0} color="bg-blue-400" />
-                                        </div>
-                                    )}
-                                    <div className="space-y-1 pt-3 mt-3 border-t">
-                                        <h4 className="text-xs font-semibold text-gray-700">Detalhes por Equipamento:</h4>
-                                         {(equipmentTypesForHours || []).map(type => {
-                                            const contratado = progressData.contratado[type];
-                                            const concluido = progressData.concluido[type] || 0;
-                                            if (contratado > 0 || concluido > 0) {
-                                                return (
-                                                    <div key={type}>
-                                                        <div className="flex justify-between mb-0.5 text-[11px] font-medium">
-                                                            <span>{type}</span>
-                                                            <span>{concluido.toFixed(1)} / {contratado.toFixed(1)} hrs</span>
-                                                        </div>
-                                                        <ProgressBar value={concluido} max={contratado} color="bg-blue-300" />
-                                                    </div>
-                                                );
-                                            }
-                                            return null;
-                                        })}
-                                    </div>
-                                </>
-                            )}
-                             {(obra.contractType || 'horas') === 'metrosQuadrados' && (
-                                <>
-                                    <div className="flex justify-between mb-1 text-xs font-medium">
-                                        <span>Progresso Total (Km)</span>
-                                        <span>{progressData.totalKmConcluido.toFixed(1)} / {progressData.totalKmContratado.toFixed(1)} Km</span>
-                                    </div>
-                                    <ProgressBar value={progressData.totalKmConcluido} max={progressData.totalKmContratado} color="bg-green-400" />
-                                     {obra.kmContratadoPrancha > 0 && (
-                                        <div className="mt-2">
-                                            <div className="flex justify-between mb-1 text-[11px] font-medium text-gray-600">
-                                                <span>Desloc. Prancha (Km)</span>
-                                                <span>{(parseFloat(kmConcluidoPrancha) || 0).toFixed(1)} / {(obra.kmContratadoPrancha || 0).toFixed(1)} Km</span>
-                                            </div>
-                                            <ProgressBar value={parseFloat(kmConcluidoPrancha) || 0} max={obra.kmContratadoPrancha || 0} color="bg-blue-400" />
-                                        </div>
-                                    )}
-                                    <div className="space-y-1 pt-3 mt-3 border-t">
-                                        <h4 className="text-xs font-semibold text-gray-700">Progresso por Setor (Km):</h4>
-                                        {(Array.isArray(obra.sectors) ? obra.sectors : []).length > 0 ? (Array.isArray(obra.sectors) ? obra.sectors : []).map(sector => {
-                                            const contracted = parseFloat(sector.kmContratado || 0);
-                                            const concluded = parseFloat(editedSectorsKm[sector.name] ?? 0);
-                                            return (
-                                                <div key={sector.name}>
-                                                    <div className="flex justify-between mb-0.5 text-[11px] font-medium">
-                                                        <span>{sector.name}</span>
-                                                        <span>{concluded.toFixed(1)} / {contracted.toFixed(1)} Km</span>
-                                                    </div>
-                                                    <ProgressBar value={concluded} max={contracted} color="bg-green-300" />
-                                                </div>
-                                            );
-                                        }) : <p className="text-[11px] text-gray-500 italic">Nenhum setor definido.</p>}
-                                    </div>
-                                </>
-                            )}
+                        <h2 className="text-2xl font-bold text-gray-800">{obra.nome}</h2>
+                        <div className="flex items-center gap-2 mt-1 text-gray-500 text-sm">
+                            <MapPin size={16}/> <span>{obra.localizacao || 'Localização não definida'}</span>
+                        </div>
+                        <div className="flex items-center gap-4 mt-3">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${obra.status === 'ativa' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                {obra.status === 'ativa' ? 'Em Andamento' : 'Finalizada'}
+                            </span>
+                            <span className="text-sm font-medium border-l pl-4 border-gray-300">
+                                Contrato: {obra.contractType === 'metrosQuadrados' ? 'Por Produção (m²)' : 'Por Horas'}
+                            </span>
                         </div>
                     </div>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition"><X size={24} className="text-gray-400"/></button>
+                </div>
 
-                    <ProtectedComponent requiredPermission="editor">
-                         <div className="p-4 border rounded-lg space-y-3 bg-gray-50">
-                            <h3 className="text-base font-semibold text-gray-800">Atualizações Manuais</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {(obra.contractType || 'horas') === 'horas' && (
+                {/* Tabs */}
+                <div className="flex border-b px-6 bg-gray-50">
+                    <button 
+                        onClick={() => setActiveTab('overview')}
+                        className={`pb-3 pt-4 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <BarChart3 size={18}/> Visão Geral & Progresso
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('vehicles')}
+                        className={`pb-3 pt-4 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'vehicles' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <Truck size={18}/> Veículos Alocados ({activeVehicles.length})
+                    </button>
+                </div>
+
+                {/* Conteúdo com Scroll */}
+                <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+                    
+                    {/* --- ABA: VISÃO GERAL --- */}
+                    {activeTab === 'overview' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            
+                            {/* Painel de Progresso */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                                <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <AlertTriangle className="text-yellow-500" size={20}/> Status do Contrato
+                                </h3>
+
+                                {/* Contrato por HORAS */}
+                                {obra.contractType === 'horas' && (
                                     <>
-                                        {/* REMOVIDO: Campo de Horas Adicionais Caminhão */}
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700">Km Concluído Caminhão Prancha</label>
-                                            <input type="number" step="0.1" value={kmConcluidoPrancha} onChange={(e) => setKmConcluidoPrancha(e.target.value)} className="w-full p-1.5 border rounded mt-1 text-sm" placeholder="Ex: 120" />
+                                        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                                            <ProgressBar 
+                                                label="Progresso Total (Horas)" 
+                                                value={progressData.totalConcluido} 
+                                                max={progressData.totalContratado} 
+                                                color="dynamic"
+                                            />
+                                            <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
+                                                * Dados baseados nos apontamentos da página de Faturamento.
+                                            </p>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                                            {(equipmentTypesForHours || []).map(type => {
+                                                const contratado = progressData.contratado[type] || 0;
+                                                // Exibe apenas se houver contrato ou horas realizadas
+                                                if (contratado === 0 && (progressData.concluido[type] || 0) === 0) return null;
+                                                
+                                                return (
+                                                    <ProgressBar 
+                                                        key={type}
+                                                        label={type}
+                                                        value={progressData.concluido[type] || 0}
+                                                        max={contratado}
+                                                        color="bg-blue-400"
+                                                    />
+                                                );
+                                            })}
                                         </div>
                                     </>
                                 )}
-                                {(obra.contractType || 'horas') === 'metrosQuadrados' && (Array.isArray(obra.sectors) ? obra.sectors : []).length > 0 && (
-                                    <div className="col-span-full space-y-2">
-                                        <h4 className="text-xs font-medium text-gray-700">Atualizar Km Concluído por Setor:</h4>
-                                        {(Array.isArray(obra.sectors) ? obra.sectors : []).map((sector) => (
-                                            <div key={sector.name} className="flex items-center gap-2">
-                                                <label className="block text-xs font-medium text-gray-700 w-1/2 sm:w-1/3">{sector.name} (Km)</label>
-                                                <input type="number" step="0.1" value={editedSectorsKm[sector.name]} onChange={(e) => handleSectorKmChange(sector.name, e.target.value)} className="flex-1 p-1.5 border rounded text-sm" placeholder={sector.kmConcluido?.toString() || '0'}/>
+
+                                {/* Contrato por M² */}
+                                {obra.contractType === 'metrosQuadrados' && (
+                                    <>
+                                        <div className="mb-6">
+                                            <ProgressBar 
+                                                label="Progresso Total (Km Lineares)" 
+                                                value={progressData.totalKmConcluido} 
+                                                max={progressData.totalKmContratado} 
+                                                color="bg-green-500"
+                                            />
+                                        </div>
+                                        <div className="space-y-4">
+                                            {(Array.isArray(obra.sectors) ? obra.sectors : []).map(sector => (
+                                                <div key={sector.name} className="flex items-center gap-4">
+                                                    <div className="flex-1">
+                                                        <ProgressBar 
+                                                            label={sector.name}
+                                                            value={parseFloat(editedSectorsKm[sector.name] ?? (sector.kmConcluido || 0))}
+                                                            max={parseFloat(sector.kmContratado || 0)}
+                                                            color="bg-green-300"
+                                                        />
+                                                    </div>
+                                                    <ProtectedComponent requiredPermission="editor">
+                                                        <div className="w-32">
+                                                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Atualizar (Km)</label>
+                                                            <input 
+                                                                type="number" 
+                                                                step="0.1" 
+                                                                className="w-full p-2 text-sm border rounded focus:ring-2 focus:ring-green-500 outline-none"
+                                                                value={editedSectorsKm[sector.name]}
+                                                                onChange={(e) => handleSectorKmChange(sector.name, e.target.value)}
+                                                                placeholder={sector.kmConcluido}
+                                                            />
+                                                        </div>
+                                                    </ProtectedComponent>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Deslocamento de Prancha (Comum a ambos) */}
+                                {(parseFloat(obra.kmContratadoPrancha) > 0) && (
+                                    <div className="mt-6 pt-6 border-t">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex-1 mr-4">
+                                                <ProgressBar 
+                                                    label="Deslocamento Prancha" 
+                                                    value={parseFloat(kmConcluidoPrancha) || 0} 
+                                                    max={parseFloat(obra.kmContratadoPrancha) || 0} 
+                                                    color="bg-purple-400"
+                                                />
                                             </div>
-                                        ))}
+                                            <ProtectedComponent requiredPermission="editor">
+                                                <div className="w-32">
+                                                    <label className="block text-[10px] font-bold text-gray-500 mb-1">Atualizar (Km)</label>
+                                                    <input 
+                                                        type="number" 
+                                                        step="0.1"
+                                                        className="w-full p-2 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none"
+                                                        value={kmConcluidoPrancha}
+                                                        onChange={(e) => setKmConcluidoPrancha(e.target.value)}
+                                                        placeholder={obra.kmConcluidoPrancha}
+                                                    />
+                                                </div>
+                                            </ProtectedComponent>
+                                        </div>
                                     </div>
                                 )}
                             </div>
-                         </div>
-                    </ProtectedComponent>
 
-                    <div>
-                        <h3 className="text-base font-semibold mb-2 text-gray-800">Veículos Ativos na Obra</h3>
-                         <div className="space-y-2">
-                            {activeVehicles.length > 0 ? activeVehicles.map(h => {
-                                const vehicle = vehicles.find(v => v.id === h.veiculoId);
-                                if (!vehicle) return <div key={h.veiculoId || h.dataEntrada} className="p-2 bg-red-50 text-red-700 text-xs rounded">Veículo ID {h.veiculoId} não encontrado.</div>;
-
-                                const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
-                                let currentReading = 0;
-                                let readingLabel = '';
-                                if (vehicleGroup === 'Máquinas Pesadas') {
-                                    currentReading = parseFloat(vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital) || 0;
-                                    readingLabel = 'Horímetro';
-                                } else if (vehicleGroup === 'Caminhões') {
-                                    currentReading = parseFloat(vehicle.horimetro) || 0;
-                                    readingLabel = 'Horímetro';
-                                } else { 
-                                    currentReading = parseFloat(vehicle.odometro) || 0;
-                                    readingLabel = 'Odômetro';
-                                }
-
-                                const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
-                                const readingInState = updatingReadings[h.veiculoId];
-                                const readingToCalculate = (readingInState !== undefined && readingInState !== '') ? (parseFloat(readingInState) || 0) : currentReading;
-                                const partialReading = (readingToCalculate >= initialReading) ? (readingToCalculate - initialReading) : 0;
-                                const readingUnit = (vehicleGroup === 'Veículos Leves') ? 'Km' : 'hrs';
-
-                                return (
-                                    <div key={h.veiculoId} className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs">
-                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-x-4 gap-y-1 items-center">
-                                            <div className="font-semibold sm:col-span-1">
-                                                <p>{vehicle.registroInterno} - {vehicle.modelo}</p>
-                                                <p className="text-[11px] text-gray-600 font-normal">{vehicle.tipo}</p>
-                                            </div>
-                                            <div className="sm:col-span-1">
-                                                <p><strong>Início:</strong> {h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</p>
-                                                <p><strong>Leitura Inicial:</strong> {initialReading.toFixed(1) || 'N/A'}</p>
-                                                <p><strong>Operador:</strong> {h.employeeName || 'N/A'}</p>
-                                            </div>
-                                             <ProtectedComponent requiredPermission="editor">
-                                                <div className="flex items-center gap-1 sm:col-span-1">
-                                                    <label className="text-[11px] font-medium text-gray-700 shrink-0">{readingLabel} Atual:</label>
-                                                    <input type="number" step="0.1" placeholder={`${currentReading.toFixed(1)}`} value={updatingReadings[h.veiculoId] ?? ''} onChange={(e) => handleReadingChange(h.veiculoId, e.target.value)} className="flex-1 p-1 border rounded text-xs w-20"/>
-                                                </div>
-                                             </ProtectedComponent>
-                                            <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:col-span-1">
-                                                <div className="text-right font-semibold text-blue-700 text-sm whitespace-nowrap">
-                                                    Parcial: {partialReading.toFixed(1)} {readingUnit}
-                                                </div>
-                                                <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => openEditAssignmentModal(h)} className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full" title="Editar Alocação"><Edit size={12} /></button>
-                                                </ProtectedComponent>
-                                            </div>
-                                        </div>
+                            {/* Botão de Salvar (Aparece se houver edições manuais) */}
+                            <ProtectedComponent requiredPermission="editor">
+                                {(kmConcluidoPrancha !== (obra.kmConcluidoPrancha?.toString() || '') || 
+                                  (obra.contractType === 'metrosQuadrados' && JSON.stringify(editedSectorsKm) !== JSON.stringify(obra.sectors?.reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})))
+                                ) && (
+                                    <div className="flex justify-end">
+                                        <button 
+                                            onClick={handleSaveChanges} 
+                                            disabled={isSaving}
+                                            className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-lg flex items-center gap-2 disabled:bg-gray-400"
+                                        >
+                                            {isSaving ? <Loader className="animate-spin" size={20}/> : <Edit size={20}/>}
+                                            Salvar Atualizações Manuais
+                                        </button>
                                     </div>
-                                )
-                            }) : <p className="text-xs text-gray-500 italic">Nenhum veículo ativo nesta obra.</p>}
-                         </div>
-                        <ProtectedComponent requiredPermission="editor">
-                             {(Object.keys(updatingReadings).length > 0 || kmConcluidoPrancha !== (obra.kmConcluidoPrancha?.toString() || '') || (obra.contractType === 'metrosQuadrados' && (Array.isArray(obra.sectors) ? obra.sectors : []).some(s => editedSectorsKm[s.name] !== (s.kmConcluido?.toString() || '')))) && (
-                                <button onClick={handleSaveChanges} disabled={isSaving} className="mt-4 w-full px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-green-400 flex items-center justify-center gap-2 text-sm">
-                                     {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Salvar Alterações'}
-                                </button>
-                            )}
-                        </ProtectedComponent>
-                    </div>
-
-                    <div>
-                        <h3 className="text-base font-semibold mb-2 text-gray-800">Histórico de Veículos na Obra</h3>
-                        <div className="space-y-1 max-h-60 overflow-y-auto pr-1 custom-scrollbar border rounded-md p-2 bg-gray-50">
-                            {pastVehicles.length > 0 ? pastVehicles.map(h => {
-                                const vehicle = vehicles.find(v => v.id === h.veiculoId);
-                                const isHourBased = vehicleGroups['Máquinas Pesadas']?.includes(vehicle?.tipo) || vehicleGroups['Caminhões']?.includes(vehicle?.tipo);
-                                const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
-                                const finalReading = parseFloat(h.horimetroSaida ?? h.odometroSaida ?? 0);
-                                const totalReading = (finalReading >= initialReading) ? (finalReading - initialReading) : 0;
-                                const readingLabel = isHourBased ? 'Horas' : 'Km';
-                                return (
-                                    <div key={h.id} className="p-2 bg-white rounded border text-xs">
-                                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-x-2 gap-y-0.5 items-center">
-                                            <div className="font-semibold sm:col-span-1">{h.registroInterno} <span className="text-gray-500 font-normal">({vehicle?.modelo})</span></div>
-                                            <div className="sm:col-span-1">Início: {h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
-                                            <div className="sm:col-span-1">Fim: {h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</div>
-                                            <div className="sm:col-span-1">Total: <span className="font-bold">{totalReading.toFixed(1)} {readingLabel}</span> <span className="text-gray-500">({initialReading.toFixed(1)} - {finalReading.toFixed(1)})</span></div>
-                                            <div className="flex justify-end items-center sm:col-span-1 gap-1">
-                                                 <span className="text-gray-600 truncate" title={h.employeeName || 'Sem operador'}>Op: {h.employeeName || 'N/A'}</span>
-                                                <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => openEditPastAssignmentModal(h)} className="p-1 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full" title="Editar Histórico"><Edit size={12} /></button>
-                                                </ProtectedComponent>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            }) : <p className="text-xs text-gray-500 italic text-center py-2">Nenhum veículo anterior nesta obra.</p>}
+                                )}
+                            </ProtectedComponent>
                         </div>
-                    </div>
+                    )}
+
+                    {/* --- ABA: VEÍCULOS --- */}
+                    {activeTab === 'vehicles' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            {/* Veículos Ativos */}
+                            <div>
+                                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2 uppercase tracking-wide">
+                                    <Truck size={16}/> Na Obra Agora
+                                </h3>
+                                <div className="grid grid-cols-1 gap-3">
+                                    {activeVehicles.length > 0 ? activeVehicles.map(h => {
+                                        const { vehicle } = h;
+                                        const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
+                                        
+                                        // Definição da leitura atual (apenas para visualização/manutenção)
+                                        let currentReading = 0;
+                                        let readingLabel = 'Leitura';
+                                        
+                                        if (vehicleGroup === 'Máquinas Pesadas') {
+                                            currentReading = parseFloat(vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital) || 0;
+                                            readingLabel = 'Horímetro';
+                                        } else if (vehicleGroup === 'Caminhões') {
+                                            currentReading = parseFloat(vehicle.horimetro) || 0;
+                                            readingLabel = 'Horímetro';
+                                        } else { 
+                                            currentReading = parseFloat(vehicle.odometro) || 0;
+                                            readingLabel = 'Odômetro';
+                                        }
+
+                                        const initialReading = parseFloat(h.horimetroEntrada ?? h.odometroEntrada ?? 0);
+                                        const partialReading = Math.max(0, currentReading - initialReading);
+
+                                        return (
+                                            <div key={h.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-xs">
+                                                        {vehicle.registroInterno}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-bold text-gray-800">{vehicle.modelo}</p>
+                                                        <p className="text-xs text-gray-500">{vehicle.tipo}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                                                    <div>
+                                                        <span className="block text-[10px] font-bold text-gray-400 uppercase">Entrada</span>
+                                                        {new Date(h.dataEntrada).toLocaleDateString('pt-BR')}
+                                                    </div>
+                                                    <div>
+                                                        <span className="block text-[10px] font-bold text-gray-400 uppercase">Operador</span>
+                                                        {h.employeeName || 'N/A'}
+                                                    </div>
+                                                    <div>
+                                                        <span className="block text-[10px] font-bold text-gray-400 uppercase">Parcial ({readingLabel})</span>
+                                                        <span className="font-bold text-blue-600">{partialReading.toFixed(1)}</span>
+                                                    </div>
+                                                </div>
+
+                                                <ProtectedComponent requiredPermission="editor">
+                                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                                        <div className="flex-1 sm:w-24">
+                                                            <label className="block text-[10px] font-bold text-gray-400 mb-1">Atualizar Leitura</label>
+                                                            <input 
+                                                                type="number" 
+                                                                step="0.1" 
+                                                                className="w-full p-2 text-xs border rounded bg-gray-50 focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none transition"
+                                                                placeholder={currentReading}
+                                                                value={updatingReadings[vehicle.id] || ''}
+                                                                onChange={(e) => handleReadingChange(vehicle.id, e.target.value)}
+                                                            />
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => { setAssignmentToEdit(h); setIsEditAssignmentModalOpen(true); }}
+                                                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full mt-4"
+                                                            title="Editar Detalhes da Alocação"
+                                                        >
+                                                            <Edit size={16} />
+                                                        </button>
+                                                    </div>
+                                                </ProtectedComponent>
+                                            </div>
+                                        );
+                                    }) : (
+                                        <div className="text-center py-8 bg-white border border-dashed rounded-lg text-gray-400">
+                                            Nenhum veículo ativo nesta obra no momento.
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <ProtectedComponent requiredPermission="editor">
+                                    {Object.keys(updatingReadings).length > 0 && (
+                                        <div className="mt-4 flex justify-end">
+                                            <button 
+                                                onClick={handleSaveChanges} 
+                                                disabled={isSaving}
+                                                className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 flex items-center gap-2"
+                                            >
+                                                {isSaving ? <Loader className="animate-spin" size={16}/> : <Edit size={16}/>}
+                                                Salvar Leituras de Veículos
+                                            </button>
+                                        </div>
+                                    )}
+                                </ProtectedComponent>
+                            </div>
+
+                            {/* Histórico Passado */}
+                            <div className="pt-6 border-t">
+                                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2 uppercase tracking-wide">
+                                    <Clock size={16}/> Histórico de Saídas
+                                </h3>
+                                <div className="bg-white border rounded-lg overflow-hidden">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-gray-100 text-gray-600 font-bold text-xs uppercase">
+                                            <tr>
+                                                <th className="px-4 py-2">Veículo</th>
+                                                <th className="px-4 py-2">Período</th>
+                                                <th className="px-4 py-2">Operador</th>
+                                                <th className="px-4 py-2 text-right">Ação</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {pastVehicles.length > 0 ? pastVehicles.map(h => (
+                                                <tr key={h.id} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-2">
+                                                        <div className="font-bold text-gray-800">{h.vehicle?.registroInterno}</div>
+                                                        <div className="text-xs text-gray-500">{h.vehicle?.modelo}</div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-gray-600">
+                                                        {new Date(h.dataEntrada).toLocaleDateString('pt-BR')} até {new Date(h.dataSaida).toLocaleDateString('pt-BR')}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-gray-600">{h.employeeName || '-'}</td>
+                                                    <td className="px-4 py-2 text-right">
+                                                        <ProtectedComponent requiredPermission="editor">
+                                                            <button 
+                                                                onClick={() => { setPastAssignmentToEdit(h); setIsEditPastAssignmentModalOpen(true); }}
+                                                                className="text-gray-400 hover:text-blue-600"
+                                                            >
+                                                                <Edit size={16}/>
+                                                            </button>
+                                                        </ProtectedComponent>
+                                                    </td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan="4" className="px-4 py-6 text-center text-gray-400 italic">
+                                                        Nenhum histórico anterior.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                 </div>
 
-                <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium">Fechar</button>
+                {/* Footer Fixo */}
+                <div className="p-4 bg-gray-50 border-t flex justify-end rounded-b-xl">
+                    <button 
+                        onClick={onClose} 
+                        className="px-6 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300 transition"
+                    >
+                        Fechar
+                    </button>
                 </div>
             </div>
 
+            {/* Modais de Edição de Alocação (Mantidos iguais à sua versão, apenas renderizados condicionalmente) */}
             {isEditAssignmentModalOpen && assignmentToEdit && (
                 <EditActiveVehicleAssignmentModal
                     assignment={assignmentToEdit}
@@ -633,10 +732,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     employees={employees}
                     onClose={() => setIsEditAssignmentModalOpen(false)}
                     onSave={handleSaveAssignmentEdit}
-                    apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
-                    reloadData={reloadData}
-                    obraId={obra.id}
                 />
             )}
             {isEditPastAssignmentModalOpen && pastAssignmentToEdit && (
@@ -646,10 +742,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     employees={employees}
                     onClose={() => setIsEditPastAssignmentModalOpen(false)}
                     onSave={handleSavePastAssignmentEdit}
-                    apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
-                    reloadData={reloadData}
-                    obraId={obra.id}
                 />
             )}
         </div>
