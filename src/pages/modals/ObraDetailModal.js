@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, Edit, Trash2, PlusCircle, Loader, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
-import ProtectedComponent from '../components/ProtectedComponent';
+// CORREÇÃO: Caminho ajustado para voltar dois níveis (../../)
+import ProtectedComponent from '../../components/ProtectedComponent';
 
 // Componente Simples de Barra de Progresso
 const ProgressBar = ({ value, max, color = 'bg-yellow-400' }) => {

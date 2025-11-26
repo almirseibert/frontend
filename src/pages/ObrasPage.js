@@ -5,8 +5,8 @@ import {
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 
-// Importação dos novos Modais
-import ObraModal from './modals/ObraModal'; // Ajuste o caminho conforme onde salvou
+// Importação dos novos Modais com o caminho correto
+import ObraModal from './modals/ObraModal'; 
 import ObraDetailModal from './modals/ObraDetailModal';
 import FinishObraModal from './modals/FinishObraModal';
 

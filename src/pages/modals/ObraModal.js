@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, PlusCircle, Trash2, MapPin, Loader } from 'lucide-react';
 
+// CORREÇÃO: Removida importação redundante de apiClient, pois é recebido via props
+// Se necessário ProtectedComponent, importar com ../../../components/ProtectedComponent
+
 const ObraModal = ({ 
     user, 
     obra, 
