@@ -35,21 +35,24 @@ const ObrasPage = ({
     const [selectedObra, setSelectedObra] = useState(null);
 
     // --- LÓGICA DE TIPOS DE EQUIPAMENTOS ---
-    // Filtra os tipos de veículos, excluindo "Veículos Leves" e "Caminhões de Trecho"
     const derivedEquipmentTypes = useMemo(() => {
-        const excludedGroups = ['Veículos Leves', 'Caminhões de Trecho'];
         const types = [];
 
         Object.entries(vehicleGroups).forEach(([groupName, groupTypes]) => {
-            // Verifica se o grupo atual NÃO está na lista de excluídos (case insensitive parcial)
-            const isExcluded = excludedGroups.some(ex => groupName.toLowerCase().includes(ex.toLowerCase()));
-            
-            if (!isExcluded && Array.isArray(groupTypes)) {
+            const name = groupName.toLowerCase();
+
+            // 1. Exclusões Específicas solicitadas
+            // Exclui "Veículos Leves" e "Caminhões de Trecho"
+            if (name.includes('veículos leves') || name.includes('veiculos leves')) return;
+            if (name.includes('caminhões de trecho') || name.includes('caminhoes de trecho')) return;
+
+            // 2. Inclusão dos demais (incluindo "Caminhões" genérico e "Máquinas Pesadas")
+            if (Array.isArray(groupTypes)) {
                 types.push(...groupTypes);
             }
         });
 
-        // Remove duplicatas e ordena
+        // Remove duplicatas e ordena alfabeticamente
         return [...new Set(types)].sort();
     }, [vehicleGroups]);
 
@@ -296,7 +299,7 @@ const ObrasPage = ({
                     apiClient={apiClient} 
                     reloadData={reloadData} 
                     setAlertMessage={setAlertMessage}
-                    equipmentTypesForHours={derivedEquipmentTypes} // Passando a lista filtrada
+                    equipmentTypesForHours={derivedEquipmentTypes}
                 />
             )}
 
@@ -310,7 +313,7 @@ const ObrasPage = ({
                     apiClient={apiClient} 
                     reloadData={reloadData}
                     vehicleGroups={vehicleGroups}
-                    equipmentTypesForHours={derivedEquipmentTypes} // Passando a lista filtrada
+                    equipmentTypesForHours={derivedEquipmentTypes}
                     employees={employees}
                 />
             )}
