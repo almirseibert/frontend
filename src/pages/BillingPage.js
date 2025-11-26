@@ -50,6 +50,26 @@ const BillingPage = ({
         return `${finalHours.toString().padStart(2, '0')}:${finalMinutes.toString().padStart(2, '0')}`;
     };
 
+    // --- HELPER: Cálculo de Diferença de Horas (Retorna Decimal) ---
+    const calculateTimeDiffDecimal = (start, end) => {
+        if (!start || !end) return 0;
+        const [h1, m1] = start.split(':').map(Number);
+        const [h2, m2] = end.split(':').map(Number);
+        const diffMinutes = (h2 * 60 + m2) - (h1 * 60 + m1);
+        return diffMinutes > 0 ? diffMinutes / 60 : 0;
+    };
+
+    // --- HELPER: Dia da Semana ---
+    const getDayOfWeek = (dateString) => {
+        const date = new Date(dateString);
+        // Ajuste de fuso horário para garantir o dia correto
+        const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+        const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+        
+        const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        return days[adjustedDate.getDay()];
+    };
+
     // --- HELPER: Gerar dias do mês ---
     const getDaysInMonth = (yearMonth) => {
         if (!yearMonth) return [];
@@ -63,18 +83,33 @@ const BillingPage = ({
         return days;
     };
 
+    // --- HELPER: Carregar Imagem para o PDF ---
+    const getImageDataUrl = (url) => {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = reject;
+            img.src = url;
+        });
+    };
+
     // --- EFEITOS ---
-    
-    // Carrega logs quando muda Obra, Mês ou Veículo (Aba Controle - Novo Fluxo)
     useEffect(() => {
         if (selectedObraId && activeTab === 'controle' && controlVehicleId && controlMonth) {
             fetchDailyLogsForControl();
         } else if (activeTab === 'controle') {
-            setDailyLogs([]); // Limpa se faltar seleção
+            setDailyLogs([]); 
         }
     }, [selectedObraId, controlMonth, controlVehicleId, activeTab]);
 
-    // Carrega dados agregados quando muda Obra ou Datas (Aba Relatório)
     useEffect(() => {
         if (selectedObraId && activeTab === 'relatorio' && reportStartDate && reportEndDate) {
             fetchReportData();
@@ -112,15 +147,13 @@ const BillingPage = ({
         });
 
         return Array.from(vehicleMap.values()).sort((a, b) => {
-            if (a.statusNaObra === b.statusNaObra) {
-                return (a.registroInterno || '').localeCompare(b.registroInterno || '');
-            }
-            return a.statusNaObra === 'presente' ? -1 : 1;
+            const labelA = `${a.registroInterno || ''} ${a.tipo || ''} ${a.marca || ''} ${a.modelo || ''}`.toLowerCase();
+            const labelB = `${b.registroInterno || ''} ${b.tipo || ''} ${b.marca || ''} ${b.modelo || ''}`.toLowerCase();
+            return labelA.localeCompare(labelB);
         });
     }, [selectedObraId, obras, vehicles, vehicleGroups]);
 
     const getDefaultOperator = () => {
-        // Tenta pegar o operador mais recente usado nos logs carregados ou do histórico
         if (dailyLogs.length > 0) {
             const lastLog = dailyLogs.find(l => l.employeeId);
             if (lastLog) return lastLog.employeeId;
@@ -162,13 +195,11 @@ const BillingPage = ({
     const fetchReportData = async () => {
         setLoadingLogs(true);
         try {
-            // CORREÇÃO: Monta o objeto de filtros manualmente para evitar "vehicleId=undefined" string
             const filters = { 
                 startDate: reportStartDate, 
                 endDate: reportEndDate
             };
             
-            // Só adiciona o ID se ele existir (não for vazio)
             if (reportVehicleId) {
                 filters.vehicleId = reportVehicleId;
             }
@@ -187,14 +218,13 @@ const BillingPage = ({
         setIsSaving(true);
         const promises = [];
 
-        // Itera sobre as DATAS que tiveram alteração
         Object.keys(localChanges).forEach(dateKey => {
             const changes = localChanges[dateKey];
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
             
             const payload = {
                 obraId: selectedObraId,
-                vehicleId: controlVehicleId, // Veículo selecionado no header
+                vehicleId: controlVehicleId, 
                 date: dateKey,
                 employeeId: changes.employeeId !== undefined ? changes.employeeId : (existingLog?.employeeId || getDefaultOperator()),
                 morningStart: changes.morningStart !== undefined ? changes.morningStart : existingLog?.morningStart,
@@ -204,15 +234,8 @@ const BillingPage = ({
                 observation: changes.observation !== undefined ? changes.observation : existingLog?.observation,
             };
 
-            const calcHours = (start, end) => {
-                if (!start || !end) return 0;
-                const [h1, m1] = start.split(':').map(Number);
-                const [h2, m2] = end.split(':').map(Number);
-                const diff = (h2 * 60 + m2) - (h1 * 60 + m1);
-                return diff > 0 ? diff / 60 : 0;
-            };
-            const morning = calcHours(payload.morningStart, payload.morningEnd);
-            const afternoon = calcHours(payload.afternoonStart, payload.afternoonEnd);
+            const morning = calculateTimeDiffDecimal(payload.morningStart, payload.morningEnd);
+            const afternoon = calculateTimeDiffDecimal(payload.afternoonStart, payload.afternoonEnd);
             payload.totalHours = (morning + afternoon).toFixed(2);
 
             promises.push(apiClient.upsertDailyLog(payload));
@@ -229,7 +252,6 @@ const BillingPage = ({
         }
     };
 
-    // --- HANDLERS ---
     const handleInputChange = (dateKey, field, value) => {
         setLocalChanges(prev => ({
             ...prev,
@@ -243,7 +265,6 @@ const BillingPage = ({
             const startLimit = new Date(obra.dataInicio);
             const endLimit = obra.dataFim ? new Date(obra.dataFim) : new Date();
             const checkDate = new Date(value);
-            // Simples verificação se é data válida
             if (!isNaN(checkDate) && (checkDate < startLimit || checkDate > endLimit)) {
                 setPendingDateChange({ field, value });
                 setShowPasswordModal(true);
@@ -262,47 +283,166 @@ const BillingPage = ({
         }
     };
 
-    // --- GERAÇÃO DE PDF ---
+    // --- GERAÇÃO DE PDF (MODELO CUSTOMIZADO) ---
 
-    const generateDetailedPDF = () => {
-        const doc = new jsPDF();
+    const generateDetailedPDF = async () => {
+        const doc = new jsPDF('l', 'mm', 'a4'); // Landscape
         const obra = obras.find(o => o.id === selectedObraId);
-        const vehicleInfo = reportVehicleId 
-            ? vehicles.find(v => v.id === reportVehicleId)?.registroInterno + ' - ' + vehicles.find(v => v.id === reportVehicleId)?.modelo 
-            : 'Todos os Equipamentos';
         
-        doc.setFontSize(16);
-        doc.text(`Relatório Detalhado: ${obra?.nome || 'N/A'}`, 14, 15);
-        doc.setFontSize(11);
-        doc.text(`Veículo(s): ${vehicleInfo}`, 14, 22);
+        // Prepara dados do Veículo (se um filtro estiver ativo)
+        let vehicleLabel = "Todos";
+        let frotaLabel = "";
+        let operatorLabel = "Diversos";
+
+        if (reportVehicleId) {
+            const v = vehicles.find(ve => ve.id === reportVehicleId);
+            if (v) {
+                vehicleLabel = `${v.tipo} ${v.marca} ${v.modelo}`;
+                frotaLabel = v.registroInterno;
+                // Tenta pegar o operador mais frequente no período
+                const operators = reportData.map(d => d.employeeName).filter(Boolean);
+                if (operators.length > 0) {
+                    operatorLabel = operators.sort((a,b) =>
+                        operators.filter(v => v===a).length - operators.filter(v => v===b).length
+                    ).pop();
+                }
+            }
+        }
+
+        // Tenta carregar o logo
+        try {
+            const logoUrl = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
+            const logoData = await getImageDataUrl(logoUrl);
+            doc.addImage(logoData, 'PNG', 240, 10, 40, 15); 
+        } catch (err) {
+            console.warn("Não foi possível carregar o logo no PDF", err);
+        }
+
+        // --- CABEÇALHO ---
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text("RELATÓRIO DE SERVIÇOS", 14, 15);
+        doc.setFontSize(12);
+        doc.text("PLANILHA DE HORAS", 14, 21);
+        
+        doc.setLineWidth(0.5);
+        doc.line(14, 28, 283, 28); // Linha separadora
+
+        // Bloco de Dados de Identificação
         doc.setFontSize(10);
-        doc.text(`Período: ${new Date(reportStartDate).toLocaleDateString('pt-BR')} a ${new Date(reportEndDate).toLocaleDateString('pt-BR')}`, 14, 28);
+        doc.text("DADOS DE IDENTIFICAÇÃO", 14, 33);
+        
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Obra:", 14, 40);
+        doc.setFont('helvetica', 'normal');
+        doc.text(obra?.nome || '', 40, 40);
 
-        const tableData = reportData.map(log => [
-            new Date(log.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
-            log.registroInterno,
-            log.modelo,
-            log.employeeName || 'N/A',
-            `${log.morningStart ? log.morningStart.slice(0,5) : '-'} / ${log.morningEnd ? log.morningEnd.slice(0,5) : '-'}`,
-            `${log.afternoonStart ? log.afternoonStart.slice(0,5) : '-'} / ${log.afternoonEnd ? log.afternoonEnd.slice(0,5) : '-'}`,
-            formatDecimalToTime(log.totalHours), 
-            log.observation || ''
-        ]);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Equipamento:", 140, 40);
+        doc.setFont('helvetica', 'normal');
+        doc.text(vehicleLabel, 165, 40);
 
-        autoTable(doc, {
-            startY: 32,
-            head: [['Data', 'Equipamento', 'Modelo', 'Operador', 'Manhã', 'Tarde', 'Total (h)', 'Obs']],
-            body: tableData,
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0] },
-            columnStyles: { 6: { fontStyle: 'bold', halign: 'center' } }
+        doc.setFont('helvetica', 'bold');
+        doc.text("Frota:", 14, 46);
+        doc.setFont('helvetica', 'normal');
+        doc.text(frotaLabel, 40, 46);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text("Período:", 140, 46);
+        doc.setFont('helvetica', 'normal');
+        const periodoStr = `${new Date(reportStartDate).toLocaleDateString('pt-BR')} A ${new Date(reportEndDate).toLocaleDateString('pt-BR')}`;
+        doc.text(periodoStr, 165, 46);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text("Operador:", 14, 52);
+        doc.setFont('helvetica', 'normal');
+        doc.text(operatorLabel, 40, 52);
+
+        // --- TABELA ---
+        const tableBody = reportData.map(log => {
+            const morningHours = calculateTimeDiffDecimal(log.morningStart, log.morningEnd);
+            const afternoonHours = calculateTimeDiffDecimal(log.afternoonStart, log.afternoonEnd);
+            
+            return [
+                new Date(log.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }), // Data
+                getDayOfWeek(log.date), // Dia da Semana
+                log.morningStart ? log.morningStart.slice(0, 5) : '',
+                log.morningEnd ? log.morningEnd.slice(0, 5) : '',
+                formatDecimalToTime(morningHours), // Total Manhã
+                log.afternoonStart ? log.afternoonStart.slice(0, 5) : '',
+                log.afternoonEnd ? log.afternoonEnd.slice(0, 5) : '',
+                formatDecimalToTime(afternoonHours), // Total Tarde
+                formatDecimalToTime(log.totalHours), // Total Dia
+                log.observation || '' // Obs
+            ];
         });
 
-        const totalDecimal = reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
-        doc.setFontSize(10);
-        doc.text(`Total Geral de Horas: ${formatDecimalToTime(totalDecimal)}`, 14, doc.lastAutoTable.finalY + 10);
+        // Cabeçalho da Tabela (Nested)
+        autoTable(doc, {
+            startY: 58,
+            head: [
+                [
+                    { content: 'DATA', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+                    { content: 'DIA DA SEMANA', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+                    { content: 'MANHÃ', colSpan: 3, styles: { halign: 'center' } },
+                    { content: 'TARDE', colSpan: 3, styles: { halign: 'center' } },
+                    { content: 'TOTAL DIA', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+                    { content: 'DESCRIÇÃO DOS SERVIÇOS', rowSpan: 2, styles: { valign: 'middle', halign: 'left' } },
+                ],
+                [
+                    { content: 'INÍCIO', styles: { halign: 'center' } },
+                    { content: 'TÉRMINO', styles: { halign: 'center' } },
+                    { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
+                    { content: 'INÍCIO', styles: { halign: 'center' } },
+                    { content: 'TÉRMINO', styles: { halign: 'center' } },
+                    { content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } },
+                ]
+            ],
+            body: tableBody,
+            theme: 'grid',
+            styles: { 
+                fontSize: 8, 
+                cellPadding: 1.5, 
+                lineColor: [0, 0, 0], 
+                lineWidth: 0.1,
+                textColor: [0, 0, 0] 
+            },
+            headStyles: { 
+                fillColor: [255, 255, 255], // Cabeçalho branco (ou cinza claro se preferir)
+                textColor: [0, 0, 0], 
+                fontStyle: 'bold',
+                lineWidth: 0.1,
+                lineColor: [0, 0, 0]
+            },
+            columnStyles: {
+                0: { cellWidth: 22, halign: 'center' }, // Data
+                1: { cellWidth: 28, halign: 'center' }, // Dia Semana
+                2: { cellWidth: 15, halign: 'center' }, // M Ini
+                3: { cellWidth: 15, halign: 'center' }, // M Fim
+                4: { cellWidth: 15, halign: 'center', fontStyle: 'bold' }, // M Total
+                5: { cellWidth: 15, halign: 'center' }, // T Ini
+                6: { cellWidth: 15, halign: 'center' }, // T Fim
+                7: { cellWidth: 15, halign: 'center', fontStyle: 'bold' }, // T Total
+                8: { cellWidth: 20, halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] }, // Total Dia
+                9: { } // Obs (auto width)
+            },
+            alternateRowStyles: {
+                fillColor: [255, 255, 255] // Mantém fundo branco para parecer com planilha, ou use cinza claro
+            }
+        });
 
-        doc.save(`Detalhado_${obra?.nome}_${reportStartDate}.pdf`);
+        // --- RODAPÉ COM TOTAIS ---
+        const totalDecimal = reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
+        const finalY = doc.lastAutoTable.finalY + 5;
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text("TOTAL HORAS MÊS:", 180, finalY + 5);
+        doc.setFontSize(12);
+        doc.text(formatDecimalToTime(totalDecimal), 220, finalY + 5);
+
+        doc.save(`Relatorio_Servicos_${frotaLabel || 'Geral'}_${reportStartDate}.pdf`);
     };
 
     const generateSummaryPDF = () => {
@@ -330,6 +470,7 @@ const BillingPage = ({
         doc.setFontSize(10);
         doc.text(`Filtro: ${vehicleInfo} | Período: ${new Date(reportStartDate).toLocaleDateString('pt-BR')} a ${new Date(reportEndDate).toLocaleDateString('pt-BR')}`, 14, 22);
 
+        // --- Tabela Grupo ---
         const groupTableData = Object.keys(groupSummary).map(group => [
             group,
             formatDecimalToTime(groupSummary[group].hours)
@@ -341,10 +482,11 @@ const BillingPage = ({
             startY: 32,
             head: [['Grupo', 'Horas Totais']],
             body: groupTableData,
-            headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255] },
+            headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' },
             theme: 'grid'
         });
 
+        // --- Tabela Tipo ---
         const typeTableData = Object.keys(typeSummary).map(type => [
             type,
             typeSummary[type].vehicles.size,
@@ -357,7 +499,7 @@ const BillingPage = ({
             startY: doc.lastAutoTable.finalY + 12,
             head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']],
             body: typeTableData,
-            headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0] }
+            headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' }
         });
 
         doc.save(`Resumo_${obra?.nome}_${reportStartDate}.pdf`);
@@ -416,9 +558,23 @@ const BillingPage = ({
                                         className="w-full p-2 border rounded text-sm bg-white"
                                     >
                                         <option value="">-- Selecione o Equipamento --</option>
-                                        {getObraVehicles.map(v => (
-                                            <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo} ({v.statusNaObra === 'presente' ? 'Ativo' : 'Inativo'})</option>
-                                        ))}
+                                        {getObraVehicles.map(v => {
+                                            // Formatação rigorosa solicitada: Registro - Tipo - Marca - Modelo
+                                            const label = `${v.registroInterno} - ${v.tipo} - ${v.marca} - ${v.modelo}`;
+                                            const isPresent = v.statusNaObra === 'presente';
+                                            const statusText = isPresent ? '(PRESENTE)' : '(NÃO ESTÁ MAIS NA OBRA)';
+                                            const colorStyle = isPresent ? 'green' : 'red';
+
+                                            return (
+                                                <option 
+                                                    key={v.id} 
+                                                    value={v.id} 
+                                                    style={{ color: colorStyle, fontWeight: isPresent ? 'bold' : 'normal' }}
+                                                >
+                                                    {label} {statusText}
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                                 <div className="w-full md:w-auto">
@@ -468,7 +624,6 @@ const BillingPage = ({
                                                     const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
                                                     const changes = localChanges[dayDate] || {};
                                                     
-                                                    // Prioridade: Mudança Local > Banco de Dados > Vazio
                                                     const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
                                                     const mStart = changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || '');
                                                     const mEnd = changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || '');
@@ -564,9 +719,12 @@ const BillingPage = ({
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         >
                                             <option value="">Todos os Equipamentos</option>
-                                            {getObraVehicles.map(v => (
-                                                <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>
-                                            ))}
+                                            {getObraVehicles.map(v => {
+                                                const label = `${v.registroInterno} - ${v.tipo} - ${v.marca} - ${v.modelo}`;
+                                                return (
+                                                    <option key={v.id} value={v.id}>{label}</option>
+                                                );
+                                            })}
                                         </select>
                                     </div>
                                     <div className="flex gap-2">
