@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock } from 'lucide-react';
-import ProtectedComponent from '../ProtectedComponent'; // <--- CORREÇÃO AQUI (Era ../components/ProtectedComponent)
+import ProtectedComponent from '../ProtectedComponent';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
 
@@ -200,6 +200,10 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'vehicles'
     const [isSaving, setIsSaving] = useState(false);
     
+    // ESTADO PARA OS DETALHES COMPLETOS DA OBRA (Incluindo Faturamento por Tipo)
+    const [detailedObra, setDetailedObra] = useState(obra);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
     // Campos de Edição Manual (Metros Quadrados e Prancha)
     const [kmConcluidoPrancha, setKmConcluidoPrancha] = useState(obra?.kmConcluidoPrancha?.toString() || '');
     const [editedSectorsKm, setEditedSectorsKm] = useState(() =>
@@ -216,14 +220,55 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const [isEditPastAssignmentModalOpen, setIsEditPastAssignmentModalOpen] = useState(false);
     const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null);
 
+    // --- EFEITO: BUSCAR DETALHES COMPLETOS (FATURAMENTO) ---
+    useEffect(() => {
+        const fetchDetails = async () => {
+            if (!obra?.id) return;
+            setIsLoadingDetails(true);
+            try {
+                // Tenta usar o método específico se existir, senão usa axios padrão ou suposição da estrutura
+                // O método getObraById no backend retorna 'realizadoPorTipo'
+                let data;
+                if (apiClient.getObraById) {
+                    data = await apiClient.getObraById(obra.id);
+                } else if (apiClient.get) {
+                    const response = await apiClient.get(`/obras/${obra.id}`);
+                    data = response.data || response;
+                } else {
+                    // Fallback: se não conseguir buscar, usa o que tem (mas não terá os detalhes de faturamento por tipo)
+                    data = obra;
+                }
+                
+                if (data) {
+                    setDetailedObra(data);
+                    // Atualiza estados locais que dependem dos dados frescos
+                    setKmConcluidoPrancha(data.kmConcluidoPrancha?.toString() || '');
+                    setEditedSectorsKm(
+                        (Array.isArray(data.sectors) ? data.sectors : [])
+                        .reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})
+                    );
+                }
+            } catch (error) {
+                console.error("Erro ao carregar detalhes profundos da obra:", error);
+            } finally {
+                setIsLoadingDetails(false);
+            }
+        };
+
+        fetchDetails();
+    }, [obra?.id, apiClient]);
+
+
     // --- CÁLCULOS ---
 
     const { activeVehicles, pastVehicles } = useMemo(() => {
-        const historico = Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : [];
+        // Usa detailedObra para garantir histórico mais atual, se disponível
+        const sourceObra = detailedObra || obra;
+        const historico = Array.isArray(sourceObra.historicoVeiculos) ? sourceObra.historicoVeiculos : [];
         
         const active = historico.filter(h => !h.dataSaida)
             .map(h => ({ ...h, vehicle: vehicles.find(v => v.id === h.veiculoId) }))
-            .filter(h => h.vehicle) // Garante que o veículo existe
+            .filter(h => h.vehicle) 
             .sort((a, b) => (a.vehicle.registroInterno || '').localeCompare(b.vehicle.registroInterno || ''));
             
         const past = historico.filter(h => h.dataSaida)
@@ -231,10 +276,11 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
              .sort((a, b) => new Date(b.dataSaida) - new Date(a.dataSaida));
              
         return { activeVehicles: active, pastVehicles: past };
-    }, [obra, vehicles]);
+    }, [detailedObra, obra, vehicles]);
 
-    // Lógica Central de Progresso: AGORA BASEADA NO FATURAMENTO (Backend)
+    // Lógica Central de Progresso: BASEADA NO FATURAMENTO (Dados de detailedObra)
     const progressData = useMemo(() => {
+        const sourceObra = detailedObra || obra;
         const data = { 
             contratado: {}, 
             concluido: {}, 
@@ -244,16 +290,20 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             totalKmConcluido: 0 
         };
         
-        const currentContractType = obra.contractType || 'horas';
+        const currentContractType = sourceObra.contractType || 'horas';
+        
+        // Parse seguro das horas contratadas (caso venha como string JSON)
+        const horasContratadasParsed = typeof sourceObra.horasContratadasPorTipo === 'string' 
+            ? JSON.parse(sourceObra.horasContratadasPorTipo) 
+            : (sourceObra.horasContratadasPorTipo || {});
 
         if (currentContractType === 'horas') {
-             // Itera sobre os tipos permitidos (filtrados na ObrasPage - derivedEquipmentTypes)
-             (equipmentTypesForHours || []).forEach(type => {
-                const contracted = parseFloat(obra.horasContratadasPorTipo?.[type] || 0);
+             // Itera sobre os tipos que foram CONTRATADOS nesta obra
+             Object.keys(horasContratadasParsed).forEach(type => {
+                const contracted = parseFloat(horasContratadasParsed[type] || 0);
                 
-                // O valor realizado agora vem direto do Backend (soma dos daily_work_logs)
-                // obra.realizadoPorTipo é injetado pelo controller
-                const realized = parseFloat(obra.realizadoPorTipo?.[type] || 0);
+                // O valor realizado vem do Backend (tabela daily_work_logs -> realizadoPorTipo)
+                const realized = parseFloat(sourceObra.realizadoPorTipo?.[type] || 0);
 
                 data.contratado[type] = contracted;
                 data.concluido[type] = realized;
@@ -262,16 +312,25 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 data.totalConcluido += realized;
             });
             
+            // Caso existam horas realizadas de tipos NÃO contratados (extras), soma no total geral
+            if (sourceObra.realizadoPorTipo) {
+                Object.keys(sourceObra.realizadoPorTipo).forEach(type => {
+                    if (!data.contratado[type]) {
+                        data.totalConcluido += parseFloat(sourceObra.realizadoPorTipo[type] || 0);
+                    }
+                });
+            }
+
         } else if (currentContractType === 'metrosQuadrados') {
-             (Array.isArray(obra.sectors) ? obra.sectors : []).forEach(sector => {
+             (Array.isArray(sourceObra.sectors) ? sourceObra.sectors : []).forEach(sector => {
                 const contracted = parseFloat(sector.kmContratado || 0);
-                const concluded = parseFloat(editedSectorsKm[sector.name] ?? (sector.kmConcluido || 0)); // Usa estado editado ou valor do banco
+                const concluded = parseFloat(editedSectorsKm[sector.name] ?? (sector.kmConcluido || 0)); 
                 data.totalKmContratado += contracted;
                 data.totalKmConcluido += concluded;
             });
         }
         return data;
-    }, [obra, equipmentTypesForHours, editedSectorsKm]);
+    }, [detailedObra, obra, editedSectorsKm]);
 
     // --- HANDLERS ---
 
@@ -281,8 +340,9 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const handleSaveAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
         setAlertMessage("Alocação ativa atualizada com sucesso!");
-        reloadData();
+        reloadData(); // Recarrega a página pai
         setIsEditAssignmentModalOpen(false);
+        // O useEffect vai rodar e atualizar o detailedObra também
     };
 
     const handleSavePastAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
@@ -299,13 +359,13 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
         // Atualização de Km de Prancha (Manual)
         const newPranchaKm = parseFloat(kmConcluidoPrancha);
-        if (!isNaN(newPranchaKm) && newPranchaKm !== (obra.kmConcluidoPrancha || 0)) {
+        if (!isNaN(newPranchaKm) && newPranchaKm !== (detailedObra.kmConcluidoPrancha || 0)) {
             obraUpdatePayload.kmConcluidoPrancha = newPranchaKm;
         }
 
         // Atualização de Setores (Se for contrato por produção)
-        if (obra.contractType === 'metrosQuadrados') {
-            const currentSectors = Array.isArray(obra.sectors) ? obra.sectors : [];
+        if (detailedObra.contractType === 'metrosQuadrados') {
+            const currentSectors = Array.isArray(detailedObra.sectors) ? detailedObra.sectors : [];
             const updatedSectors = currentSectors.map(sector => {
                 const currentKm = parseFloat(sector.kmConcluido || 0);
                 const newKm = parseFloat(editedSectorsKm[sector.name]);
@@ -315,13 +375,12 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 return sector;
             });
             
-            // Verifica se houve mudança real
             if (JSON.stringify(updatedSectors) !== JSON.stringify(currentSectors)) {
                 obraUpdatePayload.sectors = updatedSectors;
             }
         }
 
-        // Atualização de Leituras de Veículos (Apenas atualiza o odômetro/horímetro do veículo, não impacta faturamento da obra)
+        // Atualização de Leituras de Veículos (Apenas atualiza o odômetro/horímetro do veículo)
         Object.entries(updatingReadings).forEach(([vehicleId, newReadingStr]) => {
              if (newReadingStr !== undefined && newReadingStr !== '') {
                  const newReading = parseFloat(newReadingStr);
@@ -384,16 +443,16 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 {/* Header */}
                 <div className="p-6 border-b flex justify-between items-start bg-white rounded-t-xl sticky top-0 z-10">
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">{obra.nome}</h2>
+                        <h2 className="text-2xl font-bold text-gray-800">{detailedObra.nome}</h2>
                         <div className="flex items-center gap-2 mt-1 text-gray-500 text-sm">
-                            <MapPin size={16}/> <span>{obra.localizacao || 'Localização não definida'}</span>
+                            <MapPin size={16}/> <span>{detailedObra.localizacao || 'Localização não definida'}</span>
                         </div>
                         <div className="flex items-center gap-4 mt-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${obra.status === 'ativa' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                                {obra.status === 'ativa' ? 'Em Andamento' : 'Finalizada'}
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${detailedObra.status === 'ativa' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                {detailedObra.status === 'ativa' ? 'Em Andamento' : 'Finalizada'}
                             </span>
                             <span className="text-sm font-medium border-l pl-4 border-gray-300">
-                                Contrato: {obra.contractType === 'metrosQuadrados' ? 'Por Produção (m²)' : 'Por Horas'}
+                                Contrato: {detailedObra.contractType === 'metrosQuadrados' ? 'Por Produção (m²)' : 'Por Horas'}
                             </span>
                         </div>
                     </div>
@@ -425,12 +484,15 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                             
                             {/* Painel de Progresso */}
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                                <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                    <AlertTriangle className="text-yellow-500" size={20}/> Status do Contrato
-                                </h3>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                                        <AlertTriangle className="text-yellow-500" size={20}/> Status do Contrato
+                                    </h3>
+                                    {isLoadingDetails && <span className="text-xs text-blue-500 flex items-center gap-1"><Loader size={12} className="animate-spin"/> Atualizando dados...</span>}
+                                </div>
 
                                 {/* Contrato por HORAS */}
-                                {obra.contractType === 'horas' && (
+                                {detailedObra.contractType === 'horas' && (
                                     <>
                                         <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
                                             <ProgressBar 
@@ -440,12 +502,12 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                                 color="dynamic"
                                             />
                                             <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
-                                                * Dados baseados nos apontamentos da página de Faturamento.
+                                                * Dados sincronizados com apontamentos do Faturamento (daily_work_logs).
                                             </p>
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                                            {(equipmentTypesForHours || []).map(type => {
+                                            {Object.keys(progressData.contratado).map(type => {
                                                 const contratado = progressData.contratado[type] || 0;
                                                 // Exibe apenas se houver contrato ou horas realizadas
                                                 if (contratado === 0 && (progressData.concluido[type] || 0) === 0) return null;
@@ -465,7 +527,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                 )}
 
                                 {/* Contrato por M² */}
-                                {obra.contractType === 'metrosQuadrados' && (
+                                {detailedObra.contractType === 'metrosQuadrados' && (
                                     <>
                                         <div className="mb-6">
                                             <ProgressBar 
@@ -476,7 +538,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                             />
                                         </div>
                                         <div className="space-y-4">
-                                            {(Array.isArray(obra.sectors) ? obra.sectors : []).map(sector => (
+                                            {(Array.isArray(detailedObra.sectors) ? detailedObra.sectors : []).map(sector => (
                                                 <div key={sector.name} className="flex items-center gap-4">
                                                     <div className="flex-1">
                                                         <ProgressBar 
@@ -506,14 +568,14 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                 )}
 
                                 {/* Deslocamento de Prancha (Comum a ambos) */}
-                                {(parseFloat(obra.kmContratadoPrancha) > 0) && (
+                                {(parseFloat(detailedObra.kmContratadoPrancha) > 0) && (
                                     <div className="mt-6 pt-6 border-t">
                                         <div className="flex items-center justify-between">
                                             <div className="flex-1 mr-4">
                                                 <ProgressBar 
                                                     label="Deslocamento Prancha" 
                                                     value={parseFloat(kmConcluidoPrancha) || 0} 
-                                                    max={parseFloat(obra.kmContratadoPrancha) || 0} 
+                                                    max={parseFloat(detailedObra.kmContratadoPrancha) || 0} 
                                                     color="bg-purple-400"
                                                 />
                                             </div>
@@ -526,7 +588,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                                         className="w-full p-2 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none"
                                                         value={kmConcluidoPrancha}
                                                         onChange={(e) => setKmConcluidoPrancha(e.target.value)}
-                                                        placeholder={obra.kmConcluidoPrancha}
+                                                        placeholder={detailedObra.kmConcluidoPrancha}
                                                     />
                                                 </div>
                                             </ProtectedComponent>
@@ -537,8 +599,8 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
                             {/* Botão de Salvar (Aparece se houver edições manuais) */}
                             <ProtectedComponent requiredPermission="editor">
-                                {(kmConcluidoPrancha !== (obra.kmConcluidoPrancha?.toString() || '') || 
-                                  (obra.contractType === 'metrosQuadrados' && JSON.stringify(editedSectorsKm) !== JSON.stringify(obra.sectors?.reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})))
+                                {(kmConcluidoPrancha !== (detailedObra.kmConcluidoPrancha?.toString() || '') || 
+                                  (detailedObra.contractType === 'metrosQuadrados' && JSON.stringify(editedSectorsKm) !== JSON.stringify(detailedObra.sectors?.reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})))
                                 ) && (
                                     <div className="flex justify-end">
                                         <button 
