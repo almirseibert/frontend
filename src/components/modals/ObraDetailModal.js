@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock } from 'lucide-react';
+import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock, RefreshCw } from 'lucide-react'; // Added RefreshCw
 import ProtectedComponent from '../ProtectedComponent';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
@@ -220,43 +220,45 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const [isEditPastAssignmentModalOpen, setIsEditPastAssignmentModalOpen] = useState(false);
     const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null);
 
-    // --- EFEITO: BUSCAR DETALHES COMPLETOS (FATURAMENTO) ---
-    useEffect(() => {
-        const fetchDetails = async () => {
-            if (!obra?.id) return;
-            setIsLoadingDetails(true);
-            try {
-                // Tenta usar o método específico se existir, senão usa axios padrão ou suposição da estrutura
-                // O método getObraById no backend retorna 'realizadoPorTipo'
-                let data;
-                if (apiClient.getObraById) {
-                    data = await apiClient.getObraById(obra.id);
-                } else if (apiClient.get) {
-                    const response = await apiClient.get(`/obras/${obra.id}`);
-                    data = response.data || response;
-                } else {
-                    // Fallback: se não conseguir buscar, usa o que tem (mas não terá os detalhes de faturamento por tipo)
-                    data = obra;
-                }
-                
-                if (data) {
-                    setDetailedObra(data);
-                    // Atualiza estados locais que dependem dos dados frescos
-                    setKmConcluidoPrancha(data.kmConcluidoPrancha?.toString() || '');
-                    setEditedSectorsKm(
-                        (Array.isArray(data.sectors) ? data.sectors : [])
-                        .reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})
-                    );
-                }
-            } catch (error) {
-                console.error("Erro ao carregar detalhes profundos da obra:", error);
-            } finally {
-                setIsLoadingDetails(false);
+    // --- FUNÇÃO DE BUSCA DE DETALHES ---
+    const fetchDetails = async () => {
+        if (!obra?.id) return;
+        setIsLoadingDetails(true);
+        try {
+            let data;
+            // Prioriza método específico se existir, senão chamada direta
+            if (apiClient.getObraById) {
+                data = await apiClient.getObraById(obra.id);
+            } else if (apiClient.get) {
+                const response = await apiClient.get(`/obras/${obra.id}`);
+                data = response.data || response;
+            } else {
+                // Fallback
+                data = obra;
             }
-        };
+            
+            if (data) {
+                setDetailedObra(data);
+                // Sincroniza estados locais
+                setKmConcluidoPrancha(data.kmConcluidoPrancha?.toString() || '');
+                setEditedSectorsKm(
+                    (Array.isArray(data.sectors) ? data.sectors : [])
+                    .reduce((acc, s) => ({ ...acc, [s.name]: s.kmConcluido?.toString() || '' }), {})
+                );
+            }
+        } catch (error) {
+            console.error("Erro ao carregar detalhes da obra:", error);
+            // Não sobrescreve detailedObra com erro, mantém o que tem
+        } finally {
+            setIsLoadingDetails(false);
+        }
+    };
 
+    // --- EFEITO: BUSCA INICIAL ---
+    useEffect(() => {
         fetchDetails();
-    }, [obra?.id, apiClient]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [obra?.id]); 
 
 
     // --- CÁLCULOS ---
@@ -298,11 +300,11 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             : (sourceObra.horasContratadasPorTipo || {});
 
         if (currentContractType === 'horas') {
-             // Itera sobre os tipos que foram CONTRATADOS nesta obra
+             // 1. Preenche com os dados detalhados (Realizado por Tipo)
              Object.keys(horasContratadasParsed).forEach(type => {
                 const contracted = parseFloat(horasContratadasParsed[type] || 0);
                 
-                // O valor realizado vem do Backend (tabela daily_work_logs -> realizadoPorTipo)
+                // Tenta pegar do detalhado (realizadoPorTipo), se não existir, assume 0
                 const realized = parseFloat(sourceObra.realizadoPorTipo?.[type] || 0);
 
                 data.contratado[type] = contracted;
@@ -312,13 +314,23 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 data.totalConcluido += realized;
             });
             
-            // Caso existam horas realizadas de tipos NÃO contratados (extras), soma no total geral
+            // 2. Adiciona horas "extras" (tipos não contratados mas que trabalharam)
             if (sourceObra.realizadoPorTipo) {
                 Object.keys(sourceObra.realizadoPorTipo).forEach(type => {
                     if (!data.contratado[type]) {
-                        data.totalConcluido += parseFloat(sourceObra.realizadoPorTipo[type] || 0);
+                        const extra = parseFloat(sourceObra.realizadoPorTipo[type] || 0);
+                        data.totalConcluido += extra;
+                        // Opcional: Se quiser mostrar barra para extra, adicione:
+                        // data.concluido[type] = extra; 
+                        // data.contratado[type] = 0; // Para mostrar "overtime"
                     }
                 });
+            }
+
+            // FALLBACK: Se total calculado for 0 mas a obra tiver um total agregado vindo da lista
+            // Isso evita que a barra total fique vazia se o fetch detalhado falhar
+            if (data.totalConcluido === 0 && sourceObra.totalHorasRealizadas > 0 && (!sourceObra.realizadoPorTipo || Object.keys(sourceObra.realizadoPorTipo).length === 0)) {
+                data.totalConcluido = parseFloat(sourceObra.totalHorasRealizadas);
             }
 
         } else if (currentContractType === 'metrosQuadrados') {
@@ -340,7 +352,8 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const handleSaveAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
         setAlertMessage("Alocação ativa atualizada com sucesso!");
-        reloadData(); // Recarrega a página pai
+        fetchDetails(); // Atualiza detalhes locais imediatamente
+        reloadData(); // Atualiza lista pai
         setIsEditAssignmentModalOpen(false);
         // O useEffect vai rodar e atualizar o detailedObra também
     };
@@ -348,6 +361,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const handleSavePastAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
         setAlertMessage("Histórico atualizado com sucesso!");
+        fetchDetails();
         reloadData();
         setIsEditPastAssignmentModalOpen(false);
     };
@@ -425,6 +439,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
             setAlertMessage("Alterações salvas com sucesso!");
             setUpdatingReadings({});
+            fetchDetails(); // Refresh dados
             reloadData();
         } catch (error) {
             console.error("Erro ao salvar alterações:", error);
@@ -488,7 +503,10 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                     <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
                                         <AlertTriangle className="text-yellow-500" size={20}/> Status do Contrato
                                     </h3>
-                                    {isLoadingDetails && <span className="text-xs text-blue-500 flex items-center gap-1"><Loader size={12} className="animate-spin"/> Atualizando dados...</span>}
+                                    <div className="flex items-center gap-2">
+                                        {isLoadingDetails && <span className="text-xs text-blue-500 flex items-center gap-1"><Loader size={12} className="animate-spin"/> Atualizando...</span>}
+                                        <button onClick={fetchDetails} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-500" title="Atualizar dados"><RefreshCw size={16}/></button>
+                                    </div>
                                 </div>
 
                                 {/* Contrato por HORAS */}
@@ -508,16 +526,16 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
                                             {Object.keys(progressData.contratado).map(type => {
-                                                const contratado = progressData.contratado[type] || 0;
+                                                const contracted = progressData.contratado[type] || 0;
                                                 // Exibe apenas se houver contrato ou horas realizadas
-                                                if (contratado === 0 && (progressData.concluido[type] || 0) === 0) return null;
+                                                if (contracted === 0 && (progressData.concluido[type] || 0) === 0) return null;
                                                 
                                                 return (
                                                     <ProgressBar 
                                                         key={type}
                                                         label={type}
                                                         value={progressData.concluido[type] || 0}
-                                                        max={contratado}
+                                                        max={contracted}
                                                         color="bg-blue-400"
                                                     />
                                                 );
