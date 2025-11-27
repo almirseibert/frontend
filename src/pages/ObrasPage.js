@@ -64,8 +64,8 @@ const ObrasPage = ({
 
             const percent = (realizado / contratado) * 100;
             if (percent >= 100) return 'border-red-600 bg-red-50'; // Estourou
-            if (percent >= 80) return 'border-yellow-500'; // Alerta
-            if (percent >= 50) return 'border-blue-500'; // Meio caminho
+            if (percent >= 70) return 'border-violet-500'; // Alerta
+            if (percent >= 30) return 'border-yellow-500'; // Meio caminho
             return 'border-green-500'; // Início
         }
         

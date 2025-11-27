@@ -13,7 +13,8 @@ const ProgressBar = ({ value, max, color = 'bg-yellow-400', label }) => {
     let finalColor = color;
     if (color === 'dynamic') {
         finalColor = 'bg-blue-600';
-        if (percentage > 80) finalColor = 'bg-yellow-500';
+        if (percentage >= 30) finalColor = 'bg-yellow-500';
+        if (percentage >= 70) finalColor = 'bg-violet-500';
         if (percentage >= 100) finalColor = 'bg-red-500';
     }
 
