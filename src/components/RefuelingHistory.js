@@ -8,84 +8,105 @@ const RefuelingHistory = ({
     refuelings = [], 
     vehicles = [], 
     vehicleGroups = {}, 
-    generateAuthorizationPDF 
+    partners = [],
+    employees = [],
+    onGeneratePDF // Recebe a função da página pai
 }) => {
     
-    // --- CÁLCULO DE MÉDIAS E PROCESSAMENTO ---
+    // --- LÓGICA DE PROCESSAMENTO E MÉDIAS (Baseada no arquivo original) ---
     const processedHistory = useMemo(() => {
         const vehicle = vehicles.find(v => v.id === vehicleId);
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
-        // Filtra e ordena (Mais recente primeiro para exibição, mas cálculo precisa ser cronológico)
+        // 1. Filtra e Ordena (Decrescente para exibição: Mais recente -> Mais antigo)
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
             .sort((a,b) => (b.date || '').localeCompare(a.date || '')); 
 
-        // Determina unidade (Regra 1)
+        // 2. Determina Unidade e Rótulo (Lógica de Grupo)
         const getUnitAndLabel = () => {
-             const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(vehicle.tipo));
-             const isHr = group === 'Máquinas Pesadas' || group === 'Caminhões Pesados' || vehicle.mediaCalculo === 'horimetro'; // Ajuste conforme seus grupos exatos
+             // Lógica robusta para determinar se é Horímetro ou Odômetro
+             let isHourBased = false;
              
-             // Se for Caminhão de Trecho ou Veículo Leve = KM
-             if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') {
-                 return { unit: 'Km/L', label: 'Odômetro' };
+             if (vehicleGroups && Object.keys(vehicleGroups).length > 0) {
+                 const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(vehicle.tipo));
+                 if (group === 'Máquinas Pesadas' || group === 'Caminhões Pesados') isHourBased = true;
+                 if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') isHourBased = false;
              }
-             // Padrão para os demais
-             return { unit: 'L/Hr', label: 'Horímetro' };
+             
+             // Sobrescrita se o veículo tiver configuração explícita (se houver esse campo no futuro)
+             if (vehicle.mediaCalculo === 'horimetro') isHourBased = true;
+             if (vehicle.mediaCalculo === 'odometro') isHourBased = false;
+
+             return isHourBased ? { unit: 'L/Hr', label: 'Horímetro' } : { unit: 'Km/L', label: 'Odômetro' };
         };
         const { unit, readingLabel } = getUnitAndLabel();
 
-        // Cálculo de médias (Cronológico: Antigo -> Novo)
-        // Precisamos inverter para calcular a diferença entre o atual e o anterior
-        const historyRev = [...history].reverse(); 
+        // 3. Calcula Médias (Percorre a lista)
         const historyWithAverages = history.map((current, index) => {
-            // O "previous" na lista ordenada descendente é o index + 1
+            // Como a lista está decrescente (index 0 é o mais novo), o "anterior" cronológico é index + 1
             const previous = history[index + 1]; 
             let average = null;
             
-            // Define qual leitura usar (Prioridade: Digital > Analógico > Genérico)
-            const getReading = (item) => parseFloat(item.horimetroDigital || item.horimetroAnalogico || item.horimetro || item.odometro || 0);
+            // Função auxiliar para pegar a melhor leitura disponível
+            const getReading = (item) => {
+                if (unit === 'L/Hr') {
+                    return parseFloat(item.horimetroDigital || item.horimetroAnalogico || item.horimetro || 0);
+                }
+                return parseFloat(item.odometro || 0);
+            };
             
-            const currentReading = getReading(current);
-            
+            // Leitura usada para exibição na tabela
+            let readingUsed = unit === 'L/Hr' 
+                ? (current.horimetroDigital || current.horimetroAnalogico || current.horimetro || 'N/A')
+                : (current.odometro || 'N/A');
+
             if (previous) {
-                const previousReading = getReading(previous);
-                const diff = currentReading - previousReading;
+                const currentVal = getReading(current);
+                const previousVal = getReading(previous);
+                const diff = currentVal - previousVal;
                 const liters = parseFloat(current.litrosAbastecidos || 0);
 
                 if (diff > 0 && liters > 0) {
-                    average = unit === 'Km/L' ? (diff / liters) : (liters / diff); // Km/L ou L/Hr
+                    // Km/L = Distância / Litros
+                    // L/Hr = Litros / Tempo
+                    average = (unit === 'Km/L') ? (diff / liters) : (liters / diff);
                 }
             }
 
             return { 
                 ...current, 
                 average, 
-                readingUsed: currentReading,
+                readingUsed,
                 readingLabel 
             };
         });
 
-        // Média Geral
+        // 4. Média Geral
         let overallAverage = null;
         if (history.length > 1) {
-            const first = history[history.length - 1];
-            const last = history[0];
-            const getReading = (item) => parseFloat(item.horimetroDigital || item.horimetroAnalogico || item.horimetro || item.odometro || 0);
+            const newest = history[0];
+            const oldest = history[history.length - 1];
             
-            const totalDiff = getReading(last) - getReading(first);
-            // Soma litros (excluindo o primeiro abastecimento que serve de base, mas aqui simplificado para soma total do intervalo)
+            const getReading = (item) => {
+                if (unit === 'L/Hr') return parseFloat(item.horimetroDigital || item.horimetroAnalogico || item.horimetro || 0);
+                return parseFloat(item.odometro || 0);
+            };
+
+            const totalDiff = getReading(newest) - getReading(oldest);
+            
+            // Soma litros de todos os abastecimentos que contribuíram para o deslocamento (exclui o oldest pois ele é o ponto de partida)
             const totalLiters = history.slice(0, history.length - 1).reduce((acc, curr) => acc + (parseFloat(curr.litrosAbastecidos) || 0), 0);
 
             if (totalDiff > 0 && totalLiters > 0) {
-                overallAverage = unit === 'Km/L' ? (totalDiff / totalLiters) : (totalLiters / totalDiff); // Correção L/Hr é Litros divididos por Horas
+                overallAverage = (unit === 'Km/L') ? (totalDiff / totalLiters) : (totalLiters / totalDiff);
             }
         }
 
         return { historyWithAverages, overallAverage, unit, readingLabel };
     }, [vehicleId, refuelings, vehicles, vehicleGroups]);
 
-    // --- GERAÇÃO PDF HISTÓRICO ---
+    // --- GERAÇÃO PDF DA TABELA DE HISTÓRICO ---
     const generateHistoryPDF = () => {
         const doc = new jsPDF();
         const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -128,20 +149,20 @@ const RefuelingHistory = ({
                     </div>
                 </div>
                 <button onClick={generateHistoryPDF} className="flex items-center gap-2 px-3 py-2 bg-white border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-100 transition text-xs font-bold shadow-sm">
-                    <Download size={14}/> PDF
+                    <Download size={14}/> PDF Lista
                 </button>
             </div>
 
-            <div className="overflow-x-auto border rounded-lg">
+            <div className="overflow-x-auto border rounded-lg max-h-96">
                 <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 text-gray-600 font-bold text-xs uppercase">
+                    <thead className="bg-gray-100 text-gray-600 font-bold text-xs uppercase sticky top-0 z-10">
                         <tr>
                             <th className="p-3">Data</th>
                             <th className="p-3">Posto</th>
                             <th className="p-3 text-right">{processedHistory.readingLabel}</th>
                             <th className="p-3 text-right">Litros</th>
                             <th className="p-3 text-right">Média</th>
-                            <th className="p-3 text-center">Ações</th>
+                            <th className="p-3 text-center">Reimprimir</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -151,14 +172,17 @@ const RefuelingHistory = ({
                                 <td className="p-3 truncate max-w-[150px]" title={h.partnerName}>{h.partnerName}</td>
                                 <td className="p-3 text-right font-mono">{h.readingUsed}</td>
                                 <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>
-                                <td className="p-3 text-right">
-                                    <span className={`px-2 py-1 rounded text-xs font-bold ${!h.average ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
-                                        {h.average?.toFixed(2) || '-'}
-                                    </span>
+                                <td className={`p-3 text-right font-bold ${!h.average ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    {h.average?.toFixed(2) || '-'}
                                 </td>
                                 <td className="p-3 text-center">
-                                    <button onClick={() => generateAuthorizationPDF(h)} className="text-gray-400 hover:text-blue-600 p-1 rounded-full hover:bg-blue-50">
-                                        <Printer size={14} />
+                                    <button 
+                                        // Chama a função passada pelo pai com os dados completos para gerar a autorização original
+                                        onClick={() => onGeneratePDF(h, vehicles, partners, employees, vehicleGroups)} 
+                                        className="text-gray-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition"
+                                        title="Reimprimir Autorização"
+                                    >
+                                        <Printer size={16} />
                                     </button>
                                 </td>
                             </tr>
