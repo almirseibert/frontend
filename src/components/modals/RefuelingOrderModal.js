@@ -59,10 +59,29 @@ const RefuelingOrderModal = ({
 
     const isEditing = !!orderToEdit;
 
+    // --- HELPER: Formatação de Data Segura ---
+    const formatDateSafe = (dateString) => {
+        if (!dateString) return 'N/A';
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return 'Data Inválida';
+            return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        } catch (error) {
+            return 'Erro Data';
+        }
+    };
+
     // --- ORDENAÇÃO ---
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
+    
+    // Ordenação Alfabética de Obras (Solicitado)
+    const sortedObras = useMemo(() => {
+        return [...obras]
+            .filter(o => o.status === 'ativa')
+            .sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [obras]);
 
     // --- REGRAS DE GRUPO ---
     const vehicleGroup = useMemo(() => {
@@ -82,10 +101,19 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
+            // Histórico de Abastecimento (Último)
+            const history = refuelings
+                .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
+                .sort((a,b) => new Date(b.date) - new Date(a.date));
+            
+            const last = history[0];
+            setLastRefuelData(last);
+
             if (!isEditing) {
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
+                // Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -93,10 +121,26 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
+                // Auto-preenchimento baseado no último abastecimento (Solicitado)
+                let autoPartnerId = formData.partnerId;
+                let autoFuelType = formData.fuelType;
+                let autoLitros = formData.litrosLiberados;
+
+                if (last) {
+                    autoPartnerId = last.partnerId || '';
+                    autoFuelType = last.fuelType || '';
+                    // Sugere a litragem do último abastecimento
+                    autoLitros = last.litrosAbastecidos ? last.litrosAbastecidos.toString() : '';
+                }
+
                 setFormData(prev => ({
                     ...prev,
                     employeeId: autoEmployeeId || prev.employeeId,
                     obraId: autoObraId || prev.obraId,
+                    partnerId: autoPartnerId || prev.partnerId,
+                    fuelType: autoFuelType || prev.fuelType,
+                    litrosLiberados: autoLitros || prev.litrosLiberados,
+                    // Leituras atuais do veículo
                     odometro: prev.odometro || vehicle.odometro?.toString() || '',
                     horimetro: prev.horimetro || vehicle.horimetro?.toString() || '',
                     horimetroDigital: prev.horimetroDigital || vehicle.horimetroDigital?.toString() || '',
@@ -110,14 +154,6 @@ const RefuelingOrderModal = ({
             if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
-
-            // Último Abastecimento e Média
-            const history = refuelings
-                .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => new Date(b.date) - new Date(a.date));
-            
-            const last = history[0];
-            setLastRefuelData(last);
 
             // Cálculo da Média dos 2 últimos (Exibição no Modal)
             if (last && history[1]) {
@@ -286,17 +322,23 @@ _Por favor, confirme o recebimento._`;
         setIsNoHorimetroConfirmVisible(false);
         setShowPasswordModal(false);
 
-        // CORREÇÃO: Adiciona createdBy para evitar Erro 500
+        // Prepara dados de forma segura (evita NaN ou undefined)
+        const safeFloat = (val) => {
+            const num = parseFloat(val);
+            return isNaN(num) ? null : num;
+        };
+
         const payload = {
             ...formData,
-            odometro: parseFloat(formData.odometro) || null,
-            horimetro: parseFloat(formData.horimetro) || null,
-            horimetroDigital: parseFloat(formData.horimetroDigital) || null,
-            horimetroAnalogico: parseFloat(formData.horimetroAnalogico) || null,
-            litrosLiberados: parseFloat(formData.litrosLiberados) || 0,
-            litrosLiberadosArla: parseFloat(formData.litrosLiberadosArla) || 0,
-            outrosValor: parseFloat(formData.outrosValor) || 0,
-            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+            odometro: safeFloat(formData.odometro),
+            horimetro: safeFloat(formData.horimetro),
+            horimetroDigital: safeFloat(formData.horimetroDigital),
+            horimetroAnalogico: safeFloat(formData.horimetroAnalogico),
+            litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
+            litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
+            outrosValor: safeFloat(formData.outrosValor) || 0,
+            // Garante formato ISO correto ou data atual se falhar
+            date: new Date(formData.date).getTime() ? new Date(formData.date + 'T12:00:00Z').toISOString() : new Date().toISOString(),
             createdBy: user // CRUCIAL para evitar erro 500
         };
 
@@ -327,7 +369,7 @@ _Por favor, confirme o recebimento._`;
             onClose();
         } catch (error) {
             console.error(error);
-            setAlertMessage("Erro ao salvar ordem: " + error.message);
+            setAlertMessage("Erro ao salvar ordem: " + (error.response?.data?.error || error.message));
         } finally {
             setIsSaving(false);
         }
@@ -373,14 +415,15 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO (Corrigido para exibir dados reais) */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
                                     <div className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Último Abastecimento</div>
-                                    <p>Data: {new Date(lastRefuelData.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
-                                    <p>Leitura: {lastRefuelData.horimetroDigital || lastRefuelData.horimetro || lastRefuelData.odometro}</p>
-                                    <p>Litros: {lastRefuelData.litrosAbastecidos} L</p>
+                                    <p>Data: <strong>{formatDateSafe(lastRefuelData.date)}</strong></p>
+                                    <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
+                                    <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
+                                    <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
                                 </div>
                                 <div className="text-right">
                                     <div className="font-bold text-gray-700 mb-1 flex items-center justify-end gap-1"><Activity size={12}/> Média Anterior</div>
@@ -389,7 +432,7 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
-                        {/* LEITURAS DINÂMICAS (Corrigido conforme regra 5) */}
+                        {/* LEITURAS DINÂMICAS */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -433,7 +476,7 @@ _Por favor, confirme o recebimento._`;
                             <label className="block text-sm font-bold text-gray-700 mb-1">Obra / Alocação</label>
                             <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg">
                                 <option value="">Nenhuma / Pátio</option>
-                                {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                 {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
                         </div>

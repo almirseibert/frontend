@@ -34,7 +34,50 @@ const RefuelingPage = ({
     
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
-    const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState(''); // Busca para últimas ordens
+    const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
+
+    // --- Helper de Data Segura ---
+    const formatDateSafe = (dateString) => {
+        if (!dateString) return 'N/A';
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return 'Data Inválida';
+            return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        } catch { return 'Erro'; }
+    };
+
+    // --- FILTROS ---
+    const openRefuelings = useMemo(() => {
+        return refuelings
+            .filter(r => r.status === 'Aberta')
+            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
+    }, [refuelings]);
+
+    const latestRefuelings = useMemo(() => {
+        let list = [...refuelings].filter(r => r.status === 'Concluída' || r.status === 'Cancelada'); 
+        
+        // Filtro de busca nas últimas ordens
+        if (latestOrdersSearchTerm) {
+            const term = latestOrdersSearchTerm.toLowerCase();
+            list = list.filter(o => {
+                const vehicle = vehicles.find(v => v.id === o.vehicleId);
+                const orderNum = String(o.authNumber || '');
+                const re = vehicle?.registroInterno?.toLowerCase() || '';
+                const placa = vehicle?.placa?.toLowerCase() || '';
+                
+                return orderNum.includes(term) || re.includes(term) || placa.includes(term);
+            });
+        }
+
+        // Ordenação Z-A (Mais recente primeiro)
+        return list
+            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0))
+            .slice(0, 20); 
+    }, [refuelings, latestOrdersSearchTerm, vehicles]);
+
+    const sortedVehicles = useMemo(() => {
+        return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
+    }, [vehicles]);
 
     // ===================================================================================
     // GERAÇÃO DE PDF (VERSÃO ORIGINAL RESTAURADA)
@@ -72,23 +115,22 @@ const RefuelingPage = ({
                  const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
                  if (group === 'Máquinas Pesadas') {
                      leituraLabel = 'Horímetro';
-                     // Prioridade visual para PDF
-                     leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
+                     leituraValue = order.horimetroDigital ?? order.horimetroAnalogico ?? order.horimetro ?? 'N/A';
                  } else if (group === 'Caminhões') {
                      if (order.horimetro != null) {
                         leituraLabel = 'Horímetro';
-                        leituraValue = order.horimetro || 'N/A';
+                        leituraValue = order.horimetro ?? 'N/A';
                      } else {
                         leituraLabel = 'Odômetro';
-                        leituraValue = order.odometro || 'N/A';
+                        leituraValue = order.odometro ?? 'N/A';
                      }
                  } else { 
                      leituraLabel = 'Odômetro';
-                     leituraValue = order.odometro || 'N/A';
+                     leituraValue = order.odometro ?? 'N/A';
                  }
             } else { 
                  leituraLabel = (order.horimetro != null || order.horimetroDigital != null || order.horimetroAnalogico != null) ? 'Horímetro' : 'Odômetro';
-                 leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || order.odometro || 'N/A';
+                 leituraValue = order.horimetroDigital ?? order.horimetroAnalogico ?? order.horimetro ?? order.odometro ?? 'N/A';
             }
 
             const body = [
@@ -109,9 +151,8 @@ const RefuelingPage = ({
                  body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
             }
 
-            // Tenta pegar o nome do usuário que criou (se disponível)
-            const createdBy = order.createdBy?.userEmail || order.createdBy?.email || (typeof order.createdBy === 'string' ? order.createdBy : 'Sistema');
-            body.push(['Emitido por', createdBy]);
+            const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
+            body.push(['Emitido por', createdByEmail]);
 
             autoTable(doc, {
                 startY: 35,
@@ -136,7 +177,6 @@ const RefuelingPage = ({
             doc.setDrawColor(180, 180, 180);
             doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-            // Abre nova janela (conforme solicitado no código antigo)
             doc.output('dataurlnewwindow', { filename: `Autorizacao_${order.authNumber}.pdf` });
         };
 
@@ -153,39 +193,6 @@ const RefuelingPage = ({
         };
         logo.onerror = () => buildPdf(null);
     };
-
-    // --- FILTROS ---
-    const openRefuelings = useMemo(() => {
-        return refuelings
-            .filter(r => r.status === 'Aberta')
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
-    }, [refuelings]);
-
-    const latestRefuelings = useMemo(() => {
-        let list = [...refuelings].filter(r => r.status === 'Concluída' || r.status === 'Cancelada'); // Inclui histórico
-        
-        // Filtro de busca nas últimas ordens
-        if (latestOrdersSearchTerm) {
-            const term = latestOrdersSearchTerm.toLowerCase();
-            list = list.filter(o => {
-                const vehicle = vehicles.find(v => v.id === o.vehicleId);
-                const orderNum = String(o.authNumber || '');
-                const re = vehicle?.registroInterno?.toLowerCase() || '';
-                const placa = vehicle?.placa?.toLowerCase() || '';
-                
-                return orderNum.includes(term) || re.includes(term) || placa.includes(term);
-            });
-        }
-
-        // Ordenação Z-A (Mais recente primeiro)
-        return list
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0))
-            .slice(0, 20); // Limite inicial de 20
-    }, [refuelings, latestOrdersSearchTerm, vehicles]);
-
-    const sortedVehicles = useMemo(() => {
-        return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
-    }, [vehicles]);
 
     const handleDeleteOrder = async () => {
         if (!itemToDelete) return;
@@ -320,7 +327,7 @@ const RefuelingPage = ({
                                                         {order.status}
                                                     </span>
                                                 </td>
-                                                <td className="p-3">{new Date(order.date).toLocaleDateString('pt-BR', {timeZone:'UTC'})}</td>
+                                                <td className="p-3">{formatDateSafe(order.date)}</td>
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
