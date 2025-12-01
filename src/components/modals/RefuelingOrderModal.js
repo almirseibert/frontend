@@ -38,7 +38,7 @@ const RefuelingOrderModal = ({
         isFillUpArla: orderToEdit?.isFillUpArla || false,
         litrosLiberadosArla: orderToEdit?.litrosLiberadosArla?.toString() || '',
         outros: orderToEdit?.outros || '',
-        outrosGeraValor: orderToEdit?.outrosGeraValor || false, // NOVO CAMPO
+        outrosGeraValor: orderToEdit?.outrosGeraValor || false,
         outrosValor: orderToEdit?.outrosValor?.toString() || '',
     });
 
@@ -49,11 +49,11 @@ const RefuelingOrderModal = ({
     
     // Estados para Modais de Confirmação/Senha
     const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [passwordAction, setPasswordAction] = useState(null); // 'blockOverride' ou 'budgetOverride'
+    const [passwordAction, setPasswordAction] = useState(null); 
     
     const [warnings, setWarnings] = useState([]); 
     const [lastRefuelData, setLastRefuelData] = useState(null);
-    const [lastAverage, setLastAverage] = useState(null); // Média dos 2 últimos
+    const [lastAverage, setLastAverage] = useState(null); 
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
 
@@ -119,7 +119,7 @@ const RefuelingOrderModal = ({
             const last = history[0];
             setLastRefuelData(last);
 
-            // Cálculo da Média dos 2 últimos
+            // Cálculo da Média dos 2 últimos (Exibição no Modal)
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
@@ -128,13 +128,11 @@ const RefuelingOrderModal = ({
                 let unit = 'Km/L';
 
                 if (isHeavyMachinery || (isTruck && vehicle.mediaCalculo === 'horimetro')) {
-                    // Lógica para Horas
-                    const lastHr = parseFloat(last.horimetroDigital || last.horimetro || last.odometro || 0); // Fallback
+                    const lastHr = parseFloat(last.horimetroDigital || last.horimetro || last.odometro || 0); 
                     const prevHr = parseFloat(prev.horimetroDigital || prev.horimetro || prev.odometro || 0);
                     diff = lastHr - prevHr;
                     unit = 'L/Hr';
                 } else {
-                    // Lógica para KM
                     const lastKm = parseFloat(last.odometro || 0);
                     const prevKm = parseFloat(prev.odometro || 0);
                     diff = lastKm - prevKm;
@@ -171,7 +169,8 @@ const RefuelingOrderModal = ({
 
         // Regra Horas
         if (!isKmVehicle) {
-            const current = parseFloat(formData.horimetroDigital || formData.horimetro || 0); // Prioriza digital ou geral
+            // Prioriza digital para máquinas, geral para caminhões
+            const current = parseFloat(formData.horimetroDigital || formData.horimetro || 0); 
             const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0);
             
             if (current > 0) { 
@@ -220,7 +219,6 @@ const RefuelingOrderModal = ({
 
     // --- ENVIO WHATSAPP ---
     const sendToWhatsApp = async () => {
-        // 1. Gera o PDF primeiro (simula o download)
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
@@ -234,7 +232,7 @@ const RefuelingOrderModal = ({
             employeeName: employee?.nome,
         };
         
-        // Chama a função de gerar PDF (isso vai baixar o arquivo no PC/Celular do usuário)
+        // Baixa o PDF
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
         if (!partner?.telefone) {
@@ -242,7 +240,6 @@ const RefuelingOrderModal = ({
             return;
         }
 
-        // 2. Monta a mensagem instruindo o anexo
         const msg = 
 `*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*
 *Segue em anexo o arquivo PDF da autorização.*
@@ -254,31 +251,27 @@ const RefuelingOrderModal = ({
 
 _Por favor, confirme o recebimento._`;
 
-        // 3. Abre o WhatsApp com a mensagem pronta
         setTimeout(() => {
             window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }, 1000); // Pequeno delay para garantir que o download iniciou
+        }, 1000);
     };
 
     // --- SAVE HANDLER ---
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
 
-        // 1. Verifica Bloqueio de Leitura
         if (blockReason) {
             setPasswordAction('blockOverride');
             setShowPasswordModal(true);
             return;
         }
 
-        // 2. Verifica Bloqueio de Orçamento
         if (requiresBudgetOverride) {
             setPasswordAction('budgetOverride');
             setShowPasswordModal(true);
             return;
         }
         
-        // 3. Aviso Caminhão sem Horímetro
         if (isTruck && !formData.horimetro && !isNoHorimetroConfirmVisible) {
              setNoHorimetroWarning("Para caminhões, o Horímetro Geral é recomendado. Salvar sem ele?");
              setIsNoHorimetroConfirmVisible(true);
@@ -304,7 +297,7 @@ _Por favor, confirme o recebimento._`;
             litrosLiberadosArla: parseFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: parseFloat(formData.outrosValor) || 0,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
-            createdBy: user // Adicionado para corrigir erro 500
+            createdBy: user // CRUCIAL para evitar erro 500
         };
 
         try {
@@ -318,7 +311,6 @@ _Por favor, confirme o recebimento._`;
             }
             reloadData();
             
-            // Gera PDF
             if (res) {
                  const partner = partners.find(p => p.id === payload.partnerId);
                  const employee = employees.find(e => e.id === payload.employeeId);
@@ -381,7 +373,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO (Regra 4) */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
@@ -397,7 +389,7 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
-                        {/* LEITURAS DINÂMICAS (Regra 1 e 5) */}
+                        {/* LEITURAS DINÂMICAS (Corrigido conforme regra 5) */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -408,7 +400,6 @@ _Por favor, confirme o recebimento._`;
                                     </div>
                                 )}
                                 
-                                {/* Regra 5: Caminhões somente Horímetro Geral */}
                                 {isTruck && (
                                     <div className="col-span-2">
                                         <label className="block text-sm font-bold text-gray-700">Horímetro Geral (Hrs)</label>
@@ -416,7 +407,6 @@ _Por favor, confirme o recebimento._`;
                                     </div>
                                 )}
 
-                                {/* Regra 5: Máquinas somente Digitais/Analógicos */}
                                 {isHeavyMachinery && (
                                     <>
                                         <div>
@@ -497,12 +487,12 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         </div>
 
-                        <div>
+                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-1">Data</label>
                             <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-2.5 border rounded-lg"/>
                         </div>
 
-                        {/* Campo Outros e Checkbox Gera Valor (Regra 3) */}
+                        {/* Campo Outros e Checkbox Gera Valor */}
                         <div className="bg-gray-50 p-3 rounded-lg border">
                             <label className="block text-sm font-bold text-gray-700 mb-1">Outros / Observação</label>
                             <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-2 border rounded mb-2" placeholder="Ex: Óleo de motor, Filtro..."/>
@@ -512,7 +502,7 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         </div>
 
-                        {/* WhatsApp Button (Regra 11 - Adjusted) */}
+                        {/* WhatsApp Button */}
                         {isEditing && (
                             <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
                                 <Send size={18}/> Baixar PDF & Abrir WhatsApp
@@ -523,7 +513,7 @@ _Por favor, confirme o recebimento._`;
 
                 <div className="p-5 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
                     <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">Cancelar</button>
-                    {/* Botão Condicional para Bloqueio */}
+                    {/* Botão Condicional para Bloqueio com Senha */}
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-6 py-2.5 bg-red-500 text-white font-bold rounded-lg shadow hover:bg-red-600 transition flex items-center gap-2">
                             <Lock size={18}/> Liberar com Senha

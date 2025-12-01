@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, AlertTriangle, TrendingDown } from 'lucide-react';
+import { X, Loader, TrendingDown } from 'lucide-react';
 
 const ConfirmRefuelingModal = ({ 
     user, 
@@ -21,7 +21,7 @@ const ConfirmRefuelingModal = ({
     const [averageAlert, setAverageAlert] = useState(null); 
     const [isSaving, setIsSaving] = useState(false);
 
-    // Alerta de Média (Regra 4) - Lógica Completa
+    // Alerta de Média (Regra 4) - Lógica Completa e Expandida
     useEffect(() => {
         // Zera alerta se dados insuficientes
         setAverageAlert(null);
@@ -29,6 +29,7 @@ const ConfirmRefuelingModal = ({
         if (!litros || !kmOuHrConfirmado || parseFloat(litros) <= 0) return;
         
         // 1. Busca histórico anterior deste veículo (apenas concluídas)
+        // Ordena do mais recente para o mais antigo
         const history = refuelings
             .filter(r => r.vehicleId === order.vehicleId && r.status === 'Concluída')
             .sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -49,7 +50,7 @@ const ConfirmRefuelingModal = ({
 
         // Cálculo da Média Atual
         const diff = currentReading - lastReading;
-        const currentAverage = diff / parseFloat(litros); // Km/L ou Hr/L (nota: para L/Hr seria invertido, assumindo Km/L padrão para alerta de queda)
+        const currentAverage = diff / parseFloat(litros); 
 
         // --- CÁLCULO DA MÉDIA HISTÓRICA (Últimas 2 médias) ---
         let sumAvgs = 0;
@@ -59,13 +60,14 @@ const ConfirmRefuelingModal = ({
         const getReading = (r) => parseFloat(r.horimetroDigital || r.horimetro || r.odometro || 0);
 
         // Média 1: Entre Último (history[0]) e Penúltimo (history[1])
-        if (history[1]) {
+        if (history.length >= 2) {
             const r1 = history[0];
             const r2 = history[1];
             const l1 = parseFloat(r1.litrosAbastecidos || 0);
             const read1 = getReading(r1);
             const read2 = getReading(r2);
 
+            // Verifica se a leitura aumentou e litros > 0
             if (l1 > 0 && read1 > read2) {
                 const avg1 = (read1 - read2) / l1;
                 sumAvgs += avg1;
@@ -74,7 +76,7 @@ const ConfirmRefuelingModal = ({
         }
         
         // Média 2: Entre Penúltimo (history[1]) e Antepenúltimo (history[2])
-        if (history[2]) {
+        if (history.length >= 3) {
              const r2 = history[1];
              const r3 = history[2];
              const l2 = parseFloat(r2.litrosAbastecidos || 0);

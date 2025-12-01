@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, Filter, History } from 'lucide-react';
+import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -33,90 +33,111 @@ const RefuelingPage = ({
     const [itemToDelete, setItemToDelete] = useState(null);
     
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
-    const [searchTerm, setSearchTerm] = useState('');
+    const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
+    const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState(''); // Busca para últimas ordens
 
-    // --- FILTROS ---
-    const openRefuelings = useMemo(() => {
-        return refuelings
-            .filter(r => r.status === 'Aberta')
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
-    }, [refuelings]);
-
-    // Regra 2: Painel de Últimas Ordens (Todas) - Z a A
-    const latestRefuelings = useMemo(() => {
-        return [...refuelings]
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0))
-            .slice(0, 15); // Limite de 15 para não travar a tela
-    }, [refuelings]);
-
-    const sortedVehicles = useMemo(() => {
-        return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
-    }, [vehicles]);
-
+    // ===================================================================================
+    // GERAÇÃO DE PDF (VERSÃO ORIGINAL RESTAURADA)
+    // ===================================================================================
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         const buildPdf = (logoDataUrl) => {
-            const doc = new jsPDF();
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const effectivePageHeight = 148.5; 
+            const margin = 10;
+
             const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
             const partner = partnersList.find(p => p.id === order.partnerId);
             const employee = employeesList.find(e => e.id === order.employeeId);
-            
-            let leituraLabel = 'Leitura';
-            let leituraValue = 'N/A';
-            
-            if (vehicle && groups) {
-                 const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
-                 const isHour = group === 'Máquinas Pesadas' || group === 'Caminhões Pesados' || (group === 'Caminhões' && vehicle.mediaCalculo === 'horimetro');
-                 
-                 leituraLabel = isHour ? 'Horímetro Atual' : 'Odômetro Atual';
-                 if (isHour) {
-                     leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
-                 } else {
-                     leituraValue = order.odometro || 'N/A';
-                 }
+            const emissionDate = order.date ? new Date(order.date) : new Date();
+
+            if (logoDataUrl) {
+                const imgWidth = 45;
+                const imgHeight = 16.875;
+                try {
+                    doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
+                } catch (e) {
+                    console.error("Erro ao adicionar logo ao PDF:", e);
+                }
             }
 
-            if (logoDataUrl) doc.addImage(logoDataUrl, 'PNG', 14, 10, 45, 16);
-            
-            doc.setFontSize(18);
-            doc.setTextColor(33, 33, 33);
-            doc.text(`Autorização de Abastecimento`, 200, 18, { align: 'right' });
+            doc.setFontSize(16);
+            doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
             doc.setFontSize(12);
-            doc.setTextColor(100, 100, 100);
-            doc.text(`Nº CONTROLE: ${String(order.authNumber || '0').padStart(6, '0')}`, 200, 25, { align: 'right' });
+            doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+
+            let leituraLabel = 'Leitura';
+            let leituraValue = 'N/A';
+            if (vehicle && groups && Object.keys(groups).length > 0) {
+                 const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
+                 if (group === 'Máquinas Pesadas') {
+                     leituraLabel = 'Horímetro';
+                     // Prioridade visual para PDF
+                     leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
+                 } else if (group === 'Caminhões') {
+                     if (order.horimetro != null) {
+                        leituraLabel = 'Horímetro';
+                        leituraValue = order.horimetro || 'N/A';
+                     } else {
+                        leituraLabel = 'Odômetro';
+                        leituraValue = order.odometro || 'N/A';
+                     }
+                 } else { 
+                     leituraLabel = 'Odômetro';
+                     leituraValue = order.odometro || 'N/A';
+                 }
+            } else { 
+                 leituraLabel = (order.horimetro != null || order.horimetroDigital != null || order.horimetroAnalogico != null) ? 'Horímetro' : 'Odômetro';
+                 leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || order.odometro || 'N/A';
+            }
+
+            const body = [
+                ['Data de Emissão', emissionDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })],
+                ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
+                ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+                ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
+                [leituraLabel, `${leituraValue}`],
+                ['Posto Autorizado', partner?.razaoSocial || order.partnerName || 'N/A'],
+                ['Combustível Autorizado', order.fuelType || 'N/A'],
+                ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
+            ];
+
+            if (order.needsArla) {
+                body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
+            }
+            if (order.outros) {
+                 body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
+            }
+
+            // Tenta pegar o nome do usuário que criou (se disponível)
+            const createdBy = order.createdBy?.userEmail || order.createdBy?.email || (typeof order.createdBy === 'string' ? order.createdBy : 'Sistema');
+            body.push(['Emitido por', createdBy]);
 
             autoTable(doc, {
                 startY: 35,
-                body: [
-                    ['Data de Emissão', new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })],
-                    ['Posto Autorizado', partner?.razaoSocial || 'N/A'],
-                    ['Veículo / Equipamento', `${vehicle?.registroInterno || ''} - ${vehicle?.placa || ''} (${vehicle?.modelo || ''})`],
-                    ['Motorista / Operador', employee?.nome || 'N/A'],
-                    [leituraLabel, leituraValue],
-                    ['Combustível', order.fuelType === 'dieselS10' ? 'Diesel S10' : order.fuelType.toUpperCase()],
-                    ['Quantidade', order.isFillUp ? 'COMPLETAR TANQUE' : `${order.litrosLiberados} Litros`],
-                    ['Arla 32', order.needsArla ? (order.isFillUpArla ? 'COMPLETAR' : `${order.litrosLiberadosArla} L`) : 'Não'],
-                    ['Observações', order.outros || '-']
-                ],
-                theme: 'grid',
-                headStyles: { fillColor: [255, 193, 7], textColor: [0,0,0], fontStyle: 'bold' },
-                columnStyles: { 0: { fontStyle: 'bold', width: 60 } },
-                styles: { fontSize: 10, cellPadding: 3 }
+                body: body,
+                theme: 'striped',
+                styles: { fontSize: 9, cellPadding: 1.5 },
+                headStyles: { fillColor: [24, 49, 83] },
+                columnStyles: {
+                    0: { cellWidth: 40, fontStyle: 'bold' }
+                }
             });
 
-            const finalY = doc.lastAutoTable.finalY + 10;
+            let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
+            const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
             doc.setFontSize(8);
-            doc.setTextColor(150, 150, 150);
-            doc.text('Documento gerado eletronicamente pelo Sistema Frotas MAK.', 14, 285);
-            doc.text('Válido apenas para o veículo e combustível indicados.', 200, 285, { align: 'right' });
+            doc.setFont('helvetica', 'italic');
+            doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
+            doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
+            doc.text('*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.', margin, footerStartY + 8);
 
-            doc.setDrawColor(200);
-            doc.line(14, finalY + 20, 90, finalY + 20);
-            doc.text('Assinatura do Motorista', 14, finalY + 25);
-            
-            doc.line(110, finalY + 20, 196, finalY + 20);
-            doc.text('Assinatura do Frentista', 110, finalY + 25);
+            doc.setLineDashPattern([1, 1], 0);
+            doc.setDrawColor(180, 180, 180);
+            doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-            doc.save(`Ordem_${order.authNumber}_${vehicle?.registroInterno}.pdf`);
+            // Abre nova janela (conforme solicitado no código antigo)
+            doc.output('dataurlnewwindow', { filename: `Autorizacao_${order.authNumber}.pdf` });
         };
 
         const logo = new Image();
@@ -132,6 +153,39 @@ const RefuelingPage = ({
         };
         logo.onerror = () => buildPdf(null);
     };
+
+    // --- FILTROS ---
+    const openRefuelings = useMemo(() => {
+        return refuelings
+            .filter(r => r.status === 'Aberta')
+            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
+    }, [refuelings]);
+
+    const latestRefuelings = useMemo(() => {
+        let list = [...refuelings].filter(r => r.status === 'Concluída' || r.status === 'Cancelada'); // Inclui histórico
+        
+        // Filtro de busca nas últimas ordens
+        if (latestOrdersSearchTerm) {
+            const term = latestOrdersSearchTerm.toLowerCase();
+            list = list.filter(o => {
+                const vehicle = vehicles.find(v => v.id === o.vehicleId);
+                const orderNum = String(o.authNumber || '');
+                const re = vehicle?.registroInterno?.toLowerCase() || '';
+                const placa = vehicle?.placa?.toLowerCase() || '';
+                
+                return orderNum.includes(term) || re.includes(term) || placa.includes(term);
+            });
+        }
+
+        // Ordenação Z-A (Mais recente primeiro)
+        return list
+            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0))
+            .slice(0, 20); // Limite inicial de 20
+    }, [refuelings, latestOrdersSearchTerm, vehicles]);
+
+    const sortedVehicles = useMemo(() => {
+        return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
+    }, [vehicles]);
 
     const handleDeleteOrder = async () => {
         if (!itemToDelete) return;
@@ -167,7 +221,7 @@ const RefuelingPage = ({
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 
-                {/* ESQUERDA: Ordens Pendentes (4 colunas) */}
+                {/* ESQUERDA: Ordens Pendentes */}
                 <div className="xl:col-span-4 space-y-4">
                     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
                         <h2 className="text-lg font-bold text-gray-800 mb-4 pb-2 border-b flex justify-between">
@@ -178,9 +232,9 @@ const RefuelingPage = ({
                         <div className="relative mb-3">
                             <input 
                                 type="text" 
-                                placeholder="Buscar ordem..." 
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
+                                placeholder="Buscar ordem, placa..." 
+                                value={openOrdersSearchTerm}
+                                onChange={e => setOpenOrdersSearchTerm(e.target.value)}
                                 className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
                             />
                             <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
@@ -188,7 +242,11 @@ const RefuelingPage = ({
 
                         <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[600px]">
                             {openRefuelings
-                                .filter(o => String(o.authNumber).includes(searchTerm))
+                                .filter(o => {
+                                    if(!openOrdersSearchTerm) return true;
+                                    const v = vehicles.find(v => v.id === o.vehicleId);
+                                    return String(o.authNumber).includes(openOrdersSearchTerm) || v?.placa?.toLowerCase().includes(openOrdersSearchTerm.toLowerCase());
+                                })
                                 .map(order => {
                                 const vehicle = vehicles.find(v => v.id === order.vehicleId);
                                 return (
@@ -196,33 +254,52 @@ const RefuelingPage = ({
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <div className="font-bold text-gray-900 text-lg">#{String(order.authNumber).padStart(6, '0')}</div>
-                                                <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno}</p>
+                                                <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno} - {vehicle?.placa}</p>
                                                 <p className="text-xs text-gray-500">{order.partnerName}</p>
                                             </div>
+                                            {/* BOTÕES DE AÇÃO EM ORDENS ABERTAS */}
                                             <div className="flex flex-col gap-1">
                                                 <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => { setOrderToConfirm(order); setIsConfirmModalOpen(true); }} className="p-2 bg-green-100 text-green-700 rounded hover:bg-green-200"><CheckCircle size={16}/></button>
+                                                    <div className="flex gap-1 mb-1">
+                                                        <button onClick={() => { setOrderToConfirm(order); setIsConfirmModalOpen(true); }} className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200" title="Confirmar"><CheckCircle size={16}/></button>
+                                                        <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} className="p-1.5 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200" title="Editar"><Edit size={16}/></button>
+                                                        <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Excluir"><Trash2 size={16}/></button>
+                                                    </div>
                                                 </ProtectedComponent>
-                                                <button onClick={() => generateAuthorizationPDF(order)} className="p-2 bg-white border text-gray-600 rounded hover:bg-gray-50"><Printer size={16}/></button>
+                                                <button onClick={() => generateAuthorizationPDF(order)} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF"><Printer size={16}/></button>
                                             </div>
                                         </div>
                                     </div>
                                 );
                             })}
+                            {openRefuelings.length === 0 && <p className="text-center text-gray-400 py-4 italic">Nenhuma ordem pendente.</p>}
                         </div>
                     </div>
                 </div>
 
                 {/* DIREITA: Histórico e Consultas */}
                 <div className="xl:col-span-8 space-y-6">
-                    {/* Regra 2: Painel de Últimas Ordens (Restaurado) */}
+                    {/* Painel de Últimas Ordens Emitidas (Restaurado e com Busca) */}
                     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
-                        <h2 className="text-lg font-bold text-gray-800 mb-4 pb-2 border-b flex items-center gap-2">
-                            <History size={20} className="text-blue-500"/> Últimas Ordens Emitidas (Recentes)
-                        </h2>
-                        <div className="overflow-x-auto">
+                        <div className="flex flex-col sm:flex-row justify-between items-center mb-4 pb-2 border-b gap-4">
+                            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <History size={20} className="text-blue-500"/> Últimas Ordens Emitidas
+                            </h2>
+                            <div className="relative w-full sm:w-64">
+                                <input 
+                                    type="text" 
+                                    placeholder="Filtrar por Nº, RE ou Placa..." 
+                                    value={latestOrdersSearchTerm}
+                                    onChange={e => setLatestOrdersSearchTerm(e.target.value)}
+                                    className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none"
+                                />
+                                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                            </div>
+                        </div>
+
+                        <div className="overflow-x-auto max-h-80 overflow-y-auto custom-scrollbar">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-600 font-bold uppercase text-xs">
+                                <thead className="bg-gray-50 text-gray-600 font-bold uppercase text-xs sticky top-0 z-10">
                                     <tr>
                                         <th className="p-3">Nº</th>
                                         <th className="p-3">Status</th>
@@ -244,18 +321,21 @@ const RefuelingPage = ({
                                                     </span>
                                                 </td>
                                                 <td className="p-3">{new Date(order.date).toLocaleDateString('pt-BR', {timeZone:'UTC'})}</td>
-                                                <td className="p-3">{vehicle?.registroInterno}</td>
+                                                <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
-                                                    <button onClick={() => generateAuthorizationPDF(order)} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600"><Printer size={16}/></button>
+                                                    <button onClick={() => generateAuthorizationPDF(order)} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50"><Printer size={16}/></button>
                                                     <ProtectedComponent requiredPermission="editor">
-                                                        <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600"><Edit size={16}/></button>
-                                                        <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={16}/></button>
+                                                        <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 rounded hover:bg-yellow-50"><Edit size={16}/></button>
+                                                        <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
                                                     </ProtectedComponent>
                                                 </td>
                                             </tr>
                                         )
                                     })}
+                                    {latestRefuelings.length === 0 && (
+                                        <tr><td colSpan="6" className="p-4 text-center text-gray-400 italic">Nenhuma ordem encontrada.</td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
