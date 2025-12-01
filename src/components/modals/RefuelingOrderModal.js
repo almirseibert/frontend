@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet } from 'lucide-react';
+import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit } from 'lucide-react'; // Adicionado Edit
 
 const RefuelingOrderModal = ({
     user,
