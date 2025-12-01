@@ -37,12 +37,17 @@ const RefuelingPage = ({
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
 
     // --- HELPER: Formatação de Data Segura ---
-    const formatDateSafe = (dateString) => {
-        if (!dateString) return 'N/A';
+    const formatDateSafe = (dateInput) => {
+        if (!dateInput) return 'N/A';
         try {
-            // Fix para datas SQL
-            const safeString = dateString.toString().replace(' ', 'T');
+            // Se já for objeto Date
+            if (dateInput instanceof Date) {
+                return isNaN(dateInput.getTime()) ? 'Data Inválida' : dateInput.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+            }
+            // Se for string, tenta corrigir formato SQL
+            const safeString = dateInput.toString().replace(' ', 'T');
             const date = new Date(safeString);
+            
             if (isNaN(date.getTime())) return 'Data Inválida';
             return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         } catch { return 'Erro'; }
@@ -89,7 +94,8 @@ const RefuelingPage = ({
             const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
             const partner = partnersList.find(p => p.id === order.partnerId);
             const employee = employeesList.find(e => e.id === order.employeeId);
-            // Uso do Helper
+            
+            // Correção de Data no PDF
             const safeDateString = order.date ? order.date.toString().replace(' ', 'T') : new Date().toISOString();
             const emissionDate = new Date(safeDateString);
 
@@ -133,7 +139,7 @@ const RefuelingPage = ({
             }
 
             const body = [
-                ['Data de Emissão', emissionDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })],
+                ['Data de Emissão', isNaN(emissionDate.getTime()) ? 'N/A' : emissionDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })],
                 ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
                 ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
                 ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
@@ -324,7 +330,6 @@ const RefuelingPage = ({
                                                         {order.status}
                                                     </span>
                                                 </td>
-                                                {/* Uso do Helper de Data Segura */}
                                                 <td className="p-3">{formatDateSafe(order.date)}</td>
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>

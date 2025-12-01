@@ -59,12 +59,16 @@ const RefuelingOrderModal = ({
 
     const isEditing = !!orderToEdit;
 
-    // --- HELPER: Formatação de Data Segura (Corrige Invalid Date) ---
-    const formatDateSafe = (dateString) => {
-        if (!dateString) return 'N/A';
+    // --- HELPER: Formatação de Data Segura (Robusta) ---
+    const formatDateSafe = (dateInput) => {
+        if (!dateInput) return 'N/A';
         try {
-            // Substitui espaço por T para compatibilidade ISO (fix para formato SQL '2025-08-04 15:00:00')
-            const safeString = dateString.toString().replace(' ', 'T');
+            // Se já for objeto Date
+            if (dateInput instanceof Date) {
+                return isNaN(dateInput.getTime()) ? 'Data Inválida' : dateInput.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+            }
+            // Se for string, tenta corrigir formato SQL
+            const safeString = dateInput.toString().replace(' ', 'T');
             const date = new Date(safeString);
             
             if (isNaN(date.getTime())) return 'Data Inválida';
@@ -74,17 +78,17 @@ const RefuelingOrderModal = ({
         }
     };
 
-    // --- ORDENAÇÃO ---
-    const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
-    const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
-    const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
-    
-    // CORREÇÃO: Obras em Ordem Alfabética
+    // --- HELPER: Ordenação de Obras (A-Z) ---
     const sortedObras = useMemo(() => {
         return [...obras]
             .filter(o => o.status === 'ativa')
             .sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
+
+    // --- HELPER: Ordenações Gerais ---
+    const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
+    const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
+    const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
 
     // --- REGRAS DE GRUPO ---
     const vehicleGroup = useMemo(() => {
@@ -104,24 +108,23 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico de Abastecimento (Último) - Ordenação segura por string ISO
+            // Histórico de Abastecimento (Último) - Ordenação segura contra undefined e formato SQL
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
                 .sort((a,b) => {
-                    const dateA = new Date(a.date.replace(' ', 'T'));
-                    const dateB = new Date(b.date.replace(' ', 'T'));
-                    return dateB - dateA;
+                    const dateA = a.date ? new Date(a.date.toString().replace(' ', 'T')) : new Date(0);
+                    const dateB = b.date ? new Date(b.date.toString().replace(' ', 'T')) : new Date(0);
+                    return dateB - dateA; // Decrescente
                 });
             
             const last = history[0];
             setLastRefuelData(last);
 
-            // Preenchimento Automático (Apenas se não estiver editando uma ordem existente)
             if (!isEditing) {
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
-                // 1. Tenta pegar da obra/alocação atual
+                // Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -129,7 +132,7 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
-                // 2. CORREÇÃO: Auto-completar Posto, Combustível e Litros do último abastecimento
+                // Auto-completar do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
                 let autoLitros = formData.litrosLiberados;
@@ -137,7 +140,6 @@ const RefuelingOrderModal = ({
                 if (last) {
                     autoPartnerId = last.partnerId || '';
                     autoFuelType = last.fuelType || '';
-                    // Sugere a litragem do último abastecimento se houver
                     autoLitros = last.litrosAbastecidos ? last.litrosAbastecidos.toString() : '';
                 }
 
@@ -148,7 +150,6 @@ const RefuelingOrderModal = ({
                     partnerId: autoPartnerId || prev.partnerId,
                     fuelType: autoFuelType || prev.fuelType,
                     litrosLiberados: autoLitros || prev.litrosLiberados,
-                    // Leituras atuais do veículo
                     odometro: prev.odometro || vehicle.odometro?.toString() || '',
                     horimetro: prev.horimetro || vehicle.horimetro?.toString() || '',
                     horimetroDigital: prev.horimetroDigital || vehicle.horimetroDigital?.toString() || '',
@@ -194,7 +195,7 @@ const RefuelingOrderModal = ({
         }
     }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
-    // --- VALIDAÇÕES DE LEITURA (Regras de Bloqueio) ---
+    // --- VALIDAÇÕES DE LEITURA ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
@@ -203,7 +204,6 @@ const RefuelingOrderModal = ({
 
         let reason = null;
         
-        // Regra KM
         if (isKmVehicle && formData.odometro) {
             const current = parseFloat(formData.odometro);
             const last = parseFloat(lastRefuelData.odometro || 0);
@@ -211,7 +211,6 @@ const RefuelingOrderModal = ({
             if (current - last > 1000) reason = `Salto excessivo (> 1000 Km).`;
         }
 
-        // Regra Horas
         if (!isKmVehicle) {
             const current = parseFloat(formData.horimetroDigital || formData.horimetro || 0); 
             const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0);
@@ -265,7 +264,6 @@ const RefuelingOrderModal = ({
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
-        // Simula PDF
         const pdfData = {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
@@ -297,7 +295,6 @@ _Por favor, confirme o recebimento._`;
         }, 1000);
     };
 
-    // --- SAVE HANDLER ---
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
 
@@ -332,6 +329,15 @@ _Por favor, confirme o recebimento._`;
             return isNaN(num) ? null : num;
         };
 
+        // Garante formato ISO correto para o backend
+        let isoDate = new Date().toISOString();
+        if (formData.date) {
+            const dateObj = new Date(formData.date + 'T12:00:00Z');
+            if (!isNaN(dateObj.getTime())) {
+                isoDate = dateObj.toISOString();
+            }
+        }
+
         const payload = {
             ...formData,
             odometro: safeFloat(formData.odometro),
@@ -341,19 +347,16 @@ _Por favor, confirme o recebimento._`;
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
-            // Garante formato ISO correto 
-            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+            date: isoDate,
             createdBy: user 
         };
 
         try {
             let res;
             if (isEditing && orderToEdit?.id) {
-                // UPDATE (PUT)
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
                 setAlertMessage(`Ordem atualizada com sucesso!`);
             } else {
-                // CREATE (POST)
                 res = await apiClient.createRefuelingOrder(payload);
                 setAlertMessage(`Ordem Nº ${res.authNumber} emitida!`);
             }
@@ -411,7 +414,6 @@ _Por favor, confirme o recebimento._`;
                 </div>
 
                 <form onSubmit={handleSaveClick} className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* --- COLUNA ESQUERDA --- */}
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-1">Veículo *</label>
@@ -438,7 +440,6 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
-                        {/* LEITURAS DINÂMICAS */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -482,14 +483,12 @@ _Por favor, confirme o recebimento._`;
                             <label className="block text-sm font-bold text-gray-700 mb-1">Obra / Alocação</label>
                             <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg">
                                 <option value="">Nenhuma / Pátio</option>
-                                {/* CORREÇÃO: Usando sortedObras (Ordem Alfabética) */}
                                 {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                 {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
                         </div>
                     </div>
 
-                    {/* --- COLUNA DIREITA --- */}
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-1">Posto *</label>
@@ -501,7 +500,6 @@ _Por favor, confirme o recebimento._`;
 
                         <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                             <label className="block text-sm font-bold text-blue-900 mb-2">Combustível</label>
-                            {/* IMPORTANTE: Os values aqui devem bater com os do banco de dados (dieselS10, gasolina, etc) */}
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border border-blue-200 rounded mb-3 bg-white" required>
                                 <option value="">Selecione...</option>
                                 <option value="dieselS10">Diesel S10</option>
@@ -519,7 +517,6 @@ _Por favor, confirme o recebimento._`;
                                 <input type="number" name="litrosLiberados" value={formData.litrosLiberados} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Qtd. Litros Liberados"/>
                             )}
 
-                            {/* Arla 32 */}
                             <div className="mt-3 pt-3 border-t border-blue-200">
                                 <div className="flex items-center gap-2 mb-2">
                                     <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-4 h-4 text-blue-600 rounded"/>
@@ -544,7 +541,6 @@ _Por favor, confirme o recebimento._`;
                             <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-2.5 border rounded-lg"/>
                         </div>
 
-                        {/* Campo Outros e Checkbox Gera Valor */}
                         <div className="bg-gray-50 p-3 rounded-lg border">
                             <label className="block text-sm font-bold text-gray-700 mb-1">Outros / Observação</label>
                             <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-2 border rounded mb-2" placeholder="Ex: Óleo de motor, Filtro..."/>
@@ -554,7 +550,6 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         </div>
 
-                        {/* WhatsApp Button */}
                         {isEditing && (
                             <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
                                 <Send size={18}/> Baixar PDF & Abrir WhatsApp
@@ -565,7 +560,7 @@ _Por favor, confirme o recebimento._`;
 
                 <div className="p-5 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
                     <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">Cancelar</button>
-                    {/* Botão Condicional para Bloqueio com Senha */}
+                    {/* Botão Condicional para Bloqueio */}
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-6 py-2.5 bg-red-500 text-white font-bold rounded-lg shadow hover:bg-red-600 transition flex items-center gap-2">
                             <Lock size={18}/> Liberar com Senha
