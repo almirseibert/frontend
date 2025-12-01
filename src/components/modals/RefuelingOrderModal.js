@@ -21,22 +21,27 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Tratamento de Datas (Corrige Invalid Date) ---
+    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash) ---
     const safeDate = (dateInput) => {
-        if (!dateInput) return new Date();
+        if (!dateInput) return new Date(0); // Retorna data epoch se nulo para evitar erro
         try {
+            // Se já for objeto Date
+            if (dateInput instanceof Date) {
+                return isNaN(dateInput.getTime()) ? new Date(0) : dateInput;
+            }
             // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte para ISO
             const dateStr = dateInput.toString().replace(' ', 'T');
             const d = new Date(dateStr);
-            return isNaN(d.getTime()) ? new Date() : d;
+            return isNaN(d.getTime()) ? new Date(0) : d;
         } catch {
-            return new Date();
+            return new Date(0);
         }
     };
 
     const formatDateDisplay = (dateInput) => {
         if (!dateInput) return 'N/A';
         const d = safeDate(dateInput);
+        if (d.getTime() === 0) return 'Data Inválida';
         return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     };
 
@@ -111,10 +116,10 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico seguro
+            // Histórico seguro com verificação de null/undefined antes de ordenar
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => safeDate(b.date) - safeDate(a.date));
+                .sort((a,b) => safeDate(b.date) - safeDate(a.date)); // Usa safeDate que trata undefined
             
             const last = history[0];
             setLastRefuelData(last);
@@ -284,7 +289,7 @@ const RefuelingOrderModal = ({
 
 *Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})
 *Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${formData.fuelType.toUpperCase()}
+*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
 *Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
 
 _Por favor, confirme o recebimento._`;
@@ -353,11 +358,7 @@ _Por favor, confirme o recebimento._`;
 
         try {
             let res;
-            if (isEditing) {
-                // Verificação de segurança para o ID
-                if (!orderToEdit?.id) {
-                    throw new Error("ID da ordem inválido para edição.");
-                }
+            if (isEditing && orderToEdit?.id) {
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
                 setAlertMessage(`Ordem atualizada com sucesso!`);
             } else {
