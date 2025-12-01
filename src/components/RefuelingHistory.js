@@ -13,17 +13,27 @@ const RefuelingHistory = ({
     onGeneratePDF
 }) => {
     
+    // --- HELPER SAFE DATE ---
+    const safeDate = (dateInput) => {
+        if (!dateInput) return new Date(0);
+        try {
+            const dateStr = dateInput.toString().replace(' ', 'T');
+            const d = new Date(dateStr);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        } catch { return new Date(0); }
+    };
+
     // --- LÓGICA DE PROCESSAMENTO E MÉDIAS ---
     const processedHistory = useMemo(() => {
         const vehicle = vehicles.find(v => v.id === vehicleId);
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
-        // 1. Filtra e Ordena
+        // 1. Filtra e Ordena usando SAFE DATE para garantir ordem cronológica correta
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
-            .sort((a,b) => (b.date || '').localeCompare(a.date || '')); 
+            .sort((a,b) => safeDate(b.date) - safeDate(a.date)); // Descendente (Mais novo primeiro)
 
-        // 2. Determina Unidade (Regra 1)
+        // 2. Determina Unidade
         const getUnitAndLabel = () => {
              let isHourBased = false;
              if (vehicleGroups && Object.keys(vehicleGroups).length > 0) {
@@ -36,7 +46,7 @@ const RefuelingHistory = ({
         };
         const { unit, readingLabel } = getUnitAndLabel();
 
-        // 3. Calcula Médias (Item a item)
+        // 3. Calcula Médias (Comparando item N com N+1)
         const historyWithAverages = history.map((current, index) => {
             const previous = history[index + 1]; 
             let average = null;
@@ -46,7 +56,7 @@ const RefuelingHistory = ({
                 return parseFloat(item.odometro || 0);
             };
             
-            let readingUsed = getReading(current);
+            // Define qual leitura será exibida na tabela
             let displayReading = unit === 'L/Hr' ? (current.horimetroDigital || current.horimetro || '-') : (current.odometro || '-');
 
             if (previous) {
@@ -59,7 +69,7 @@ const RefuelingHistory = ({
                     average = (unit === 'Km/L') ? (diff / liters) : (liters / diff);
                 }
             }
-            return { ...current, average, readingUsed, displayReading, readingLabel };
+            return { ...current, average, displayReading, readingLabel };
         });
 
         // 4. Média Geral Global
@@ -74,6 +84,7 @@ const RefuelingHistory = ({
             }
 
             const totalDiff = getReading(newest) - getReading(oldest);
+            // Soma litros (excluindo o último registro pois ele é o "ponto de partida")
             const totalLiters = history.slice(0, history.length - 1).reduce((acc, curr) => acc + (parseFloat(curr.litrosAbastecidos) || 0), 0);
 
             if (totalDiff > 0 && totalLiters > 0) {
@@ -84,7 +95,6 @@ const RefuelingHistory = ({
         return { historyWithAverages, overallAverage, unit, readingLabel };
     }, [vehicleId, refuelings, vehicles, vehicleGroups]);
 
-    // --- PDF do Histórico ---
     const generateHistoryPDF = () => {
         const doc = new jsPDF();
         const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -97,7 +107,7 @@ const RefuelingHistory = ({
             startY: 30,
             head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
             body: processedHistory.historyWithAverages.map(h => [
-                new Date(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
+                safeDate(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
                 h.partnerName,
                 h.displayReading,
                 (h.litrosAbastecidos || 0).toFixed(2),
@@ -136,40 +146,42 @@ const RefuelingHistory = ({
             </div>
 
             <div className="overflow-hidden border rounded-lg shadow-sm">
-                <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 text-gray-600 font-bold text-xs uppercase">
-                        <tr>
-                            <th className="p-3">Data</th>
-                            <th className="p-3">Posto</th>
-                            <th className="p-3 text-right">{processedHistory.readingLabel}</th>
-                            <th className="p-3 text-right">Litros</th>
-                            <th className="p-3 text-right">Média</th>
-                            <th className="p-3 text-center">Ação</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 bg-white">
-                        {processedHistory.historyWithAverages.map(h => (
-                            <tr key={h.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="p-3">{new Date(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</td>
-                                <td className="p-3 truncate max-w-[140px]">{h.partnerName}</td>
-                                <td className="p-3 text-right font-mono text-gray-600">{h.displayReading}</td>
-                                <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>
-                                <td className={`p-3 text-right font-bold ${!h.average ? 'text-gray-300' : 'text-blue-600'}`}>
-                                    {h.average?.toFixed(2) || '-'}
-                                </td>
-                                <td className="p-3 text-center">
-                                    <button 
-                                        onClick={() => onGeneratePDF(h, vehicles, partners, employees, vehicleGroups)} 
-                                        className="text-gray-400 hover:text-blue-600 p-1.5 rounded hover:bg-blue-50 transition"
-                                        title="Reimprimir 2ª Via"
-                                    >
-                                        <Printer size={16} />
-                                    </button>
-                                </td>
+                <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-100 text-gray-600 font-bold text-xs uppercase sticky top-0">
+                            <tr>
+                                <th className="p-3">Data</th>
+                                <th className="p-3">Posto</th>
+                                <th className="p-3 text-right">{processedHistory.readingLabel}</th>
+                                <th className="p-3 text-right">Litros</th>
+                                <th className="p-3 text-right">Média</th>
+                                <th className="p-3 text-center">Ação</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                            {processedHistory.historyWithAverages.map(h => (
+                                <tr key={h.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="p-3">{safeDate(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</td>
+                                    <td className="p-3 truncate max-w-[140px]">{h.partnerName}</td>
+                                    <td className="p-3 text-right font-mono text-gray-600">{h.displayReading}</td>
+                                    <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>
+                                    <td className={`p-3 text-right font-bold ${!h.average ? 'text-gray-300' : 'text-blue-600'}`}>
+                                        {h.average?.toFixed(2) || '-'}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        <button 
+                                            onClick={() => onGeneratePDF(h, vehicles, partners, employees, vehicleGroups)} 
+                                            className="text-gray-400 hover:text-blue-600 p-1.5 rounded hover:bg-blue-50 transition"
+                                            title="Reimprimir 2ª Via"
+                                        >
+                                            <Printer size={16} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );
