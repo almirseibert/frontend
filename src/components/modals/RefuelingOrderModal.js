@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit } from 'lucide-react'; // Adicionado Edit
+import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity } from 'lucide-react';
 
 const RefuelingOrderModal = ({
     user,
@@ -9,7 +9,7 @@ const RefuelingOrderModal = ({
     partners = [],
     employees = [],
     refuelings = [], 
-    expenses = [], // Recebe despesas para Regra 10
+    expenses = [], 
     onClose,
     setAlertMessage,
     onGeneratePDF,
@@ -38,17 +38,22 @@ const RefuelingOrderModal = ({
         isFillUpArla: orderToEdit?.isFillUpArla || false,
         litrosLiberadosArla: orderToEdit?.litrosLiberadosArla?.toString() || '',
         outros: orderToEdit?.outros || '',
+        outrosGeraValor: orderToEdit?.outrosGeraValor || false, // NOVO CAMPO
         outrosValor: orderToEdit?.outrosValor?.toString() || '',
     });
 
     const [isSaving, setIsSaving] = useState(false);
     const [blockReason, setBlockReason] = useState(null); 
-    const [budgetWarning, setBudgetWarning] = useState(null); // Aviso de orçamento (Regra 10)
-    const [requiresBudgetOverride, setRequiresBudgetOverride] = useState(false); // Trava de orçamento
-    const [showPasswordModal, setShowPasswordModal] = useState(false); // Modal de senha para travas
+    const [budgetWarning, setBudgetWarning] = useState(null);
+    const [requiresBudgetOverride, setRequiresBudgetOverride] = useState(false);
+    
+    // Estados para Modais de Confirmação/Senha
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [passwordAction, setPasswordAction] = useState(null); // 'blockOverride' ou 'budgetOverride'
     
     const [warnings, setWarnings] = useState([]); 
     const [lastRefuelData, setLastRefuelData] = useState(null);
+    const [lastAverage, setLastAverage] = useState(null); // Média dos 2 últimos
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
 
@@ -59,7 +64,7 @@ const RefuelingOrderModal = ({
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
 
-    // --- REGRAS DE GRUPO (Regra 1) ---
+    // --- REGRAS DE GRUPO ---
     const vehicleGroup = useMemo(() => {
         if (!formData.vehicleId) return null;
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
@@ -68,53 +73,86 @@ const RefuelingOrderModal = ({
     }, [formData.vehicleId, vehicles, vehicleGroups]);
 
     const isKmVehicle = vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões de Trecho';
-    const isHrVehicle = !isKmVehicle; 
+    const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
+    const isTruck = vehicleGroup === 'Caminhões';
 
-    // --- AUTO-PREENCHIMENTO (Regra 7) E AVISOS (Regra 8) ---
+    // --- AUTO-PREENCHIMENTO E AVISOS ---
     useEffect(() => {
-        if (formData.vehicleId && !isEditing) {
+        if (formData.vehicleId) {
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Auto-preenchimento inteligente
-            let autoEmployeeId = formData.employeeId;
-            let autoObraId = formData.obraId;
+            if (!isEditing) {
+                let autoEmployeeId = formData.employeeId;
+                let autoObraId = formData.obraId;
 
-            if (vehicle.obraAtualId) {
-                autoObraId = vehicle.obraAtualId;
-                const obra = obras.find(o => o.id === vehicle.obraAtualId);
-                // Tenta achar alocação ativa
-                const alocacao = obra?.historicoVeiculos?.find(h => h.veiculoId === vehicle.id && !h.dataSaida);
-                if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
+                if (vehicle.obraAtualId) {
+                    autoObraId = vehicle.obraAtualId;
+                    const obra = obras.find(o => o.id === vehicle.obraAtualId);
+                    const alocacao = obra?.historicoVeiculos?.find(h => h.veiculoId === vehicle.id && !h.dataSaida);
+                    if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
+                }
+                
+                setFormData(prev => ({
+                    ...prev,
+                    employeeId: autoEmployeeId || prev.employeeId,
+                    obraId: autoObraId || prev.obraId,
+                    odometro: prev.odometro || vehicle.odometro?.toString() || '',
+                    horimetro: prev.horimetro || vehicle.horimetro?.toString() || '',
+                    horimetroDigital: prev.horimetroDigital || vehicle.horimetroDigital?.toString() || '',
+                    horimetroAnalogico: prev.horimetroAnalogico || vehicle.horimetroAnalogico?.toString() || ''
+                }));
             }
-            
-            setFormData(prev => ({
-                ...prev,
-                employeeId: autoEmployeeId || prev.employeeId,
-                obraId: autoObraId || prev.obraId,
-                // Regra 5: Pré-carrega leituras atuais do banco de dados do veículo
-                odometro: prev.odometro || vehicle.odometro?.toString() || '',
-                horimetro: prev.horimetro || vehicle.horimetro?.toString() || '',
-                horimetroDigital: prev.horimetroDigital || vehicle.horimetroDigital?.toString() || '',
-                horimetroAnalogico: prev.horimetroAnalogico || vehicle.horimetroAnalogico?.toString() || ''
-            }));
 
-            // Regra 8: Avisos não bloqueantes
+            // Avisos Visuais
             const newWarnings = [];
             if (vehicle.naoPodeCircular) newWarnings.push("⚠️ CHECKBOX 'NÃO PODE CIRCULAR' MARCADO!");
             if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
-            // Busca último abastecimento para validação
-            const lastRefuel = refuelings
+            // Último Abastecimento e Média
+            const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
-            setLastRefuelData(lastRefuel);
-        }
-    }, [formData.vehicleId, vehicles, obras, refuelings, isEditing]);
+                .sort((a,b) => new Date(b.date) - new Date(a.date));
+            
+            const last = history[0];
+            setLastRefuelData(last);
 
-    // --- VALIDAÇÕES DE LEITURA (Regras 2 e 3) ---
+            // Cálculo da Média dos 2 últimos
+            if (last && history[1]) {
+                const prev = history[1];
+                const litros = parseFloat(last.litrosAbastecidos || 0);
+                
+                let diff = 0;
+                let unit = 'Km/L';
+
+                if (isHeavyMachinery || (isTruck && vehicle.mediaCalculo === 'horimetro')) {
+                    // Lógica para Horas
+                    const lastHr = parseFloat(last.horimetroDigital || last.horimetro || last.odometro || 0); // Fallback
+                    const prevHr = parseFloat(prev.horimetroDigital || prev.horimetro || prev.odometro || 0);
+                    diff = lastHr - prevHr;
+                    unit = 'L/Hr';
+                } else {
+                    // Lógica para KM
+                    const lastKm = parseFloat(last.odometro || 0);
+                    const prevKm = parseFloat(prev.odometro || 0);
+                    diff = lastKm - prevKm;
+                }
+
+                if (diff > 0 && litros > 0) {
+                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    setLastAverage(`${avg.toFixed(2)} ${unit}`);
+                } else {
+                    setLastAverage('Incalculável');
+                }
+            } else {
+                setLastAverage(null);
+            }
+        }
+    }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
+
+    // --- VALIDAÇÕES DE LEITURA (Regras de Bloqueio) ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
@@ -123,50 +161,47 @@ const RefuelingOrderModal = ({
 
         let reason = null;
         
-        // Regra 2: KM (Leves/Trecho)
+        // Regra KM
         if (isKmVehicle && formData.odometro) {
             const current = parseFloat(formData.odometro);
             const last = parseFloat(lastRefuelData.odometro || 0);
-            if (current <= last) reason = `Odômetro deve ser maior que o anterior (${last} Km).`;
-            if (current - last > 1000) reason = `ERRO: Diferença > 1000 Km em um único abastecimento. Verifique a digitação.`;
+            if (current <= last) reason = `Odômetro menor ou igual ao anterior (${last} Km).`;
+            if (current - last > 1000) reason = `Salto excessivo (> 1000 Km).`;
         }
 
-        // Regra 3: Horas (Pesados/Máquinas)
-        if (isHrVehicle) {
-            const current = parseFloat(formData.horimetroDigital || formData.horimetroAnalogico || formData.horimetro || 0);
-            const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetroAnalogico || lastRefuelData.horimetro || 0);
+        // Regra Horas
+        if (!isKmVehicle) {
+            const current = parseFloat(formData.horimetroDigital || formData.horimetro || 0); // Prioriza digital ou geral
+            const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0);
             
             if (current > 0) { 
-                if (current <= last) reason = `Horímetro deve ser maior que o anterior (${last} Hr).`;
-                if (current - last > 50) reason = `ERRO: Diferença > 50 Horas em um único abastecimento. Verifique a digitação.`;
+                if (current <= last) reason = `Horímetro menor ou igual ao anterior (${last} Hr).`;
+                if (current - last > 50) reason = `Salto excessivo (> 50 Hr).`;
             }
         }
 
         setBlockReason(reason);
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle, isHrVehicle]);
+    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle]);
 
-    // --- REGRA 10: CONTROLE DE ORÇAMENTO (20% da Obra) ---
+    // --- REGRA DE ORÇAMENTO ---
     useEffect(() => {
         if (formData.obraId && obras.length > 0) {
             const obra = obras.find(o => o.id === formData.obraId);
-            // Pula verificação se for "Extra Obra" ou se a obra não tiver valor contratado
             if (!obra || !obra.valorContrato || obra.valorContrato <= 0) {
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
                 return;
             }
 
-            // Calcula total de despesas de combustível para esta obra
-            // Nota: Filtra despesas do tipo 'fuel'
             const totalFuelExpenses = expenses
                 .filter(e => e.obraId === formData.obraId && e.category === 'fuel')
                 .reduce((sum, e) => sum + (parseFloat(e.value) || 0), 0);
 
-            const limit = obra.valorContrato * 0.20; // 20%
+            const limit = obra.valorContrato * 0.20; 
             
             if (totalFuelExpenses >= limit) {
-                setBudgetWarning(`ATENÇÃO: O custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) já atingiu 20% do valor do contrato (R$ ${obra.valorContrato.toLocaleString()}).`);
-                setRequiresBudgetOverride(true); // Bloqueia e pede senha
+                setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
+                setRequiresBudgetOverride(true);
             } else {
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
@@ -177,63 +212,75 @@ const RefuelingOrderModal = ({
         }
     }, [formData.obraId, obras, expenses]);
 
-
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- REGRA 11: WHATSAPP ---
-    const sendToWhatsApp = () => {
+    // --- ENVIO WHATSAPP ---
+    const sendToWhatsApp = async () => {
+        // 1. Gera o PDF primeiro (simula o download)
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
+        // Simula a geração dos dados para o PDF
+        const pdfData = {
+            ...formData,
+            id: orderToEdit?.id || 'PREVIEW',
+            authNumber: orderToEdit?.authNumber || 'NOVA',
+            partnerName: partner?.razaoSocial,
+            employeeName: employee?.nome,
+        };
+        
+        // Chama a função de gerar PDF (isso vai baixar o arquivo no PC/Celular do usuário)
+        onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
+
         if (!partner?.telefone) {
-            setAlertMessage("O posto selecionado não possui telefone cadastrado.");
+            setAlertMessage("O posto selecionado não possui telefone cadastrado. O PDF foi baixado.");
             return;
         }
 
+        // 2. Monta a mensagem instruindo o anexo
         const msg = 
 `*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*
+*Segue em anexo o arquivo PDF da autorização.*
 
-*Nº Controle:* ${orderToEdit?.authNumber || 'Nova'}
-*Data:* ${new Date(formData.date).toLocaleDateString('pt-BR')}
+*Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
+*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
 
-🚛 *Veículo:* ${vehicle?.placa || ''} - ${vehicle?.modelo || ''} (${vehicle?.registroInterno})
-👤 *Motorista:* ${employee?.nome || 'N/A'}
+_Por favor, confirme o recebimento._`;
 
-🛢️ *Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
-🔢 *Quantidade:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
-${formData.needsArla ? `🔵 *Arla 32:* ${formData.isFillUpArla ? 'Completar' : formData.litrosLiberadosArla + ' L'}` : ''}
-📝 *Obs:* ${formData.outros || '-'}
-
-_Favor emitir nota fiscal conforme cadastro._`;
-
-        window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+        // 3. Abre o WhatsApp com a mensagem pronta
+        setTimeout(() => {
+            window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+        }, 1000); // Pequeno delay para garantir que o download iniciou
     };
 
-    // --- SALVAR ---
-    const handleSave = async (e) => {
+    // --- SAVE HANDLER ---
+    const handleSaveClick = (e) => {
         if(e) e.preventDefault();
 
-        // Travas rígidas de leitura
+        // 1. Verifica Bloqueio de Leitura
         if (blockReason) {
-            setAlertMessage(`BLOQUEADO: ${blockReason}`);
+            setPasswordAction('blockOverride');
+            setShowPasswordModal(true);
             return;
         }
 
-        // Trava de Orçamento (Regra 10)
+        // 2. Verifica Bloqueio de Orçamento
         if (requiresBudgetOverride) {
-            setShowPasswordModal(true); // Abre modal de senha
+            setPasswordAction('budgetOverride');
+            setShowPasswordModal(true);
             return;
         }
         
-        // Aviso Caminhão sem Horímetro (Recomendação)
-        const selectedVehicle = vehicles.find(v => v.id === formData.vehicleId);
-        if (vehicleGroup === 'Caminhões' && !formData.horimetro && !isNoHorimetroConfirmVisible) {
-             setNoHorimetroWarning("O horímetro para caminhões é recomendado. Liberar mesmo assim?");
+        // 3. Aviso Caminhão sem Horímetro
+        if (isTruck && !formData.horimetro && !isNoHorimetroConfirmVisible) {
+             setNoHorimetroWarning("Para caminhões, o Horímetro Geral é recomendado. Salvar sem ele?");
              setIsNoHorimetroConfirmVisible(true);
              return;
         }
@@ -241,12 +288,12 @@ _Favor emitir nota fiscal conforme cadastro._`;
         executeSave();
     };
 
-    // Chamado após confirmação de senha (se necessário) ou direto
     const executeSave = async () => {
         setIsSaving(true);
         setIsNoHorimetroConfirmVisible(false);
         setShowPasswordModal(false);
 
+        // CORREÇÃO: Adiciona createdBy para evitar Erro 500
         const payload = {
             ...formData,
             odometro: parseFloat(formData.odometro) || null,
@@ -255,7 +302,9 @@ _Favor emitir nota fiscal conforme cadastro._`;
             horimetroAnalogico: parseFloat(formData.horimetroAnalogico) || null,
             litrosLiberados: parseFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: parseFloat(formData.litrosLiberadosArla) || 0,
-            date: new Date(formData.date + 'T12:00:00Z').toISOString() // Ajuste UTC
+            outrosValor: parseFloat(formData.outrosValor) || 0,
+            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+            createdBy: user // Adicionado para corrigir erro 500
         };
 
         try {
@@ -269,7 +318,7 @@ _Favor emitir nota fiscal conforme cadastro._`;
             }
             reloadData();
             
-            // Gera PDF Automático
+            // Gera PDF
             if (res) {
                  const partner = partners.find(p => p.id === payload.partnerId);
                  const employee = employees.find(e => e.id === payload.employeeId);
@@ -304,27 +353,24 @@ _Favor emitir nota fiscal conforme cadastro._`;
                 </div>
 
                 <div className="px-6 pt-4 space-y-2">
-                    {/* Regra 8 - Avisos Visuais */}
                     {warnings.map((w, i) => (
                         <div key={i} className="flex items-center gap-2 p-2 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-sm font-medium"><Info size={16}/> {w}</div>
                     ))}
                     
-                    {/* Regra 2 e 3 - Bloqueio de Leitura */}
                     {blockReason && (
                         <div className="flex items-center gap-2 p-3 bg-red-100 text-red-800 rounded border border-red-200 text-sm font-bold animate-pulse">
-                            <Lock size={16}/> BLOQUEIO DE LEITURA: {blockReason}
+                            <Lock size={16}/> BLOQUEIO: {blockReason}
                         </div>
                     )}
 
-                    {/* Regra 10 - Aviso de Orçamento */}
                     {budgetWarning && (
                         <div className="flex items-center gap-2 p-3 bg-orange-100 text-orange-900 rounded border border-orange-200 text-sm font-bold">
-                            <Wallet size={16}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha Admin)"}
+                            <Wallet size={16}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
                         </div>
                     )}
                 </div>
 
-                <form onSubmit={handleSave} className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form onSubmit={handleSaveClick} className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* --- COLUNA ESQUERDA --- */}
                     <div className="space-y-4">
                         <div>
@@ -335,7 +381,23 @@ _Favor emitir nota fiscal conforme cadastro._`;
                             </select>
                         </div>
                         
-                        {/* Leituras Dinâmicas (Regra 1) */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO (Regra 4) */}
+                        {lastRefuelData && (
+                            <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
+                                <div>
+                                    <div className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Último Abastecimento</div>
+                                    <p>Data: {new Date(lastRefuelData.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                    <p>Leitura: {lastRefuelData.horimetroDigital || lastRefuelData.horimetro || lastRefuelData.odometro}</p>
+                                    <p>Litros: {lastRefuelData.litrosAbastecidos} L</p>
+                                </div>
+                                <div className="text-right">
+                                    <div className="font-bold text-gray-700 mb-1 flex items-center justify-end gap-1"><Activity size={12}/> Média Anterior</div>
+                                    <p className="text-lg font-bold text-blue-600">{lastAverage || '--'}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* LEITURAS DINÂMICAS (Regra 1 e 5) */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -345,7 +407,17 @@ _Favor emitir nota fiscal conforme cadastro._`;
                                         <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`}/>
                                     </div>
                                 )}
-                                {isHrVehicle && (
+                                
+                                {/* Regra 5: Caminhões somente Horímetro Geral */}
+                                {isTruck && (
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700">Horímetro Geral (Hrs)</label>
+                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`}/>
+                                    </div>
+                                )}
+
+                                {/* Regra 5: Máquinas somente Digitais/Analógicos */}
+                                {isHeavyMachinery && (
                                     <>
                                         <div>
                                             <label className="block text-sm font-bold text-gray-700">Horímetro Digital</label>
@@ -355,17 +427,13 @@ _Favor emitir nota fiscal conforme cadastro._`;
                                             <label className="block text-sm font-bold text-gray-700">Horímetro Analógico</label>
                                             <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroAnalogico || 'N/A'}`}/>
                                         </div>
-                                        <div className="col-span-2">
-                                            <label className="block text-xs text-gray-500 mb-1">Horímetro Geral (Opcional)</label>
-                                            <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded text-sm"/>
-                                        </div>
                                     </>
                                 )}
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Motorista / Operador (Regra 7)</label>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Motorista / Operador</label>
                             <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg" required>
                                 <option value="">Selecione...</option>
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
@@ -429,15 +497,25 @@ _Favor emitir nota fiscal conforme cadastro._`;
                             </div>
                         </div>
 
-                         <div>
+                        <div>
                             <label className="block text-sm font-bold text-gray-700 mb-1">Data</label>
                             <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-2.5 border rounded-lg"/>
                         </div>
 
-                        {/* WhatsApp Button (Regra 11) */}
+                        {/* Campo Outros e Checkbox Gera Valor (Regra 3) */}
+                        <div className="bg-gray-50 p-3 rounded-lg border">
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Outros / Observação</label>
+                            <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-2 border rounded mb-2" placeholder="Ex: Óleo de motor, Filtro..."/>
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-4 h-4 text-green-600"/>
+                                <label htmlFor="geraValor" className="text-sm font-medium text-gray-700">Preenchimento Gera Valor (Cobrar R$ na Confirmação)</label>
+                            </div>
+                        </div>
+
+                        {/* WhatsApp Button (Regra 11 - Adjusted) */}
                         {isEditing && (
                             <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
-                                <Send size={18}/> Enviar Ordem no WhatsApp
+                                <Send size={18}/> Baixar PDF & Abrir WhatsApp
                             </button>
                         )}
                     </div>
@@ -445,9 +523,16 @@ _Favor emitir nota fiscal conforme cadastro._`;
 
                 <div className="p-5 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
                     <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">Cancelar</button>
-                    <button onClick={handleSave} disabled={isSaving || !!blockReason} className="px-6 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-2">
-                        {isSaving ? <Loader className="animate-spin" size={18}/> : 'Salvar & Gerar PDF'}
-                    </button>
+                    {/* Botão Condicional para Bloqueio */}
+                    {blockReason || requiresBudgetOverride ? (
+                        <button onClick={handleSaveClick} className="px-6 py-2.5 bg-red-500 text-white font-bold rounded-lg shadow hover:bg-red-600 transition flex items-center gap-2">
+                            <Lock size={18}/> Liberar com Senha
+                        </button>
+                    ) : (
+                        <button onClick={handleSaveClick} disabled={isSaving} className="px-6 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-2">
+                            {isSaving ? <Loader className="animate-spin" size={18}/> : 'Salvar & Gerar PDF'}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -458,15 +543,19 @@ _Favor emitir nota fiscal conforme cadastro._`;
                     message={noHorimetroWarning} 
                     onConfirm={executeSave} 
                     onClose={() => setIsNoHorimetroConfirmVisible(false)}
-                    confirmText="Liberar Mesmo Assim"
+                    confirmText="Salvar Mesmo Assim"
                     confirmColor="bg-red-600 hover:bg-red-700 text-white"
                 />
             )}
 
-            {/* Modal de Senha para Orçamento Estourado */}
+            {/* Modal de Senha para Override */}
             {showPasswordModal && (
                 <PasswordConfirmationModal
-                    message={`BLOQUEIO FINANCEIRO: Esta obra já excedeu 20% do contrato em combustível.\nInsira a senha administrativa para autorizar este abastecimento.`}
+                    message={
+                        passwordAction === 'blockOverride' 
+                        ? `BLOQUEIO OPERACIONAL: ${blockReason}\nInsira a senha administrativa para liberar esta ordem.`
+                        : `BLOQUEIO FINANCEIRO: Esta obra excedeu 20% do contrato.\nInsira a senha administrativa para autorizar.`
+                    }
                     onConfirm={executeSave}
                     onClose={() => setShowPasswordModal(false)}
                     apiClient={apiClient}
