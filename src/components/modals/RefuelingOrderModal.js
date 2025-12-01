@@ -26,6 +26,7 @@ const RefuelingOrderModal = ({
         partnerId: orderToEdit?.partnerId || '',
         obraId: orderToEdit?.obraId || '',
         employeeId: orderToEdit?.employeeId || '',
+        // Ajuste de data para o input HTML (YYYY-MM-DD)
         date: orderToEdit?.date ? new Date(orderToEdit.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         odometro: orderToEdit?.odometro?.toString() || '',
         horimetro: orderToEdit?.horimetro?.toString() || '',
@@ -47,7 +48,6 @@ const RefuelingOrderModal = ({
     const [budgetWarning, setBudgetWarning] = useState(null);
     const [requiresBudgetOverride, setRequiresBudgetOverride] = useState(false);
     
-    // Estados para Modais de Confirmação/Senha
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordAction, setPasswordAction] = useState(null); 
     
@@ -59,11 +59,14 @@ const RefuelingOrderModal = ({
 
     const isEditing = !!orderToEdit;
 
-    // --- HELPER: Formatação de Data Segura ---
+    // --- HELPER: Formatação de Data Segura (Corrige Invalid Date) ---
     const formatDateSafe = (dateString) => {
         if (!dateString) return 'N/A';
         try {
-            const date = new Date(dateString);
+            // Substitui espaço por T para compatibilidade ISO (fix para formato SQL '2025-08-04 15:00:00')
+            const safeString = dateString.toString().replace(' ', 'T');
+            const date = new Date(safeString);
+            
             if (isNaN(date.getTime())) return 'Data Inválida';
             return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         } catch (error) {
@@ -76,7 +79,7 @@ const RefuelingOrderModal = ({
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
     
-    // Ordenação Alfabética de Obras (Solicitado)
+    // CORREÇÃO: Obras em Ordem Alfabética
     const sortedObras = useMemo(() => {
         return [...obras]
             .filter(o => o.status === 'ativa')
@@ -101,19 +104,24 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico de Abastecimento (Último)
+            // Histórico de Abastecimento (Último) - Ordenação segura por string ISO
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => new Date(b.date) - new Date(a.date));
+                .sort((a,b) => {
+                    const dateA = new Date(a.date.replace(' ', 'T'));
+                    const dateB = new Date(b.date.replace(' ', 'T'));
+                    return dateB - dateA;
+                });
             
             const last = history[0];
             setLastRefuelData(last);
 
+            // Preenchimento Automático (Apenas se não estiver editando uma ordem existente)
             if (!isEditing) {
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
-                // Tenta pegar da obra/alocação atual
+                // 1. Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -121,7 +129,7 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
-                // Auto-preenchimento baseado no último abastecimento (Solicitado)
+                // 2. CORREÇÃO: Auto-completar Posto, Combustível e Litros do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
                 let autoLitros = formData.litrosLiberados;
@@ -129,7 +137,7 @@ const RefuelingOrderModal = ({
                 if (last) {
                     autoPartnerId = last.partnerId || '';
                     autoFuelType = last.fuelType || '';
-                    // Sugere a litragem do último abastecimento
+                    // Sugere a litragem do último abastecimento se houver
                     autoLitros = last.litrosAbastecidos ? last.litrosAbastecidos.toString() : '';
                 }
 
@@ -155,7 +163,7 @@ const RefuelingOrderModal = ({
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
-            // Cálculo da Média dos 2 últimos (Exibição no Modal)
+            // Cálculo da Média dos 2 últimos
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
@@ -205,7 +213,6 @@ const RefuelingOrderModal = ({
 
         // Regra Horas
         if (!isKmVehicle) {
-            // Prioriza digital para máquinas, geral para caminhões
             const current = parseFloat(formData.horimetroDigital || formData.horimetro || 0); 
             const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0);
             
@@ -253,13 +260,12 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- ENVIO WHATSAPP ---
     const sendToWhatsApp = async () => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
-        // Simula a geração dos dados para o PDF
+        // Simula PDF
         const pdfData = {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
@@ -268,7 +274,6 @@ const RefuelingOrderModal = ({
             employeeName: employee?.nome,
         };
         
-        // Baixa o PDF
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
         if (!partner?.telefone) {
@@ -322,7 +327,6 @@ _Por favor, confirme o recebimento._`;
         setIsNoHorimetroConfirmVisible(false);
         setShowPasswordModal(false);
 
-        // Prepara dados de forma segura (evita NaN ou undefined)
         const safeFloat = (val) => {
             const num = parseFloat(val);
             return isNaN(num) ? null : num;
@@ -337,17 +341,19 @@ _Por favor, confirme o recebimento._`;
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
-            // Garante formato ISO correto ou data atual se falhar
-            date: new Date(formData.date).getTime() ? new Date(formData.date + 'T12:00:00Z').toISOString() : new Date().toISOString(),
-            createdBy: user // CRUCIAL para evitar erro 500
+            // Garante formato ISO correto 
+            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+            createdBy: user 
         };
 
         try {
             let res;
-            if (isEditing) {
+            if (isEditing && orderToEdit?.id) {
+                // UPDATE (PUT)
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
                 setAlertMessage(`Ordem atualizada com sucesso!`);
             } else {
+                // CREATE (POST)
                 res = await apiClient.createRefuelingOrder(payload);
                 setAlertMessage(`Ordem Nº ${res.authNumber} emitida!`);
             }
@@ -415,7 +421,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO (Corrigido para exibir dados reais) */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
@@ -476,6 +482,7 @@ _Por favor, confirme o recebimento._`;
                             <label className="block text-sm font-bold text-gray-700 mb-1">Obra / Alocação</label>
                             <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg">
                                 <option value="">Nenhuma / Pátio</option>
+                                {/* CORREÇÃO: Usando sortedObras (Ordem Alfabética) */}
                                 {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                 {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
@@ -494,12 +501,14 @@ _Por favor, confirme o recebimento._`;
 
                         <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                             <label className="block text-sm font-bold text-blue-900 mb-2">Combustível</label>
+                            {/* IMPORTANTE: Os values aqui devem bater com os do banco de dados (dieselS10, gasolina, etc) */}
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border border-blue-200 rounded mb-3 bg-white" required>
                                 <option value="">Selecione...</option>
                                 <option value="dieselS10">Diesel S10</option>
+                                <option value="dieselS500">Diesel S500</option>
                                 <option value="gasolina">Gasolina</option>
                                 <option value="etanol">Etanol</option>
-                                <option value="dieselS500">Diesel S500</option>
+                                <option value="arla32">Arla 32</option>
                             </select>
                             
                             <div className="flex items-center gap-2 mb-2">

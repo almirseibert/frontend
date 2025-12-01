@@ -36,11 +36,13 @@ const RefuelingPage = ({
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
 
-    // --- Helper de Data Segura ---
+    // --- HELPER: Formatação de Data Segura ---
     const formatDateSafe = (dateString) => {
         if (!dateString) return 'N/A';
         try {
-            const date = new Date(dateString);
+            // Fix para datas SQL
+            const safeString = dateString.toString().replace(' ', 'T');
+            const date = new Date(safeString);
             if (isNaN(date.getTime())) return 'Data Inválida';
             return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         } catch { return 'Erro'; }
@@ -56,7 +58,6 @@ const RefuelingPage = ({
     const latestRefuelings = useMemo(() => {
         let list = [...refuelings].filter(r => r.status === 'Concluída' || r.status === 'Cancelada'); 
         
-        // Filtro de busca nas últimas ordens
         if (latestOrdersSearchTerm) {
             const term = latestOrdersSearchTerm.toLowerCase();
             list = list.filter(o => {
@@ -69,7 +70,6 @@ const RefuelingPage = ({
             });
         }
 
-        // Ordenação Z-A (Mais recente primeiro)
         return list
             .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0))
             .slice(0, 20); 
@@ -79,9 +79,6 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // ===================================================================================
-    // GERAÇÃO DE PDF (VERSÃO ORIGINAL RESTAURADA)
-    // ===================================================================================
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         const buildPdf = (logoDataUrl) => {
             const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -92,7 +89,9 @@ const RefuelingPage = ({
             const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
             const partner = partnersList.find(p => p.id === order.partnerId);
             const employee = employeesList.find(e => e.id === order.employeeId);
-            const emissionDate = order.date ? new Date(order.date) : new Date();
+            // Uso do Helper
+            const safeDateString = order.date ? order.date.toString().replace(' ', 'T') : new Date().toISOString();
+            const emissionDate = new Date(safeDateString);
 
             if (logoDataUrl) {
                 const imgWidth = 45;
@@ -115,7 +114,7 @@ const RefuelingPage = ({
                  const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
                  if (group === 'Máquinas Pesadas') {
                      leituraLabel = 'Horímetro';
-                     leituraValue = order.horimetroDigital ?? order.horimetroAnalogico ?? order.horimetro ?? 'N/A';
+                     leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
                  } else if (group === 'Caminhões') {
                      if (order.horimetro != null) {
                         leituraLabel = 'Horímetro';
@@ -264,7 +263,6 @@ const RefuelingPage = ({
                                                 <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno} - {vehicle?.placa}</p>
                                                 <p className="text-xs text-gray-500">{order.partnerName}</p>
                                             </div>
-                                            {/* BOTÕES DE AÇÃO EM ORDENS ABERTAS */}
                                             <div className="flex flex-col gap-1">
                                                 <ProtectedComponent requiredPermission="editor">
                                                     <div className="flex gap-1 mb-1">
@@ -286,7 +284,6 @@ const RefuelingPage = ({
 
                 {/* DIREITA: Histórico e Consultas */}
                 <div className="xl:col-span-8 space-y-6">
-                    {/* Painel de Últimas Ordens Emitidas (Restaurado e com Busca) */}
                     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
                         <div className="flex flex-col sm:flex-row justify-between items-center mb-4 pb-2 border-b gap-4">
                             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -327,6 +324,7 @@ const RefuelingPage = ({
                                                         {order.status}
                                                     </span>
                                                 </td>
+                                                {/* Uso do Helper de Data Segura */}
                                                 <td className="p-3">{formatDateSafe(order.date)}</td>
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
