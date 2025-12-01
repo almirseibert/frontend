@@ -20,14 +20,36 @@ const RefuelingOrderModal = ({
     apiClient,
     reloadData
 }) => {
+    
+    // --- HELPER: Tratamento de Datas (Corrige Invalid Date) ---
+    const safeDate = (dateInput) => {
+        if (!dateInput) return new Date();
+        try {
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte para ISO
+            const dateStr = dateInput.toString().replace(' ', 'T');
+            const d = new Date(dateStr);
+            return isNaN(d.getTime()) ? new Date() : d;
+        } catch {
+            return new Date();
+        }
+    };
+
+    const formatDateDisplay = (dateInput) => {
+        if (!dateInput) return 'N/A';
+        const d = safeDate(dateInput);
+        return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+    };
+
     // --- ESTADOS ---
     const [formData, setFormData] = useState({
         vehicleId: orderToEdit?.vehicleId || '',
         partnerId: orderToEdit?.partnerId || '',
         obraId: orderToEdit?.obraId || '',
         employeeId: orderToEdit?.employeeId || '',
-        // Ajuste de data para o input HTML (YYYY-MM-DD)
-        date: orderToEdit?.date ? new Date(orderToEdit.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        // Inicializa com a data correta (segura)
+        date: orderToEdit?.date 
+            ? safeDate(orderToEdit.date).toISOString().split('T')[0] 
+            : new Date().toISOString().split('T')[0],
         odometro: orderToEdit?.odometro?.toString() || '',
         horimetro: orderToEdit?.horimetro?.toString() || '',
         horimetroDigital: orderToEdit?.horimetroDigital?.toString() || '',
@@ -59,36 +81,17 @@ const RefuelingOrderModal = ({
 
     const isEditing = !!orderToEdit;
 
-    // --- HELPER: Formatação de Data Segura (Robusta) ---
-    const formatDateSafe = (dateInput) => {
-        if (!dateInput) return 'N/A';
-        try {
-            // Se já for objeto Date
-            if (dateInput instanceof Date) {
-                return isNaN(dateInput.getTime()) ? 'Data Inválida' : dateInput.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-            }
-            // Se for string, tenta corrigir formato SQL
-            const safeString = dateInput.toString().replace(' ', 'T');
-            const date = new Date(safeString);
-            
-            if (isNaN(date.getTime())) return 'Data Inválida';
-            return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        } catch (error) {
-            return 'Erro Data';
-        }
-    };
-
-    // --- HELPER: Ordenação de Obras (A-Z) ---
+    // --- ORDENAÇÃO ---
+    const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
+    const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
+    const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
+    
+    // Obras em Ordem Alfabética
     const sortedObras = useMemo(() => {
         return [...obras]
             .filter(o => o.status === 'ativa')
             .sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
-
-    // --- HELPER: Ordenações Gerais ---
-    const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
-    const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
-    const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
 
     // --- REGRAS DE GRUPO ---
     const vehicleGroup = useMemo(() => {
@@ -108,14 +111,10 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico de Abastecimento (Último) - Ordenação segura contra undefined e formato SQL
+            // Histórico seguro
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => {
-                    const dateA = a.date ? new Date(a.date.toString().replace(' ', 'T')) : new Date(0);
-                    const dateB = b.date ? new Date(b.date.toString().replace(' ', 'T')) : new Date(0);
-                    return dateB - dateA; // Decrescente
-                });
+                .sort((a,b) => safeDate(b.date) - safeDate(a.date));
             
             const last = history[0];
             setLastRefuelData(last);
@@ -124,7 +123,7 @@ const RefuelingOrderModal = ({
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
-                // Tenta pegar da obra/alocação atual
+                // 1. Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -132,7 +131,7 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
-                // Auto-completar do último abastecimento
+                // 2. Auto-completar do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
                 let autoLitros = formData.litrosLiberados;
@@ -164,7 +163,7 @@ const RefuelingOrderModal = ({
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
-            // Cálculo da Média dos 2 últimos
+            // Cálculo da Média
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
@@ -285,7 +284,7 @@ const RefuelingOrderModal = ({
 
 *Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})
 *Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
+*Combustível:* ${formData.fuelType.toUpperCase()}
 *Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
 
 _Por favor, confirme o recebimento._`;
@@ -332,6 +331,7 @@ _Por favor, confirme o recebimento._`;
         // Garante formato ISO correto para o backend
         let isoDate = new Date().toISOString();
         if (formData.date) {
+            // Adiciona hora fixa 12:00Z para evitar problemas de timezone com datas selecionadas no input
             const dateObj = new Date(formData.date + 'T12:00:00Z');
             if (!isNaN(dateObj.getTime())) {
                 isoDate = dateObj.toISOString();
@@ -353,7 +353,11 @@ _Por favor, confirme o recebimento._`;
 
         try {
             let res;
-            if (isEditing && orderToEdit?.id) {
+            if (isEditing) {
+                // Verificação de segurança para o ID
+                if (!orderToEdit?.id) {
+                    throw new Error("ID da ordem inválido para edição.");
+                }
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
                 setAlertMessage(`Ordem atualizada com sucesso!`);
             } else {
@@ -428,7 +432,7 @@ _Por favor, confirme o recebimento._`;
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
                                     <div className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Último Abastecimento</div>
-                                    <p>Data: <strong>{formatDateSafe(lastRefuelData.date)}</strong></p>
+                                    <p>Data: <strong>{formatDateDisplay(lastRefuelData.date)}</strong></p>
                                     <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
                                     <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
@@ -440,6 +444,7 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
+                        {/* LEITURAS DINÂMICAS */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -502,11 +507,10 @@ _Por favor, confirme o recebimento._`;
                             <label className="block text-sm font-bold text-blue-900 mb-2">Combustível</label>
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border border-blue-200 rounded mb-3 bg-white" required>
                                 <option value="">Selecione...</option>
-                                <option value="dieselS10">Diesel S10</option>
+                                <option value="gasolinaComum">Gasolina Comum</option>
+                                <option value="gasolinaAditivada">Gasolina Aditivada</option>
                                 <option value="dieselS500">Diesel S500</option>
-                                <option value="gasolina">Gasolina</option>
-                                <option value="etanol">Etanol</option>
-                                <option value="arla32">Arla 32</option>
+                                <option value="dieselS10">Diesel S10</option>
                             </select>
                             
                             <div className="flex items-center gap-2 mb-2">

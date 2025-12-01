@@ -40,14 +40,9 @@ const RefuelingPage = ({
     const formatDateSafe = (dateInput) => {
         if (!dateInput) return 'N/A';
         try {
-            // Se já for objeto Date
-            if (dateInput instanceof Date) {
-                return isNaN(dateInput.getTime()) ? 'Data Inválida' : dateInput.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-            }
-            // Se for string, tenta corrigir formato SQL
-            const safeString = dateInput.toString().replace(' ', 'T');
-            const date = new Date(safeString);
-            
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), substitui espaço por T
+            const dateStr = dateInput.toString().replace(' ', 'T');
+            const date = new Date(dateStr);
             if (isNaN(date.getTime())) return 'Data Inválida';
             return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
         } catch { return 'Erro'; }
@@ -96,8 +91,12 @@ const RefuelingPage = ({
             const employee = employeesList.find(e => e.id === order.employeeId);
             
             // Correção de Data no PDF
-            const safeDateString = order.date ? order.date.toString().replace(' ', 'T') : new Date().toISOString();
-            const emissionDate = new Date(safeDateString);
+            let emissionDate = new Date();
+            if (order.date) {
+                try {
+                    emissionDate = new Date(order.date.toString().replace(' ', 'T'));
+                } catch (e) {}
+            }
 
             if (logoDataUrl) {
                 const imgWidth = 45;
