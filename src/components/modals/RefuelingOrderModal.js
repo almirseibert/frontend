@@ -21,16 +21,16 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER CRÍTICO: Tratamento de Datas (SQL String -> ISO JS) ---
-    // Resolve o problema de "Invalid Date" no Safari/Mobile convertendo "2024-01-01 12:00:00" para "2024-01-01T12:00:00"
+    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash) ---
     const safeDate = (dateInput) => {
-        if (!dateInput) return new Date(); // Fallback para hoje
+        if (!dateInput) return new Date(); // Fallback para hoje se nulo (Melhor que epoch 1970 para UX)
         try {
             if (dateInput instanceof Date) {
                 return isNaN(dateInput.getTime()) ? new Date() : dateInput;
             }
-            // Se for string, substitui espaço por T se necessário
-            const dateStr = typeof dateInput === 'string' ? dateInput.replace(' ', 'T') : dateInput;
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte para ISO
+            // Garante que string seja tratada
+            const dateStr = String(dateInput).replace(' ', 'T');
             const d = new Date(dateStr);
             return isNaN(d.getTime()) ? new Date() : d;
         } catch {
@@ -46,32 +46,36 @@ const RefuelingOrderModal = ({
 
     // --- ESTADOS ---
     const [formData, setFormData] = useState({
-        vehicleId: '',
-        partnerId: '',
-        obraId: '',
-        employeeId: '',
-        date: new Date().toISOString().split('T')[0], // Padrão: Hoje
-        odometro: '',
-        horimetro: '',
-        horimetroDigital: '',
-        horimetroAnalogico: '',
-        isFillUp: false,
-        litrosLiberados: '',
-        fuelType: '',
-        needsArla: false,
-        isFillUpArla: false,
-        litrosLiberadosArla: '',
-        outros: '',
-        outrosGeraValor: false,
-        outrosValor: '',
+        vehicleId: orderToEdit?.vehicleId || '',
+        partnerId: orderToEdit?.partnerId || '',
+        obraId: orderToEdit?.obraId || '',
+        employeeId: orderToEdit?.employeeId || '',
+        date: orderToEdit?.date 
+            ? safeDate(orderToEdit.date).toISOString().split('T')[0] 
+            : new Date().toISOString().split('T')[0],
+        odometro: orderToEdit?.odometro?.toString() || '',
+        horimetro: orderToEdit?.horimetro?.toString() || '',
+        horimetroDigital: orderToEdit?.horimetroDigital?.toString() || '',
+        horimetroAnalogico: orderToEdit?.horimetroAnalogico?.toString() || '',
+        isFillUp: !!orderToEdit?.isFillUp,
+        litrosLiberados: orderToEdit?.litrosLiberados?.toString() || '',
+        fuelType: orderToEdit?.fuelType || '',
+        needsArla: !!orderToEdit?.needsArla,
+        isFillUpArla: !!orderToEdit?.isFillUpArla,
+        litrosLiberadosArla: orderToEdit?.litrosLiberadosArla?.toString() || '',
+        outros: orderToEdit?.outros || '',
+        outrosGeraValor: !!orderToEdit?.outrosGeraValor,
+        outrosValor: orderToEdit?.outrosValor?.toString() || '',
     });
 
     const [isSaving, setIsSaving] = useState(false);
     const [blockReason, setBlockReason] = useState(null); 
     const [budgetWarning, setBudgetWarning] = useState(null);
     const [requiresBudgetOverride, setRequiresBudgetOverride] = useState(false);
+    
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordAction, setPasswordAction] = useState(null); 
+    
     const [warnings, setWarnings] = useState([]); 
     const [lastRefuelData, setLastRefuelData] = useState(null);
     const [lastAverage, setLastAverage] = useState(null); 
@@ -79,33 +83,6 @@ const RefuelingOrderModal = ({
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
 
     const isEditing = !!orderToEdit;
-
-    // --- CARREGAMENTO INICIAL ---
-    useEffect(() => {
-        if (orderToEdit) {
-            setFormData({
-                vehicleId: orderToEdit.vehicleId || '',
-                partnerId: orderToEdit.partnerId || '',
-                obraId: orderToEdit.obraId || '',
-                employeeId: orderToEdit.employeeId || '',
-                // Garante que a data venha formatada para o input type="date"
-                date: safeDate(orderToEdit.date).toISOString().split('T')[0],
-                odometro: orderToEdit.odometro?.toString() || '',
-                horimetro: orderToEdit.horimetro?.toString() || '',
-                horimetroDigital: orderToEdit.horimetroDigital?.toString() || '',
-                horimetroAnalogico: orderToEdit.horimetroAnalogico?.toString() || '',
-                isFillUp: !!orderToEdit.isFillUp,
-                litrosLiberados: orderToEdit.litrosLiberados?.toString() || '',
-                fuelType: orderToEdit.fuelType || '',
-                needsArla: !!orderToEdit.needsArla,
-                isFillUpArla: !!orderToEdit.isFillUpArla,
-                litrosLiberadosArla: orderToEdit.litrosLiberadosArla?.toString() || '',
-                outros: orderToEdit.outros || '',
-                outrosGeraValor: !!orderToEdit.outrosGeraValor,
-                outrosValor: orderToEdit.outrosValor?.toString() || '',
-            });
-        }
-    }, [orderToEdit]);
 
     // --- ORDENAÇÃO ---
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
@@ -121,17 +98,18 @@ const RefuelingOrderModal = ({
         return Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
     }, [formData.vehicleId, vehicles, vehicleGroups]);
 
-    const isKmVehicle = vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões de Trecho';
     const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
     const isTruck = vehicleGroup === 'Caminhões';
+    // Se não for Maquina nem Caminhão, assume Km (Leve ou Trecho ou Indefinido)
+    const isKmVehicle = !isHeavyMachinery && !isTruck; 
 
-    // --- LÓGICA DE HISTÓRICO E AUTO-COMPLETE ---
+    // --- AUTO-PREENCHIMENTO E AVISOS ---
     useEffect(() => {
         if (formData.vehicleId) {
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Busca histórico usando safeDate para ordenação
+            // Histórico seguro
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
                 .sort((a,b) => safeDate(b.date) - safeDate(a.date));
@@ -140,7 +118,6 @@ const RefuelingOrderModal = ({
             setLastRefuelData(last);
 
             if (!isEditing) {
-                // Auto-preenchimento inteligente
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
@@ -151,14 +128,14 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
-                // Puxa dados do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
-                
+                let autoLitros = formData.litrosLiberados;
+
                 if (last) {
                     autoPartnerId = last.partnerId || '';
                     autoFuelType = last.fuelType || '';
-                    // Não puxamos litros automaticamente para forçar o preenchimento consciente, mas mantemos tipo de combustível e posto
+                    autoLitros = last.litrosAbastecidos ? last.litrosAbastecidos.toString() : '';
                 }
 
                 setFormData(prev => ({
@@ -167,7 +144,7 @@ const RefuelingOrderModal = ({
                     obraId: autoObraId || prev.obraId,
                     partnerId: autoPartnerId || prev.partnerId,
                     fuelType: autoFuelType || prev.fuelType,
-                    // Puxa leituras atuais do CADASTRO do veículo como sugestão inicial
+                    litrosLiberados: autoLitros || prev.litrosLiberados,
                     odometro: prev.odometro || vehicle.odometro?.toString() || '',
                     horimetro: prev.horimetro || vehicle.horimetro?.toString() || '',
                     horimetroDigital: prev.horimetroDigital || vehicle.horimetroDigital?.toString() || '',
@@ -175,23 +152,21 @@ const RefuelingOrderModal = ({
                 }));
             }
 
-            // Avisos
             const newWarnings = [];
             if (vehicle.naoPodeCircular) newWarnings.push("⚠️ VEÍCULO BLOQUEADO ('Não pode circular')");
             if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
-            // Média Simples
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
+                
                 let diff = 0;
                 let unit = 'Km/L';
 
-                // Lógica unificada de diferença
                 const getRead = (r) => parseFloat(r.horimetroDigital || r.horimetro || r.odometro || 0);
-                
+
                 if (isHeavyMachinery || (isTruck && vehicle.mediaCalculo === 'horimetro')) {
                     diff = getRead(last) - getRead(prev);
                     unit = 'L/Hr';
@@ -209,9 +184,9 @@ const RefuelingOrderModal = ({
                 setLastAverage(null);
             }
         }
-    }, [formData.vehicleId]); // Removido deps excessivas para evitar loop
+    }, [formData.vehicleId]); 
 
-    // --- VALIDAÇÃO DE REGRESSÃO ---
+    // --- VALIDAÇÕES DE LEITURA ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
@@ -219,7 +194,6 @@ const RefuelingOrderModal = ({
         }
         let reason = null;
         
-        // Validação genérica baseada no tipo
         const validateGrowth = (currentStr, lastStr, label, maxJump) => {
              const current = parseFloat(currentStr);
              const last = parseFloat(lastStr || 0);
@@ -232,15 +206,16 @@ const RefuelingOrderModal = ({
 
         if (isKmVehicle) {
             reason = validateGrowth(formData.odometro, lastRefuelData.odometro, 'Odômetro', 2000);
-        } else {
-            // Máquinas e Caminhões Hr
+        } else if (isTruck) {
+            reason = validateGrowth(formData.horimetro, lastRefuelData.horimetro, 'Horímetro Geral', 200);
+        } else if (isHeavyMachinery) {
             const curHr = formData.horimetroDigital || formData.horimetro || 0;
             const lastHr = lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0;
             reason = validateGrowth(curHr, lastHr, 'Horímetro', 100);
         }
         setBlockReason(reason);
 
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData]);
+    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle, isTruck, isHeavyMachinery]);
 
     // --- ORÇAMENTO ---
     useEffect(() => {
@@ -263,12 +238,51 @@ const RefuelingOrderModal = ({
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
             }
+        } else {
+            setBudgetWarning(null);
+            setRequiresBudgetOverride(false);
         }
     }, [formData.obraId, expenses]);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+        if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
+    };
+
+    const sendToWhatsApp = () => {
+        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
+        const partner = partners.find(p => p.id === formData.partnerId);
+        const employee = employees.find(e => e.id === formData.employeeId);
+        
+        // Dados para PDF de Preview
+        const pdfData = {
+            ...formData,
+            id: orderToEdit?.id || 'PREVIEW',
+            authNumber: orderToEdit?.authNumber || 'NOVA',
+            partnerName: partner?.razaoSocial || 'Posto Selecionado',
+            employeeName: employee?.nome || 'Motorista Selecionado',
+        };
+        
+        // Gera o PDF (Download)
+        onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
+
+        if (!partner?.telefone) {
+            setAlertMessage("Posto selecionado não possui telefone cadastrado. O PDF foi baixado.");
+            return;
+        }
+
+        const msg = `*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*\n` +
+                    `*Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})\n` +
+                    `*Motorista:* ${employee?.nome || 'N/A'}\n` +
+                    `*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType}\n` +
+                    `*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}\n` +
+                    `_Por favor, confirme o recebimento._`;
+
+        // Abre WhatsApp
+        setTimeout(() => {
+            window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+        }, 1000);
     };
 
     const handleSaveClick = (e) => {
@@ -299,16 +313,19 @@ const RefuelingOrderModal = ({
         setIsNoHorimetroConfirmVisible(false);
         setShowPasswordModal(false);
 
-        // --- PREPARAÇÃO DO PAYLOAD (Strict Mode Friendly) ---
-        // Converte strings vazias em null ou 0, pois o MySQL reclama de "" em campos numéricos
         const safeFloat = (val) => {
             if (val === '' || val === null || val === undefined) return null;
             const num = parseFloat(val);
             return isNaN(num) ? null : num;
         };
 
-        // Garante data com hora para evitar problemas de timezone
-        const finalDate = formData.date ? `${formData.date}T12:00:00` : new Date().toISOString();
+        let isoDate = new Date().toISOString();
+        if (formData.date) {
+            const dateObj = new Date(formData.date + 'T12:00:00Z');
+            if (!isNaN(dateObj.getTime())) {
+                isoDate = dateObj.toISOString();
+            }
+        }
 
         const payload = {
             ...formData,
@@ -319,7 +336,7 @@ const RefuelingOrderModal = ({
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
-            date: finalDate, 
+            date: isoDate,
             createdBy: user 
         };
 
@@ -334,7 +351,6 @@ const RefuelingOrderModal = ({
             }
             reloadData();
             
-            // Gerar PDF automático após salvar
             if (res) {
                  const partner = partners.find(p => p.id === payload.partnerId);
                  const employee = employees.find(e => e.id === payload.employeeId);
@@ -357,34 +373,13 @@ const RefuelingOrderModal = ({
         }
     };
 
-    // --- WHATSAPP ---
-    const sendToWhatsApp = () => {
-        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
-        const partner = partners.find(p => p.id === formData.partnerId);
-        const employee = employees.find(e => e.id === formData.employeeId);
-        
-        if (!partner?.telefone) {
-            setAlertMessage("Posto sem telefone cadastrado.");
-            return;
-        }
-
-        const msg = `*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*\n` +
-                    `*Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})\n` +
-                    `*Motorista:* ${employee?.nome || 'N/A'}\n` +
-                    `*Combustível:* ${formData.fuelType}\n` +
-                    `*Qtd:* ${formData.isFillUp ? 'COMPLETAR' : formData.litrosLiberados + ' Litros'}\n` +
-                    `_Por favor, confirme o recebimento._`;
-
-        window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-    };
-
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col">
                 <div className="p-5 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={20}/> : <FileText size={20}/>}
-                        {isEditing ? 'Editar' : 'Emitir'} Ordem
+                        {isEditing ? 'Editar' : 'Emitir'} Ordem de Abastecimento
                     </h2>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition"><X size={20}/></button>
                 </div>
@@ -465,6 +460,14 @@ const RefuelingOrderModal = ({
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                             </select>
                         </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Obra / Alocação</label>
+                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg">
+                                <option value="">Nenhuma / Pátio</option>
+                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                                {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -499,8 +502,16 @@ const RefuelingOrderModal = ({
                                     <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-4 h-4 text-blue-600 rounded"/>
                                     <label htmlFor="arla" className="text-sm font-bold text-blue-900">Abastecer Arla 32</label>
                                 </div>
-                                {formData.needsArla && !formData.isFillUpArla && (
-                                     <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-2 border rounded text-sm" placeholder="Litros Arla"/>
+                                {formData.needsArla && (
+                                    <div className="pl-6 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" name="isFillUpArla" checked={formData.isFillUpArla} onChange={handleChange} className="w-4 h-4"/>
+                                            <label className="text-sm">Completar Arla</label>
+                                        </div>
+                                        {!formData.isFillUpArla && (
+                                             <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-2 border rounded text-sm" placeholder="Litros Arla"/>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -510,13 +521,18 @@ const RefuelingOrderModal = ({
                             <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-2.5 border rounded-lg"/>
                         </div>
 
-                        {/* Obra e Outros omitidos para brevidade, mas devem seguir o padrão acima */}
-                        
-                        {isEditing && (
-                            <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
-                                <Send size={18}/> WhatsApp
-                            </button>
-                        )}
+                        <div className="bg-gray-50 p-3 rounded-lg border">
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Outros / Observação</label>
+                            <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-2 border rounded mb-2" placeholder="Ex: Óleo de motor, Filtro..."/>
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-4 h-4 text-green-600"/>
+                                <label htmlFor="geraValor" className="text-sm font-medium text-gray-700">Preenchimento Gera Valor (Cobrar R$ na Confirmação)</label>
+                            </div>
+                        </div>
+
+                        <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
+                            <Send size={18}/> {isEditing ? 'Baixar PDF & Abrir WhatsApp' : 'Pré-visualizar & WhatsApp'}
+                        </button>
                     </div>
                 </form>
 
@@ -524,7 +540,7 @@ const RefuelingOrderModal = ({
                     <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">Cancelar</button>
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-6 py-2.5 bg-red-500 text-white font-bold rounded-lg shadow hover:bg-red-600 transition flex items-center gap-2">
-                            <Lock size={18}/> Liberar
+                            <Lock size={18}/> Liberar com Senha
                         </button>
                     ) : (
                         <button onClick={handleSaveClick} disabled={isSaving} className="px-6 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-2">
@@ -545,7 +561,7 @@ const RefuelingOrderModal = ({
                 )}
                 {showPasswordModal && (
                     <PasswordConfirmationModal
-                        message={passwordAction === 'blockOverride' ? 'Bloqueio Operacional' : 'Bloqueio Financeiro'}
+                        message={passwordAction === 'blockOverride' ? `BLOQUEIO: ${blockReason}` : 'Bloqueio Financeiro: Acima de 20% do contrato.'}
                         onConfirm={executeSave}
                         onClose={() => setShowPasswordModal(false)}
                         apiClient={apiClient}
