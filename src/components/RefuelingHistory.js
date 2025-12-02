@@ -1,8 +1,5 @@
-import React, { useMemo } from 'react';
-import { Download, Printer, Droplet } from 'lucide-react';
-// Correção: Importação via CDN para funcionar sem npm install local
-import jsPDF from 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm';
-import autoTable from 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/+esm';
+import React, { useMemo, useState } from 'react';
+import { Download, Printer, Droplet, Loader } from 'lucide-react';
 
 const RefuelingHistory = ({ 
     vehicleId, 
@@ -14,6 +11,8 @@ const RefuelingHistory = ({
     onGeneratePDF
 }) => {
     
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
     // --- HELPER SAFE DATE ---
     const safeDate = (dateInput) => {
         if (!dateInput) return new Date(0);
@@ -30,7 +29,6 @@ const RefuelingHistory = ({
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
         // 1. Filtra e Ordena usando SAFE DATE para garantir ordem cronológica correta
-        // Isso é crucial pois o cálculo da média depende da posição [n] vs [n+1]
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
             .sort((a,b) => safeDate(b.date) - safeDate(a.date)); // Descendente (Mais novo primeiro)
@@ -97,16 +95,40 @@ const RefuelingHistory = ({
         return { historyWithAverages, overallAverage, unit, readingLabel };
     }, [vehicleId, refuelings, vehicles, vehicleGroups]);
 
-    const generateHistoryPDF = () => {
+    // --- FUNÇÃO DE CARREGAMENTO DINÂMICO DE SCRIPTS ---
+    const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    };
+
+    const generateHistoryPDF = async () => {
+        setIsGeneratingPdf(true);
         try {
-            const doc = new jsPDF();
+            // Carrega jsPDF e AutoTable via CDN em tempo de execução
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+
             const vehicle = vehicles.find(v => v.id === vehicleId);
-            if (!vehicle) return;
+            if (!vehicle || !window.jspdf) {
+                throw new Error("Biblioteca PDF não carregada ou veículo não encontrado.");
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
 
             doc.setFontSize(16);
             doc.text(`Histórico de Consumo - ${vehicle.registroInterno}`, 14, 20);
             
-            autoTable(doc, {
+            doc.autoTable({
                 startY: 30,
                 head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
                 body: processedHistory.historyWithAverages.map(h => [
@@ -123,7 +145,9 @@ const RefuelingHistory = ({
             doc.save(`Historico_${vehicle.registroInterno}.pdf`);
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
-            alert("Erro ao gerar o PDF. Verifique o console para mais detalhes.");
+            alert("Erro ao gerar o PDF. Verifique sua conexão com a internet.");
+        } finally {
+            setIsGeneratingPdf(false);
         }
     };
 
@@ -146,8 +170,13 @@ const RefuelingHistory = ({
                     </div>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 flex items-center justify-center">
-                     <button onClick={generateHistoryPDF} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-bold shadow-sm">
-                        <Download size={16}/> Baixar Relatório PDF
+                     <button 
+                        onClick={generateHistoryPDF} 
+                        disabled={isGeneratingPdf}
+                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-bold shadow-sm disabled:opacity-50 transition"
+                    >
+                        {isGeneratingPdf ? <Loader className="animate-spin" size={16}/> : <Download size={16}/>} 
+                        {isGeneratingPdf ? 'Gerando...' : 'Baixar Relatório PDF'}
                     </button>
                 </div>
             </div>
