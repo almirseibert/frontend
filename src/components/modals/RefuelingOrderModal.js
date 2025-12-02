@@ -23,13 +23,13 @@ const RefuelingOrderModal = ({
     
     // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash) ---
     const safeDate = (dateInput) => {
-        if (!dateInput) return new Date(0); // Retorna data epoch se nulo
+        if (!dateInput) return new Date(0); // Retorna data epoch se nulo para evitar erro
         try {
             // Se já for objeto Date
             if (dateInput instanceof Date) {
                 return isNaN(dateInput.getTime()) ? new Date(0) : dateInput;
             }
-            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte espaço para T (ISO)
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte para ISO
             const dateStr = dateInput.toString().replace(' ', 'T');
             const d = new Date(dateStr);
             return isNaN(d.getTime()) ? new Date(0) : d;
@@ -184,7 +184,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / liters) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -344,8 +344,12 @@ _Por favor, confirme o recebimento._`;
             }
         }
 
+        // BUSCA DADOS ADICIONAIS PARA ENVIAR (EVITA UNDEFINED NO BACKEND)
+        const selectedPartner = partners.find(p => p.id === formData.partnerId);
+
         const payload = {
             ...formData,
+            partnerName: selectedPartner ? selectedPartner.razaoSocial : null, // Envia o nome do posto
             odometro: safeFloat(formData.odometro),
             horimetro: safeFloat(formData.horimetro),
             horimetroDigital: safeFloat(formData.horimetroDigital),
