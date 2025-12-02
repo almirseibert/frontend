@@ -1,16 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
-// import ProtectedComponent from '../components/ProtectedComponent'; // REMOVIDO: Causava erro de build
-// import { jsPDF } from 'jspdf'; // REMOVIDO: Uso dinâmico via CDN
-// import autoTable from 'jspdf-autotable'; // REMOVIDO: Uso dinâmico via CDN
+import ProtectedComponent from '../components/ProtectedComponent'; // Restaurado
+import { jsPDF } from 'jspdf'; // Restaurado
+import autoTable from 'jspdf-autotable'; // Restaurado
 
-// AJUSTE DE IMPORTAÇÃO: Assumindo que os arquivos estão na mesma pasta para corrigir erro de resolução
-import RefuelingHistory from './RefuelingHistory';
-import RefuelingOrderModal from './RefuelingOrderModal';
-import ConfirmRefuelingModal from './ConfirmRefuelingModal';
-
-// Mock do ProtectedComponent para evitar quebra de build se o arquivo não existir
-const ProtectedComponent = ({ children }) => <>{children}</>;
+// Importações com os caminhos corretos (estrutura de pastas original)
+import RefuelingHistory from '../components/RefuelingHistory';
+import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
+import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
 
 const RefuelingPage = ({
     user,
@@ -39,6 +36,7 @@ const RefuelingPage = ({
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
+    // isGeneratingPdf não é mais necessário se o import for estático, mas mantive para compatibilidade visual se quiser usar loader
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
     // --- HELPER: Validação de Data (Consistente com todo o sistema) ---
@@ -96,32 +94,10 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- CARREGAMENTO DINÂMICO DE SCRIPTS ---
-    const loadScript = (src) => {
-        return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) {
-                resolve();
-                return;
-            }
-            const script = document.createElement('script');
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
-    };
-
-    const generateAuthorizationPDF = async (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
+    // --- GERAÇÃO DE PDF (Lógica Síncrona/Padrão) ---
+    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         setIsGeneratingPdf(true);
         try {
-            // Carrega bibliotecas
-            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
-
-            if (!window.jspdf) throw new Error("Falha ao carregar biblioteca PDF");
-
-            const { jsPDF } = window.jspdf;
-
             const buildPdf = (logoDataUrl) => {
                 const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                 const pageWidth = doc.internal.pageSize.getWidth();
@@ -205,7 +181,7 @@ const RefuelingPage = ({
                 const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
                 body.push(['Emitido por', createdByEmail]);
 
-                doc.autoTable({
+                autoTable(doc, {
                     startY: 35,
                     body: body,
                     theme: 'striped',
@@ -247,7 +223,7 @@ const RefuelingPage = ({
 
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
-            setAlertMessage("Erro ao carregar módulo de PDF. Verifique a internet.");
+            setAlertMessage("Erro ao gerar o PDF.");
             setIsGeneratingPdf(false);
         }
     };
@@ -391,7 +367,7 @@ const RefuelingPage = ({
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
                                                     <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
-                                                        <Printer size={16}/>
+                                                        {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
                                                     </button>
                                                     <ProtectedComponent requiredPermission="editor">
                                                         <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 rounded hover:bg-yellow-50"><Edit size={16}/></button>
