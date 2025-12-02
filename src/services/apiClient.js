@@ -181,7 +181,8 @@ const apiClient = {
     createComboioEntrada: async (data) => apiFetch('/comboioTransactions/entrada', { method: 'POST', body: JSON.stringify(data) }),
     createComboioSaida: async (data) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: JSON.stringify(data) }),
     createComboioDrenagem: async (data) => apiFetch('/comboioTransactions/drenagem', { method: 'POST', body: JSON.stringify(data) }),
-
+    updateComboioTransaction: async (id, data) => apiFetch(`/comboioTransactions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    
     // --- Multas ---
     getFines: async () => apiFetch('/fines'),
     getFineById: async (id) => apiFetch(`/fines/${id}`),
