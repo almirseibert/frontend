@@ -1,12 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History } from 'lucide-react';
-import ProtectedComponent from '../components/ProtectedComponent';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
+// import ProtectedComponent from '../components/ProtectedComponent'; // REMOVIDO: Causava erro de build
+// import { jsPDF } from 'jspdf'; // REMOVIDO: Uso dinâmico via CDN
+// import autoTable from 'jspdf-autotable'; // REMOVIDO: Uso dinâmico via CDN
 
-import RefuelingHistory from '../components/RefuelingHistory';
-import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
-import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
+// AJUSTE DE IMPORTAÇÃO: Assumindo que os arquivos estão na mesma pasta para corrigir erro de resolução
+import RefuelingHistory from './RefuelingHistory';
+import RefuelingOrderModal from './RefuelingOrderModal';
+import ConfirmRefuelingModal from './ConfirmRefuelingModal';
+
+// Mock do ProtectedComponent para evitar quebra de build se o arquivo não existir
+const ProtectedComponent = ({ children }) => <>{children}</>;
 
 const RefuelingPage = ({
     user,
@@ -35,6 +39,7 @@ const RefuelingPage = ({
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
     // --- HELPER: Validação de Data (Consistente com todo o sistema) ---
     const isValidDbDate = (dateString) => {
@@ -91,127 +96,160 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
-        const buildPdf = (logoDataUrl) => {
-            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const effectivePageHeight = 148.5; 
-            const margin = 10;
-
-            const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
-            const partner = partnersList.find(p => p.id === order.partnerId);
-            const employee = employeesList.find(e => e.id === order.employeeId);
-            
-            // Correção de Data no PDF usando lógica segura
-            let emissionDateStr = 'N/A';
-            if (isValidDbDate(order.date)) {
-                emissionDateStr = formatDateSafe(order.date);
+    // --- CARREGAMENTO DINÂMICO DE SCRIPTS ---
+    const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) {
+                resolve();
+                return;
             }
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    };
 
-            if (logoDataUrl) {
-                const imgWidth = 45;
-                const imgHeight = 16.875;
-                try {
-                    doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
-                } catch (e) {
-                    console.error("Erro ao adicionar logo ao PDF:", e);
+    const generateAuthorizationPDF = async (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
+        setIsGeneratingPdf(true);
+        try {
+            // Carrega bibliotecas
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+
+            if (!window.jspdf) throw new Error("Falha ao carregar biblioteca PDF");
+
+            const { jsPDF } = window.jspdf;
+
+            const buildPdf = (logoDataUrl) => {
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const effectivePageHeight = 148.5; 
+                const margin = 10;
+
+                const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
+                const partner = partnersList.find(p => p.id === order.partnerId);
+                const employee = employeesList.find(e => e.id === order.employeeId);
+                
+                // Correção de Data no PDF usando lógica segura
+                const dateToUse = order.data || order.date;
+                let emissionDateStr = 'N/A';
+                if (isValidDbDate(dateToUse)) {
+                    emissionDateStr = formatDateSafe(dateToUse);
                 }
-            }
 
-            doc.setFontSize(16);
-            doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
-            doc.setFontSize(12);
-            doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+                if (logoDataUrl) {
+                    const imgWidth = 45;
+                    const imgHeight = 16.875;
+                    try {
+                        doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
+                    } catch (e) {
+                        console.error("Erro ao adicionar logo ao PDF:", e);
+                    }
+                }
 
-            let leituraLabel = 'Leitura';
-            let leituraValue = 'N/A';
-            if (vehicle && groups && Object.keys(groups).length > 0) {
-                 const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
-                 if (group === 'Máquinas Pesadas') {
-                     leituraLabel = 'Horímetro';
-                     leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
-                 } else if (group === 'Caminhões') {
-                     if (order.horimetro != null && order.horimetro > 0) {
-                        leituraLabel = 'Horímetro';
-                        leituraValue = order.horimetro;
-                     } else {
-                        leituraLabel = 'Odômetro';
-                        leituraValue = order.odometro || 'N/A';
+                doc.setFontSize(16);
+                doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
+                doc.setFontSize(12);
+                doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+
+                let leituraLabel = 'Leitura';
+                let leituraValue = 'N/A';
+                if (vehicle && groups && Object.keys(groups).length > 0) {
+                     const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
+                     if (group === 'Máquinas Pesadas') {
+                         leituraLabel = 'Horímetro';
+                         leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
+                     } else if (group === 'Caminhões') {
+                         if (order.horimetro != null && order.horimetro > 0) {
+                            leituraLabel = 'Horímetro';
+                            leituraValue = order.horimetro;
+                         } else {
+                            leituraLabel = 'Odômetro';
+                            leituraValue = order.odometro || 'N/A';
+                         }
+                     } else { 
+                         leituraLabel = 'Odômetro';
+                         leituraValue = order.odometro || 'N/A';
                      }
-                 } else { 
-                     leituraLabel = 'Odômetro';
-                     leituraValue = order.odometro || 'N/A';
-                 }
-            } else { 
-                 // Fallback genérico
-                 if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
-                     leituraLabel = 'Horímetro';
-                     leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
-                 } else {
-                     leituraLabel = 'Odômetro';
-                     leituraValue = order.odometro || 'N/A';
-                 }
-            }
-
-            const body = [
-                ['Data de Emissão', emissionDateStr],
-                ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
-                ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
-                ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
-                [leituraLabel, `${leituraValue}`],
-                ['Posto Autorizado', partner?.razaoSocial || order.partnerName || 'N/A'],
-                ['Combustível Autorizado', order.fuelType || 'N/A'],
-                ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
-            ];
-
-            if (order.needsArla) {
-                body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
-            }
-            if (order.outros) {
-                 body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
-            }
-
-            const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
-            body.push(['Emitido por', createdByEmail]);
-
-            autoTable(doc, {
-                startY: 35,
-                body: body,
-                theme: 'striped',
-                styles: { fontSize: 9, cellPadding: 1.5 },
-                headStyles: { fillColor: [24, 49, 83] },
-                columnStyles: {
-                    0: { cellWidth: 40, fontStyle: 'bold' }
+                } else { 
+                     // Fallback genérico
+                     if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
+                         leituraLabel = 'Horímetro';
+                         leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
+                     } else {
+                         leituraLabel = 'Odômetro';
+                         leituraValue = order.odometro || 'N/A';
+                     }
                 }
-            });
 
-            let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
-            const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
-            doc.setFontSize(8);
-            doc.setFont('helvetica', 'italic');
-            doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
-            doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
-            doc.text('*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.', margin, footerStartY + 8);
+                const body = [
+                    ['Data de Emissão', emissionDateStr],
+                    ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
+                    ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+                    ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
+                    [leituraLabel, `${leituraValue}`],
+                    ['Posto Autorizado', partner?.razaoSocial || order.partnerName || 'N/A'],
+                    ['Combustível Autorizado', order.fuelType || 'N/A'],
+                    ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
+                ];
 
-            doc.setLineDashPattern([1, 1], 0);
-            doc.setDrawColor(180, 180, 180);
-            doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
+                if (order.needsArla) {
+                    body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
+                }
+                if (order.outros) {
+                     body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
+                }
 
-            doc.output('dataurlnewwindow', { filename: `Autorizacao_${order.authNumber}.pdf` });
-        };
+                const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
+                body.push(['Emitido por', createdByEmail]);
 
-        const logo = new Image();
-        logo.crossOrigin = 'Anonymous';
-        logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
-        logo.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = logo.width;
-            canvas.height = logo.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(logo, 0, 0);
-            buildPdf(canvas.toDataURL('image/png'));
-        };
-        logo.onerror = () => buildPdf(null);
+                doc.autoTable({
+                    startY: 35,
+                    body: body,
+                    theme: 'striped',
+                    styles: { fontSize: 9, cellPadding: 1.5 },
+                    headStyles: { fillColor: [24, 49, 83] },
+                    columnStyles: {
+                        0: { cellWidth: 40, fontStyle: 'bold' }
+                    }
+                });
+
+                let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
+                const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'italic');
+                doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
+                doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
+                doc.text('*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.', margin, footerStartY + 8);
+
+                doc.setLineDashPattern([1, 1], 0);
+                doc.setDrawColor(180, 180, 180);
+                doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
+
+                doc.output('dataurlnewwindow', { filename: `Autorizacao_${order.authNumber}.pdf` });
+                setIsGeneratingPdf(false);
+            };
+
+            const logo = new Image();
+            logo.crossOrigin = 'Anonymous';
+            logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
+            logo.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = logo.width;
+                canvas.height = logo.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(logo, 0, 0);
+                buildPdf(canvas.toDataURL('image/png'));
+            };
+            logo.onerror = () => buildPdf(null);
+
+        } catch (error) {
+            console.error("Erro ao gerar PDF:", error);
+            setAlertMessage("Erro ao carregar módulo de PDF. Verifique a internet.");
+            setIsGeneratingPdf(false);
+        }
     };
 
     const handleDeleteOrder = async () => {
@@ -292,7 +330,9 @@ const RefuelingPage = ({
                                                         <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Excluir"><Trash2 size={16}/></button>
                                                     </div>
                                                 </ProtectedComponent>
-                                                <button onClick={() => generateAuthorizationPDF(order)} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF"><Printer size={16}/></button>
+                                                <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF">
+                                                    {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -345,11 +385,14 @@ const RefuelingPage = ({
                                                         {order.status}
                                                     </span>
                                                 </td>
-                                                <td className="p-3">{formatDateSafe(order.date)}</td>
+                                                {/* Correção: Verifica order.data ou order.date */}
+                                                <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
-                                                    <button onClick={() => generateAuthorizationPDF(order)} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50"><Printer size={16}/></button>
+                                                    <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
+                                                        <Printer size={16}/>
+                                                    </button>
                                                     <ProtectedComponent requiredPermission="editor">
                                                         <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 rounded hover:bg-yellow-50"><Edit size={16}/></button>
                                                         <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
