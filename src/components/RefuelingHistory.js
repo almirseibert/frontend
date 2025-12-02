@@ -29,6 +29,7 @@ const RefuelingHistory = ({
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
         // 1. Filtra e Ordena usando SAFE DATE para garantir ordem cronológica correta
+        // Isso é crucial pois o cálculo da média depende da posição [n] vs [n+1]
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
             .sort((a,b) => safeDate(b.date) - safeDate(a.date)); // Descendente (Mais novo primeiro)

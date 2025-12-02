@@ -21,26 +21,28 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash) ---
+    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash no Safari) ---
     const safeDate = (dateInput) => {
-        if (!dateInput) return new Date(); // Fallback para hoje se nulo (Melhor que epoch 1970 para UX)
+        if (!dateInput) return new Date(0); // Retorna data epoch se nulo
         try {
+            // Se já for objeto Date
             if (dateInput instanceof Date) {
-                return isNaN(dateInput.getTime()) ? new Date() : dateInput;
+                return isNaN(dateInput.getTime()) ? new Date(0) : dateInput;
             }
-            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte para ISO
-            // Garante que string seja tratada
-            const dateStr = String(dateInput).replace(' ', 'T');
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte espaço para T (ISO)
+            const dateStr = dateInput.toString().replace(' ', 'T');
             const d = new Date(dateStr);
-            return isNaN(d.getTime()) ? new Date() : d;
+            return isNaN(d.getTime()) ? new Date(0) : d;
         } catch {
-            return new Date();
+            return new Date(0);
         }
     };
 
     const formatDateDisplay = (dateInput) => {
         if (!dateInput) return 'N/A';
         const d = safeDate(dateInput);
+        if (d.getTime() === 0) return 'Data Inválida';
+        // UTC para evitar diferença de fuso horário visual
         return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     };
 
@@ -50,6 +52,7 @@ const RefuelingOrderModal = ({
         partnerId: orderToEdit?.partnerId || '',
         obraId: orderToEdit?.obraId || '',
         employeeId: orderToEdit?.employeeId || '',
+        // Inicializa com a data correta (segura)
         date: orderToEdit?.date 
             ? safeDate(orderToEdit.date).toISOString().split('T')[0] 
             : new Date().toISOString().split('T')[0],
@@ -57,14 +60,14 @@ const RefuelingOrderModal = ({
         horimetro: orderToEdit?.horimetro?.toString() || '',
         horimetroDigital: orderToEdit?.horimetroDigital?.toString() || '',
         horimetroAnalogico: orderToEdit?.horimetroAnalogico?.toString() || '',
-        isFillUp: !!orderToEdit?.isFillUp,
+        isFillUp: orderToEdit?.isFillUp || false,
         litrosLiberados: orderToEdit?.litrosLiberados?.toString() || '',
         fuelType: orderToEdit?.fuelType || '',
-        needsArla: !!orderToEdit?.needsArla,
-        isFillUpArla: !!orderToEdit?.isFillUpArla,
+        needsArla: orderToEdit?.needsArla || false,
+        isFillUpArla: orderToEdit?.isFillUpArla || false,
         litrosLiberadosArla: orderToEdit?.litrosLiberadosArla?.toString() || '',
         outros: orderToEdit?.outros || '',
-        outrosGeraValor: !!orderToEdit?.outrosGeraValor,
+        outrosGeraValor: orderToEdit?.outrosGeraValor || false,
         outrosValor: orderToEdit?.outrosValor?.toString() || '',
     });
 
@@ -84,7 +87,7 @@ const RefuelingOrderModal = ({
 
     const isEditing = !!orderToEdit;
 
-    // --- ORDENAÇÃO ---
+    // --- ORDENAÇÃO DE LISTAS ---
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
@@ -98,10 +101,9 @@ const RefuelingOrderModal = ({
         return Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
     }, [formData.vehicleId, vehicles, vehicleGroups]);
 
+    const isKmVehicle = vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões de Trecho';
     const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
     const isTruck = vehicleGroup === 'Caminhões';
-    // Se não for Maquina nem Caminhão, assume Km (Leve ou Trecho ou Indefinido)
-    const isKmVehicle = !isHeavyMachinery && !isTruck; 
 
     // --- AUTO-PREENCHIMENTO E AVISOS ---
     useEffect(() => {
@@ -109,10 +111,10 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico seguro
+            // Histórico ordenado usando safeDate
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => safeDate(b.date) - safeDate(a.date));
+                .sort((a,b) => safeDate(b.date) - safeDate(a.date)); 
             
             const last = history[0];
             setLastRefuelData(last);
@@ -121,6 +123,7 @@ const RefuelingOrderModal = ({
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
+                // 1. Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -128,6 +131,7 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
+                // 2. Auto-completar do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
                 let autoLitros = formData.litrosLiberados;
@@ -152,12 +156,14 @@ const RefuelingOrderModal = ({
                 }));
             }
 
+            // Avisos Visuais
             const newWarnings = [];
-            if (vehicle.naoPodeCircular) newWarnings.push("⚠️ VEÍCULO BLOQUEADO ('Não pode circular')");
+            if (vehicle.naoPodeCircular) newWarnings.push("⚠️ CHECKBOX 'NÃO PODE CIRCULAR' MARCADO!");
             if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
+            // Cálculo da Média
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
@@ -165,75 +171,77 @@ const RefuelingOrderModal = ({
                 let diff = 0;
                 let unit = 'Km/L';
 
-                const getRead = (r) => parseFloat(r.horimetroDigital || r.horimetro || r.odometro || 0);
-
                 if (isHeavyMachinery || (isTruck && vehicle.mediaCalculo === 'horimetro')) {
-                    diff = getRead(last) - getRead(prev);
+                    const lastHr = parseFloat(last.horimetroDigital || last.horimetro || last.odometro || 0); 
+                    const prevHr = parseFloat(prev.horimetroDigital || prev.horimetro || prev.odometro || 0);
+                    diff = lastHr - prevHr;
                     unit = 'L/Hr';
                 } else {
-                    diff = parseFloat(last.odometro || 0) - parseFloat(prev.odometro || 0);
+                    const lastKm = parseFloat(last.odometro || 0);
+                    const prevKm = parseFloat(prev.odometro || 0);
+                    diff = lastKm - prevKm;
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / litros) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
-                    setLastAverage(null);
+                    setLastAverage('Incalculável');
                 }
             } else {
                 setLastAverage(null);
             }
         }
-    }, [formData.vehicleId]); 
+    }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
-    // --- VALIDAÇÕES DE LEITURA ---
+    // --- VALIDAÇÕES DE LEITURA (Regressão e Saltos) ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
             return;
         }
+
         let reason = null;
         
-        const validateGrowth = (currentStr, lastStr, label, maxJump) => {
-             const current = parseFloat(currentStr);
-             const last = parseFloat(lastStr || 0);
-             if (!isNaN(current) && last > 0) {
-                 if (current < last) return `${label} menor que anterior (${last}).`;
-                 if (current - last > maxJump) return `Salto excessivo em ${label} (> ${maxJump}).`;
-             }
-             return null;
-        };
-
-        if (isKmVehicle) {
-            reason = validateGrowth(formData.odometro, lastRefuelData.odometro, 'Odômetro', 2000);
-        } else if (isTruck) {
-            reason = validateGrowth(formData.horimetro, lastRefuelData.horimetro, 'Horímetro Geral', 200);
-        } else if (isHeavyMachinery) {
-            const curHr = formData.horimetroDigital || formData.horimetro || 0;
-            const lastHr = lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0;
-            reason = validateGrowth(curHr, lastHr, 'Horímetro', 100);
+        if (isKmVehicle && formData.odometro) {
+            const current = parseFloat(formData.odometro);
+            const last = parseFloat(lastRefuelData.odometro || 0);
+            if (current <= last) reason = `Odômetro menor ou igual ao anterior (${last} Km).`;
+            if (current - last > 1000) reason = `Salto excessivo (> 1000 Km).`;
         }
+
+        if (!isKmVehicle) {
+            const current = parseFloat(formData.horimetroDigital || formData.horimetro || 0); 
+            const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || 0);
+            
+            if (current > 0) { 
+                if (current <= last) reason = `Horímetro menor ou igual ao anterior (${last} Hr).`;
+                if (current - last > 50) reason = `Salto excessivo (> 50 Hr).`;
+            }
+        }
+
         setBlockReason(reason);
+    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle]);
 
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle, isTruck, isHeavyMachinery]);
-
-    // --- ORÇAMENTO ---
+    // --- REGRA DE ORÇAMENTO ---
     useEffect(() => {
-        if (formData.obraId) {
+        if (formData.obraId && obras.length > 0) {
             const obra = obras.find(o => o.id === formData.obraId);
-            if (obra?.valorContrato > 0) {
-                const totalExpenses = expenses
-                    .filter(e => e.obraId === formData.obraId && e.category === 'fuel')
-                    .reduce((sum, e) => sum + (parseFloat(e.value) || 0), 0);
-                
-                const limit = obra.valorContrato * 0.20;
-                if (totalExpenses >= limit) {
-                    setBudgetWarning(`Custo combustível (R$ ${totalExpenses.toLocaleString()}) atingiu 20% do contrato.`);
-                    setRequiresBudgetOverride(true);
-                } else {
-                    setBudgetWarning(null);
-                    setRequiresBudgetOverride(false);
-                }
+            if (!obra || !obra.valorContrato || obra.valorContrato <= 0) {
+                setBudgetWarning(null);
+                setRequiresBudgetOverride(false);
+                return;
+            }
+
+            const totalFuelExpenses = expenses
+                .filter(e => e.obraId === formData.obraId && e.category === 'fuel')
+                .reduce((sum, e) => sum + (parseFloat(e.value) || 0), 0);
+
+            const limit = obra.valorContrato * 0.20; 
+            
+            if (totalFuelExpenses >= limit) {
+                setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
+                setRequiresBudgetOverride(true);
             } else {
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
@@ -242,7 +250,7 @@ const RefuelingOrderModal = ({
             setBudgetWarning(null);
             setRequiresBudgetOverride(false);
         }
-    }, [formData.obraId, expenses]);
+    }, [formData.obraId, obras, expenses]);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -250,36 +258,37 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    const sendToWhatsApp = () => {
+    const sendToWhatsApp = async () => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
-        // Dados para PDF de Preview
         const pdfData = {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
             authNumber: orderToEdit?.authNumber || 'NOVA',
-            partnerName: partner?.razaoSocial || 'Posto Selecionado',
-            employeeName: employee?.nome || 'Motorista Selecionado',
+            partnerName: partner?.razaoSocial,
+            employeeName: employee?.nome,
         };
         
-        // Gera o PDF (Download)
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
         if (!partner?.telefone) {
-            setAlertMessage("Posto selecionado não possui telefone cadastrado. O PDF foi baixado.");
+            setAlertMessage("O posto selecionado não possui telefone cadastrado. O PDF foi baixado.");
             return;
         }
 
-        const msg = `*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*\n` +
-                    `*Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})\n` +
-                    `*Motorista:* ${employee?.nome || 'N/A'}\n` +
-                    `*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType}\n` +
-                    `*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}\n` +
-                    `_Por favor, confirme o recebimento._`;
+        const msg = 
+`*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*
+*Segue em anexo o arquivo PDF da autorização.*
 
-        // Abre WhatsApp
+*Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
+*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
+
+_Por favor, confirme o recebimento._`;
+
         setTimeout(() => {
             window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
         }, 1000);
@@ -305,6 +314,7 @@ const RefuelingOrderModal = ({
              setIsNoHorimetroConfirmVisible(true);
              return;
         }
+
         executeSave();
     };
 
@@ -314,13 +324,14 @@ const RefuelingOrderModal = ({
         setShowPasswordModal(false);
 
         const safeFloat = (val) => {
-            if (val === '' || val === null || val === undefined) return null;
             const num = parseFloat(val);
             return isNaN(num) ? null : num;
         };
 
+        // Garante formato ISO correto para o backend
         let isoDate = new Date().toISOString();
         if (formData.date) {
+            // Adiciona hora fixa 12:00Z para evitar problemas de timezone com datas selecionadas no input
             const dateObj = new Date(formData.date + 'T12:00:00Z');
             if (!isNaN(dateObj.getTime())) {
                 isoDate = dateObj.toISOString();
@@ -363,11 +374,11 @@ const RefuelingOrderModal = ({
                  };
                  onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
             }
+            
             onClose();
         } catch (error) {
             console.error(error);
-            const msg = error.response?.data?.error || error.message;
-            setAlertMessage("Erro ao salvar ordem: " + msg);
+            setAlertMessage("Erro ao salvar ordem: " + (error.response?.data?.error || error.message));
         } finally {
             setIsSaving(false);
         }
@@ -388,11 +399,13 @@ const RefuelingOrderModal = ({
                     {warnings.map((w, i) => (
                         <div key={i} className="flex items-center gap-2 p-2 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-sm font-medium"><Info size={16}/> {w}</div>
                     ))}
+                    
                     {blockReason && (
                         <div className="flex items-center gap-2 p-3 bg-red-100 text-red-800 rounded border border-red-200 text-sm font-bold animate-pulse">
                             <Lock size={16}/> BLOQUEIO: {blockReason}
                         </div>
                     )}
+
                     {budgetWarning && (
                         <div className="flex items-center gap-2 p-3 bg-orange-100 text-orange-900 rounded border border-orange-200 text-sm font-bold">
                             <Wallet size={16}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
@@ -404,49 +417,56 @@ const RefuelingOrderModal = ({
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-1">Veículo *</label>
-                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" required>
+                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none transition" required>
                                 <option value="">Selecione...</option>
                                 {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
                             </select>
                         </div>
                         
+                        {/* CARD ÚLTIMO ABASTECIMENTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
-                                    <div className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Último: {formatDateDisplay(lastRefuelData.date)}</div>
-                                    <p>{lastRefuelData.partnerName} - {lastRefuelData.fuelType}</p>
+                                    <div className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Último Abastecimento</div>
+                                    <p>Data: <strong>{formatDateDisplay(lastRefuelData.date)}</strong></p>
+                                    <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
+                                    <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
+                                    <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
                                 </div>
                                 <div className="text-right">
-                                    <div className="font-bold text-gray-700 mb-1 flex items-center justify-end gap-1"><Activity size={12}/> Média</div>
+                                    <div className="font-bold text-gray-700 mb-1 flex items-center justify-end gap-1"><Activity size={12}/> Média Anterior</div>
                                     <p className="text-lg font-bold text-blue-600">{lastAverage || '--'}</p>
                                 </div>
                             </div>
                         )}
 
+                        {/* LEITURAS DINÂMICAS */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                            <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras (Atualizar se necessário)</h3>
+                            <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 {isKmVehicle && (
                                     <div className="col-span-2">
                                         <label className="block text-sm font-bold text-gray-700">Odômetro (Km)</label>
-                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.odometro || '0'}`}/>
+                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`}/>
                                     </div>
                                 )}
+                                
                                 {isTruck && (
                                     <div className="col-span-2">
                                         <label className="block text-sm font-bold text-gray-700">Horímetro Geral (Hrs)</label>
-                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetro || '0'}`}/>
+                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`}/>
                                     </div>
                                 )}
+
                                 {isHeavyMachinery && (
                                     <>
                                         <div>
-                                            <label className="block text-sm font-bold text-gray-700">Hr Digital</label>
-                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroDigital || '0'}`}/>
+                                            <label className="block text-sm font-bold text-gray-700">Horímetro Digital</label>
+                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroDigital || 'N/A'}`}/>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-bold text-gray-700">Hr Analógico</label>
-                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroAnalogico || '0'}`}/>
+                                            <label className="block text-sm font-bold text-gray-700">Horímetro Analógico</label>
+                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroAnalogico || 'N/A'}`}/>
                                         </div>
                                     </>
                                 )}
@@ -454,7 +474,7 @@ const RefuelingOrderModal = ({
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Motorista</label>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Motorista / Operador</label>
                             <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg" required>
                                 <option value="">Selecione...</option>
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
@@ -483,10 +503,10 @@ const RefuelingOrderModal = ({
                             <label className="block text-sm font-bold text-blue-900 mb-2">Combustível</label>
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border border-blue-200 rounded mb-3 bg-white" required>
                                 <option value="">Selecione...</option>
-                                <option value="dieselS10">Diesel S10</option>
-                                <option value="dieselS500">Diesel S500</option>
                                 <option value="gasolinaComum">Gasolina Comum</option>
                                 <option value="gasolinaAditivada">Gasolina Aditivada</option>
+                                <option value="dieselS500">Diesel S500</option>
+                                <option value="dieselS10">Diesel S10</option>
                             </select>
                             
                             <div className="flex items-center gap-2 mb-2">
@@ -530,14 +550,17 @@ const RefuelingOrderModal = ({
                             </div>
                         </div>
 
-                        <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
-                            <Send size={18}/> {isEditing ? 'Baixar PDF & Abrir WhatsApp' : 'Pré-visualizar & WhatsApp'}
-                        </button>
+                        {isEditing && (
+                            <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
+                                <Send size={18}/> Baixar PDF & Abrir WhatsApp
+                            </button>
+                        )}
                     </div>
                 </form>
 
                 <div className="p-5 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
                     <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition">Cancelar</button>
+                    {/* Botão Condicional para Bloqueio */}
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-6 py-2.5 bg-red-500 text-white font-bold rounded-lg shadow hover:bg-red-600 transition flex items-center gap-2">
                             <Lock size={18}/> Liberar com Senha
@@ -548,26 +571,33 @@ const RefuelingOrderModal = ({
                         </button>
                     )}
                 </div>
-
-                {isNoHorimetroConfirmVisible && (
-                    <ConfirmationModal 
-                        title="Aviso de Segurança" 
-                        message={noHorimetroWarning} 
-                        onConfirm={executeSave} 
-                        onClose={() => setIsNoHorimetroConfirmVisible(false)}
-                        confirmText="Salvar Mesmo Assim"
-                        confirmColor="bg-red-600 hover:bg-red-700 text-white"
-                    />
-                )}
-                {showPasswordModal && (
-                    <PasswordConfirmationModal
-                        message={passwordAction === 'blockOverride' ? `BLOQUEIO: ${blockReason}` : 'Bloqueio Financeiro: Acima de 20% do contrato.'}
-                        onConfirm={executeSave}
-                        onClose={() => setShowPasswordModal(false)}
-                        apiClient={apiClient}
-                    />
-                )}
             </div>
+
+            {/* Modal de Confirmação para Horímetro Vazio */}
+            {isNoHorimetroConfirmVisible && (
+                <ConfirmationModal 
+                    title="Aviso de Segurança" 
+                    message={noHorimetroWarning} 
+                    onConfirm={executeSave} 
+                    onClose={() => setIsNoHorimetroConfirmVisible(false)}
+                    confirmText="Salvar Mesmo Assim"
+                    confirmColor="bg-red-600 hover:bg-red-700 text-white"
+                />
+            )}
+
+            {/* Modal de Senha para Override */}
+            {showPasswordModal && (
+                <PasswordConfirmationModal
+                    message={
+                        passwordAction === 'blockOverride' 
+                        ? `BLOQUEIO OPERACIONAL: ${blockReason}\nInsira a senha administrativa para liberar esta ordem.`
+                        : `BLOQUEIO FINANCEIRO: Esta obra excedeu 20% do contrato.\nInsira a senha administrativa para autorizar.`
+                    }
+                    onConfirm={executeSave}
+                    onClose={() => setShowPasswordModal(false)}
+                    apiClient={apiClient}
+                />
+            )}
         </div>
     );
 };

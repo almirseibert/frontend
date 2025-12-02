@@ -21,6 +21,16 @@ const ConfirmRefuelingModal = ({
     const [averageAlert, setAverageAlert] = useState(null); 
     const [isSaving, setIsSaving] = useState(false);
 
+    // --- HELPER SAFE DATE (CRÍTICO PARA SAFARI) ---
+    const safeDate = (dateInput) => {
+        if (!dateInput) return new Date(0);
+        try {
+            const dateStr = dateInput.toString().replace(' ', 'T');
+            const d = new Date(dateStr);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        } catch { return new Date(0); }
+    };
+
     // Alerta de Média (Regra 4) - Lógica Completa e Expandida
     useEffect(() => {
         // Zera alerta se dados insuficientes
@@ -29,10 +39,10 @@ const ConfirmRefuelingModal = ({
         if (!litros || !kmOuHrConfirmado || parseFloat(litros) <= 0) return;
         
         // 1. Busca histórico anterior deste veículo (apenas concluídas)
-        // Ordena do mais recente para o mais antigo
+        // Ordena do mais recente para o mais antigo usando SAFE DATE
         const history = refuelings
             .filter(r => r.vehicleId === order.vehicleId && r.status === 'Concluída')
-            .sort((a,b) => new Date(b.date) - new Date(a.date));
+            .sort((a,b) => safeDate(b.date) - safeDate(a.date));
         
         // Se não houver histórico suficiente para comparação, para por aqui
         if (history.length === 0) return;
@@ -95,8 +105,6 @@ const ConfirmRefuelingModal = ({
             const baselineAverage = sumAvgs / count;
             
             // DETECÇÃO DE QUEDA DE 25%
-            // Se a média atual for menor que 75% da média histórica, alerta.
-            // Exemplo: Fazia 10 Km/L. Agora fez 7 Km/L. (7 < 7.5) -> Alerta.
             if (currentAverage < (baselineAverage * 0.75)) {
                 setAverageAlert(`⚠️ ALERTA DE CONSUMO: Média atual (${currentAverage.toFixed(2)}) caiu mais de 25% em relação à média recente (${baselineAverage.toFixed(2)}).`);
             }
@@ -108,11 +116,12 @@ const ConfirmRefuelingModal = ({
         e.preventDefault();
         setIsSaving(true);
         try {
+            // Conversão segura para evitar NaN
             const payload = {
-                litrosAbastecidos: parseFloat(litros),
-                litrosAbastecidosArla: order.needsArla ? parseFloat(litrosArla) : 0,
+                litrosAbastecidos: parseFloat(litros) || 0,
+                litrosAbastecidosArla: order.needsArla ? (parseFloat(litrosArla) || 0) : 0,
                 pricePerLiter: parseFloat(precoUnitario) || 0,
-                confirmedReading: parseFloat(kmOuHrConfirmado),
+                confirmedReading: parseFloat(kmOuHrConfirmado) || 0,
                 confirmedBy: user,
                 // Regra 3: Salva valor de Outros
                 outrosValor: order.outrosGeraValor ? (parseFloat(outrosValorConfirmado) || 0) : 0
