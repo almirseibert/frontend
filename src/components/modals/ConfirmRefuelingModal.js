@@ -13,7 +13,11 @@ const ConfirmRefuelingModal = ({
     const [litros, setLitros] = useState(order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
     const [precoUnitario, setPrecoUnitario] = useState(''); 
-    const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState('');
+    
+    // --- LÓGICA DE SUGESTÃO DE LEITURA (PREENCHIMENTO AUTOMÁTICO) ---
+    // Tenta pegar a leitura informada na emissão da ordem para facilitar a vida do frentista/admin
+    const suggestedReading = order.horimetroDigital || order.horimetro || order.odometro || '';
+    const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState(suggestedReading);
     
     // Regra 3: Campo valor outros
     const [outrosValorConfirmado, setOutrosValorConfirmado] = useState('');
@@ -33,43 +37,31 @@ const ConfirmRefuelingModal = ({
 
     // Alerta de Média (Regra 4) - Lógica Completa e Expandida
     useEffect(() => {
-        // Zera alerta se dados insuficientes
         setAverageAlert(null);
 
         if (!litros || !kmOuHrConfirmado || parseFloat(litros) <= 0) return;
         
-        // 1. Busca histórico anterior deste veículo (apenas concluídas)
-        // Ordena do mais recente para o mais antigo usando SAFE DATE
         const history = refuelings
             .filter(r => r.vehicleId === order.vehicleId && r.status === 'Concluída')
-            .sort((a,b) => safeDate(b.date) - safeDate(a.date));
+            .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
         
-        // Se não houver histórico suficiente para comparação, para por aqui
         if (history.length === 0) return;
 
-        // Leitura Atual
         const currentReading = parseFloat(kmOuHrConfirmado);
-        
-        // Último Abastecimento (history[0])
         const lastRefuel = history[0];
-        // Tenta pegar a leitura do último abastecimento (prioriza a mesma unidade se possível, ou pega a disponível)
         const lastReading = parseFloat(lastRefuel.horimetroDigital || lastRefuel.horimetro || lastRefuel.odometro || 0);
 
-        // Validação básica: Leitura atual deve ser maior que a anterior
         if (currentReading <= lastReading) return;
 
-        // Cálculo da Média Atual
         const diff = currentReading - lastReading;
         const currentAverage = diff / parseFloat(litros); 
 
-        // --- CÁLCULO DA MÉDIA HISTÓRICA (Últimas 2 médias) ---
+        // --- CÁLCULO DA MÉDIA HISTÓRICA ---
         let sumAvgs = 0;
         let count = 0;
 
-        // Função auxiliar para extrair leitura de um registro
         const getReading = (r) => parseFloat(r.horimetroDigital || r.horimetro || r.odometro || 0);
 
-        // Média 1: Entre Último (history[0]) e Penúltimo (history[1])
         if (history.length >= 2) {
             const r1 = history[0];
             const r2 = history[1];
@@ -77,7 +69,6 @@ const ConfirmRefuelingModal = ({
             const read1 = getReading(r1);
             const read2 = getReading(r2);
 
-            // Verifica se a leitura aumentou e litros > 0
             if (l1 > 0 && read1 > read2) {
                 const avg1 = (read1 - read2) / l1;
                 sumAvgs += avg1;
@@ -85,7 +76,6 @@ const ConfirmRefuelingModal = ({
             }
         }
         
-        // Média 2: Entre Penúltimo (history[1]) e Antepenúltimo (history[2])
         if (history.length >= 3) {
              const r2 = history[1];
              const r3 = history[2];
@@ -100,11 +90,8 @@ const ConfirmRefuelingModal = ({
              }
         }
 
-        // Se conseguiu calcular alguma média histórica
         if (count > 0) {
             const baselineAverage = sumAvgs / count;
-            
-            // DETECÇÃO DE QUEDA DE 25%
             if (currentAverage < (baselineAverage * 0.75)) {
                 setAverageAlert(`⚠️ ALERTA DE CONSUMO: Média atual (${currentAverage.toFixed(2)}) caiu mais de 25% em relação à média recente (${baselineAverage.toFixed(2)}).`);
             }
@@ -116,14 +103,12 @@ const ConfirmRefuelingModal = ({
         e.preventDefault();
         setIsSaving(true);
         try {
-            // Conversão segura para evitar NaN
             const payload = {
                 litrosAbastecidos: parseFloat(litros) || 0,
                 litrosAbastecidosArla: order.needsArla ? (parseFloat(litrosArla) || 0) : 0,
                 pricePerLiter: parseFloat(precoUnitario) || 0,
                 confirmedReading: parseFloat(kmOuHrConfirmado) || 0,
                 confirmedBy: user,
-                // Regra 3: Salva valor de Outros
                 outrosValor: order.outrosGeraValor ? (parseFloat(outrosValorConfirmado) || 0) : 0
             };
 
@@ -179,7 +164,6 @@ const ConfirmRefuelingModal = ({
                         </div>
                     )}
 
-                    {/* Regra 3: Input condicional para Outros Valor */}
                     {order.outrosGeraValor && (
                         <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
                             <label className="block text-sm font-bold text-yellow-900 mb-1">Valor referente a "{order.outros}" (R$) *</label>
@@ -190,6 +174,7 @@ const ConfirmRefuelingModal = ({
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">Leitura Painel (Km ou Horas) *</label>
                         <input type="number" step="0.1" value={kmOuHrConfirmado} onChange={e => setKmOuHrConfirmado(e.target.value)} className="w-full p-2 border rounded" required placeholder="Ex: 150230"/>
+                        <p className="text-xs text-gray-500 mt-1">Sugerido com base na emissão. Corrija se necessário.</p>
                     </div>
 
                     <div className="pt-2 flex justify-end gap-3">

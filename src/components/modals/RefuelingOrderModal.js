@@ -21,28 +21,23 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash) ---
+    // --- HELPER: Tratamento de Datas ROBUSTO ---
     const safeDate = (dateInput) => {
-        if (!dateInput) return new Date(0); // Retorna data epoch se nulo para evitar erro
+        if (!dateInput) return new Date(0);
         try {
-            // Se já for objeto Date
-            if (dateInput instanceof Date) {
-                return isNaN(dateInput.getTime()) ? new Date(0) : dateInput;
-            }
-            // Se for string SQL (YYYY-MM-DD HH:MM:SS), converte para ISO
-            const dateStr = dateInput.toString().replace(' ', 'T');
+            if (dateInput instanceof Date && !isNaN(dateInput.getTime())) return dateInput;
+            let dateStr = String(dateInput);
+            if (!isNaN(Number(dateStr)) && dateStr.length > 4) return new Date(Number(dateStr));
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
             const d = new Date(dateStr);
+            if (isNaN(d.getTime()) && dateStr.includes('T')) return new Date(dateStr + 'Z');
             return isNaN(d.getTime()) ? new Date(0) : d;
-        } catch {
-            return new Date(0);
-        }
+        } catch { return new Date(0); }
     };
 
     const formatDateDisplay = (dateInput) => {
-        if (!dateInput) return 'N/A';
         const d = safeDate(dateInput);
-        if (d.getTime() === 0) return 'Data Inválida';
-        // UTC para evitar diferença de fuso horário visual
+        if (d.getTime() === 0 || d.getFullYear() === 1970) return 'N/A';
         return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
     };
 
@@ -52,7 +47,6 @@ const RefuelingOrderModal = ({
         partnerId: orderToEdit?.partnerId || '',
         obraId: orderToEdit?.obraId || '',
         employeeId: orderToEdit?.employeeId || '',
-        // Inicializa com a data correta (segura)
         date: orderToEdit?.date 
             ? safeDate(orderToEdit.date).toISOString().split('T')[0] 
             : new Date().toISOString().split('T')[0],
@@ -85,7 +79,6 @@ const RefuelingOrderModal = ({
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
 
-    // Verificação robusta se é edição (tem que ter ID válido)
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
 
     // --- ORDENAÇÃO ---
@@ -112,10 +105,10 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico seguro
+            // Histórico seguro usando safeDate.getTime() para ordenação correta
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => safeDate(b.date) - safeDate(a.date)); 
+                .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
             
             const last = history[0];
             setLastRefuelData(last);
@@ -124,7 +117,6 @@ const RefuelingOrderModal = ({
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
-                // 1. Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -132,7 +124,6 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
-                // 2. Auto-completar do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
                 let autoLitros = formData.litrosLiberados;
@@ -157,18 +148,15 @@ const RefuelingOrderModal = ({
                 }));
             }
 
-            // Avisos Visuais
             const newWarnings = [];
             if (vehicle.naoPodeCircular) newWarnings.push("⚠️ CHECKBOX 'NÃO PODE CIRCULAR' MARCADO!");
             if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
-            // Cálculo da Média
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
-                
                 let diff = 0;
                 let unit = 'Km/L';
 
@@ -184,7 +172,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / litros) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -259,23 +247,32 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    const sendToWhatsApp = async () => {
+    const sendToWhatsApp = async (orderData) => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
-        const pdfData = {
+        // Dados finais (caso tenha vindo de um salvamento recente)
+        const finalData = orderData || {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
             authNumber: orderToEdit?.authNumber || 'NOVA',
+        };
+
+        const pdfData = {
+            ...finalData,
             partnerName: partner?.razaoSocial,
             employeeName: employee?.nome,
         };
         
+        // Gera o PDF (Download)
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
-        if (!partner?.telefone) {
-            setAlertMessage("O posto selecionado não possui telefone cadastrado. O PDF foi baixado.");
+        // Busca telefone: Prioridade para o cadastro do posto, senão alerta
+        const phone = partner?.whatsapp || partner?.telefone;
+
+        if (!phone) {
+            setAlertMessage("Ordem salva e PDF baixado! O posto não possui WhatsApp cadastrado para envio automático.");
             return;
         }
 
@@ -290,13 +287,34 @@ const RefuelingOrderModal = ({
 
 _Por favor, confirme o recebimento._`;
 
+        // Abre WhatsApp Web
         setTimeout(() => {
-            window.open(`https://wa.me/55${partner.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+            window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
         }, 1000);
+    };
+
+    const validateMandatoryFields = () => {
+        if (!formData.vehicleId) return "Selecione um Veículo.";
+        if (!formData.employeeId) return "Selecione um Motorista/Operador.";
+        if (!formData.obraId) return "Selecione uma Obra ou 'Pátio'.";
+        if (!formData.partnerId) return "Selecione um Posto.";
+        if (!formData.fuelType) return "Selecione o Tipo de Combustível.";
+        
+        // Validação de Leitura baseada no tipo
+        if (isKmVehicle && !formData.odometro) return "Informe o Odômetro atual.";
+        if (isHeavyMachinery && (!formData.horimetroDigital && !formData.horimetroAnalogico)) return "Informe ao menos um Horímetro (Digital ou Analógico).";
+        
+        return null;
     };
 
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
+
+        const validationError = validateMandatoryFields();
+        if (validationError) {
+            setAlertMessage("Campos Obrigatórios: " + validationError);
+            return;
+        }
 
         if (blockReason) {
             setPasswordAction('blockOverride');
@@ -329,11 +347,8 @@ _Por favor, confirme o recebimento._`;
             return isNaN(num) ? null : num;
         };
 
-        // Garante formato ISO correto para o backend
         let isoDate = new Date().toISOString();
         if (formData.date) {
-            // Verifica se a data é válida antes de tentar converter
-            // Se formData.date for inválido ou vazio, o Date() abaixo pode gerar Invalid Date
             try {
                  const dateObj = new Date(formData.date + 'T12:00:00Z');
                  if (!isNaN(dateObj.getTime())) {
@@ -344,12 +359,11 @@ _Por favor, confirme o recebimento._`;
             }
         }
 
-        // BUSCA DADOS ADICIONAIS PARA ENVIAR (EVITA UNDEFINED NO BACKEND)
         const selectedPartner = partners.find(p => p.id === formData.partnerId);
 
         const payload = {
             ...formData,
-            partnerName: selectedPartner ? selectedPartner.razaoSocial : null, // Envia o nome do posto
+            partnerName: selectedPartner ? selectedPartner.razaoSocial : null,
             odometro: safeFloat(formData.odometro),
             horimetro: safeFloat(formData.horimetro),
             horimetroDigital: safeFloat(formData.horimetroDigital),
@@ -363,9 +377,6 @@ _Por favor, confirme o recebimento._`;
 
         try {
             let res;
-            
-            // CORREÇÃO: Garante que só entra no fluxo de UPDATE se tiver um ID válido real
-            // Isso evita que o frontend tente fazer PUT em ".../api/refuelings" (sem ID) gerando 404
             const hasValidId = orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW';
             
             if (isEditing && hasValidId) {
@@ -377,17 +388,14 @@ _Por favor, confirme o recebimento._`;
             }
             reloadData();
             
+            // Sucesso: Chama WhatsApp Automaticamente com os dados salvos
             if (res) {
-                 const partner = partners.find(p => p.id === payload.partnerId);
-                 const employee = employees.find(e => e.id === payload.employeeId);
-                 const pdfData = {
+                 const fullOrderData = {
                     ...payload,
-                    id: res.id,
+                    id: res.id || orderToEdit?.id,
                     authNumber: res.authNumber || orderToEdit?.authNumber,
-                    partnerName: partner?.razaoSocial,
-                    employeeName: employee?.nome,
                  };
-                 onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
+                 sendToWhatsApp(fullOrderData);
             }
             
             onClose();
@@ -438,7 +446,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO (CORRIGIDO) */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
@@ -448,14 +456,14 @@ _Por favor, confirme o recebimento._`;
                                     <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
                                     
-                                    {/* EXIBIÇÃO DINÂMICA DAS LEITURAS */}
+                                    {/* EXIBIÇÃO DINÂMICA DAS LEITURAS ANTERIORES */}
                                     <div className="mt-1 pt-1 border-t border-gray-300">
-                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro} Km</strong></p>}
-                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro} Hr</strong></p>}
+                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'} Km</strong></p>}
+                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'} Hr</strong></p>}
                                         {isHeavyMachinery && (
                                             <>
-                                                <p>Horí. Digital: <strong>{lastRefuelData.horimetroDigital} Hr</strong></p>
-                                                <p>Horí. Analógico: <strong>{lastRefuelData.horimetroAnalogico} Hr</strong></p>
+                                                <p>Horí. Digital: <strong>{lastRefuelData.horimetroDigital || 'N/A'} Hr</strong></p>
+                                                <p>Horí. Analógico: <strong>{lastRefuelData.horimetroAnalogico || 'N/A'} Hr</strong></p>
                                             </>
                                         )}
                                     </div>
@@ -467,28 +475,28 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
-                        {/* LEITURAS DINÂMICAS */}
+                        {/* LEITURAS ATUAIS (Com indicação de obrigatório) */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 {isKmVehicle && (
                                     <div className="col-span-2">
-                                        <label className="block text-sm font-bold text-gray-700">Odômetro (Km)</label>
-                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`}/>
+                                        <label className="block text-sm font-bold text-gray-700">Odômetro (Km) *</label>
+                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`} required/>
                                     </div>
                                 )}
                                 
                                 {isTruck && (
                                     <div className="col-span-2">
-                                        <label className="block text-sm font-bold text-gray-700">Horímetro Geral (Hrs)</label>
-                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`}/>
+                                        <label className="block text-sm font-bold text-gray-700">Horímetro Geral (Hrs) *</label>
+                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`} required/>
                                     </div>
                                 )}
 
                                 {isHeavyMachinery && (
                                     <>
                                         <div>
-                                            <label className="block text-sm font-bold text-gray-700">Horímetro Digital</label>
+                                            <label className="block text-sm font-bold text-gray-700">Horímetro Digital *</label>
                                             <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroDigital || 'N/A'}`}/>
                                         </div>
                                         <div>
@@ -501,16 +509,17 @@ _Por favor, confirme o recebimento._`;
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Motorista / Operador</label>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Motorista / Operador *</label>
                             <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg" required>
                                 <option value="">Selecione...</option>
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Obra / Alocação</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg">
-                                <option value="">Nenhuma / Pátio</option>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Obra / Alocação *</label>
+                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg" required>
+                                <option value="">Selecione...</option>
+                                <option value="Patio">Pátio</option>
                                 {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                 {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
@@ -527,7 +536,7 @@ _Por favor, confirme o recebimento._`;
                         </div>
 
                         <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                            <label className="block text-sm font-bold text-blue-900 mb-2">Combustível</label>
+                            <label className="block text-sm font-bold text-blue-900 mb-2">Combustível *</label>
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border border-blue-200 rounded mb-3 bg-white" required>
                                 <option value="">Selecione...</option>
                                 <option value="gasolinaComum">Gasolina Comum</option>
@@ -577,11 +586,7 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         </div>
 
-                        {isEditing && (
-                            <button type="button" onClick={sendToWhatsApp} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2">
-                                <Send size={18}/> Baixar PDF & Abrir WhatsApp
-                            </button>
-                        )}
+                        {/* Botão de WhatsApp manual removido/condicional pois agora é automático no sucesso */}
                     </div>
                 </form>
 

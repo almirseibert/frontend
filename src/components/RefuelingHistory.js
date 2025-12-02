@@ -13,12 +13,32 @@ const RefuelingHistory = ({
     
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // --- HELPER SAFE DATE ---
+    // --- HELPER SAFE DATE (VERSÃO ROBUSTA) ---
     const safeDate = (dateInput) => {
         if (!dateInput) return new Date(0);
         try {
-            const dateStr = dateInput.toString().replace(' ', 'T');
+            // Se já for objeto Date válido
+            if (dateInput instanceof Date && !isNaN(dateInput.getTime())) return dateInput;
+            
+            // Converte para string para tratamento
+            let dateStr = String(dateInput);
+
+            // Se for timestamp numérico (ex: do Firestore ou TimeStamp MySQL em ms)
+            if (!isNaN(Number(dateStr)) && dateStr.length > 4) {
+                 return new Date(Number(dateStr));
+            }
+
+            // Corrige formato SQL padrão 'YYYY-MM-DD HH:MM:SS' para ISO 'YYYY-MM-DDTHH:MM:SS'
+            if (dateStr.includes(' ') && !dateStr.includes('T')) {
+                dateStr = dateStr.replace(' ', 'T');
+            }
+            
             const d = new Date(dateStr);
+            // Se falhar, tenta adicionar o Z para UTC se parecer ISO
+            if (isNaN(d.getTime()) && dateStr.includes('T')) {
+                 return new Date(dateStr + 'Z');
+            }
+
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { return new Date(0); }
     };
@@ -28,10 +48,10 @@ const RefuelingHistory = ({
         const vehicle = vehicles.find(v => v.id === vehicleId);
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
-        // 1. Filtra e Ordena usando SAFE DATE para garantir ordem cronológica correta
+        // 1. Filtra e Ordena usando SAFE DATE
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
-            .sort((a,b) => safeDate(b.date) - safeDate(a.date)); // Descendente (Mais novo primeiro)
+            .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()); // Descendente (Mais recente primeiro)
 
         // 2. Determina Unidade
         const getUnitAndLabel = () => {
@@ -113,7 +133,6 @@ const RefuelingHistory = ({
     const generateHistoryPDF = async () => {
         setIsGeneratingPdf(true);
         try {
-            // Carrega jsPDF e AutoTable via CDN em tempo de execução
             await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
             await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
 
