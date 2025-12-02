@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
-import ProtectedComponent from '../components/ProtectedComponent'; // Restaurado
-import { jsPDF } from 'jspdf'; // Restaurado
-import autoTable from 'jspdf-autotable'; // Restaurado
+import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History } from 'lucide-react';
+import ProtectedComponent from '../components/ProtectedComponent'; 
+import { jsPDF } from 'jspdf'; 
+import autoTable from 'jspdf-autotable'; 
 
-// Importações com os caminhos corretos (estrutura de pastas original)
+// Importações corretas baseadas na estrutura original do projeto
 import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
@@ -36,8 +36,6 @@ const RefuelingPage = ({
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
-    // isGeneratingPdf não é mais necessário se o import for estático, mas mantive para compatibilidade visual se quiser usar loader
-    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
     // --- HELPER: Validação de Data (Consistente com todo o sistema) ---
     const isValidDbDate = (dateString) => {
@@ -94,9 +92,8 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Lógica Síncrona/Padrão) ---
+    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
-        setIsGeneratingPdf(true);
         try {
             const buildPdf = (logoDataUrl) => {
                 const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -109,6 +106,7 @@ const RefuelingPage = ({
                 const employee = employeesList.find(e => e.id === order.employeeId);
                 
                 // Correção de Data no PDF usando lógica segura
+                // Verifica tanto 'data' (banco novo) quanto 'date' (legado/frontend)
                 const dateToUse = order.data || order.date;
                 let emissionDateStr = 'N/A';
                 if (isValidDbDate(dateToUse)) {
@@ -205,7 +203,6 @@ const RefuelingPage = ({
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
                 doc.output('dataurlnewwindow', { filename: `Autorizacao_${order.authNumber}.pdf` });
-                setIsGeneratingPdf(false);
             };
 
             const logo = new Image();
@@ -224,7 +221,6 @@ const RefuelingPage = ({
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
             setAlertMessage("Erro ao gerar o PDF.");
-            setIsGeneratingPdf(false);
         }
     };
 
@@ -296,6 +292,8 @@ const RefuelingPage = ({
                                             <div>
                                                 <div className="font-bold text-gray-900 text-lg">#{String(order.authNumber).padStart(6, '0')}</div>
                                                 <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno} - {vehicle?.placa}</p>
+                                                {/* DATA ADICIONADA AQUI */}
+                                                <p className="text-xs text-gray-600 mb-1">{formatDateSafe(order.data || order.date)}</p>
                                                 <p className="text-xs text-gray-500">{order.partnerName}</p>
                                             </div>
                                             <div className="flex flex-col gap-1">
@@ -306,9 +304,7 @@ const RefuelingPage = ({
                                                         <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Excluir"><Trash2 size={16}/></button>
                                                     </div>
                                                 </ProtectedComponent>
-                                                <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF">
-                                                    {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
-                                                </button>
+                                                <button onClick={() => generateAuthorizationPDF(order)} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF"><Printer size={16}/></button>
                                             </div>
                                         </div>
                                     </div>
@@ -366,9 +362,7 @@ const RefuelingPage = ({
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
-                                                    <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
-                                                        {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
-                                                    </button>
+                                                    <button onClick={() => generateAuthorizationPDF(order)} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50"><Printer size={16}/></button>
                                                     <ProtectedComponent requiredPermission="editor">
                                                         <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 rounded hover:bg-yellow-50"><Edit size={16}/></button>
                                                         <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
