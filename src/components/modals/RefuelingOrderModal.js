@@ -21,7 +21,7 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash no Safari) ---
+    // --- HELPER: Tratamento de Datas (Corrige Invalid Date e Evita Crash) ---
     const safeDate = (dateInput) => {
         if (!dateInput) return new Date(0); // Retorna data epoch se nulo
         try {
@@ -85,9 +85,10 @@ const RefuelingOrderModal = ({
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
 
-    const isEditing = !!orderToEdit;
+    // Verificação robusta se é edição (tem que ter ID válido)
+    const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
 
-    // --- ORDENAÇÃO DE LISTAS ---
+    // --- ORDENAÇÃO ---
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
@@ -111,7 +112,7 @@ const RefuelingOrderModal = ({
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico ordenado usando safeDate
+            // Histórico seguro
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
                 .sort((a,b) => safeDate(b.date) - safeDate(a.date)); 
@@ -183,7 +184,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / liters) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -194,7 +195,7 @@ const RefuelingOrderModal = ({
         }
     }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
-    // --- VALIDAÇÕES DE LEITURA (Regressão e Saltos) ---
+    // --- VALIDAÇÕES DE LEITURA ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
@@ -331,10 +332,15 @@ _Por favor, confirme o recebimento._`;
         // Garante formato ISO correto para o backend
         let isoDate = new Date().toISOString();
         if (formData.date) {
-            // Adiciona hora fixa 12:00Z para evitar problemas de timezone com datas selecionadas no input
-            const dateObj = new Date(formData.date + 'T12:00:00Z');
-            if (!isNaN(dateObj.getTime())) {
-                isoDate = dateObj.toISOString();
+            // Verifica se a data é válida antes de tentar converter
+            // Se formData.date for inválido ou vazio, o Date() abaixo pode gerar Invalid Date
+            try {
+                 const dateObj = new Date(formData.date + 'T12:00:00Z');
+                 if (!isNaN(dateObj.getTime())) {
+                     isoDate = dateObj.toISOString();
+                 }
+            } catch (e) {
+                 console.error("Erro ao converter data:", e);
             }
         }
 
@@ -353,7 +359,12 @@ _Por favor, confirme o recebimento._`;
 
         try {
             let res;
-            if (isEditing && orderToEdit?.id) {
+            
+            // CORREÇÃO: Garante que só entra no fluxo de UPDATE se tiver um ID válido real
+            // Isso evita que o frontend tente fazer PUT em ".../api/refuelings" (sem ID) gerando 404
+            const hasValidId = orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW';
+            
+            if (isEditing && hasValidId) {
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
                 setAlertMessage(`Ordem atualizada com sucesso!`);
             } else {
@@ -423,7 +434,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO (CORRIGIDO) */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
@@ -432,6 +443,18 @@ _Por favor, confirme o recebimento._`;
                                     <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
                                     <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
+                                    
+                                    {/* EXIBIÇÃO DINÂMICA DAS LEITURAS */}
+                                    <div className="mt-1 pt-1 border-t border-gray-300">
+                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro} Km</strong></p>}
+                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro} Hr</strong></p>}
+                                        {isHeavyMachinery && (
+                                            <>
+                                                <p>Horí. Digital: <strong>{lastRefuelData.horimetroDigital} Hr</strong></p>
+                                                <p>Horí. Analógico: <strong>{lastRefuelData.horimetroAnalogico} Hr</strong></p>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="text-right">
                                     <div className="font-bold text-gray-700 mb-1 flex items-center justify-end gap-1"><Activity size={12}/> Média Anterior</div>
