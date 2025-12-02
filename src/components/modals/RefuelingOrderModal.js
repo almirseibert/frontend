@@ -21,32 +21,41 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Validação de Data (Padrão Revisões) ---
+    // --- HELPER: Validação de Data (Padronizado com o restante do sistema) ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
+        // Filtra strings vazias, nulas, ou data "zero" do MySQL/Unix
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
-    // --- HELPER: Objeto Date Seguro ---
-    const getSafeDateObj = (dateInput) => {
-        if (!isValidDbDate(dateInput)) return new Date(0);
-        try {
-            const dateStr = String(dateInput).replace(' ', 'T');
-            const d = new Date(dateStr);
-            return isNaN(d.getTime()) ? new Date(0) : d;
-        } catch { return new Date(0); }
-    };
-
-    // --- HELPER: Formatação de Data ---
+    // --- HELPER: Formatação de Data Segura para Exibição ---
     const formatDateDisplay = (dateInput) => {
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
-            const dateStr = String(dateInput).replace(' ', 'T');
+            let dateStr = String(dateInput);
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), substitui espaço por T
+            if (dateStr.includes(' ') && !dateStr.includes('T')) {
+                dateStr = dateStr.replace(' ', 'T');
+            }
             const date = new Date(dateStr);
-            // UTC para evitar D-1
+            if (isNaN(date.getTime())) return 'Data Inválida';
+            // Força UTC para evitar erro de fuso horário (D-1)
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
-        } catch { return 'N/A'; }
+        } catch { return 'Erro'; }
+    };
+
+    // --- HELPER: Objeto Date Seguro para Lógica/Ordenação ---
+    const getSafeDateObj = (dateInput) => {
+        if (!isValidDbDate(dateInput)) return new Date(0);
+        try {
+            let dateStr = String(dateInput);
+            if (dateStr.includes(' ') && !dateStr.includes('T')) {
+                dateStr = dateStr.replace(' ', 'T');
+            }
+            const d = new Date(dateStr);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        } catch { return new Date(0); }
     };
 
     // --- ESTADOS ---
@@ -55,6 +64,7 @@ const RefuelingOrderModal = ({
         partnerId: orderToEdit?.partnerId || '',
         obraId: orderToEdit?.obraId || '',
         employeeId: orderToEdit?.employeeId || '',
+        // Inicializa com a data correta (segura)
         date: orderToEdit?.date 
             ? getSafeDateObj(orderToEdit.date).toISOString().split('T')[0] 
             : new Date().toISOString().split('T')[0],
@@ -107,16 +117,21 @@ const RefuelingOrderModal = ({
     const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
     const isTruck = vehicleGroup === 'Caminhões';
 
-    // --- AUTO-PREENCHIMENTO E HISTÓRICO ---
+    // --- AUTO-PREENCHIMENTO E AVISOS ---
     useEffect(() => {
         if (formData.vehicleId) {
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico seguro usando getSafeDateObj
+            // Histórico seguro usando getSafeDateObj para ordenar corretamente
+            // Verifica tanto .data (banco) quanto .date (legado)
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => getSafeDateObj(b.date).getTime() - getSafeDateObj(a.date).getTime());
+                .sort((a,b) => {
+                    const dateA = a.data || a.date;
+                    const dateB = b.data || b.date;
+                    return getSafeDateObj(dateB).getTime() - getSafeDateObj(dateA).getTime();
+                });
             
             const last = history[0];
             setLastRefuelData(last);
@@ -125,6 +140,7 @@ const RefuelingOrderModal = ({
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
+                // 1. Tenta pegar da obra/alocação atual
                 if (vehicle.obraAtualId) {
                     autoObraId = vehicle.obraAtualId;
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
@@ -132,6 +148,7 @@ const RefuelingOrderModal = ({
                     if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                 }
                 
+                // 2. Auto-completar do último abastecimento
                 let autoPartnerId = formData.partnerId;
                 let autoFuelType = formData.fuelType;
                 let autoLitros = formData.litrosLiberados;
@@ -156,15 +173,18 @@ const RefuelingOrderModal = ({
                 }));
             }
 
+            // Avisos Visuais
             const newWarnings = [];
             if (vehicle.naoPodeCircular) newWarnings.push("⚠️ CHECKBOX 'NÃO PODE CIRCULAR' MARCADO!");
             if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
+            // Cálculo da Média
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
+                
                 let diff = 0;
                 let unit = 'Km/L';
 
@@ -180,7 +200,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / litros) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -274,7 +294,6 @@ const RefuelingOrderModal = ({
         
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
-        // Busca telefone com prioridade para o WhatsApp cadastrado
         const phone = partner?.whatsapp || partner?.telefone;
 
         if (!phone) {
@@ -389,7 +408,6 @@ _Por favor, confirme o recebimento._`;
             }
             reloadData();
             
-            // Sucesso: Envio Automático WhatsApp
             if (res) {
                  const fullOrderData = {
                     ...payload,
@@ -452,7 +470,8 @@ _Por favor, confirme o recebimento._`;
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
                                     <div className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Clock size={12}/> Último Abastecimento</div>
-                                    <p>Data: <strong>{formatDateDisplay(lastRefuelData.date)}</strong></p>
+                                    {/* CORREÇÃO: Usa data ou date para exibir */}
+                                    <p>Data: <strong>{formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</strong></p>
                                     <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
                                     <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>

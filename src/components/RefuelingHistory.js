@@ -1,7 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import { Download, Printer, Droplet, Loader } from 'lucide-react';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 const RefuelingHistory = ({ 
     vehicleId, 
@@ -127,20 +125,39 @@ const RefuelingHistory = ({
         return { historyWithAverages, overallAverage, unit, readingLabel };
     }, [vehicleId, refuelings, vehicles, vehicleGroups]);
 
+    // --- CARREGAMENTO DINÂMICO DE SCRIPTS (CORREÇÃO DE BUILD) ---
+    const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    };
+
     const generateHistoryPDF = async () => {
         setIsGeneratingPdf(true);
         try {
-            const doc = new jsPDF();
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+
             const vehicle = vehicles.find(v => v.id === vehicleId);
-            if (!vehicle) {
-                setIsGeneratingPdf(false);
-                return;
+            if (!vehicle || !window.jspdf) {
+                throw new Error("Biblioteca PDF não carregada ou veículo não encontrado.");
             }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
 
             doc.setFontSize(16);
             doc.text(`Histórico de Consumo - ${vehicle.registroInterno}`, 14, 20);
             
-            autoTable(doc, {
+            doc.autoTable({
                 startY: 30,
                 head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
                 body: processedHistory.historyWithAverages.map(h => [
@@ -155,10 +172,10 @@ const RefuelingHistory = ({
             });
 
             doc.save(`Historico_${vehicle.registroInterno}.pdf`);
-            setIsGeneratingPdf(false);
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
-            alert("Erro ao gerar o PDF.");
+            alert("Erro ao gerar o PDF. Verifique sua conexão com a internet.");
+        } finally {
             setIsGeneratingPdf(false);
         }
     };
@@ -209,7 +226,7 @@ const RefuelingHistory = ({
                         <tbody className="divide-y divide-gray-100 bg-white">
                             {processedHistory.historyWithAverages.map(h => (
                                 <tr key={h.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="p-3">{formatDateSafe(h.data || h.date)}</td> {/* CORREÇÃO AQUI */}
+                                    <td className="p-3">{formatDateSafe(h.data || h.date)}</td> {/* DATA CORRIGIDA VISÍVEL AQUI */}
                                     <td className="p-3 truncate max-w-[140px]">{h.partnerName}</td>
                                     <td className="p-3 text-right font-mono text-gray-600">{h.displayReading}</td>
                                     <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>
