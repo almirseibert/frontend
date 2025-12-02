@@ -16,7 +16,8 @@ const ConfirmRefuelingModal = ({
     
     // --- LÓGICA DE SUGESTÃO DE LEITURA (PREENCHIMENTO AUTOMÁTICO) ---
     // Tenta pegar a leitura informada na emissão da ordem para facilitar a vida do frentista/admin
-    const suggestedReading = order.horimetroDigital || order.horimetro || order.odometro || '';
+    // Prioriza o Horímetro Geral, depois o Digital, depois o Odômetro
+    const suggestedReading = order.horimetro || order.horimetroDigital || order.odometro || '';
     const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState(suggestedReading);
     
     // Regra 3: Campo valor outros

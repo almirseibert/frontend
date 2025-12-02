@@ -13,32 +13,32 @@ const RefuelingHistory = ({
     
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // --- HELPER SAFE DATE (VERSÃO ROBUSTA) ---
-    const safeDate = (dateInput) => {
-        if (!dateInput) return new Date(0);
+    // --- HELPER: Validação de Data (Padrão Revisões) ---
+    const isValidDbDate = (dateString) => {
+        if (!dateString) return false;
+        const str = String(dateString);
+        // Filtra strings vazias, nulas, ou data "zero" do MySQL/Unix
+        return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
+    };
+
+    // --- HELPER: Formatação de Data para Exibição (UTC) ---
+    const formatDateDisplay = (dateString) => {
+        if (!isValidDbDate(dateString)) return 'N/A';
         try {
-            // Se já for objeto Date válido
-            if (dateInput instanceof Date && !isNaN(dateInput.getTime())) return dateInput;
-            
-            // Converte para string para tratamento
-            let dateStr = String(dateInput);
+            const dateStr = String(dateString).replace(' ', 'T'); // Fix para SQL antigo
+            const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return 'Inválida';
+            // Força UTC para evitar o problema de "Dia Anterior" (D-1)
+            return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
+        } catch (e) { return 'Erro'; }
+    };
 
-            // Se for timestamp numérico (ex: do Firestore ou TimeStamp MySQL em ms)
-            if (!isNaN(Number(dateStr)) && dateStr.length > 4) {
-                 return new Date(Number(dateStr));
-            }
-
-            // Corrige formato SQL padrão 'YYYY-MM-DD HH:MM:SS' para ISO 'YYYY-MM-DDTHH:MM:SS'
-            if (dateStr.includes(' ') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T');
-            }
-            
+    // --- HELPER: Objeto Date Seguro para Ordenação ---
+    const getSafeDateObj = (dateInput) => {
+        if (!isValidDbDate(dateInput)) return new Date(0);
+        try {
+            const dateStr = String(dateInput).replace(' ', 'T');
             const d = new Date(dateStr);
-            // Se falhar, tenta adicionar o Z para UTC se parecer ISO
-            if (isNaN(d.getTime()) && dateStr.includes('T')) {
-                 return new Date(dateStr + 'Z');
-            }
-
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { return new Date(0); }
     };
@@ -48,10 +48,10 @@ const RefuelingHistory = ({
         const vehicle = vehicles.find(v => v.id === vehicleId);
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
-        // 1. Filtra e Ordena usando SAFE DATE
+        // 1. Filtra e Ordena usando DATA SEGURA
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
-            .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()); // Descendente (Mais recente primeiro)
+            .sort((a,b) => getSafeDateObj(b.date).getTime() - getSafeDateObj(a.date).getTime()); // Descendente (Mais recente primeiro)
 
         // 2. Determina Unidade
         const getUnitAndLabel = () => {
@@ -151,7 +151,7 @@ const RefuelingHistory = ({
                 startY: 30,
                 head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
                 body: processedHistory.historyWithAverages.map(h => [
-                    safeDate(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
+                    formatDateDisplay(h.date),
                     h.partnerName,
                     h.displayReading,
                     (h.litrosAbastecidos || 0).toFixed(2),
@@ -216,7 +216,7 @@ const RefuelingHistory = ({
                         <tbody className="divide-y divide-gray-100 bg-white">
                             {processedHistory.historyWithAverages.map(h => (
                                 <tr key={h.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="p-3">{safeDate(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</td>
+                                    <td className="p-3">{formatDateDisplay(h.date)}</td>
                                     <td className="p-3 truncate max-w-[140px]">{h.partnerName}</td>
                                     <td className="p-3 text-right font-mono text-gray-600">{h.displayReading}</td>
                                     <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>

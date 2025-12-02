@@ -21,24 +21,32 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Tratamento de Datas ROBUSTO ---
-    const safeDate = (dateInput) => {
-        if (!dateInput) return new Date(0);
+    // --- HELPER: Validação de Data (Padrão Revisões) ---
+    const isValidDbDate = (dateString) => {
+        if (!dateString) return false;
+        const str = String(dateString);
+        return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
+    };
+
+    // --- HELPER: Objeto Date Seguro ---
+    const getSafeDateObj = (dateInput) => {
+        if (!isValidDbDate(dateInput)) return new Date(0);
         try {
-            if (dateInput instanceof Date && !isNaN(dateInput.getTime())) return dateInput;
-            let dateStr = String(dateInput);
-            if (!isNaN(Number(dateStr)) && dateStr.length > 4) return new Date(Number(dateStr));
-            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
+            const dateStr = String(dateInput).replace(' ', 'T');
             const d = new Date(dateStr);
-            if (isNaN(d.getTime()) && dateStr.includes('T')) return new Date(dateStr + 'Z');
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { return new Date(0); }
     };
 
+    // --- HELPER: Formatação de Data ---
     const formatDateDisplay = (dateInput) => {
-        const d = safeDate(dateInput);
-        if (d.getTime() === 0 || d.getFullYear() === 1970) return 'N/A';
-        return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        if (!isValidDbDate(dateInput)) return 'N/A';
+        try {
+            const dateStr = String(dateInput).replace(' ', 'T');
+            const date = new Date(dateStr);
+            // UTC para evitar D-1
+            return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
+        } catch { return 'N/A'; }
     };
 
     // --- ESTADOS ---
@@ -48,7 +56,7 @@ const RefuelingOrderModal = ({
         obraId: orderToEdit?.obraId || '',
         employeeId: orderToEdit?.employeeId || '',
         date: orderToEdit?.date 
-            ? safeDate(orderToEdit.date).toISOString().split('T')[0] 
+            ? getSafeDateObj(orderToEdit.date).toISOString().split('T')[0] 
             : new Date().toISOString().split('T')[0],
         odometro: orderToEdit?.odometro?.toString() || '',
         horimetro: orderToEdit?.horimetro?.toString() || '',
@@ -99,16 +107,16 @@ const RefuelingOrderModal = ({
     const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
     const isTruck = vehicleGroup === 'Caminhões';
 
-    // --- AUTO-PREENCHIMENTO E AVISOS ---
+    // --- AUTO-PREENCHIMENTO E HISTÓRICO ---
     useEffect(() => {
         if (formData.vehicleId) {
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
             if (!vehicle) return;
 
-            // Histórico seguro usando safeDate.getTime() para ordenação correta
+            // Histórico seguro usando getSafeDateObj
             const history = refuelings
                 .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
-                .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
+                .sort((a,b) => getSafeDateObj(b.date).getTime() - getSafeDateObj(a.date).getTime());
             
             const last = history[0];
             setLastRefuelData(last);
@@ -172,7 +180,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / liters) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -252,7 +260,6 @@ const RefuelingOrderModal = ({
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
-        // Dados finais (caso tenha vindo de um salvamento recente)
         const finalData = orderData || {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
@@ -265,10 +272,9 @@ const RefuelingOrderModal = ({
             employeeName: employee?.nome,
         };
         
-        // Gera o PDF (Download)
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
-        // Busca telefone: Prioridade para o cadastro do posto, senão alerta
+        // Busca telefone com prioridade para o WhatsApp cadastrado
         const phone = partner?.whatsapp || partner?.telefone;
 
         if (!phone) {
@@ -287,12 +293,12 @@ const RefuelingOrderModal = ({
 
 _Por favor, confirme o recebimento._`;
 
-        // Abre WhatsApp Web
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
         }, 1000);
     };
 
+    // --- VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS ---
     const validateMandatoryFields = () => {
         if (!formData.vehicleId) return "Selecione um Veículo.";
         if (!formData.employeeId) return "Selecione um Motorista/Operador.";
@@ -302,6 +308,7 @@ _Por favor, confirme o recebimento._`;
         
         // Validação de Leitura baseada no tipo
         if (isKmVehicle && !formData.odometro) return "Informe o Odômetro atual.";
+        if (isTruck && !formData.horimetro) return "Informe o Horímetro Geral.";
         if (isHeavyMachinery && (!formData.horimetroDigital && !formData.horimetroAnalogico)) return "Informe ao menos um Horímetro (Digital ou Analógico).";
         
         return null;
@@ -328,12 +335,6 @@ _Por favor, confirme o recebimento._`;
             return;
         }
         
-        if (isTruck && !formData.horimetro && !isNoHorimetroConfirmVisible) {
-             setNoHorimetroWarning("Para caminhões, o Horímetro Geral é recomendado. Salvar sem ele?");
-             setIsNoHorimetroConfirmVisible(true);
-             return;
-        }
-
         executeSave();
     };
 
@@ -388,7 +389,7 @@ _Por favor, confirme o recebimento._`;
             }
             reloadData();
             
-            // Sucesso: Chama WhatsApp Automaticamente com os dados salvos
+            // Sucesso: Envio Automático WhatsApp
             if (res) {
                  const fullOrderData = {
                     ...payload,
@@ -446,7 +447,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO (DADOS CORRIGIDOS) */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
@@ -456,7 +457,6 @@ _Por favor, confirme o recebimento._`;
                                     <p>Combustível: {lastRefuelData.fuelType === 'dieselS10' ? 'Diesel S10' : lastRefuelData.fuelType}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
                                     
-                                    {/* EXIBIÇÃO DINÂMICA DAS LEITURAS ANTERIORES */}
                                     <div className="mt-1 pt-1 border-t border-gray-300">
                                         {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'} Km</strong></p>}
                                         {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'} Hr</strong></p>}
@@ -475,7 +475,7 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
-                        {/* LEITURAS ATUAIS (Com indicação de obrigatório) */}
+                        {/* LEITURAS ATUAIS (OBRIGATÓRIAS) */}
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                             <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -585,8 +585,6 @@ _Por favor, confirme o recebimento._`;
                                 <label htmlFor="geraValor" className="text-sm font-medium text-gray-700">Preenchimento Gera Valor (Cobrar R$ na Confirmação)</label>
                             </div>
                         </div>
-
-                        {/* Botão de WhatsApp manual removido/condicional pois agora é automático no sucesso */}
                     </div>
                 </form>
 
