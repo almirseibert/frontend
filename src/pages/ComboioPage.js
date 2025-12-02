@@ -1,11 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Droplet, ArrowUpCircle, ArrowDownCircle, Plus, Minus, Recycle, Edit, Trash2 } from 'lucide-react';
+import { Droplet, ArrowUpCircle, ArrowDownCircle, Plus, Minus, Recycle, Edit, Trash2, MapPin } from 'lucide-react';
 
 // Modais Separados
 import ComboioEntradaModal from '../components/modals/ComboioEntradaModal';
 import ComboioSaidaModal from '../components/modals/ComboioSaidaModal';
 import ComboioDrenagemModal from '../components/modals/ComboioDrenagemModal';
-import ComboioTransactionModal from '../components/modals/ComboioTransactionModal';
 
 import ProtectedComponent from '../components/ProtectedComponent';
 
@@ -17,7 +16,7 @@ const ComboioPage = ({
     employees = [],
     comboioTransactions = [],
     expenses = [],
-    refuelings = [], // Necessário passar para o Modal de Saída calcular média global
+    refuelings = [], 
     setAlertMessage,
     apiClient,
     extraObraOptions = [],
@@ -28,15 +27,18 @@ const ComboioPage = ({
 }) => {
     // Estado
     const [selectedComboioId, setSelectedComboioId] = useState(null);
-    const [modalState, setModalState] = useState({ type: null, data: null }); // 'entrada', 'saida', 'drenagem', 'edit'
+    const [modalState, setModalState] = useState({ type: null, data: null, isEditing: false }); 
     const [deleteTransaction, setDeleteTransaction] = useState(null);
 
     // Listas Filtradas
-    const comboioVehicles = useMemo(() => vehicles.filter(v => v.isComboioVehicle).sort((a,b) => a.registroInterno.localeCompare(b.registroInterno)), [vehicles]);
+    const comboioVehicles = useMemo(() => vehicles.filter(v => v.isComboioVehicle).sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     
     // Seleção automática inicial
     useEffect(() => {
         if (!selectedComboioId && comboioVehicles.length > 0) setSelectedComboioId(comboioVehicles[0].id);
+        else if (selectedComboioId && !comboioVehicles.some(v => v.id === selectedComboioId)) {
+            setSelectedComboioId(comboioVehicles.length > 0 ? comboioVehicles[0].id : null);
+        }
     }, [comboioVehicles, selectedComboioId]);
 
     const selectedComboio = comboioVehicles.find(v => v.id === selectedComboioId);
@@ -49,8 +51,20 @@ const ComboioPage = ({
     }, [comboioTransactions, selectedComboioId]);
 
     // Handlers
-    const closeModal = () => setModalState({ type: null, data: null });
+    const closeModal = () => setModalState({ type: null, data: null, isEditing: false });
     
+    const handleEdit = (transaction) => {
+        // Mapeia o tipo de transação para o tipo de modal
+        let modalType = null;
+        if (transaction.type === 'entrada') modalType = 'entrada';
+        else if (transaction.type === 'saida') modalType = 'saida';
+        else if (transaction.type === 'drenagem') modalType = 'drenagem';
+
+        if (modalType) {
+            setModalState({ type: modalType, data: transaction, isEditing: true });
+        }
+    };
+
     const handleDelete = async () => {
         if (!deleteTransaction) return;
         try {
@@ -64,19 +78,40 @@ const ComboioPage = ({
         }
     };
 
-    // Componente Barra de Combustível
+    // Componente Barra de Combustível com Porcentagem
     const FuelBar = ({ type, level, capacity }) => {
-        const pct = Math.min((level / (capacity || 2000)) * 100, 100); // Capacidade padrão 2000L se não definida
-        const color = type === 'dieselS10' ? 'bg-blue-500' : 'bg-green-500';
+        // Capacidade estimada se não definida (pode ser ajustado para pegar capacidade específica por tanque se houver no futuro)
+        const totalCapacity = parseFloat(capacity) || 2000; 
+        const pct = Math.min((level / totalCapacity) * 100, 100);
+        const color = type === 'dieselS10' ? 'bg-blue-600' : 'bg-green-600';
+        const label = type === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum';
+
         return (
-            <div className="flex-1 text-center">
-                <div className="relative h-24 w-8 mx-auto bg-gray-200 rounded-lg overflow-hidden border border-gray-300 flex items-end">
-                    <div className={`${color} w-full transition-all duration-500`} style={{ height: `${pct}%` }}></div>
+            <div className="flex-1 flex flex-col items-center">
+                <div className="relative h-32 w-10 bg-gray-200 rounded-lg overflow-hidden border border-gray-300 flex items-end shadow-inner">
+                    <div 
+                        className={`${color} w-full transition-all duration-700 ease-in-out`} 
+                        style={{ height: `${pct}%` }}
+                    ></div>
+                    {/* Texto de porcentagem sobre a barra */}
+                    <div className="absolute w-full text-center bottom-1 text-[10px] font-bold text-white drop-shadow-md">
+                        {pct.toFixed(0)}%
+                    </div>
                 </div>
-                <div className="mt-1 text-xs font-bold text-gray-700">{type === 'dieselS10' ? 'S10' : 'Comum'}</div>
-                <div className="text-xs">{level.toFixed(0)} L</div>
+                <div className="mt-2 text-center">
+                    <div className="text-xs font-bold text-gray-700 uppercase tracking-tighter">{label}</div>
+                    <div className="text-sm font-mono text-gray-900">{level.toFixed(0)} L</div>
+                </div>
             </div>
         );
+    };
+
+    // Helper para encontrar nome da obra
+    const getObraName = (obraId) => {
+        const obra = obras.find(o => o.id === obraId);
+        if (obra) return obra.nome;
+        if (extraObraOptions.includes(obraId)) return obraId;
+        return 'Não definida';
     };
 
     return (
@@ -84,115 +119,169 @@ const ComboioPage = ({
             <header className="flex flex-col md:flex-row justify-between items-center gap-4 border-b pb-4">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-800">Gestão de Comboio</h1>
-                    <p className="text-sm text-gray-500">Controle de entradas, saídas e abastecimentos em campo.</p>
+                    <p className="text-sm text-gray-500">Controle de estoque, abastecimentos e movimentações.</p>
                 </div>
                 <ProtectedComponent requiredPermission="editor">
                     <button 
-                        onClick={() => setModalState({ type: 'drenagem' })}
-                        className="bg-orange-100 text-orange-700 px-4 py-2 rounded-lg font-semibold hover:bg-orange-200 flex items-center gap-2 border border-orange-200 transition"
+                        onClick={() => setModalState({ type: 'drenagem', data: null, isEditing: false })}
+                        className="bg-orange-100 text-orange-700 px-4 py-2 rounded-lg font-semibold hover:bg-orange-200 flex items-center gap-2 border border-orange-200 transition shadow-sm"
                     >
-                        <Recycle size={18} /> Drenagem (Devolução)
+                        <Recycle size={18} /> Registrar Drenagem
                     </button>
                 </ProtectedComponent>
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* LISTA DE COMBOIOS (ESQUERDA) */}
+                {/* COLUNA ESQUERDA: LISTA DE COMBOIOS */}
                 <div className="space-y-4">
-                    <h2 className="font-bold text-gray-700 uppercase text-sm tracking-wide">Frotas de Comboio</h2>
+                    <h2 className="font-bold text-gray-700 uppercase text-xs tracking-wider flex items-center gap-2">
+                        <Droplet size={14}/> Frotas de Comboio
+                    </h2>
                     {comboioVehicles.map(comboio => (
                         <div 
                             key={comboio.id}
                             onClick={() => setSelectedComboioId(comboio.id)}
-                            className={`bg-white p-4 rounded-xl shadow-sm border cursor-pointer transition-all ${selectedComboioId === comboio.id ? 'border-yellow-400 ring-2 ring-yellow-100 transform scale-[1.02]' : 'border-gray-100 hover:border-gray-300'}`}
+                            className={`bg-white p-5 rounded-xl shadow-sm border cursor-pointer transition-all relative overflow-hidden ${selectedComboioId === comboio.id ? 'border-yellow-500 ring-1 ring-yellow-300' : 'border-gray-100 hover:border-blue-200'}`}
                         >
-                            <div className="flex justify-between items-start mb-3">
+                            {selectedComboioId === comboio.id && <div className="absolute top-0 right-0 w-3 h-3 bg-yellow-500 rounded-bl-lg"></div>}
+                            
+                            {/* Cabeçalho do Card */}
+                            <div className="flex justify-between items-start mb-2">
                                 <div>
-                                    <span className="text-lg font-bold text-gray-800">{comboio.registroInterno}</span>
-                                    <p className="text-xs text-gray-500">{comboio.modelo} - {comboio.placa}</p>
-                                </div>
-                                <div className="bg-gray-100 px-2 py-1 rounded text-xs font-mono text-gray-600">
-                                    {comboio.status || 'Ativo'}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl font-bold text-gray-800">{comboio.registroInterno}</span>
+                                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border">{comboio.placa}</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-0.5">{comboio.modelo}</p>
                                 </div>
                             </div>
 
-                            <div className="flex justify-center gap-4 my-4">
+                            {/* Localização Atual */}
+                            <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 p-2 rounded-md mb-4 border border-blue-100">
+                                <MapPin size={14} />
+                                <span className="font-medium truncate">
+                                    {getObraName(comboio.obraAtualId)}
+                                </span>
+                            </div>
+
+                            {/* Barras de Combustível */}
+                            <div className="flex justify-center gap-4 mb-4 px-2">
                                 {Object.entries(comboio.fuelLevels || {}).map(([type, level]) => (
                                     <FuelBar key={type} type={type} level={level} capacity={comboio.fuelCapacity} />
                                 ))}
-                                {Object.keys(comboio.fuelLevels || {}).length === 0 && <span className="text-xs text-gray-400 py-4">Sem tanque cadastrado</span>}
+                                {Object.keys(comboio.fuelLevels || {}).length === 0 && (
+                                    <div className="text-xs text-gray-400 py-4 italic text-center w-full bg-gray-50 rounded">
+                                        Sem dados de tanque
+                                    </div>
+                                )}
                             </div>
 
+                            {/* Botões de Ação */}
                             <ProtectedComponent requiredPermission="editor">
-                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                <div className="grid grid-cols-2 gap-3 mt-2">
                                     <button 
-                                        onClick={(e) => { e.stopPropagation(); setModalState({ type: 'entrada', data: comboio }); }}
-                                        className="bg-blue-600 text-white py-2 rounded-lg text-xs font-bold hover:bg-blue-700 flex justify-center items-center gap-1"
+                                        onClick={(e) => { e.stopPropagation(); setModalState({ type: 'entrada', data: comboio, isEditing: false }); }}
+                                        className="bg-blue-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-blue-700 flex justify-center items-center gap-2 transition shadow-sm"
                                     >
-                                        <Plus size={14}/> Entrada
+                                        <Plus size={16}/> Entrada
                                     </button>
                                     <button 
-                                        onClick={(e) => { e.stopPropagation(); setModalState({ type: 'saida', data: comboio }); }}
-                                        className="bg-yellow-400 text-gray-900 py-2 rounded-lg text-xs font-bold hover:bg-yellow-500 flex justify-center items-center gap-1"
+                                        onClick={(e) => { e.stopPropagation(); setModalState({ type: 'saida', data: comboio, isEditing: false }); }}
+                                        className="bg-yellow-400 text-gray-900 py-2.5 rounded-lg text-sm font-semibold hover:bg-yellow-500 flex justify-center items-center gap-2 transition shadow-sm"
                                     >
-                                        <Minus size={14}/> Abastecer
+                                        <Minus size={16}/> Abastecer
                                     </button>
                                 </div>
                             </ProtectedComponent>
                         </div>
                     ))}
-                    {comboioVehicles.length === 0 && <div className="text-center text-gray-400 py-10 border-2 border-dashed rounded-lg">Nenhum veículo marcado como comboio.</div>}
+                    {comboioVehicles.length === 0 && (
+                        <div className="text-center text-gray-400 py-10 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50">
+                            Nenhum veículo configurado como comboio.
+                        </div>
+                    )}
                 </div>
 
-                {/* HISTÓRICO DE TRANSAÇÕES (DIREITA) */}
-                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[600px]">
-                    <div className="p-4 border-b bg-gray-50 rounded-t-xl">
-                        <h2 className="font-bold text-gray-700">Histórico de Operações</h2>
+                {/* COLUNA DIREITA: HISTÓRICO */}
+                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[700px]">
+                    <div className="p-4 border-b bg-gray-50 rounded-t-xl flex justify-between items-center">
+                        <h2 className="font-bold text-gray-700">Histórico de Operações {selectedComboio ? `- ${selectedComboio.registroInterno}` : ''}</h2>
+                        {selectedComboio && (
+                            <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded border">
+                                {transactions.length} registros
+                            </span>
+                        )}
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-2">
+                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3 bg-gray-50/50">
                         {transactions.length > 0 ? transactions.map(t => (
-                            <div key={t.id} className="flex items-center p-3 bg-white border rounded-lg hover:shadow-sm transition-shadow group">
-                                <div className={`p-2 rounded-full mr-3 ${t.type === 'entrada' ? 'bg-blue-100 text-blue-600' : t.type === 'saida' ? 'bg-yellow-100 text-yellow-600' : 'bg-orange-100 text-orange-600'}`}>
-                                    {t.type === 'entrada' ? <ArrowUpCircle size={20}/> : t.type === 'saida' ? <ArrowDownCircle size={20}/> : <Recycle size={20}/>}
+                            <div key={t.id} className="flex items-center p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-all group">
+                                {/* Ícone */}
+                                <div className={`p-3 rounded-full mr-4 shadow-sm flex-shrink-0 ${t.type === 'entrada' ? 'bg-blue-100 text-blue-600' : t.type === 'saida' ? 'bg-yellow-100 text-yellow-600' : 'bg-orange-100 text-orange-600'}`}>
+                                    {t.type === 'entrada' ? <ArrowUpCircle size={24}/> : t.type === 'saida' ? <ArrowDownCircle size={24}/> : <Recycle size={24}/>}
                                 </div>
+                                
+                                {/* Detalhes */}
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex justify-between">
-                                        <p className="text-sm font-bold text-gray-800 truncate">
-                                            {t.type === 'entrada' ? `Entrada: ${t.partnerName}` : t.type === 'saida' ? `Abasteceu: ${t.receivingVehicleName || 'Veículo'}` : `Drenagem: ${t.drainingVehicleName}`}
+                                    <div className="flex justify-between items-center mb-1">
+                                        <p className="text-sm font-bold text-gray-800 truncate pr-2">
+                                            {t.type === 'entrada' ? `ENTRADA: ${t.partnerName}` : t.type === 'saida' ? `SAÍDA: ${t.receivingVehicleName || 'Veículo'}` : `DRENAGEM: ${t.drainingVehicleName}`}
                                         </p>
-                                        <span className={`text-sm font-mono font-bold ${t.type === 'entrada' || t.type === 'drenagem' ? 'text-green-600' : 'text-red-600'}`}>
-                                            {t.type === 'entrada' || t.type === 'drenagem' ? '+' : '-'}{t.liters} L
+                                        <span className={`text-base font-mono font-bold whitespace-nowrap ${t.type === 'entrada' || t.type === 'drenagem' ? 'text-green-600' : 'text-red-600'}`}>
+                                            {t.type === 'entrada' || t.type === 'drenagem' ? '+' : '-'}{parseFloat(t.liters).toFixed(1)} L
                                         </span>
                                     </div>
-                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                        <span>{new Date(t.date).toLocaleDateString('pt-BR')} • {t.fuelType === 'dieselS10' ? 'S10' : 'Comum'}</span>
-                                        <span className="truncate max-w-[150px]">{t.obraName || ''}</span>
+                                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400"></span> {new Date(t.date).toLocaleString('pt-BR')}</span>
+                                        <span className="flex items-center gap-1 font-medium text-gray-600 bg-gray-100 px-1.5 rounded">{t.fuelType === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'}</span>
+                                        {t.obraName && <span className="flex items-center gap-1"><MapPin size={10}/> {t.obraName}</span>}
+                                        {t.responsibleUserEmail && <span className="hidden sm:inline">({t.responsibleUserEmail.split('@')[0]})</span>}
                                     </div>
                                 </div>
-                                <div className="flex ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+
+                                {/* Ações */}
+                                <div className="flex flex-col gap-1 ml-3 pl-3 border-l border-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <ProtectedComponent requiredPermission="editor">
-                                        <button onClick={() => setModalState({ type: 'edit', data: t })} className="p-1 text-gray-400 hover:text-blue-600"><Edit size={16}/></button>
+                                        <button 
+                                            onClick={() => handleEdit(t)} 
+                                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                                            title="Editar Operação"
+                                        >
+                                            <Edit size={18}/>
+                                        </button>
                                     </ProtectedComponent>
                                     <ProtectedComponent requiredPermission="admin">
-                                        <button onClick={() => setDeleteTransaction(t)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={16}/></button>
+                                        <button 
+                                            onClick={() => setDeleteTransaction(t)} 
+                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                                            title="Excluir Operação"
+                                        >
+                                            <Trash2 size={18}/>
+                                        </button>
                                     </ProtectedComponent>
                                 </div>
                             </div>
                         )) : (
                             <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                <Droplet size={48} className="mb-2 opacity-20"/>
-                                <p>Nenhuma transação registrada.</p>
+                                <div className="bg-gray-100 p-4 rounded-full mb-3">
+                                    <Droplet size={40} className="text-gray-300"/>
+                                </div>
+                                <p className="font-medium">Nenhuma operação registrada.</p>
+                                <p className="text-sm">Selecione um comboio para ver o histórico.</p>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
 
-            {/* RENDERIZAÇÃO DOS MODAIS */}
+            {/* --- MODAIS DE OPERAÇÃO --- */}
+            
+            {/* Modal Entrada (Com suporte a edição e createdBy fix) */}
             {modalState.type === 'entrada' && (
                 <ComboioEntradaModal
                     onClose={closeModal}
-                    comboioVehicle={modalState.data}
+                    // Se for edição, usa os dados da transação. Se for novo, usa o comboio selecionado no card.
+                    comboioVehicle={modalState.isEditing ? comboioVehicles.find(v => v.id === modalState.data.comboioVehicleId) : modalState.data}
+                    transactionData={modalState.isEditing ? modalState.data : null} // Passa dados se for edição
                     user={user}
                     partners={partners}
                     employees={employees}
@@ -206,16 +295,18 @@ const ComboioPage = ({
                 />
             )}
 
+            {/* Modal Saída (Com suporte a edição e createdBy fix) */}
             {modalState.type === 'saida' && (
                 <ComboioSaidaModal
                     onClose={closeModal}
-                    comboioVehicle={modalState.data}
+                    comboioVehicle={modalState.isEditing ? comboioVehicles.find(v => v.id === modalState.data.comboioVehicleId) : modalState.data}
+                    transactionData={modalState.isEditing ? modalState.data : null}
                     vehicles={vehicles}
                     obras={obras}
                     employees={employees}
-                    expenses={expenses} // Passa despesas para calcular orçamento
-                    comboioTransactions={comboioTransactions} // Passa histórico para média
-                    refuelings={refuelings} // Passa histórico externo para média
+                    expenses={expenses}
+                    comboioTransactions={comboioTransactions}
+                    refuelings={refuelings}
                     user={user}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
@@ -227,9 +318,11 @@ const ComboioPage = ({
                 />
             )}
 
+            {/* Modal Drenagem */}
             {modalState.type === 'drenagem' && (
                 <ComboioDrenagemModal
                     onClose={closeModal}
+                    transactionData={modalState.isEditing ? modalState.data : null}
                     user={user}
                     vehicles={vehicles}
                     apiClient={apiClient}
@@ -238,18 +331,7 @@ const ComboioPage = ({
                 />
             )}
 
-            {modalState.type === 'edit' && (
-                <ComboioTransactionModal
-                    onClose={closeModal}
-                    transaction={modalState.data}
-                    user={user}
-                    apiClient={apiClient}
-                    setAlertMessage={setAlertMessage}
-                    PasswordConfirmationModal={PasswordConfirmationModal}
-                    reloadData={reloadData}
-                />
-            )}
-
+            {/* Modal Exclusão */}
             {deleteTransaction && (
                 <PasswordConfirmationModal
                     message="Tem certeza? A exclusão irá reverter os saldos de combustível do comboio e do veículo envolvido."
