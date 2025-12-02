@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { Download, Printer, Droplet } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// Correção: Importação via CDN para funcionar sem npm install local
+import jsPDF from 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm';
+import autoTable from 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/+esm';
 
 const RefuelingHistory = ({ 
     vehicleId, 
@@ -97,28 +98,33 @@ const RefuelingHistory = ({
     }, [vehicleId, refuelings, vehicles, vehicleGroups]);
 
     const generateHistoryPDF = () => {
-        const doc = new jsPDF();
-        const vehicle = vehicles.find(v => v.id === vehicleId);
-        if (!vehicle) return;
+        try {
+            const doc = new jsPDF();
+            const vehicle = vehicles.find(v => v.id === vehicleId);
+            if (!vehicle) return;
 
-        doc.setFontSize(16);
-        doc.text(`Histórico de Consumo - ${vehicle.registroInterno}`, 14, 20);
-        
-        autoTable(doc, {
-            startY: 30,
-            head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
-            body: processedHistory.historyWithAverages.map(h => [
-                safeDate(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
-                h.partnerName,
-                h.displayReading,
-                (h.litrosAbastecidos || 0).toFixed(2),
-                h.average ? h.average.toFixed(2) : '-'
-            ]),
-            theme: 'striped',
-            headStyles: { fillColor: [41, 128, 185] },
-        });
+            doc.setFontSize(16);
+            doc.text(`Histórico de Consumo - ${vehicle.registroInterno}`, 14, 20);
+            
+            autoTable(doc, {
+                startY: 30,
+                head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
+                body: processedHistory.historyWithAverages.map(h => [
+                    safeDate(h.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
+                    h.partnerName,
+                    h.displayReading,
+                    (h.litrosAbastecidos || 0).toFixed(2),
+                    h.average ? h.average.toFixed(2) : '-'
+                ]),
+                theme: 'striped',
+                headStyles: { fillColor: [41, 128, 185] },
+            });
 
-        doc.save(`Historico_${vehicle.registroInterno}.pdf`);
+            doc.save(`Historico_${vehicle.registroInterno}.pdf`);
+        } catch (error) {
+            console.error("Erro ao gerar PDF:", error);
+            alert("Erro ao gerar o PDF. Verifique o console para mais detalhes.");
+        }
     };
 
     if (!vehicleId) return (
