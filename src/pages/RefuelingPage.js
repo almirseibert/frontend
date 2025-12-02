@@ -36,15 +36,27 @@ const RefuelingPage = ({
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
 
+    // --- HELPER: Validação de Data (Consistente com todo o sistema) ---
+    const isValidDbDate = (dateString) => {
+        if (!dateString) return false;
+        const str = String(dateString);
+        // Filtra strings vazias, nulas, ou data "zero" do MySQL/Unix
+        return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
+    };
+
     // --- HELPER: Formatação de Data Segura ---
     const formatDateSafe = (dateInput) => {
-        if (!dateInput) return 'N/A';
+        if (!isValidDbDate(dateInput)) return 'N/A';
         try {
+            let dateStr = String(dateInput);
             // Se for string SQL (YYYY-MM-DD HH:MM:SS), substitui espaço por T
-            const dateStr = dateInput.toString().replace(' ', 'T');
+            if (dateStr.includes(' ') && !dateStr.includes('T')) {
+                dateStr = dateStr.replace(' ', 'T');
+            }
             const date = new Date(dateStr);
             if (isNaN(date.getTime())) return 'Data Inválida';
-            return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+            // Força UTC para evitar erro de fuso horário (D-1)
+            return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
 
@@ -90,12 +102,10 @@ const RefuelingPage = ({
             const partner = partnersList.find(p => p.id === order.partnerId);
             const employee = employeesList.find(e => e.id === order.employeeId);
             
-            // Correção de Data no PDF
-            let emissionDate = new Date();
-            if (order.date) {
-                try {
-                    emissionDate = new Date(order.date.toString().replace(' ', 'T'));
-                } catch (e) {}
+            // Correção de Data no PDF usando lógica segura
+            let emissionDateStr = 'N/A';
+            if (isValidDbDate(order.date)) {
+                emissionDateStr = formatDateSafe(order.date);
             }
 
             if (logoDataUrl) {
@@ -121,24 +131,30 @@ const RefuelingPage = ({
                      leituraLabel = 'Horímetro';
                      leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
                  } else if (group === 'Caminhões') {
-                     if (order.horimetro != null) {
+                     if (order.horimetro != null && order.horimetro > 0) {
                         leituraLabel = 'Horímetro';
-                        leituraValue = order.horimetro ?? 'N/A';
+                        leituraValue = order.horimetro;
                      } else {
                         leituraLabel = 'Odômetro';
-                        leituraValue = order.odometro ?? 'N/A';
+                        leituraValue = order.odometro || 'N/A';
                      }
                  } else { 
                      leituraLabel = 'Odômetro';
-                     leituraValue = order.odometro ?? 'N/A';
+                     leituraValue = order.odometro || 'N/A';
                  }
             } else { 
-                 leituraLabel = (order.horimetro != null || order.horimetroDigital != null || order.horimetroAnalogico != null) ? 'Horímetro' : 'Odômetro';
-                 leituraValue = order.horimetroDigital ?? order.horimetroAnalogico ?? order.horimetro ?? order.odometro ?? 'N/A';
+                 // Fallback genérico
+                 if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
+                     leituraLabel = 'Horímetro';
+                     leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
+                 } else {
+                     leituraLabel = 'Odômetro';
+                     leituraValue = order.odometro || 'N/A';
+                 }
             }
 
             const body = [
-                ['Data de Emissão', isNaN(emissionDate.getTime()) ? 'N/A' : emissionDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })],
+                ['Data de Emissão', emissionDateStr],
                 ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
                 ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
                 ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
