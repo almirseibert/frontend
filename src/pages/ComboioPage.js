@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Droplet, ArrowUpCircle, ArrowDownCircle, Plus, Minus, Recycle, Edit, Trash2, MapPin } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Modais Separados
 import ComboioEntradaModal from '../components/modals/ComboioEntradaModal';
@@ -7,6 +9,116 @@ import ComboioSaidaModal from '../components/modals/ComboioSaidaModal';
 import ComboioDrenagemModal from '../components/modals/ComboioDrenagemModal';
 
 import ProtectedComponent from '../components/ProtectedComponent';
+
+// --- FUNÇÃO DE GERAÇÃO DE PDF (Reintegrada) ---
+const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], employees = [], vehicleGroups = {}) => {
+    // Constrói o PDF usando jsPDF e autoTable
+    const buildPdf = (logoDataUrl) => {
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 10;
+
+        // Busca os dados completos baseados nos IDs
+        const vehicle = vehicles.find(v => v.id === orderData.vehicleId); // Veículo que RECEBEU
+        const partner = partners.find(p => p.id === orderData.partnerId); // Posto (se for entrada)
+        const employee = employees.find(e => e.id === orderData.employeeId);
+        
+        // Usa a data passada em orderData
+        const transactionDate = orderData.date ? new Date(orderData.date) : new Date();
+
+        // Adiciona logo se disponível
+        if (logoDataUrl) {
+            const imgWidth = 45;
+            const imgHeight = 16.875; // Mantém proporção
+            try {
+                doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
+            } catch (e) {
+                 console.error("Erro ao adicionar logo ao PDF:", e);
+            }
+        }
+
+        // Cabeçalho do PDF
+        doc.setFontSize(16);
+        doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
+        doc.setFontSize(12);
+        doc.text(`Nº: ${String(orderData.authNumber || 'N/A').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+
+        // Determina a etiqueta e valor da leitura
+        let leituraLabel = 'Odômetro';
+        let leituraValue = orderData.odometro || orderData.odometroSaida || 'N/A';
+        
+        if (vehicle && vehicleGroups && Object.keys(vehicleGroups).length > 0) {
+            const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
+            if (vehicleGroup === 'Máquinas Pesadas') {
+                leituraLabel = 'Horímetro';
+                // Usa os valores específicos passados em orderData ou fallbacks
+                leituraValue = orderData.horimetroDigitalSaida ?? orderData.horimetroAnalogicoSaida ?? orderData.horimetroSaida ?? orderData.horimetro ?? 'N/A';
+            } else if (vehicleGroup === 'Caminhões') {
+                if (orderData.horimetroSaida != null || orderData.horimetro != null) {
+                    leituraLabel = 'Horímetro';
+                    leituraValue = orderData.horimetroSaida ?? orderData.horimetro ?? 'N/A';
+                } else {
+                    leituraLabel = 'Odômetro';
+                    leituraValue = orderData.odometroSaida ?? orderData.odometro ?? 'N/A';
+                }
+            }
+        }
+
+        // Corpo da tabela do PDF
+        const body = [
+            ['Data de Emissão', transactionDate.toLocaleString('pt-BR')],
+            ['Funcionário Responsável', employee?.nome || 'Não especificado'],
+            ['Veículo Abastecido', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+            ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
+            [leituraLabel, `${leituraValue}`],
+            ['Origem do Combustível', orderData.partnerName || partner?.razaoSocial || 'N/A'],
+            ['Combustível', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A'],
+            ['Litros', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`],
+        ];
+
+        if (orderData.createdBy?.userEmail) {
+            body.push(['Emitido por', orderData.createdBy.userEmail]);
+        }
+
+        autoTable(doc, {
+            startY: 35,
+            body: body,
+            theme: 'striped',
+            styles: { fontSize: 9, cellPadding: 1.5 },
+            headStyles: { fillColor: [24, 49, 83] },
+            columnStyles: {
+                0: { cellWidth: 40, fontStyle: 'bold' },
+            }
+        });
+
+        const fileName = `Autorizacao_${orderData.authNumber || 'TEMP'}_${vehicle?.registroInterno || 'VEIC'}_${transactionDate.toISOString().split('T')[0]}.pdf`;
+        doc.output('dataurlnewwindow', { filename: fileName });
+    };
+
+    const logo = new Image();
+    logo.crossOrigin = 'Anonymous';
+    logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
+
+    logo.onload = () => {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = logo.width;
+            canvas.height = logo.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(logo, 0, 0);
+            const dataUrl = canvas.toDataURL('image/png');
+            buildPdf(dataUrl);
+        } catch (e) {
+            console.error("Erro ao processar logo:", e);
+            buildPdf(null);
+        }
+    };
+
+    logo.onerror = () => {
+        console.error("Erro ao carregar o logotipo para o PDF.");
+        buildPdf(null);
+    };
+};
 
 const ComboioPage = ({
     user,
@@ -23,7 +135,7 @@ const ComboioPage = ({
     vehicleGroups = {},
     PasswordConfirmationModal,
     reloadData,
-    generateAuthorizationPDF 
+    // generateAuthorizationPDF removido dos props pois agora é interno
 }) => {
     // Estado
     const [selectedComboioId, setSelectedComboioId] = useState(null);
@@ -54,7 +166,6 @@ const ComboioPage = ({
     const closeModal = () => setModalState({ type: null, data: null, isEditing: false });
     
     const handleEdit = (transaction) => {
-        // Mapeia o tipo de transação para o tipo de modal
         let modalType = null;
         if (transaction.type === 'entrada') modalType = 'entrada';
         else if (transaction.type === 'saida') modalType = 'saida';
@@ -80,7 +191,6 @@ const ComboioPage = ({
 
     // Componente Barra de Combustível com Porcentagem
     const FuelBar = ({ type, level, capacity }) => {
-        // Capacidade estimada se não definida (pode ser ajustado para pegar capacidade específica por tanque se houver no futuro)
         const totalCapacity = parseFloat(capacity) || 2000; 
         const pct = Math.min((level / totalCapacity) * 100, 100);
         const color = type === 'dieselS10' ? 'bg-blue-600' : 'bg-green-600';
@@ -93,7 +203,6 @@ const ComboioPage = ({
                         className={`${color} w-full transition-all duration-700 ease-in-out`} 
                         style={{ height: `${pct}%` }}
                     ></div>
-                    {/* Texto de porcentagem sobre a barra */}
                     <div className="absolute w-full text-center bottom-1 text-[10px] font-bold text-white drop-shadow-md">
                         {pct.toFixed(0)}%
                     </div>
@@ -106,7 +215,6 @@ const ComboioPage = ({
         );
     };
 
-    // Helper para encontrar nome da obra
     const getObraName = (obraId) => {
         const obra = obras.find(o => o.id === obraId);
         if (obra) return obra.nome;
@@ -145,7 +253,6 @@ const ComboioPage = ({
                         >
                             {selectedComboioId === comboio.id && <div className="absolute top-0 right-0 w-3 h-3 bg-yellow-500 rounded-bl-lg"></div>}
                             
-                            {/* Cabeçalho do Card */}
                             <div className="flex justify-between items-start mb-2">
                                 <div>
                                     <div className="flex items-center gap-2">
@@ -156,7 +263,6 @@ const ComboioPage = ({
                                 </div>
                             </div>
 
-                            {/* Localização Atual */}
                             <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 p-2 rounded-md mb-4 border border-blue-100">
                                 <MapPin size={14} />
                                 <span className="font-medium truncate">
@@ -164,7 +270,6 @@ const ComboioPage = ({
                                 </span>
                             </div>
 
-                            {/* Barras de Combustível */}
                             <div className="flex justify-center gap-4 mb-4 px-2">
                                 {Object.entries(comboio.fuelLevels || {}).map(([type, level]) => (
                                     <FuelBar key={type} type={type} level={level} capacity={comboio.fuelCapacity} />
@@ -176,7 +281,6 @@ const ComboioPage = ({
                                 )}
                             </div>
 
-                            {/* Botões de Ação */}
                             <ProtectedComponent requiredPermission="editor">
                                 <div className="grid grid-cols-2 gap-3 mt-2">
                                     <button 
@@ -215,12 +319,9 @@ const ComboioPage = ({
                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3 bg-gray-50/50">
                         {transactions.length > 0 ? transactions.map(t => (
                             <div key={t.id} className="flex items-center p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-all group">
-                                {/* Ícone */}
                                 <div className={`p-3 rounded-full mr-4 shadow-sm flex-shrink-0 ${t.type === 'entrada' ? 'bg-blue-100 text-blue-600' : t.type === 'saida' ? 'bg-yellow-100 text-yellow-600' : 'bg-orange-100 text-orange-600'}`}>
                                     {t.type === 'entrada' ? <ArrowUpCircle size={24}/> : t.type === 'saida' ? <ArrowDownCircle size={24}/> : <Recycle size={24}/>}
                                 </div>
-                                
-                                {/* Detalhes */}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center mb-1">
                                         <p className="text-sm font-bold text-gray-800 truncate pr-2">
@@ -237,8 +338,6 @@ const ComboioPage = ({
                                         {t.responsibleUserEmail && <span className="hidden sm:inline">({t.responsibleUserEmail.split('@')[0]})</span>}
                                     </div>
                                 </div>
-
-                                {/* Ações */}
                                 <div className="flex flex-col gap-1 ml-3 pl-3 border-l border-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <ProtectedComponent requiredPermission="editor">
                                         <button 
@@ -273,15 +372,11 @@ const ComboioPage = ({
                 </div>
             </div>
 
-            {/* --- MODAIS DE OPERAÇÃO --- */}
-            
-            {/* Modal Entrada (Com suporte a edição e createdBy fix) */}
             {modalState.type === 'entrada' && (
                 <ComboioEntradaModal
                     onClose={closeModal}
-                    // Se for edição, usa os dados da transação. Se for novo, usa o comboio selecionado no card.
                     comboioVehicle={modalState.isEditing ? comboioVehicles.find(v => v.id === modalState.data.comboioVehicleId) : modalState.data}
-                    transactionData={modalState.isEditing ? modalState.data : null} // Passa dados se for edição
+                    transactionData={modalState.isEditing ? modalState.data : null}
                     user={user}
                     partners={partners}
                     employees={employees}
@@ -295,7 +390,6 @@ const ComboioPage = ({
                 />
             )}
 
-            {/* Modal Saída (Com suporte a edição e createdBy fix) */}
             {modalState.type === 'saida' && (
                 <ComboioSaidaModal
                     onClose={closeModal}
@@ -318,7 +412,6 @@ const ComboioPage = ({
                 />
             )}
 
-            {/* Modal Drenagem */}
             {modalState.type === 'drenagem' && (
                 <ComboioDrenagemModal
                     onClose={closeModal}
@@ -331,7 +424,6 @@ const ComboioPage = ({
                 />
             )}
 
-            {/* Modal Exclusão */}
             {deleteTransaction && (
                 <PasswordConfirmationModal
                     message="Tem certeza? A exclusão irá reverter os saldos de combustível do comboio e do veículo envolvido."
