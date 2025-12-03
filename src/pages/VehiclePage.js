@@ -324,7 +324,20 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             </div>
 
             {/* --- Modais --- */}
-            {isModalOpen && <VehicleModal user={user} vehicle={selectedVehicle} vehicles={vehicles} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />}
+            {isModalOpen && (
+                <VehicleModal 
+                    user={user} 
+                    vehicle={selectedVehicle} 
+                    vehicles={vehicles} 
+                    vehicleTypes={vehicleTypes} // Passando os tipos de veículos
+                    vehicleGroups={vehicleGroups} // Passando os grupos de veículos
+                    onClose={() => setIsModalOpen(false)} 
+                    setAlertMessage={setAlertMessage} 
+                    apiClient={apiClient} 
+                    reloadData={reloadData} 
+                    PasswordConfirmationModal={PasswordConfirmationModal} 
+                />
+            )}
             
             {isObraAllocationModalOpen && (
                 <ObraAllocationModal user={user} vehicle={selectedVehicle} obras={obras} employees={employees} revisions={revisions} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} PasswordConfirmationModal={PasswordConfirmationModal} />
