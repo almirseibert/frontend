@@ -46,8 +46,9 @@ export const getVehicleMainReading = (vehicle) => {
 /**
  * Regras 2 e 3: Validação Rigorosa de Leitura
  * Retorna um objeto { status: 'ok' | 'bloqueio', message: string }
+ * Renomeado para manter compatibilidade com importações existentes.
  */
-export const validateReadingConsistency = (vehicle, newValueStr, fieldType) => {
+export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
     // Se não tiver veículo anterior (criação), não valida consistência, apenas formato
     if (!vehicle) return { status: 'ok' };
 
@@ -78,24 +79,6 @@ export const validateReadingConsistency = (vehicle, newValueStr, fieldType) => {
             status: 'bloqueio',
             message: `REGRESSÃO DETECTADA: O novo valor (${newValue} ${unit}) é menor que o atual (${currentValue} ${unit}).`
         };
-    }
-
-    // Regra: Bloquear valor IGUAL (Estagnação suspeita em edição manual)
-    if (Math.abs(newValue - currentValue) < 0.01) {
-         // Opcional: Você pode querer permitir salvar sem mudar a leitura se estiver editando OUTRA coisa no veículo.
-         // Mas como a regra pediu "igual a anterior... bloqueadas", mantemos o aviso, 
-         // porém, geralmente em edição de cadastro completa, o odômetro pode não ter mudado.
-         // Vamos retornar um aviso 'soft' que não impede, ou bloqueio se for estrito.
-         // Pelo pedido "bloqueadas (liberando por senha)", vamos tratar como bloqueio se for uma atualização de leitura.
-         // OBS: Em edição de cadastro (VehicleModal), muitas vezes não mudamos o KM. 
-         // Vou considerar OK se for igual, para não travar edição de outros campos (ex: mudar placa).
-         // Se a intenção for obrigar evolução, descomente abaixo:
-         /*
-         return {
-             status: 'bloqueio',
-             message: `VALOR IGUAL: A leitura (${newValue} ${unit}) não alterou.`
-         };
-         */
     }
 
     // Regra: Bloquear SALTO excessivo (> 1000km ou > 50h)
@@ -183,10 +166,7 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
 
         docs.forEach(doc => {
             if (doc.date) {
-                // Ajuste para evitar problemas de fuso horário na visualização
-                // Criamos a data e garantimos que pegamos o dia correto
                 const d = new Date(doc.date);
-                // Ajuste simples para UTC->Local se necessário, ou apenas comparação direta
                 const dCompare = new Date(d.getFullYear(), d.getMonth(), d.getDate());
                 
                 if (now > dCompare) {

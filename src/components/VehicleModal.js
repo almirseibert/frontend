@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase } from 'lucide-react';
-import { validateReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
+import { checkReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (REVISADO v2.0) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (REVISADO v2.0 - FIX IMPORT) ---
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     
     // Estado do Formulário
@@ -149,23 +149,23 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         
         if (isEditing) {
             if (showOdometro) {
-                const check = validateReadingConsistency(vehicle, formData.odometro, 'odometro');
+                const check = checkReadingConsistency(vehicle, formData.odometro, 'odometro');
                 if (check.status === 'bloqueio') consistencyIssues.push(check.message);
             }
             if (showHorimetro) {
                 // Checa digital (principal)
-                const checkDig = validateReadingConsistency(vehicle, formData.horimetroDigital, 'horimetroDigital');
+                const checkDig = checkReadingConsistency(vehicle, formData.horimetroDigital, 'horimetroDigital');
                 if (checkDig.status === 'bloqueio') consistencyIssues.push(checkDig.message);
                 
                 // Checa analógico se tiver
                 if (formData.possuiHorimetroAnalogico) {
-                    const checkAna = validateReadingConsistency(vehicle, formData.horimetroAnalogico, 'horimetroAnalogico');
+                    const checkAna = checkReadingConsistency(vehicle, formData.horimetroAnalogico, 'horimetroAnalogico');
                     if (checkAna.status === 'bloqueio') consistencyIssues.push(checkAna.message);
                 }
                 
                 // Checa horímetro genérico (caso legado)
                 if (!formData.horimetroDigital && !formData.possuiHorimetroAnalogico) {
-                    const checkGen = validateReadingConsistency(vehicle, formData.horimetro, 'horimetro');
+                    const checkGen = checkReadingConsistency(vehicle, formData.horimetro, 'horimetro');
                     if (checkGen.status === 'bloqueio') consistencyIssues.push(checkGen.message);
                 }
             }
