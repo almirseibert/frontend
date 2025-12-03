@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import apiClient from '../services/apiClient'; 
-import {
-    HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle, Upload, Download, ChevronsUpDown, TrafficCone, Info, AlertTriangle, UserCheck
+import { HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle, Upload, Download, ChevronsUpDown, TrafficCone, Info, AlertTriangle, UserCheck, Truck
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
