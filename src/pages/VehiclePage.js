@@ -59,15 +59,19 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
              // Verifica restrições (Regra 4)
              const restrictions = checkVehicleRestrictions(v, revisions);
              
+             // Encontra a obra se existir
+             const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
+
             return { 
                 ...v, 
                 computedStatus: currentStatus,
+                obra, // Anexa o objeto obra para uso no display
                 vehicleReading: `${readingData.value ?? 'N/A'} ${readingData.unit}`,
                 vehicleReadingRaw: readingData.raw,
                 restrictions: restrictions // Array de problemas
             };
         });
-    }, [vehicles, revisions]); 
+    }, [vehicles, revisions, obras]); 
 
     // --- Filtragem e Ordenação ---
     const filteredVehicles = useMemo(() => {
@@ -164,6 +168,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         document.body.removeChild(link);
     };
 
+    const truncateText = (text, limit = 22) => {
+        if (!text) return '';
+        if (text.length <= limit) return text;
+        return text.substring(0, limit) + '...';
+    };
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fade-in">
             {/* Header */}
@@ -204,13 +214,14 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 </select>
             </div>
 
-            {/* Tabela */}
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-                <div className="hidden md:grid grid-cols-12 gap-4 p-4 font-bold text-xs text-gray-500 uppercase tracking-wider bg-gray-50 border-b">
-                    <div className="col-span-4 cursor-pointer hover:text-gray-800 flex items-center gap-1" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12}/></div>
-                    <div className="col-span-2 cursor-pointer hover:text-gray-800" onClick={() => requestSort('placa')}>Placa</div>
-                    <div className="col-span-2 text-right cursor-pointer hover:text-gray-800 flex items-center justify-end gap-1" onClick={() => requestSort('vehicleReading')}>Leitura <ChevronsUpDown size={12}/></div>
-                    <div className="col-span-2 text-center">Status</div>
+            {/* Tabela Restaurada */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                <div className="hidden md:grid grid-cols-12 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider items-center">
+                    <div className="col-span-4 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('placa')}>Placa <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Reg. <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="col-span-2 text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
+                    <div className="col-span-2 text-center cursor-pointer hover:text-gray-900" onClick={() => requestSort('status')}>Status<ChevronsUpDown size={12} className="inline-block ml-1"/></div>
                     <div className="col-span-2 text-center">Ações</div>
                 </div>
 
@@ -219,43 +230,52 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                         <div className="p-8 text-center text-gray-500">Nenhum veículo encontrado.</div>
                     ) : filteredVehicles.map(vehicle => {
                         const statusColors = {
-                            'Em Manutenção': 'bg-red-100 text-red-700 border-red-200',
-                            'Em Obra': 'bg-green-100 text-green-700 border-green-200',
-                            'Em Operação': 'bg-blue-100 text-blue-700 border-blue-200',
-                            'Disponível': 'bg-gray-100 text-gray-600 border-gray-200'
+                            'Em Manutenção': 'bg-red-100 text-red-800',
+                            'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse', // Restaurado
+                            'Em Obra': 'bg-green-100 text-green-800',
+                            'Em Operação': 'bg-blue-100 text-blue-800',
+                            'Disponível': 'bg-gray-100 text-gray-800'
                         };
                         
+                        // Lógica restaurada para texto de status com localização
+                        const statusText = vehicle.computedStatus === 'Disponível'
+                            ? `${vehicle.computedStatus} - ${vehicle.localizacaoAtual || 'Pátio'}`
+                            : vehicle.computedStatus === 'Em Obra' && vehicle.obra
+                                ? `Obra: ${vehicle.obra.nome}`
+                                : vehicle.computedStatus;
+
                         const hasCritical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'vencido');
                         
                         return (
-                            <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-3 items-center p-4 transition-all ${getRowStyle(vehicle)}`}>
+                            <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 transition-all ${getRowStyle(vehicle)}`}>
                                 {/* Info Veículo */}
-                                <div className="md:col-span-4 flex items-center gap-4">
+                                <div className="md:col-span-4 flex items-center gap-3">
                                     <div className="relative shrink-0 cursor-pointer group" onClick={() => { setSelectedVehicle(vehicle); setIsDetailModalOpen(true); }}>
                                         <div className="w-16 h-12 bg-gray-200 rounded-md overflow-hidden shadow-sm">
                                             <img src={vehicle.fotoURL ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${(process.env.REACT_APP_API_URL || '').replace('/api','')}${vehicle.fotoURL}`) : 'https://placehold.co/100?text=Foto'} 
                                                  alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform"/>
                                         </div>
-                                        {/* Regra 4: Badge de Alerta Visível */}
                                         {hasCritical && (
                                             <div className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 shadow-lg animate-bounce" title="Atenção Necessária">
                                                 <AlertTriangle size={12} fill="white" />
                                             </div>
                                         )}
                                     </div>
-                                    <div>
+                                    <div className="overflow-hidden">
                                         <div className="flex items-center gap-2">
                                             <span className="font-extrabold text-gray-900 text-base">{vehicle.registroInterno}</span>
                                             {vehicle.isOutsourced && <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 font-bold uppercase">Terceiro</span>}
                                         </div>
-                                        <p className="text-sm text-gray-600 font-medium truncate w-40">{vehicle.marca} {vehicle.modelo}</p>
+                                        <p className="text-sm text-gray-600 font-medium truncate" title={`${vehicle.marca} ${vehicle.modelo}`}>{vehicle.marca} {vehicle.modelo}</p>
                                         <p className="text-xs text-gray-400">{vehicle.tipo}</p>
                                     </div>
                                 </div>
 
-                                <div className="md:col-span-2 text-sm font-mono text-gray-700 md:block flex justify-between">
-                                    <span className="md:hidden font-bold text-gray-500">Placa:</span>
+                                <div className="md:col-span-1 text-sm font-mono text-gray-700 md:block hidden truncate" title={vehicle.placa}>
                                     {vehicle.placa}
+                                </div>
+                                <div className="md:col-span-1 text-sm font-mono text-gray-700 md:block hidden truncate">
+                                    {vehicle.registroInterno}
                                 </div>
 
                                 <div className="md:col-span-2 text-right text-sm font-bold text-gray-800 md:block flex justify-between">
@@ -265,35 +285,35 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
                                 <div className="md:col-span-2 flex justify-center md:justify-center justify-between items-center">
                                     <span className="md:hidden font-bold text-gray-500 text-sm">Status:</span>
-                                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${statusColors[vehicle.computedStatus]} shadow-sm`}>
-                                        {vehicle.computedStatus}
-                                    </span>
+                                    <div className={`px-2 py-0.5 rounded-full text-xs font-semibold inline-block whitespace-nowrap max-w-full truncate ${statusColors[vehicle.computedStatus] || 'bg-gray-100 text-gray-800'}`} title={statusText}>
+                                        {truncateText(statusText, 25)}
+                                    </div>
                                 </div>
 
-                                {/* Botões de Ação */}
-                                <div className="md:col-span-2 flex justify-center gap-1.5">
-                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsFinesModalOpen(true); }} className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition" title="Multas"><ShieldAlert size={16}/></button>
-                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsHistoryModalOpen(true); }} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Histórico"><Clock size={16}/></button>
+                                {/* Botões de Ação - Atualizado para flex-wrap */}
+                                <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
+                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsFinesModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-md transition" title="Multas"><ShieldAlert size={14}/></button>
+                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsHistoryModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Histórico"><Clock size={14}/></button>
                                     
                                     <ProtectedComponent requiredPermission="editor">
-                                        <button onClick={() => handleEdit(vehicle)} className="p-2 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition" title="Editar"><Edit size={16}/></button>
+                                        <button onClick={() => handleEdit(vehicle)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition" title="Editar"><Edit size={14}/></button>
                                         
-                                        {/* Ações Dinâmicas baseadas no Status */}
+                                        {/* Ações Dinâmicas */}
                                         {vehicle.computedStatus === 'Disponível' && (
                                             <>
-                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition" title="Alocar Obra"><HardHat size={16}/></button>
-                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-2 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition" title="Alocar Operação"><Users size={16}/></button>
-                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Manutenção"><Wrench size={16}/></button>
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition" title="Alocar Obra"><HardHat size={14}/></button>
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-md transition" title="Alocar Operação"><Users size={14}/></button>
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Manutenção"><Wrench size={14}/></button>
                                             </>
                                         )}
                                         {vehicle.computedStatus === 'Em Obra' && (
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition border border-red-200" title="Desalocar"><HardHat size={16}/></button>
+                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-md transition border border-red-200" title="Desalocar"><HardHat size={14}/></button>
                                         )}
                                         {vehicle.computedStatus === 'Em Operação' && (
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition border border-red-200" title="Desalocar"><Users size={16}/></button>
+                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-md transition border border-red-200" title="Desalocar"><Users size={14}/></button>
                                         )}
                                         {(vehicle.computedStatus === 'Em Manutenção' || vehicle.computedStatus === 'Aguardando Manutenção') && (
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg transition border border-green-200" title="Finalizar"><Wrench size={16}/></button>
+                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-md transition border border-green-200" title="Finalizar"><Wrench size={14}/></button>
                                         )}
                                     </ProtectedComponent>
                                 </div>
