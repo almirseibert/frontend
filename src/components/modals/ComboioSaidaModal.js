@@ -346,7 +346,7 @@ const ComboioSaidaModal = ({
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border rounded" required disabled={isEditing}>
                                 <option value="">Selecione</option>
                                 {Object.entries(comboioVehicle?.fuelLevels || {})
-                                    .filter(([_, level]) => level > 0 || isEditing) 
+                                    .filter(([_, level]) => level > 0 || isEditing) // Mostra tudo se editando
                                     .map(([type, level]) => (
                                         <option key={type} value={type}>{type === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'} ({level.toFixed(1)} L)</option>
                                     ))}

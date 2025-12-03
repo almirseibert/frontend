@@ -73,7 +73,7 @@ const ComboioEntradaModal = ({
             liters: liters,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             fuelType: formData.fuelType,
-            // O odômetro e horímetro foram removidos pois o comboio apenas transporta nesta etapa
+            // Campos de leitura removidos pois o comboio apenas transporta nesta etapa
             odometro: null,
             horimetro: null,
             createdBy: {
@@ -92,7 +92,7 @@ const ComboioEntradaModal = ({
                 setAlertMessage("Entrada registrada com sucesso!");
             }
             
-            // Geração do PDF (apenas se for novo registro, opcionalmente)
+            // Geração do PDF apenas se não for edição
             if (!isEditing) {
                 const partner = partners.find(p => p.id === formData.partnerId);
                 const pdfData = {
@@ -103,7 +103,6 @@ const ComboioEntradaModal = ({
                     vehicleId: comboioVehicle.id,
                     createdBy: { userEmail: user.email }
                 };
-                // Passa arrays vazios para não tentar buscar leituras que não existem mais neste modal
                 generateAuthorizationPDF(pdfData, [comboioVehicle], partners, employees, vehicleGroups);
             }
 
