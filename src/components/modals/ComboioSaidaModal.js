@@ -1,16 +1,17 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X, AlertTriangle, AlertOctagon } from 'lucide-react';
-import { checkReadingConsistency, checkVehicleRestrictions, getVehicleMainReading, vehicleGroups, getAllowedReadingTypes } from '../../utils/vehicleRules';
+import { checkReadingConsistency, checkVehicleRestrictions, getVehicleMainReading, getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const ComboioSaidaModal = ({ 
     user, 
     comboioVehicle, 
+    transactionData = null, // Prop para edição
     vehicles = [], 
     obras = [], 
     employees = [], 
-    expenses = [], // Necessário para cálculo de orçamento
-    comboioTransactions = [], // Necessário para cálculo de média
-    refuelings = [], // Necessário para cálculo de média (histórico externo)
+    expenses = [], 
+    comboioTransactions = [], 
+    refuelings = [],
     onClose, 
     setAlertMessage, 
     apiClient, 
@@ -20,6 +21,8 @@ const ComboioSaidaModal = ({
     reloadData,
     PasswordConfirmationModal 
 }) => {
+    const isEditing = !!transactionData;
+
     // --- ESTADOS ---
     const [formData, setFormData] = useState({
         receivingVehicleId: '',
@@ -37,33 +40,43 @@ const ComboioSaidaModal = ({
     const [isSaving, setIsSaving] = useState(false);
     const [vehicleIssues, setVehicleIssues] = useState([]);
     const [readingError, setReadingError] = useState(null);
-    const [averageAlert, setAverageAlert] = useState(null);
     const [budgetBlock, setBudgetBlock] = useState(null);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [pendingSubmission, setPendingSubmission] = useState(null);
 
     // --- MEMOIZAÇÃO DE LISTAS ---
-    const availableMachines = useMemo(() => vehicles.filter(v => !v.isComboioVehicle && v.id !== comboioVehicle.id).sort((a,b) => a.registroInterno.localeCompare(b.registroInterno)), [vehicles, comboioVehicle]);
-    const sortedObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => a.nome.localeCompare(b.nome)), [obras]);
-    const sortedEmployees = useMemo(() => employees.sort((a,b) => a.nome.localeCompare(b.nome)), [employees]);
+    const availableMachines = useMemo(() => vehicles.filter(v => !v.isComboioVehicle && v.id !== comboioVehicle?.id).sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles, comboioVehicle]);
+    const sortedObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
+    const sortedEmployees = useMemo(() => employees.sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.receivingVehicleId), [formData.receivingVehicleId, vehicles]);
 
-    // --- EFEITOS (AUTO-PREENCHIMENTO E VALIDAÇÕES) ---
+    // --- EFEITO DE CARREGAMENTO PARA EDIÇÃO ---
     useEffect(() => {
-        if (selectedVehicle) {
-            // Regra 7: Auto-preenchimento de Operador e Obra
+        if (isEditing && transactionData) {
+            setFormData({
+                receivingVehicleId: transactionData.receivingVehicleId || '',
+                obraId: transactionData.obraId || '',
+                liters: transactionData.liters || '',
+                date: transactionData.date ? new Date(transactionData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                fuelType: transactionData.fuelType || '',
+                employeeId: transactionData.employeeId || '',
+                odometro: transactionData.odometro || '',
+                horimetro: transactionData.horimetro || '',
+                horimetroDigital: transactionData.horimetroDigital || '',
+                horimetroAnalogico: transactionData.horimetroAnalogico || '',
+            });
+        }
+    }, [isEditing, transactionData]);
+
+    // --- EFEITOS (AUTO-PREENCHIMENTO E VALIDAÇÕES) ---
+    // IMPORTANTE: Só executa se NÃO for edição, para não sobrescrever dados carregados do banco.
+    useEffect(() => {
+        if (!isEditing && selectedVehicle) {
             let autoObra = selectedVehicle.obraAtualId || '';
             let autoEmployee = '';
             
-            // Tenta pegar do alocadoEm (estrutura JSON)
-            if (selectedVehicle.alocadoEm) {
-                 // Lógica simplificada dependendo da estrutura do seu JSON
-                 // Supondo que alocadoEm possa ter { employeeId, obraId } ou similar
-            }
-            // Se não, tenta do operationalAssignment
-            if (selectedVehicle.operationalAssignment) {
-                 const op = selectedVehicle.operationalAssignment;
-                 if (op.employeeId) autoEmployee = op.employeeId;
+            if (selectedVehicle.operationalAssignment && selectedVehicle.operationalAssignment.employeeId) {
+                 autoEmployee = selectedVehicle.operationalAssignment.employeeId;
             }
 
             setFormData(prev => ({
@@ -76,63 +89,23 @@ const ComboioSaidaModal = ({
                 employeeId: prev.employeeId || autoEmployee
             }));
 
-            // Regra 8: Avisos (Revisões, Docs)
-            // Necessitaria passar 'revisions' como prop, assumindo array vazio por enqto ou vindo de props
             const issues = checkVehicleRestrictions(selectedVehicle, []); 
             setVehicleIssues(issues);
             setReadingError(null);
-            setAverageAlert(null);
-        } else {
+        } else if (!selectedVehicle && !isEditing) {
             setVehicleIssues([]);
             setReadingError(null);
         }
-    }, [selectedVehicle]);
+        // Se estiver editando, não faz nada quando selectedVehicle muda (que é automático ao setar o ID)
+    }, [selectedVehicle, isEditing]);
 
-    // --- CÁLCULO DE MÉDIA (Regra 4) ---
-    const checkAverageConsumption = (liters) => {
-        if (!selectedVehicle || !liters) return null;
-
-        const mainReading = getVehicleMainReading(selectedVehicle);
-        const unit = mainReading.unit;
-        const currentVal = mainReading.raw;
-
-        // Junta histórico (Abastecimentos externos + Comboio)
-        const allHistory = [
-            ...refuelings.filter(r => r.vehicleId === selectedVehicle.id).map(r => ({ date: r.data, val: r.odometro || r.horimetro, liters: r.litrosAbastecidos })),
-            ...comboioTransactions.filter(t => t.type === 'saida' && t.receivingVehicleId === selectedVehicle.id).map(t => ({ date: t.date, val: t.odometro || t.horimetro, liters: t.liters }))
-        ].sort((a,b) => new Date(b.date) - new Date(a.date)); // Mais recente primeiro
-
-        if (allHistory.length < 2) return null; // Precisa de histórico
-
-        // Cálculo simplificado de média (Km/L ou L/Hr dependendo da unidade)
-        // Atenção: O cálculo exato depende se o tanque foi cheio. 
-        // Vamos usar a lógica: (Leitura Atual - Leitura Anterior) / Litros da abastecida ATUAL? 
-        // Não, consumo é (Delta Leitura) / Litros gastos.
-        // Assumindo que o abastecimento repõe o que foi gasto.
-        
-        // Média 1 (Atual estimada se abastecermos agora): 
-        // Delta = (LeituraNovaInserida - LeituraUltimaHistorico)
-        // Litros = Litros inseridos agora.
-        
-        // O prompt pede: "relação a média das duas abastecidas anteriores".
-        // Média Anterior 1 = (LeituraHist[0] - LeituraHist[1]) / LitrosHist[0]
-        // Média Anterior 2 = (LeituraHist[1] - LeituraHist[2]) / LitrosHist[1]
-        
-        // A lógica de "diminuir em 25% a média" (piora de eficiência) sugere Km/L diminuindo ou L/Hr aumentando.
-        
-        // Implementação simplificada de "Alerta de Consumo"
-        // Este é um ponto complexo sem dados de tanque cheio. Vamos pular bloqueio, apenas retornar null se inconclusivo.
-        return null; 
-    };
-
-    // --- CÁLCULO DE ORÇAMENTO (Regra 10) ---
+    // --- CÁLCULO DE ORÇAMENTO ---
     const checkBudgetLimit = (obraId, costToAdd) => {
         const obra = obras.find(o => o.id === obraId);
         if (!obra || !obra.valorTotalContrato || parseFloat(obra.valorTotalContrato) <= 0) return null;
 
-        const limit = parseFloat(obra.valorTotalContrato) * 0.20; // 20%
+        const limit = parseFloat(obra.valorTotalContrato) * 0.20; 
         
-        // Soma despesas de combustível desta obra
         const currentExpenses = expenses
             .filter(e => e.obraId === obraId && (e.category === 'Combustível' || e.fuelType))
             .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
@@ -153,7 +126,7 @@ const ComboioSaidaModal = ({
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
-        setReadingError(null); // Limpa erro ao digitar
+        setReadingError(null); 
     };
 
     const handleSubmit = async (e) => {
@@ -164,60 +137,59 @@ const ComboioSaidaModal = ({
         }
 
         const liters = parseFloat(formData.liters);
-        const comboioStock = comboioVehicle.fuelLevels?.[formData.fuelType] || 0;
-
-        if (liters > comboioStock) {
-            setAlertMessage(`Saldo insuficiente no comboio. Disponível: ${comboioStock.toFixed(2)} L.`);
-            return;
+        
+        // Na edição, não bloqueamos por saldo local estritamente se não houver mudança para maior
+        if (!isEditing) {
+            const comboioStock = comboioVehicle?.fuelLevels?.[formData.fuelType] || 0;
+            if (liters > comboioStock) {
+                setAlertMessage(`Saldo insuficiente no comboio. Disponível: ${comboioStock.toFixed(2)} L.`);
+                return;
+            }
         }
 
-        // --- VALIDAÇÃO DE LEITURAS (Regras 2 e 3) ---
-        const allowedReadings = getAllowedReadingTypes(selectedVehicle.tipo);
-        let readingVal = 0;
+        // --- VALIDAÇÃO DE LEITURAS ---
+        const allowedReadings = getAllowedReadingTypes(selectedVehicle?.tipo);
         let validation = null;
 
-        if (allowedReadings.includes('odometro')) {
-            validation = checkReadingConsistency(selectedVehicle, formData.odometro);
-            readingVal = parseFloat(formData.odometro);
-        } else {
-            // Prioridade Horimetro: Digital -> Analogico -> Geral
-            // O formulário exibe campos específicos dependendo do veículo
-            // Vamos validar o principal
-            const mainReading = getVehicleMainReading(selectedVehicle);
-            // Se for máquina, validar o horimetro principal inserido
-            const valToTest = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
-            validation = checkReadingConsistency(selectedVehicle, valToTest);
-            readingVal = parseFloat(valToTest);
+        if (selectedVehicle) {
+            if (allowedReadings.includes('odometro')) {
+                validation = checkReadingConsistency(selectedVehicle, formData.odometro);
+            } else {
+                const valToTest = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
+                validation = checkReadingConsistency(selectedVehicle, valToTest);
+            }
+
+            // Se bloqueio e NÃO for edição, impede o registro. 
+            // Edição permite corrigir erros, então o bloqueio pode ser relaxado ou mantido dependendo da regra.
+            // Aqui mantemos bloqueio se for erro crasso (regressão), exceto se for edição corretiva.
+            if (validation && validation.type === 'bloqueio' && !isEditing) {
+                setReadingError(validation.message);
+                return; 
+            }
         }
 
-        if (validation && validation.type === 'bloqueio') {
-            setReadingError(validation.message);
-            return; // Bloqueia submit
+        // --- VALIDAÇÃO DE ORÇAMENTO ---
+        if (!isEditing) { 
+            // Custo estimado R$ 6.50 apenas para verificação de bloqueio
+            const estimatedCost = liters * 6.50; 
+            const budgetCheck = checkBudgetLimit(formData.obraId, estimatedCost);
+            
+            if (budgetCheck) {
+                setBudgetBlock(budgetCheck);
+                setPendingSubmission({ ...formData });
+                setShowPasswordModal(true);
+                return;
+            }
         }
 
-        // --- VALIDAÇÃO DE ORÇAMENTO (Regra 10) ---
-        // 1. Estimar custo (Litros * Preço Atual do Posto de referência ou Preço Médio?)
-        // Como o comboio não tem preço fixo por litro na saída (já foi pago na entrada),
-        // precisamos estimar. Vamos usar um preço médio padrão ou pegar do último abastecimento do comboio.
-        // Simplificação: R$ 6.00 se não houver referência, ou buscar do partner_fuel_prices se possível.
-        const estimatedCost = liters * 6.50; // Fallback seguro ou implementar lógica de preço médio
-        const budgetCheck = checkBudgetLimit(formData.obraId, estimatedCost);
-        
-        if (budgetCheck) {
-            setBudgetBlock(budgetCheck);
-            setPendingSubmission({ ...formData }); // Salva dados para retentar após senha
-            setShowPasswordModal(true);
-            return;
-        }
-
-        // Se passar tudo, processa
         await processTransaction(formData);
     };
 
     const processTransaction = async (data) => {
         setIsSaving(true);
         try {
-            const transactionData = {
+            const payload = {
+                id: isEditing ? transactionData.id : undefined,
                 comboioVehicleId: comboioVehicle.id,
                 receivingVehicleId: data.receivingVehicleId,
                 odometro: parseFloat(data.odometro) || null,
@@ -229,24 +201,36 @@ const ComboioSaidaModal = ({
                 fuelType: data.fuelType,
                 obraId: data.obraId,
                 employeeId: data.employeeId,
+                createdBy: {
+                    userId: user.id || user.uid,
+                    userEmail: user.email || 'sistema@frotasmak.com'
+                }
             };
 
-            const response = await apiClient.createComboioSaida(transactionData);
-            setAlertMessage("Abastecimento registrado com sucesso!");
+            let response;
+            if (isEditing) {
+                response = await apiClient.updateComboioTransaction(transactionData.id, payload);
+                setAlertMessage("Abastecimento atualizado com sucesso!");
+            } else {
+                response = await apiClient.createComboioSaida(payload);
+                setAlertMessage("Abastecimento registrado com sucesso!");
+            }
             
-            // PDF
-            const pdfData = {
-                ...transactionData,
-                authNumber: response.refuelingOrder?.authNumber || 'N/A',
-                litrosAbastecidos: transactionData.liters,
-                partnerName: `Comboio ${comboioVehicle.registroInterno}`,
-                vehicleId: data.receivingVehicleId,
-                createdBy: { userEmail: user.email },
-                odometroSaida: transactionData.odometro,
-                horimetroSaida: transactionData.horimetro || transactionData.horimetroDigital
-            };
-            
-            generateAuthorizationPDF(pdfData, vehicles, [], employees, vehicleGroups);
+            // PDF apenas se novo
+            if (!isEditing) {
+                const pdfData = {
+                    ...payload,
+                    authNumber: response.refuelingOrder?.authNumber || 'N/A',
+                    litrosAbastecidos: payload.liters,
+                    partnerName: `Comboio ${comboioVehicle.registroInterno}`,
+                    vehicleId: data.receivingVehicleId,
+                    createdBy: { userEmail: user.email },
+                    odometroSaida: payload.odometro,
+                    horimetroSaida: payload.horimetro || payload.horimetroDigital
+                };
+                generateAuthorizationPDF(pdfData, vehicles, [], employees, vehicleGroups);
+            }
+
             reloadData();
             onClose();
 
@@ -259,14 +243,12 @@ const ComboioSaidaModal = ({
         }
     };
 
-    // Callback do Modal de Senha
     const handleBudgetOverride = () => {
         if (pendingSubmission) {
             processTransaction(pendingSubmission);
         }
     };
 
-    // Helper para renderizar input correto de leitura
     const renderReadingInputs = () => {
         if (!selectedVehicle) return null;
         const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
@@ -293,7 +275,6 @@ const ComboioSaidaModal = ({
                             <input name="horimetroAnalogico" type="number" step="0.1" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Atual: ${selectedVehicle.horimetroAnalogico || 0}`} />
                         </div>
                     )}
-                    {/* Fallback se não tiver config específica */}
                     {!selectedVehicle.possuiHorimetroDigital && !selectedVehicle.possuiHorimetroAnalogico && (
                         <div>
                             <label className="block font-medium mb-1">Horímetro (Hr) *</label>
@@ -309,12 +290,11 @@ const ComboioSaidaModal = ({
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[95vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-gray-800">Distribuição (Abastecer Veículo)</h2>
+                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Distribuição' : 'Distribuição (Abastecer Veículo)'}</h2>
                     <button onClick={onClose} disabled={isSaving}><X size={20}/></button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6">
-                    {/* Alerta de Erro de Leitura */}
                     {readingError && (
                         <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-800 rounded flex items-center gap-2">
                             <AlertOctagon size={20} />
@@ -322,8 +302,7 @@ const ComboioSaidaModal = ({
                         </div>
                     )}
                     
-                    {/* Avisos de Veículo (Regra 8) */}
-                    {vehicleIssues.length > 0 && (
+                    {vehicleIssues.length > 0 && !isEditing && (
                         <div className="mb-4 space-y-2">
                             {vehicleIssues.map((issue, idx) => (
                                 <div key={idx} className={`p-2 border rounded text-sm flex items-center gap-2 ${issue.type === 'danger' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-yellow-50 border-yellow-200 text-yellow-700'}`}>
@@ -337,7 +316,7 @@ const ComboioSaidaModal = ({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Veículo a Abastecer *</label>
-                            <select name="receivingVehicleId" value={formData.receivingVehicleId} onChange={handleChange} className="w-full p-2 border rounded" required>
+                            <select name="receivingVehicleId" value={formData.receivingVehicleId} onChange={handleChange} className="w-full p-2 border rounded" required disabled={isEditing}>
                                 <option value="">Selecione...</option>
                                 {availableMachines.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
                             </select>
@@ -364,10 +343,10 @@ const ComboioSaidaModal = ({
 
                         <div>
                             <label className="block font-medium mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border rounded" required>
+                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border rounded" required disabled={isEditing}>
                                 <option value="">Selecione</option>
                                 {Object.entries(comboioVehicle?.fuelLevels || {})
-                                    .filter(([_, level]) => level > 0)
+                                    .filter(([_, level]) => level > 0 || isEditing) 
                                     .map(([type, level]) => (
                                         <option key={type} value={type}>{type === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'} ({level.toFixed(1)} L)</option>
                                     ))}
@@ -389,11 +368,10 @@ const ComboioSaidaModal = ({
                 <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg">
                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
                     <button onClick={handleSubmit} disabled={isSaving || !selectedVehicle} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-yellow-500 flex items-center gap-2">
-                        {isSaving && <Loader className="animate-spin" size={16}/>} Registrar
+                        {isSaving && <Loader className="animate-spin" size={16}/>} {isEditing ? 'Salvar Alterações' : 'Registrar'}
                     </button>
                 </div>
 
-                {/* Modal de Senha para Orçamento */}
                 {showPasswordModal && (
                     <PasswordConfirmationModal
                         message={budgetBlock?.message || "Autorização necessária."}
