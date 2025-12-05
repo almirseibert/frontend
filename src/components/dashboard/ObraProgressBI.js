@@ -18,22 +18,48 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         let totalExecutadoHoras = 0;
         let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha) || 0;
 
+        // Itera sobre todo o histórico (ativos e finalizados)
         (obra.historicoVeiculos || []).forEach(hist => {
-            if (!hist.dataSaida) { // Veículo ainda na obra
-                const vehicle = vehicles.find(v => v.id === hist.veiculoId);
-                if (vehicle) {
-                    const isKm = vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
-                    const currentReading = isKm ? vehicle.odometro : (vehicle.horimetroDigital || vehicle.horimetro);
-                    const startReading = isKm ? (hist.details?.odometroEntrada || 0) : (hist.details?.horimetroEntrada || 0);
-                    
-                    if (currentReading > startReading) {
-                        const diff = currentReading - startReading;
-                        if (obra.contractType === 'prancha' && isKm) {
-                            totalExecutadoKmPrancha += diff;
-                        } else if (!isKm) {
-                            totalExecutadoHoras += diff;
-                        }
-                    }
+            // Tenta encontrar o veículo atual para dados de tipo/grupo, caso não esteja no histórico
+            const vehicle = vehicles.find(v => v.id === hist.veiculoId);
+            const vType = hist.tipo || (vehicle ? vehicle.tipo : null);
+            
+            if (!vType) return;
+
+            // Determina se é KM ou Horas
+            const isKm = vehicleGroups['Caminhões de Trecho']?.includes(vType) || 
+                         ['Caminhão Prancha', 'Semirreboques', 'Automóvel', 'Veículos Leves'].some(t => vType.includes(t));
+
+            // Leituras Iniciais (Suporta estrutura plana ou aninhada em details)
+            const startOdometro = parseFloat(hist.odometroEntrada ?? hist.details?.odometroEntrada ?? 0);
+            const startHorimetro = parseFloat(hist.horimetroEntrada ?? hist.details?.horimetroEntrada ?? 0);
+            const startReading = isKm ? startOdometro : startHorimetro;
+
+            // Leituras Finais
+            let endReading = 0;
+
+            if (hist.dataSaida) {
+                // Se já saiu, usa a leitura de saída gravada no histórico
+                const endOdometro = parseFloat(hist.odometroSaida ?? hist.details?.odometroSaida ?? 0);
+                const endHorimetro = parseFloat(hist.horimetroSaida ?? hist.details?.horimetroSaida ?? 0);
+                endReading = isKm ? endOdometro : endHorimetro;
+            } else if (vehicle) {
+                // Se ainda está na obra, usa a leitura atual do cadastro do veículo
+                // Prioriza Horímetro Digital > Analógico > Campo Genérico
+                const currHorimetro = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                const currOdometro = parseFloat(vehicle.odometro ?? 0);
+                endReading = isKm ? currOdometro : currHorimetro;
+            }
+
+            // Calcula a diferença apenas se houver progressão válida
+            if (endReading > startReading) {
+                const diff = endReading - startReading;
+                
+                if (obra.contractType === 'prancha' && isKm) {
+                    totalExecutadoKmPrancha += diff;
+                } else if (!isKm) {
+                    // Soma horas apenas para equipamentos que não são prancha (se contrato for horas)
+                    totalExecutadoHoras += diff;
                 }
             }
         });
@@ -44,7 +70,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         }
 
         // 2. CÁLCULO FATURADO (Baseado nos Logs de Trabalho Diário / Apontamentos da página Faturamento)
-        // Extração segura dos logs (considerando possível estrutura de resposta da API)
+        // Extração segura dos logs
         let safeLogs = [];
         if (Array.isArray(dailyWorkLogs)) {
             safeLogs = dailyWorkLogs;
@@ -54,16 +80,15 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             safeLogs = dailyWorkLogs.rows;
         }
         
-        // Filtra os logs especificamente para esta obra usando o ID (Normalização para string segura)
+        // Filtra os logs especificamente para esta obra
         const targetObraId = String(obra.id).trim();
         const logsDestaObra = safeLogs.filter(log => {
-            const logObraId = log.obraId || log.obra_id; // Suporte a camelCase e snake_case
+            const logObraId = log.obraId || log.obra_id; 
             return logObraId && String(logObraId).trim() === targetObraId;
         });
         
         // Soma a coluna 'totalHours' dos logs filtrados
         const totalHorasFaturadas = logsDestaObra.reduce((sum, log) => {
-            // Suporte para totalHours ou total_hours
             const rawHours = log.totalHours !== undefined ? log.totalHours : log.total_hours;
             const hours = parseFloat(rawHours);
             return sum + (isNaN(hours) ? 0 : hours);
@@ -75,14 +100,30 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         let unit = 'hrs';
 
         if (type === 'horas') {
-            // Soma todas as horas contratadas por tipo de equipamento
-            contratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((a, b) => a + (parseFloat(b)||0), 0);
+            // Parse seguro de horasContratadasPorTipo (pode vir como string JSON ou Objeto)
+            let horasObj = obra.horasContratadasPorTipo;
+            if (typeof horasObj === 'string') {
+                try {
+                    horasObj = JSON.parse(horasObj);
+                } catch (e) {
+                    horasObj = {};
+                    console.error("Erro ao parsear horasContratadasPorTipo:", e);
+                }
+            } else if (!horasObj) {
+                horasObj = {};
+            }
+
+            // Soma todas as horas contratadas
+            contratado = Object.values(horasObj).reduce((a, b) => a + (parseFloat(b)||0), 0);
+
         } else if (type === 'prancha') {
             contratado = parseFloat(obra.kmContratadoPrancha || 0);
             unit = 'km';
         } else {
              // Metros Quadrados (Soma dos setores)
-             contratado = (obra.sectors || []).reduce((a, b) => a + (parseFloat(b.kmContratado)||0), 0);
+             // Garante que sectors seja array
+             const sectorsList = typeof obra.sectors === 'string' ? JSON.parse(obra.sectors || '[]') : (obra.sectors || []);
+             contratado = sectorsList.reduce((a, b) => a + (parseFloat(b.kmContratado)||0), 0);
              unit = 'm²';
         }
 
