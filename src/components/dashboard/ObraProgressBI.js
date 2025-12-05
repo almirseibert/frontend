@@ -9,9 +9,12 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         return obras.filter(o => o.status === 'ativa').sort((a,b) => a.nome.localeCompare(b.nome));
     }, [obras]);
 
-    // Função de cálculo
-    const calculateExecuted = (obra) => {
-        // Cálculo Real (Máquinas)
+    const obraData = useMemo(() => {
+        if (!selectedObraId) return null;
+        const obra = activeObras.find(o => o.id === selectedObraId);
+        if (!obra) return null;
+
+        // 1. CÁLCULO REAL (Baseado em leituras de máquinas/veículos)
         let totalExecutadoHoras = 0;
         let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha) || 0;
 
@@ -35,55 +38,41 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             }
         });
 
-        // Adiciona horas manuais
+        // Adiciona horas manuais de caminhão ao Real
         if (obra.contractType !== 'prancha') {
             totalExecutadoHoras += parseFloat(obra.horasAdicionaisCaminhao || 0);
         }
 
-        // Cálculo Faturado (Baseado em Logs de Trabalho Diário)
-        // Filtra logs desta obra
-        const logsDestaObra = dailyWorkLogs.filter(log => log.obraId === obra.id);
+        // 2. CÁLCULO FATURADO (Baseado nos Logs de Trabalho Diário / Apontamentos)
+        // Garante que dailyWorkLogs é um array e filtra pela obra atual
+        const safeLogs = Array.isArray(dailyWorkLogs) ? dailyWorkLogs : [];
+        const logsDestaObra = safeLogs.filter(log => String(log.obraId) === String(obra.id));
+        
+        // Soma o total de horas lançadas nos apontamentos
         const totalHorasFaturadas = logsDestaObra.reduce((sum, log) => sum + (parseFloat(log.totalHours) || 0), 0);
 
-        return { 
-            totalHoras: totalExecutadoHoras, 
-            totalKmPrancha: totalExecutadoKmPrancha, 
-            totalFaturado: totalHorasFaturadas 
-        };
-    };
-
-    const obraData = useMemo(() => {
-        if (!selectedObraId) return null;
-        const obra = activeObras.find(o => o.id === selectedObraId);
-        if (!obra) return null;
-
-        const executed = calculateExecuted(obra);
+        // 3. CÁLCULO CONTRATADO
         const type = obra.contractType || 'horas';
-        
         let contratado = 0;
-        let executado = 0;
         let unit = 'hrs';
 
         if (type === 'horas') {
             contratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((a, b) => a + (parseFloat(b)||0), 0);
-            executado = executed.totalHoras;
         } else if (type === 'prancha') {
             contratado = parseFloat(obra.kmContratadoPrancha || 0);
-            executado = executed.totalKmPrancha;
             unit = 'km';
         } else {
              // m2
              contratado = (obra.sectors || []).reduce((a, b) => a + (parseFloat(b.kmContratado)||0), 0);
-             executado = (obra.sectors || []).reduce((a, b) => a + (parseFloat(b.kmConcluido)||0), 0);
              unit = 'm²';
         }
 
         return { 
             ...obra, 
             contratado, 
-            executado, 
+            executado: type === 'prancha' ? totalExecutadoKmPrancha : totalExecutadoHoras, 
             unit,
-            faturado: executed.totalFaturado // Valor vindo diretamente dos logs
+            faturado: totalHorasFaturadas // Total calculado dos logs
         };
     }, [selectedObraId, activeObras, vehicles, dailyWorkLogs]);
 
@@ -134,6 +123,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
 
                     {/* Barras de Progresso */}
                     <div className="space-y-4 pt-2">
+                        {/* Comparativo Real vs Contratado */}
                         <div>
                             <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
                                 <span className="flex items-center gap-1"><Clock size={12}/> Execução Real vs Contrato</span>
@@ -142,14 +132,21 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
                             <ProgressBar value={obraData.executado} max={obraData.contratado} color="bg-yellow-500" />
                         </div>
                         
-                        <div>
-                            <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
-                                <span className="flex items-center gap-1"><DollarSign size={12}/> Faturamento vs Contrato</span>
-                                <span>{obraData.contratado > 0 ? ((obraData.faturado / obraData.contratado)*100).toFixed(1) : 0}%</span>
+                        {/* Comparativo Faturado vs Contratado (Apenas se não for prancha/m2 ou se desejar ver horas) */}
+                        {obraData.unit === 'hrs' ? (
+                            <div>
+                                <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
+                                    <span className="flex items-center gap-1"><DollarSign size={12}/> Faturamento vs Contrato</span>
+                                    <span>{obraData.contratado > 0 ? ((obraData.faturado / obraData.contratado)*100).toFixed(1) : 0}%</span>
+                                </div>
+                                <ProgressBar value={obraData.faturado} max={obraData.contratado} color="bg-green-500" />
+                                <p className="text-[10px] text-gray-400 mt-1 italic">Baseado nos registros de Controle Diário.</p>
                             </div>
-                            <ProgressBar value={obraData.faturado} max={obraData.contratado} color="bg-green-500" />
-                            <p className="text-[10px] text-gray-400 mt-1 italic">Baseado nos registros de Controle Diário.</p>
-                        </div>
+                        ) : (
+                            <div className="text-center p-2 bg-gray-50 rounded border border-dashed text-[10px] text-gray-400">
+                                Comparativo de Faturamento disponível apenas para contratos por Hora.
+                            </div>
+                        )}
                     </div>
                 </div>
             ) : (
