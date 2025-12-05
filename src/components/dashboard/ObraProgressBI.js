@@ -45,7 +45,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         const logsDestaObra = dailyWorkLogs.filter(log => log.obraId === obra.id);
         const totalHorasFaturadas = logsDestaObra.reduce((sum, log) => sum + (parseFloat(log.totalHours) || 0), 0);
 
-        // Se o contrato for por KM/m2, talvez precise de outra lógica, mas o padrão é horas
         return { 
             totalHoras: totalExecutadoHoras, 
             totalKmPrancha: totalExecutadoKmPrancha, 
@@ -84,7 +83,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             contratado, 
             executado, 
             unit,
-            faturado: executed.totalFaturado
+            faturado: executed.totalFaturado // Valor vindo diretamente dos logs
         };
     }, [selectedObraId, activeObras, vehicles, dailyWorkLogs]);
 
