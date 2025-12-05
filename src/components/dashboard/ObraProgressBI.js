@@ -44,16 +44,29 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         }
 
         // 2. CÁLCULO FATURADO (Baseado nos Logs de Trabalho Diário / Apontamentos da página Faturamento)
-        // Garante que dailyWorkLogs é tratado como array
-        const safeLogs = Array.isArray(dailyWorkLogs) ? dailyWorkLogs : [];
+        // Extração segura dos logs (considerando possível estrutura de resposta da API)
+        let safeLogs = [];
+        if (Array.isArray(dailyWorkLogs)) {
+            safeLogs = dailyWorkLogs;
+        } else if (dailyWorkLogs && Array.isArray(dailyWorkLogs.data)) {
+            safeLogs = dailyWorkLogs.data;
+        } else if (dailyWorkLogs && Array.isArray(dailyWorkLogs.rows)) {
+            safeLogs = dailyWorkLogs.rows;
+        }
         
-        // Filtra os logs especificamente para esta obra usando o ID (conversão para String para segurança)
-        const logsDestaObra = safeLogs.filter(log => String(log.obraId) === String(obra.id));
+        // Filtra os logs especificamente para esta obra usando o ID (Normalização para string segura)
+        const targetObraId = String(obra.id).trim();
+        const logsDestaObra = safeLogs.filter(log => {
+            const logObraId = log.obraId || log.obra_id; // Suporte a camelCase e snake_case
+            return logObraId && String(logObraId).trim() === targetObraId;
+        });
         
         // Soma a coluna 'totalHours' dos logs filtrados
         const totalHorasFaturadas = logsDestaObra.reduce((sum, log) => {
-            const horas = parseFloat(log.totalHours);
-            return sum + (isNaN(horas) ? 0 : horas);
+            // Suporte para totalHours ou total_hours
+            const rawHours = log.totalHours !== undefined ? log.totalHours : log.total_hours;
+            const hours = parseFloat(rawHours);
+            return sum + (isNaN(hours) ? 0 : hours);
         }, 0);
 
         // 3. CÁLCULO CONTRATADO (Total definido no cadastro da obra - ObraModal)
@@ -62,7 +75,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         let unit = 'hrs';
 
         if (type === 'horas') {
-            // Soma todas as horas contratadas por tipo de equipamento (conforme estrutura do ObraModal)
+            // Soma todas as horas contratadas por tipo de equipamento
             contratado = Object.values(obra.horasContratadasPorTipo || {}).reduce((a, b) => a + (parseFloat(b)||0), 0);
         } else if (type === 'prancha') {
             contratado = parseFloat(obra.kmContratadoPrancha || 0);
@@ -78,7 +91,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             contratado, 
             executado: type === 'prancha' ? totalExecutadoKmPrancha : totalExecutadoHoras, 
             unit,
-            faturado: totalHorasFaturadas // Total exato vindo da tabela daily_work_logs
+            faturado: totalHorasFaturadas 
         };
     }, [selectedObraId, activeObras, vehicles, dailyWorkLogs]);
 
