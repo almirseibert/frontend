@@ -3,7 +3,6 @@ import {
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
     User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText,
-    Menu // Menu icon for mobile
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext'; 
@@ -34,6 +33,7 @@ import {
     extraObraOptions, 
     operationalSubGroups, 
     equipmentTypesForHours, 
+    getVehicleMainReading
 } from './utils/vehicleRules';
 
 // --- Modais Globais (Simples) ---
@@ -131,47 +131,50 @@ const UpdateMessageModal = ({ message, onClose }) => (
     </div>
 );
 
-// --- SIDEBAR (Otimizada para 1366x768) ---
+// --- SIDEBAR (Otimizada e Compacta) ---
 const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     
-    // Lista otimizada para caber na tela sem scroll
     const navItems = [
-        { id: 'dashboard', label: 'Painel Geral', icon: <Building size={18} /> },
-        { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={18} /> },
-        { id: 'vehicles', label: 'Veículos', icon: <Truck size={18} /> },
-        { id: 'obras', label: 'Obras', icon: <HardHat size={18} /> },
-        { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={18} /> },
-        { id: 'revisions', label: 'Revisões', icon: <Bell size={18} /> },
-        { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={18} /> }, 
-        { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={18} /> },
-        { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={18} /> },
-        { id: 'comboio', label: 'Comboio', icon: <Truck size={18} /> }, // Ícone repetido, mas ok pelo contexto
-        { id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={18}/> },
-        { id: 'expenses', label: 'Despesas', icon: <DollarSign size={18} /> },
-        { id: 'employees', label: 'Funcionários', icon: <User size={18} /> },
-        { id: 'fines', label: 'Multas', icon: <ShieldAlert size={18} /> },
-        { id: 'reports', label: 'Relatórios', icon: <FileText size={18} /> }, 
+        { id: 'dashboard', label: 'Painel Geral', icon: <Building size={16} /> },
+        { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
+        { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
+        { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
+        { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} /> },
+        { id: 'revisions', label: 'Revisões', icon: <Bell size={16} /> },
+        { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
+        { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
+        { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
+        { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
+        { id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/> },
+        { id: 'expenses', label: 'Despesas', icon: <DollarSign size={16} /> },
+        { id: 'employees', label: 'Funcionários', icon: <User size={16} /> },
+        { id: 'fines', label: 'Multas', icon: <ShieldAlert size={16} /> },
+        { id: 'reports', label: 'Relatórios', icon: <FileText size={16} /> }, 
     ];
     
     return (
-        <div className={`bg-slate-900 text-slate-300 shadow-xl transition-all duration-300 ease-in-out flex flex-col ${isCollapsed ? 'w-16' : 'w-64'} h-full z-20`}>
-            {/* Header Sidebar */}
+        <div className={`bg-slate-900 text-slate-300 shadow-xl transition-all duration-300 ease-in-out flex flex-col ${isCollapsed ? 'w-14' : 'w-56'} h-full z-20`}>
+            {/* Header Sidebar com Logo */}
             <div className="h-14 flex items-center justify-between px-3 border-b border-slate-700 bg-slate-950 shrink-0">
-                {!isCollapsed && (
-                    <span className="font-bold text-white text-lg tracking-tight ml-2 truncate">FROTAS MAK</span>
+                {!isCollapsed ? (
+                     <img src="https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png" alt="MAK" className="h-8 object-contain" />
+                ) : (
+                    <div className="w-full flex justify-center">
+                        <span className="font-bold text-yellow-500 text-xs">MAK</span>
+                    </div>
                 )}
                 <button 
                     onClick={() => setIsCollapsed(!isCollapsed)} 
-                    className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                    className="p-1 rounded text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
                 >
-                    {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                 </button>
             </div>
             
             {/* Nav Items */}
             <nav className="flex-1 overflow-y-auto custom-scrollbar py-2">
-                <ul className="space-y-0.5 px-2">
+                <ul className="space-y-1 px-2">
                     {navItems.map(item => {
                         const isAdmin = user.user_type === 'admin';
                         const canAccessRefuelingRelated = user.podeAcessarAbastecimento || isAdmin;
@@ -184,9 +187,9 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                             <li key={item.id}>
                                 <button 
                                     onClick={() => setCurrentPage(item.id)} 
-                                    className={`flex items-center w-full px-3 py-2 rounded-md transition-all duration-200 group ${ 
+                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-all duration-200 group ${ 
                                         isActive 
-                                        ? 'bg-yellow-500 text-slate-900 font-semibold shadow-md' 
+                                        ? 'bg-yellow-500 text-slate-900 shadow-md' 
                                         : 'hover:bg-slate-800 hover:text-white' 
                                     }`}
                                     title={isCollapsed ? item.label : ''}
@@ -194,7 +197,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                                     <span className={`${isActive ? 'text-slate-900' : 'text-slate-400 group-hover:text-white'}`}>
                                         {item.icon}
                                     </span>
-                                    {!isCollapsed && <span className="ml-3 text-sm truncate">{item.label}</span>}
+                                    {!isCollapsed && <span className="ml-3 text-xs font-bold truncate">{item.label}</span>}
                                 </button>
                             </li>
                         );
@@ -206,14 +209,14 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                             <li>
                                 <button 
                                     onClick={() => setCurrentPage('admin')} 
-                                    className={`flex items-center w-full px-3 py-2 rounded-md transition-all duration-200 ${ 
+                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-all duration-200 ${ 
                                         currentPage === 'admin' 
-                                        ? 'bg-red-600 text-white font-semibold shadow-md' 
+                                        ? 'bg-red-600 text-white shadow-md' 
                                         : 'text-red-400 hover:bg-red-900/30 hover:text-red-300' 
                                     }`}
                                 >
-                                    <Shield size={18} />
-                                    {!isCollapsed && <span className="ml-3 text-sm truncate">Admin</span>}
+                                    <Shield size={16} />
+                                    {!isCollapsed && <span className="ml-3 text-xs font-bold truncate">Admin</span>}
                                 </button>
                             </li>
                         </>
@@ -222,14 +225,14 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
             </nav>
             
             {/* Footer Sidebar */}
-            <div className="p-3 border-t border-slate-700 bg-slate-950 shrink-0">
+            <div className="p-2 border-t border-slate-700 bg-slate-950 shrink-0">
                 <button 
                     onClick={logout} 
-                    className="flex items-center w-full px-3 py-2 rounded-md transition-colors duration-200 hover:bg-red-900/50 text-slate-400 hover:text-red-400"
+                    className="flex items-center w-full px-2 py-1.5 rounded-md transition-colors duration-200 hover:bg-red-900/50 text-slate-400 hover:text-red-400"
                     title="Sair"
                 >
-                    <LogOut size={18}/>
-                    {!isCollapsed && <span className="ml-3 text-sm font-medium">Sair do Sistema</span>}
+                    <LogOut size={16}/>
+                    {!isCollapsed && <span className="ml-3 text-xs font-bold">Sair</span>}
                 </button>
             </div>
         </div>
@@ -254,6 +257,7 @@ const AppContent = () => {
     const [rawComboioTransactions, setRawComboioTransactions] = useState([]);
     const [rawFines, setRawFines] = useState([]);
     const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
+    const [dailyWorkLogs, setDailyWorkLogs] = useState([]); // Novo: Logs de trabalho diário
     
     const [loadingData, setLoadingData] = useState(true); 
     const [updateMessage, setUpdateMessage] = useState(null);
@@ -263,6 +267,105 @@ const AppContent = () => {
     const partners = React.useMemo(() => [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [rawPartners]);
     const comboioTransactions = React.useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
     const fines = React.useMemo(() => [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime())), [rawFines]);
+
+    // --- Processamento de Alertas de Veículos (Centralizado) ---
+    const processVehiclesWithAlerts = (vehiclesData, revisionsData, finesData) => {
+        const now = new Date();
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(now.getDate() + 30);
+
+        return vehiclesData.map(vehicle => {
+            let hasAlert = false;
+            let alertText = '';
+
+            // 1. Alerta de Circulação
+            if (vehicle.canCirculate === false || vehicle.canCirculate === 0 || vehicle.canCirculate === '0') { 
+                hasAlert = true;
+                alertText = `BLOQUEIO: O veículo não pode rodar (Doc/Manutenção).`;
+            }
+
+            // 2. Alerta de Revisão
+            const revision = revisionsData.find(r => r.vehicleId === vehicle.id); 
+            if (revision && !hasAlert) {
+                const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
+                const proximoOdometro = revision.proximaRevisaoOdometro;
+                const proximoHorimetro = revision.proximaRevisaoHorimetro;
+                
+                const readingData = getVehicleMainReading(vehicle); 
+                const currentReading = readingData.raw;
+                const unit = readingData.unit;
+
+                const avisoAntecedencia = parseFloat(revision.avisoAntecedenciaKmHr || 0);
+                const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
+                
+                // Meta baseada no tipo de leitura
+                let metaLeitura = unit === 'Hr' ? proximoHorimetro : proximoOdometro;
+                if (!metaLeitura && unit === 'Hr' && proximoOdometro) metaLeitura = proximoOdometro; // Fallback
+
+                // Lógica Data
+                if (proximaData && now >= proximaData) {
+                    hasAlert = true;
+                    alertText = 'Atenção: Revisão Vencida (Data)!';
+                } else if (proximaData && avisoDias > 0) {
+                     const warningDate = new Date(proximaData);
+                     warningDate.setDate(warningDate.getDate() - avisoDias);
+                     if (now >= warningDate) {
+                        hasAlert = true;
+                        alertText = 'Atenção: Revisão Próxima (Data)!';
+                     }
+                }
+
+                // Lógica Leitura
+                if (!hasAlert && metaLeitura > 0) {
+                     if (currentReading >= metaLeitura) {
+                         hasAlert = true;
+                         alertText = `Atenção: Revisão Vencida (${unit})!`;
+                     } else if (avisoAntecedencia > 0 && currentReading >= (metaLeitura - avisoAntecedencia)) {
+                         hasAlert = true;
+                         alertText = `Atenção: Revisão Próxima (${unit})!`;
+                     }
+                }
+            }
+
+            // 3. Alerta de Documentos de Caminhão
+            const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho'].includes(vehicle.tipo);
+            if (isTruck && !hasAlert) {
+                const docs = [
+                    { type: 'Tacógrafo', date: vehicle.validadeTacografo },
+                    { type: 'AET DAER', date: vehicle.validadeAET_DAER },
+                    { type: 'AET DNIT', date: vehicle.validadeAET_DNIT },
+                ];
+                
+                for (const doc of docs) {
+                    if (doc.date) {
+                        const d = new Date(doc.date);
+                        const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()); // Zera horas
+                        if (now > compareDate) {
+                            hasAlert = true;
+                            alertText = `Atenção: ${doc.type} Vencido!`;
+                            break; 
+                        } else if (compareDate <= thirtyDaysFromNow) {
+                            hasAlert = true;
+                            alertText = `Atenção: ${doc.type} Vence em breve!`;
+                        }
+                    }
+                }
+            }
+            
+            // 4. Alerta de Multas Pendentes
+            const hasPendingFine = finesData.some(fine => fine.vehicleId === vehicle.id && fine.paymentStatus === 'Pendente'); 
+            if(hasPendingFine && !hasAlert) {
+                hasAlert = true;
+                alertText = 'Atenção: Há multas pendentes para este veículo.';
+            }
+
+            return { ...vehicle, possuiAviso: hasAlert, avisoTexto: alertText };
+        });
+    };
+
+    const processedVehicles = React.useMemo(() => {
+        return processVehiclesWithAlerts(vehicles, revisions || [], fines || []);
+    }, [vehicles, revisions, fines]);
 
     // Função para navegar entre páginas com filtro
     const navigate = (page, filter = null) => { 
@@ -289,6 +392,7 @@ const AppContent = () => {
             comboioTransactions: { getter: apiClient.getComboioTransactions, setter: setRawComboioTransactions },
             fines: { getter: apiClient.getFines, setter: setRawFines },
             diarioDeBordo: { getter: apiClient.getDiarioDeBordo, setter: setDiarioDeBordoLogs },
+            dailyWorkLogs: { getter: () => apiClient.getDailyLogs('all'), setter: setDailyWorkLogs }, // Busca logs de faturamento
         };
 
         // Filtra endpoints para operador
@@ -298,6 +402,7 @@ const AppContent = () => {
             delete dataEndpoints.partners;
             delete dataEndpoints.comboioTransactions;
             delete dataEndpoints.fines;
+            delete dataEndpoints.dailyWorkLogs;
         }
 
         try {
@@ -350,7 +455,9 @@ const AppContent = () => {
             user, setAlertMessage, PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
             ConfirmationModal, vehicleGroups, extraObraOptions, equipmentTypesForHours, operationalSubGroups,
             apiClient, reloadData: loadAllData, navigate, 
-            vehicles, obras, revisions, expenses, employees, partners, refuelings, comboioTransactions, fines, diarioDeBordoLogs,
+            vehicles: processedVehicles, // Passa veículos já processados com alertas
+            obras, revisions, expenses, employees, partners, refuelings, comboioTransactions, fines, diarioDeBordoLogs,
+            dailyWorkLogs, // Passa logs de trabalho para dashboard
         };
         
         const Denied = () => <div className="p-10 text-center text-red-500 font-bold bg-white rounded shadow m-4">Acesso Negado</div>;

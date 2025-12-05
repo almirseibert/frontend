@@ -15,6 +15,7 @@ const Dashboard = ({
     navigate,
     vehicles = [], obras = [], refuelings = [], employees = [], fines = [],
     vehicleGroups = {}, equipmentTypesForHours = [],
+    dailyWorkLogs = [], // Recebe logs de faturamento
     apiClient,
     setAlertMessage,
     reloadData
@@ -93,14 +94,14 @@ const Dashboard = ({
                 <StatCard title="Multas Pen." value={stats.multas} icon={ShieldAlert} color="orange" onClick={() => navigate('fines')} />
             </div>
 
-            {/* Layout Principal */}
+            {/* Layout Principal - 2 Linhas Principais */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
-                {/* Coluna Esquerda: Mapa e Gráficos (8/12) */}
-                <div className="lg:col-span-8 space-y-6">
-                    {/* Mapa */}
-                    <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-[350px] flex flex-col">
-                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                {/* --- LINHA 1: MAPA + PROGRESSO --- */}
+                {/* Coluna Esquerda: Mapa (6/12) */}
+                <div className="lg:col-span-6 h-[350px]">
+                    <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
                             <h2 className="font-bold text-gray-800">Geolocalização da Frota</h2>
                             <button onClick={() => setIsMapExpanded(true)} className="text-blue-600 hover:bg-blue-50 p-1 rounded transition-colors"><Maximize2 size={18}/></button>
                         </div>
@@ -108,16 +109,30 @@ const Dashboard = ({
                             <AllocationMap obras={obras} vehicles={vehicles} />
                         </div>
                     </section>
-
-                    {/* Gráficos Comparativos Lado a Lado */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <ObraProgressBI obras={obras} vehicles={vehicles} equipmentTypesForHours={equipmentTypesForHours} />
-                        <FuelEfficiencyRanking vehicles={vehicles} refuelings={refuelings} />
-                    </div>
                 </div>
 
-                {/* Coluna Direita: Alertas (4/12) */}
-                <div className="lg:col-span-4 h-[750px]">
+                {/* Coluna Direita: Progresso e Faturamento (6/12) */}
+                <div className="lg:col-span-6 h-[350px]">
+                     <ObraProgressBI 
+                        obras={obras} 
+                        vehicles={vehicles} 
+                        equipmentTypesForHours={equipmentTypesForHours} 
+                        dailyWorkLogs={dailyWorkLogs}
+                    />
+                </div>
+
+                {/* --- LINHA 2: RANKING + ALERTAS --- */}
+                {/* Coluna Esquerda: Ranking (6/12) */}
+                <div className="lg:col-span-6 h-[350px]">
+                     <FuelEfficiencyRanking 
+                        vehicles={vehicles} 
+                        refuelings={refuelings} 
+                        vehicleGroups={vehicleGroups}
+                    />
+                </div>
+
+                {/* Coluna Direita: Alertas (6/12) */}
+                <div className="lg:col-span-6 h-[350px]">
                     <AlertsPanel 
                         vehicles={vehicles} 
                         employees={employees} 
