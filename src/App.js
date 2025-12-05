@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck,
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText,
     Menu // Menu icon for mobile
 } from 'lucide-react';
 
