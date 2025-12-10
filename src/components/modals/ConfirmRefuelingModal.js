@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, TrendingDown } from 'lucide-react';
+import { X, Loader, TrendingDown, TrendingUp } from 'lucide-react';
 
 const ConfirmRefuelingModal = ({ 
     user, 
@@ -8,7 +8,9 @@ const ConfirmRefuelingModal = ({
     setAlertMessage, 
     apiClient, 
     reloadData,
-    refuelings = [] 
+    refuelings = [],
+    obras = [], // Necessário para status
+    expenses = [] // Necessário para status
 }) => {
     const [litros, setLitros] = useState(order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
@@ -25,6 +27,7 @@ const ConfirmRefuelingModal = ({
 
     const [averageAlert, setAverageAlert] = useState(null); 
     const [isSaving, setIsSaving] = useState(false);
+    const [obraStatus, setObraStatus] = useState(null);
 
     // --- HELPER SAFE DATE (CRÍTICO PARA SAFARI) ---
     const safeDate = (dateInput) => {
@@ -35,6 +38,29 @@ const ConfirmRefuelingModal = ({
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { return new Date(0); }
     };
+
+    // PROGRESSO DA OBRA
+    useEffect(() => {
+        if (order.obraId && obras.length > 0) {
+            const obra = obras.find(o => o.id === order.obraId);
+            if (obra) {
+                const totalFuelExpenses = expenses
+                    .filter(e => e.obraId === order.obraId && (e.category === 'Combustível' || e.fuelType))
+                    .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+                const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
+                
+                if (valorTotalObra > 0) {
+                    const percentual = (totalFuelExpenses / valorTotalObra) * 100;
+                    setObraStatus({
+                        totalGasto: totalFuelExpenses,
+                        valorContrato: valorTotalObra,
+                        percentual: percentual
+                    });
+                }
+            }
+        }
+    }, [order.obraId, obras, expenses]);
 
     // Alerta de Média (Regra 4) - Lógica Completa e Expandida
     useEffect(() => {
@@ -139,6 +165,27 @@ const ConfirmRefuelingModal = ({
                         {order.litrosLiberados && <p><strong>Liberado:</strong> {order.litrosLiberados} L</p>}
                         {order.outros && <p className="mt-1 border-t border-blue-200 pt-1"><strong>Obs:</strong> {order.outros}</p>}
                     </div>
+
+                    {/* Painel de Status da Obra (NOVO) */}
+                    {obraStatus && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                            <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
+                                <TrendingUp size={16}/> Progresso Financeiro
+                            </h4>
+                            <div className="flex justify-between text-blue-700">
+                                <span>Gasto Comb.:</span>
+                                <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <div className="flex justify-between text-blue-700">
+                                <span>Contrato:</span>
+                                <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <div className="mt-2 w-full bg-blue-200 rounded-full h-2.5">
+                                <div className={`h-2.5 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
+                            </div>
+                            <div className="text-right text-xs mt-1 text-blue-600 font-bold">{obraStatus.percentual.toFixed(1)}% utilizado</div>
+                        </div>
+                    )}
 
                     {averageAlert && (
                         <div className="p-3 bg-red-50 text-red-800 rounded-lg border border-red-200 text-sm font-medium flex gap-2">

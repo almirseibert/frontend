@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity } from 'lucide-react';
+import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
 
 const RefuelingOrderModal = ({
     user,
@@ -92,6 +92,9 @@ const RefuelingOrderModal = ({
     const [lastAverage, setLastAverage] = useState(null); 
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
+    
+    // Novo estado para o painel de status da obra
+    const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
 
@@ -100,10 +103,10 @@ const RefuelingOrderModal = ({
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
     
-    // FILTRO DE OBRAS ATIVAS (CORREÇÃO SOLICITADA)
+    // FILTRO DE OBRAS ATIVAS
     const sortedObras = useMemo(() => {
         return [...obras]
-            .filter(o => o.status === 'ativa') // Garante que apenas ativas apareçam
+            .filter(o => o.status === 'ativa') 
             .sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
 
@@ -141,7 +144,6 @@ const RefuelingOrderModal = ({
                 let autoObraId = formData.obraId;
 
                 if (vehicle.obraAtualId) {
-                    // Verifica se a obra atual do veículo ainda está ativa
                     const obra = obras.find(o => o.id === vehicle.obraAtualId);
                     if (obra && obra.status === 'ativa') {
                         autoObraId = vehicle.obraAtualId;
@@ -238,7 +240,7 @@ const RefuelingOrderModal = ({
         setBlockReason(reason);
     }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle]);
 
-    // --- REGRA DE ORÇAMENTO ---
+    // --- REGRA DE ORÇAMENTO E PROGRESSO DA OBRA ---
     useEffect(() => {
         if (formData.obraId && obras.length > 0) {
             const obra = obras.find(o => o.id === formData.obraId);
@@ -246,29 +248,41 @@ const RefuelingOrderModal = ({
             if (!obra || extraObraOptions.includes(formData.obraId)) {
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
+                setObraStatus(null);
                 return;
             }
 
-            if (!obra.valorContrato || obra.valorContrato <= 0) {
-                setBudgetWarning(null);
-                setRequiresBudgetOverride(false);
-                return;
-            }
-
+            // Calcula total gasto e progresso visual
             const totalFuelExpenses = expenses
-                .filter(e => e.obraId === formData.obraId && e.category === 'Combustível')
+                .filter(e => e.obraId === formData.obraId && (e.category === 'Combustível' || e.fuelType))
                 .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
 
-            const limit = obra.valorContrato * 0.20; 
+            // Suporta campo antigo valorContrato ou novo valorTotalContrato
+            const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
             
-            if (totalFuelExpenses >= limit) {
-                setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
-                setRequiresBudgetOverride(true);
+            if (valorTotalObra > 0) {
+                const percentual = (totalFuelExpenses / valorTotalObra) * 100;
+                setObraStatus({
+                    totalGasto: totalFuelExpenses,
+                    valorContrato: valorTotalObra,
+                    percentual: percentual
+                });
+
+                const limit = valorTotalObra * 0.20; 
+                if (totalFuelExpenses >= limit) {
+                    setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
+                    setRequiresBudgetOverride(true);
+                } else {
+                    setBudgetWarning(null);
+                    setRequiresBudgetOverride(false);
+                }
             } else {
+                setObraStatus(null);
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
             }
         } else {
+            setObraStatus(null);
             setBudgetWarning(null);
             setRequiresBudgetOverride(false);
         }
@@ -454,6 +468,27 @@ _Por favor, confirme o recebimento._`;
                     {budgetWarning && (
                         <div className="flex items-center gap-2 p-3 bg-orange-100 text-orange-900 rounded border border-orange-200 text-sm font-bold">
                             <Wallet size={16}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
+                        </div>
+                    )}
+
+                    {/* PAINEL DE STATUS DA OBRA (NOVO) */}
+                    {obraStatus && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                            <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
+                                <TrendingUp size={16}/> Progresso Financeiro da Obra
+                            </h4>
+                            <div className="flex justify-between text-blue-700">
+                                <span>Gasto Combustível:</span>
+                                <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <div className="flex justify-between text-blue-700">
+                                <span>Contrato Total:</span>
+                                <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <div className="mt-2 w-full bg-blue-200 rounded-full h-2.5">
+                                <div className={`h-2.5 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
+                            </div>
+                            <div className="text-right text-xs mt-1 text-blue-600 font-bold">{obraStatus.percentual.toFixed(1)}% utilizado</div>
                         </div>
                     )}
                 </div>
