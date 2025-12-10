@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, MapPin, Clock, Truck, Plus, Trash2, DollarSign } from 'lucide-react';
+import { X, Loader, MapPin, Clock, Truck, Plus, Trash2, DollarSign, User, ClipboardList } from 'lucide-react';
 
 const ObraModal = ({ 
     user, 
@@ -12,6 +12,8 @@ const ObraModal = ({
 }) => {
     // --- ESTADOS DO FORMULÁRIO ---
     const [nome, setNome] = useState('');
+    const [responsavel, setResponsavel] = useState('');
+    const [fiscal, setFiscal] = useState('');
     const [contractType, setContractType] = useState('horas'); // 'horas' | 'metrosQuadrados'
     const [dataInicio, setDataInicio] = useState(new Date().toISOString().split('T')[0]);
     const [dataFim, setDataFim] = useState('');
@@ -35,6 +37,8 @@ const ObraModal = ({
     useEffect(() => {
         if (obra) {
             setNome(obra.nome || '');
+            setResponsavel(obra.responsavel || '');
+            setFiscal(obra.fiscal || '');
             setContractType(obra.contractType || 'horas');
             setDataInicio(obra.dataInicio ? new Date(obra.dataInicio).toISOString().split('T')[0] : '');
             setDataFim(obra.dataFim ? new Date(obra.dataFim).toISOString().split('T')[0] : '');
@@ -122,6 +126,8 @@ const ObraModal = ({
 
         const payload = {
             nome,
+            responsavel,
+            fiscal,
             contractType,
             dataInicio,
             dataFim: dataFim || null,
@@ -195,6 +201,34 @@ const ObraModal = ({
                                 required 
                                 placeholder="Ex: Pavimentação Rua A"
                             />
+                        </div>
+
+                        {/* Novos Campos: Responsável e Fiscal */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                    <User size={14}/> Responsável da Obra
+                                </label>
+                                <input 
+                                    type="text" 
+                                    value={responsavel} 
+                                    onChange={(e) => setResponsavel(e.target.value)} 
+                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none" 
+                                    placeholder="Nome do Responsável"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                    <ClipboardList size={14}/> Fiscal da Obra
+                                </label>
+                                <input 
+                                    type="text" 
+                                    value={fiscal} 
+                                    onChange={(e) => setFiscal(e.target.value)} 
+                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none" 
+                                    placeholder="Nome do Fiscal"
+                                />
+                            </div>
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">

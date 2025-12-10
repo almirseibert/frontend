@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock, RefreshCw } from 'lucide-react'; // Added RefreshCw
+import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock, RefreshCw, User, ClipboardList } from 'lucide-react'; // Added RefreshCw
 import ProtectedComponent from '../ProtectedComponent';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
@@ -321,15 +321,11 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                     if (!data.contratado[type]) {
                         const extra = parseFloat(sourceObra.realizadoPorTipo[type] || 0);
                         data.totalConcluido += extra;
-                        // Opcional: Se quiser mostrar barra para extra, adicione:
-                        // data.concluido[type] = extra; 
-                        // data.contratado[type] = 0; // Para mostrar "overtime"
                     }
                 });
             }
 
-            // FALLBACK: Se total calculado for 0 mas a obra tiver um total agregado vindo da lista
-            // Isso evita que a barra total fique vazia se o fetch detalhado falhar
+            // FALLBACK
             if (data.totalConcluido === 0 && sourceObra.totalHorasRealizadas > 0 && (!sourceObra.realizadoPorTipo || Object.keys(sourceObra.realizadoPorTipo).length === 0)) {
                 data.totalConcluido = parseFloat(sourceObra.totalHorasRealizadas);
             }
@@ -353,10 +349,9 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const handleSaveAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
         await apiClient.updateObraHistoryEntry(obra.id, historyEntryId, editedData);
         setAlertMessage("Alocação ativa atualizada com sucesso!");
-        fetchDetails(); // Atualiza detalhes locais imediatamente
-        reloadData(); // Atualiza lista pai
+        fetchDetails(); 
+        reloadData(); 
         setIsEditAssignmentModalOpen(false);
-        // O useEffect vai rodar e atualizar o detailedObra também
     };
 
     const handleSavePastAssignmentEdit = async (vehicleId, historyEntryId, editedData) => {
@@ -378,7 +373,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             obraUpdatePayload.kmConcluidoPrancha = newPranchaKm;
         }
 
-        // Atualização de Setores (Se for contrato por produção)
+        // Atualização de Setores
         if (detailedObra.contractType === 'metrosQuadrados') {
             const currentSectors = Array.isArray(detailedObra.sectors) ? detailedObra.sectors : [];
             const updatedSectors = currentSectors.map(sector => {
@@ -395,7 +390,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
             }
         }
 
-        // Atualização de Leituras de Veículos (Apenas atualiza o odômetro/horímetro do veículo)
+        // Atualização de Leituras de Veículos
         Object.entries(updatingReadings).forEach(([vehicleId, newReadingStr]) => {
              if (newReadingStr !== undefined && newReadingStr !== '') {
                  const newReading = parseFloat(newReadingStr);
@@ -440,7 +435,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
 
             setAlertMessage("Alterações salvas com sucesso!");
             setUpdatingReadings({});
-            fetchDetails(); // Refresh dados
+            fetchDetails(); 
             reloadData();
         } catch (error) {
             console.error("Erro ao salvar alterações:", error);
@@ -458,11 +453,24 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                 
                 {/* Header */}
                 <div className="p-6 border-b flex justify-between items-start bg-white rounded-t-xl sticky top-0 z-10">
-                    <div>
+                    <div className="flex-1">
                         <h2 className="text-2xl font-bold text-gray-800">{detailedObra.nome}</h2>
-                        <div className="flex items-center gap-2 mt-1 text-gray-500 text-sm">
-                            <MapPin size={16}/> <span>{detailedObra.localizacao || 'Localização não definida'}</span>
+                        <div className="flex flex-wrap gap-4 mt-2">
+                            <div className="flex items-center gap-1 text-gray-500 text-sm">
+                                <MapPin size={14}/> <span>{detailedObra.localizacao || 'Localização não definida'}</span>
+                            </div>
+                            {detailedObra.responsavel && (
+                                <div className="flex items-center gap-1 text-gray-600 text-sm font-medium">
+                                    <User size={14}/> Resp: {detailedObra.responsavel}
+                                </div>
+                            )}
+                            {detailedObra.fiscal && (
+                                <div className="flex items-center gap-1 text-gray-600 text-sm font-medium">
+                                    <ClipboardList size={14}/> Fiscal: {detailedObra.fiscal}
+                                </div>
+                            )}
                         </div>
+                        
                         <div className="flex items-center gap-4 mt-3">
                             <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${detailedObra.status === 'ativa' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                                 {detailedObra.status === 'ativa' ? 'Em Andamento' : 'Finalizada'}

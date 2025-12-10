@@ -34,7 +34,7 @@ const ObrasPage = ({
     });
     const [selectedObra, setSelectedObra] = useState(null);
 
-    // --- LÓGICA DE TIPOS DE EQUIPAMENTOS (Correção e Garantia de Funcionamento) ---
+    // --- LÓGICA DE TIPOS DE EQUIPAMENTOS ---
     const derivedEquipmentTypes = useMemo(() => {
         const types = [];
         Object.entries(vehicleGroups).forEach(([groupName, groupTypes]) => {
@@ -75,6 +75,15 @@ const ObrasPage = ({
 
     // --- HANDLERS ---
     const openModal = (type, obra = null) => {
+        // VALIDAR FINALIZAÇÃO
+        if (type === 'finish' && obra) {
+            const activeCount = (obra.historicoVeiculos || []).filter(h => !h.dataSaida).length;
+            if (activeCount > 0) {
+                setAlertMessage("Não é possível finalizar esta obra pois existem veículos alocados. Por favor, realize a saída de todos os veículos e funcionários antes de finalizar.");
+                return;
+            }
+        }
+
         setSelectedObra(obra);
         setModalState(prev => ({ ...prev, [type]: true }));
     };
@@ -124,12 +133,14 @@ const ObrasPage = ({
              setAlertMessage("Nenhuma obra para exportar.");
              return;
          }
-        const headers = ['Nome', 'Status', 'Data Início', 'Data Fim', 'Tipo de Contrato', 'Horas Contratadas', 'Horas Realizadas', 'Latitude', 'Longitude'];
+        const headers = ['Nome', 'Status', 'Responsável', 'Fiscal', 'Data Início', 'Data Fim', 'Tipo de Contrato', 'Horas Contratadas', 'Horas Realizadas', 'Latitude', 'Longitude'];
         const rows = filteredObras.map(o => {
             const contractedHours = Object.values(o.horasContratadasPorTipo || {}).reduce((sum, h) => sum + (parseFloat(h) || 0), 0);
             return [
                 o.nome,
                 o.status,
+                o.responsavel || '',
+                o.fiscal || '',
                 o.dataInicio ? new Date(o.dataInicio).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A',
                 o.dataFim ? new Date(o.dataFim).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A',
                 o.contractType === 'horas' ? 'Horas Trabalhadas' : 'Metros Quadrados',
@@ -336,7 +347,6 @@ const ObrasPage = ({
                     apiClient={apiClient} 
                     reloadData={reloadData} 
                     setAlertMessage={setAlertMessage}
-                    // Passa a lista filtrada para o modal
                     equipmentTypesForHours={derivedEquipmentTypes}
                 />
             )}
@@ -368,7 +378,7 @@ const ObrasPage = ({
 
             {modalState.delete && selectedObra && (
                 <PasswordConfirmationModal 
-                    message={`Tem certeza que deseja excluir a obra "${selectedObra.nome}"? Esta ação não pode ser desfeita.`}
+                    message={`Tem certeza que deseja excluir a obra "${selectedObra.nome}"? Esta ação deletará TODO o histórico de veículos desta obra e não poderá ser desfeita.`}
                     onConfirm={handleDelete} 
                     onClose={() => closeModal('delete')} 
                     apiClient={apiClient} 
