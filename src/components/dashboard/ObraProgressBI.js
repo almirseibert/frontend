@@ -18,48 +18,22 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
         let totalExecutadoHoras = 0;
         let totalExecutadoKmPrancha = parseFloat(obra.kmConcluidoPrancha) || 0;
 
-        // Itera sobre todo o histórico (ativos e finalizados)
         (obra.historicoVeiculos || []).forEach(hist => {
-            // Tenta encontrar o veículo atual para dados de tipo/grupo, caso não esteja no histórico
-            const vehicle = vehicles.find(v => v.id === hist.veiculoId);
-            const vType = hist.tipo || (vehicle ? vehicle.tipo : null);
-            
-            if (!vType) return;
-
-            // Determina se é KM ou Horas
-            const isKm = vehicleGroups['Caminhões de Trecho']?.includes(vType) || 
-                         ['Caminhão Prancha', 'Semirreboques', 'Automóvel', 'Veículos Leves'].some(t => vType.includes(t));
-
-            // Leituras Iniciais (Suporta estrutura plana ou aninhada em details)
-            const startOdometro = parseFloat(hist.odometroEntrada ?? hist.details?.odometroEntrada ?? 0);
-            const startHorimetro = parseFloat(hist.horimetroEntrada ?? hist.details?.horimetroEntrada ?? 0);
-            const startReading = isKm ? startOdometro : startHorimetro;
-
-            // Leituras Finais
-            let endReading = 0;
-
-            if (hist.dataSaida) {
-                // Se já saiu, usa a leitura de saída gravada no histórico
-                const endOdometro = parseFloat(hist.odometroSaida ?? hist.details?.odometroSaida ?? 0);
-                const endHorimetro = parseFloat(hist.horimetroSaida ?? hist.details?.horimetroSaida ?? 0);
-                endReading = isKm ? endOdometro : endHorimetro;
-            } else if (vehicle) {
-                // Se ainda está na obra, usa a leitura atual do cadastro do veículo
-                // Prioriza Horímetro Digital > Analógico > Campo Genérico
-                const currHorimetro = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
-                const currOdometro = parseFloat(vehicle.odometro ?? 0);
-                endReading = isKm ? currOdometro : currHorimetro;
-            }
-
-            // Calcula a diferença apenas se houver progressão válida
-            if (endReading > startReading) {
-                const diff = endReading - startReading;
-                
-                if (obra.contractType === 'prancha' && isKm) {
-                    totalExecutadoKmPrancha += diff;
-                } else if (!isKm) {
-                    // Soma horas apenas para equipamentos que não são prancha (se contrato for horas)
-                    totalExecutadoHoras += diff;
+            if (!hist.dataSaida) { // Veículo ainda na obra
+                const vehicle = vehicles.find(v => v.id === hist.veiculoId);
+                if (vehicle) {
+                    const isKm = vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
+                    const currentReading = isKm ? vehicle.odometro : (vehicle.horimetroDigital || vehicle.horimetro);
+                    const startReading = isKm ? (hist.details?.odometroEntrada || 0) : (hist.details?.horimetroEntrada || 0);
+                    
+                    if (currentReading > startReading) {
+                        const diff = currentReading - startReading;
+                        if (obra.contractType === 'prancha' && isKm) {
+                            totalExecutadoKmPrancha += diff;
+                        } else if (!isKm) {
+                            totalExecutadoHoras += diff;
+                        }
+                    }
                 }
             }
         });
@@ -69,30 +43,39 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             totalExecutadoHoras += parseFloat(obra.horasAdicionaisCaminhao || 0);
         }
 
-        // 2. CÁLCULO FATURADO (Baseado nos Logs de Trabalho Diário / Apontamentos da página Faturamento)
-        // Extração segura dos logs
-        let safeLogs = [];
-        if (Array.isArray(dailyWorkLogs)) {
-            safeLogs = dailyWorkLogs;
-        } else if (dailyWorkLogs && Array.isArray(dailyWorkLogs.data)) {
-            safeLogs = dailyWorkLogs.data;
-        } else if (dailyWorkLogs && Array.isArray(dailyWorkLogs.rows)) {
-            safeLogs = dailyWorkLogs.rows;
+        // 2. CÁLCULO FATURADO (Faturamento & Controle)
+        // Estratégia Híbrida:
+        // A) Tenta usar o campo totalHorasRealizadas que vem direto do objeto Obra (Backend Aggregate)
+        //    Isso garante paridade com a página ObrasPage.js
+        let faturado = parseFloat(obra.totalHorasRealizadas) || 0;
+
+        // B) Se for 0, tenta calcular via dailyWorkLogs (caso o frontend tenha dados mais frescos ou o backend não enviou)
+        if (faturado === 0 && dailyWorkLogs && dailyWorkLogs.length > 0) {
+            // Extração segura dos logs
+            let safeLogs = [];
+            if (Array.isArray(dailyWorkLogs)) {
+                safeLogs = dailyWorkLogs;
+            } else if (dailyWorkLogs.data && Array.isArray(dailyWorkLogs.data)) {
+                safeLogs = dailyWorkLogs.data;
+            }
+
+            // Filtra os logs especificamente para esta obra usando ID como string para segurança
+            const targetObraId = String(obra.id).trim();
+            const logsDestaObra = safeLogs.filter(log => {
+                const logObraId = log.obraId || log.obra_id; 
+                return logObraId && String(logObraId).trim() === targetObraId;
+            });
+            
+            // Soma
+            const calculatedFromLogs = logsDestaObra.reduce((sum, log) => {
+                const val = parseFloat(log.totalHours !== undefined ? log.totalHours : log.total_hours);
+                return sum + (isNaN(val) ? 0 : val);
+            }, 0);
+
+            if (calculatedFromLogs > 0) {
+                faturado = calculatedFromLogs;
+            }
         }
-        
-        // Filtra os logs especificamente para esta obra
-        const targetObraId = String(obra.id).trim();
-        const logsDestaObra = safeLogs.filter(log => {
-            const logObraId = log.obraId || log.obra_id; 
-            return logObraId && String(logObraId).trim() === targetObraId;
-        });
-        
-        // Soma a coluna 'totalHours' dos logs filtrados
-        const totalHorasFaturadas = logsDestaObra.reduce((sum, log) => {
-            const rawHours = log.totalHours !== undefined ? log.totalHours : log.total_hours;
-            const hours = parseFloat(rawHours);
-            return sum + (isNaN(hours) ? 0 : hours);
-        }, 0);
 
         // 3. CÁLCULO CONTRATADO (Total definido no cadastro da obra - ObraModal)
         const type = obra.contractType || 'horas';
@@ -107,7 +90,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
                     horasObj = JSON.parse(horasObj);
                 } catch (e) {
                     horasObj = {};
-                    console.error("Erro ao parsear horasContratadasPorTipo:", e);
                 }
             } else if (!horasObj) {
                 horasObj = {};
@@ -120,8 +102,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             contratado = parseFloat(obra.kmContratadoPrancha || 0);
             unit = 'km';
         } else {
-             // Metros Quadrados (Soma dos setores)
-             // Garante que sectors seja array
+             // Metros Quadrados
              const sectorsList = typeof obra.sectors === 'string' ? JSON.parse(obra.sectors || '[]') : (obra.sectors || []);
              contratado = sectorsList.reduce((a, b) => a + (parseFloat(b.kmContratado)||0), 0);
              unit = 'm²';
@@ -132,20 +113,26 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             contratado, 
             executado: type === 'prancha' ? totalExecutadoKmPrancha : totalExecutadoHoras, 
             unit,
-            faturado: totalHorasFaturadas 
+            faturado: faturado
         };
     }, [selectedObraId, activeObras, vehicles, dailyWorkLogs]);
 
-    const ProgressBar = ({ value, max, color }) => (
-        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-            <div 
-                className={`h-full ${color} transition-all duration-500 flex items-center justify-center text-[9px] font-bold text-white`} 
-                style={{ width: `${Math.min((value/max)*100, 100)}%` }}
-            >
-                {max > 0 ? ((value/max)*100).toFixed(0) : 0}%
+    const ProgressBar = ({ value, max, color }) => {
+        const percentage = max > 0 ? (value / max) * 100 : 0;
+        // Limita a barra visualmente a 100%, mas mostra o texto real
+        const visualWidth = Math.min(percentage, 100); 
+        
+        return (
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div 
+                    className={`h-full ${color} transition-all duration-500 flex items-center justify-center text-[9px] font-bold text-white`} 
+                    style={{ width: `${visualWidth}%` }}
+                >
+                    {percentage.toFixed(0)}%
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
@@ -167,17 +154,17 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
                 <div className="space-y-4 flex-1 flex flex-col justify-center">
                     {/* Cards de Resumo */}
                     <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="bg-blue-50 p-2 rounded border border-blue-100">
+                        <div className="bg-blue-50 p-2 rounded border border-blue-100 flex flex-col justify-center">
                             <span className="block text-[10px] text-blue-500 font-bold uppercase">Contratado</span>
-                            <span className="text-base font-bold text-blue-900">{obraData.contratado.toFixed(0)} <span className="text-[10px]">{obraData.unit}</span></span>
+                            <span className="text-base font-bold text-blue-900 leading-tight">{obraData.contratado.toFixed(0)} <span className="text-[10px]">{obraData.unit}</span></span>
                         </div>
-                        <div className="bg-yellow-50 p-2 rounded border border-yellow-100">
-                            <span className="block text-[10px] text-yellow-600 font-bold uppercase">Real (Horímetros)</span>
-                            <span className="text-base font-bold text-yellow-900">{obraData.executado.toFixed(1)} <span className="text-[10px]">{obraData.unit}</span></span>
+                        <div className="bg-yellow-50 p-2 rounded border border-yellow-100 flex flex-col justify-center">
+                            <span className="block text-[10px] text-yellow-600 font-bold uppercase">Real (Horímetro)</span>
+                            <span className="text-base font-bold text-yellow-900 leading-tight">{obraData.executado.toFixed(1)} <span className="text-[10px]">{obraData.unit}</span></span>
                         </div>
-                        <div className="bg-green-50 p-2 rounded border border-green-100">
+                        <div className="bg-green-50 p-2 rounded border border-green-100 flex flex-col justify-center">
                             <span className="block text-[10px] text-green-600 font-bold uppercase">Faturado (Logs)</span>
-                            <span className="text-base font-bold text-green-900">{obraData.faturado.toFixed(1)} <span className="text-[10px]">{obraData.unit}</span></span>
+                            <span className="text-base font-bold text-green-900 leading-tight">{obraData.faturado.toFixed(1)} <span className="text-[10px]">{obraData.unit}</span></span>
                         </div>
                     </div>
 
@@ -200,8 +187,8 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
                                     <span>{obraData.contratado > 0 ? ((obraData.faturado / obraData.contratado)*100).toFixed(1) : 0}%</span>
                                 </div>
                                 <ProgressBar value={obraData.faturado} max={obraData.contratado} color="bg-green-500" />
-                                <p className="text-[10px] text-gray-400 mt-1 italic">
-                                    Total de horas trabalhadas (apontamentos) vs Horas contratadas.
+                                <p className="text-[9px] text-gray-400 mt-1 italic text-right">
+                                    Fonte: {obraData.faturado === parseFloat(obraData.totalHorasRealizadas) ? 'Cadastro da Obra' : 'Soma de Logs Diários'}
                                 </p>
                             </div>
                         ) : (
@@ -214,7 +201,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm italic">
                     <HardHat size={32} className="mb-2 opacity-20"/>
-                    Selecione uma obra ativa para ver a análise.
+                    <p className="mt-2">Selecione uma obra ativa para ver a análise.</p>
                 </div>
             )}
         </div>
