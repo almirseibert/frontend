@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Loader, X, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { Loader, X, AlertTriangle, AlertOctagon, TrendingUp } from 'lucide-react';
 import { checkReadingConsistency, checkVehicleRestrictions, getVehicleMainReading, getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const ComboioSaidaModal = ({ 
@@ -10,8 +10,6 @@ const ComboioSaidaModal = ({
     obras = [], 
     employees = [], 
     expenses = [], 
-    comboioTransactions = [], 
-    refuelings = [],
     onClose, 
     setAlertMessage, 
     apiClient, 
@@ -43,9 +41,11 @@ const ComboioSaidaModal = ({
     const [budgetBlock, setBudgetBlock] = useState(null);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [pendingSubmission, setPendingSubmission] = useState(null);
+    const [obraStatus, setObraStatus] = useState(null);
 
-    // --- MEMOIZAÇÃO DE LISTAS ---
+    // --- MEMOIZAÇÃO DE LISTAS (Regra 5: Ordem Alfabética) ---
     const availableMachines = useMemo(() => vehicles.filter(v => !v.isComboioVehicle && v.id !== comboioVehicle?.id).sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles, comboioVehicle]);
+    // Regra 9: Filtrar obras desativadas
     const sortedObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => employees.sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.receivingVehicleId), [formData.receivingVehicleId, vehicles]);
@@ -68,8 +68,8 @@ const ComboioSaidaModal = ({
         }
     }, [isEditing, transactionData]);
 
-    // --- EFEITOS (AUTO-PREENCHIMENTO E VALIDAÇÕES) ---
-    // IMPORTANTE: Só executa se NÃO for edição, para não sobrescrever dados carregados do banco.
+    // --- AUTO-PREENCHIMENTO (Regra 8) ---
+    // IMPORTANTE: Só executa se NÃO estiver editando
     useEffect(() => {
         if (!isEditing && selectedVehicle) {
             let autoObra = selectedVehicle.obraAtualId || '';
@@ -89,6 +89,7 @@ const ComboioSaidaModal = ({
                 employeeId: prev.employeeId || autoEmployee
             }));
 
+            // Regra 4: Avisos
             const issues = checkVehicleRestrictions(selectedVehicle, []); 
             setVehicleIssues(issues);
             setReadingError(null);
@@ -96,8 +97,33 @@ const ComboioSaidaModal = ({
             setVehicleIssues([]);
             setReadingError(null);
         }
-        // Se estiver editando, não faz nada quando selectedVehicle muda (que é automático ao setar o ID)
     }, [selectedVehicle, isEditing]);
+
+    // --- PROGRESSO DA OBRA (Regra 6) ---
+    useEffect(() => {
+        if (formData.obraId) {
+            const obra = obras.find(o => o.id === formData.obraId);
+            if (obra) {
+                // Calcula total gasto em combustível nesta obra (soma despesas)
+                const totalGasto = expenses
+                    .filter(e => e.obraId === formData.obraId && e.category === 'Combustível')
+                    .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+                
+                const valorContrato = parseFloat(obra.valorTotalContrato || 0);
+                const percentual = valorContrato > 0 ? (totalGasto / valorContrato) * 100 : 0;
+
+                setObraStatus({
+                    totalGasto,
+                    valorContrato,
+                    percentual
+                });
+            } else {
+                setObraStatus(null);
+            }
+        } else {
+            setObraStatus(null);
+        }
+    }, [formData.obraId, obras, expenses]);
 
     // --- CÁLCULO DE ORÇAMENTO ---
     const checkBudgetLimit = (obraId, costToAdd) => {
@@ -105,9 +131,8 @@ const ComboioSaidaModal = ({
         if (!obra || !obra.valorTotalContrato || parseFloat(obra.valorTotalContrato) <= 0) return null;
 
         const limit = parseFloat(obra.valorTotalContrato) * 0.20; 
-        
         const currentExpenses = expenses
-            .filter(e => e.obraId === obraId && (e.category === 'Combustível' || e.fuelType))
+            .filter(e => e.obraId === obraId && e.category === 'Combustível')
             .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
 
         const newTotal = currentExpenses + costToAdd;
@@ -138,7 +163,6 @@ const ComboioSaidaModal = ({
 
         const liters = parseFloat(formData.liters);
         
-        // Na edição, não bloqueamos por saldo local estritamente se não houver mudança para maior
         if (!isEditing) {
             const comboioStock = comboioVehicle?.fuelLevels?.[formData.fuelType] || 0;
             if (liters > comboioStock) {
@@ -147,7 +171,7 @@ const ComboioSaidaModal = ({
             }
         }
 
-        // --- VALIDAÇÃO DE LEITURAS ---
+        // --- VALIDAÇÃO DE LEITURAS (Regras 2 e 3) ---
         const allowedReadings = getAllowedReadingTypes(selectedVehicle?.tipo);
         let validation = null;
 
@@ -159,19 +183,15 @@ const ComboioSaidaModal = ({
                 validation = checkReadingConsistency(selectedVehicle, valToTest);
             }
 
-            // Se bloqueio e NÃO for edição, impede o registro. 
-            // Edição permite corrigir erros, então o bloqueio pode ser relaxado ou mantido dependendo da regra.
-            // Aqui mantemos bloqueio se for erro crasso (regressão), exceto se for edição corretiva.
             if (validation && validation.type === 'bloqueio' && !isEditing) {
                 setReadingError(validation.message);
                 return; 
             }
         }
 
-        // --- VALIDAÇÃO DE ORÇAMENTO ---
+        // --- VALIDAÇÃO DE ORÇAMENTO (Regra 10) ---
         if (!isEditing) { 
-            // Custo estimado R$ 6.50 apenas para verificação de bloqueio
-            const estimatedCost = liters * 6.50; 
+            const estimatedCost = liters * 6.50; // Estimativa para trava
             const budgetCheck = checkBudgetLimit(formData.obraId, estimatedCost);
             
             if (budgetCheck) {
@@ -216,7 +236,6 @@ const ComboioSaidaModal = ({
                 setAlertMessage("Abastecimento registrado com sucesso!");
             }
             
-            // PDF apenas se novo
             if (!isEditing) {
                 const pdfData = {
                     ...payload,
@@ -295,6 +314,7 @@ const ComboioSaidaModal = ({
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6">
+                    {/* Avisos de Regras */}
                     {readingError && (
                         <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-800 rounded flex items-center gap-2">
                             <AlertOctagon size={20} />
@@ -302,6 +322,27 @@ const ComboioSaidaModal = ({
                         </div>
                     )}
                     
+                    {/* Painel de Status da Obra (Regra 6) */}
+                    {obraStatus && (
+                        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                            <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
+                                <TrendingUp size={16}/> Progresso Financeiro da Obra
+                            </h4>
+                            <div className="flex justify-between text-blue-700">
+                                <span>Gasto Combustível:</span>
+                                <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <div className="flex justify-between text-blue-700">
+                                <span>Contrato Total:</span>
+                                <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <div className="mt-2 w-full bg-blue-200 rounded-full h-2.5">
+                                <div className={`h-2.5 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
+                            </div>
+                            <div className="text-right text-xs mt-1 text-blue-600 font-bold">{obraStatus.percentual.toFixed(1)}% utilizado</div>
+                        </div>
+                    )}
+
                     {vehicleIssues.length > 0 && !isEditing && (
                         <div className="mb-4 space-y-2">
                             {vehicleIssues.map((issue, idx) => (
@@ -346,7 +387,7 @@ const ComboioSaidaModal = ({
                             <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border rounded" required disabled={isEditing}>
                                 <option value="">Selecione</option>
                                 {Object.entries(comboioVehicle?.fuelLevels || {})
-                                    .filter(([_, level]) => level > 0 || isEditing) // Mostra tudo se editando
+                                    .filter(([_, level]) => level > 0 || isEditing) 
                                     .map(([type, level]) => (
                                         <option key={type} value={type}>{type === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'} ({level.toFixed(1)} L)</option>
                                     ))}

@@ -10,7 +10,6 @@ const ComboioEntradaModal = ({
     onClose, 
     setAlertMessage, 
     apiClient, 
-    vehicleGroups = {}, 
     generateAuthorizationPDF, 
     obras = [], 
     extraObraOptions = [], 
@@ -42,7 +41,7 @@ const ComboioEntradaModal = ({
         }
     }, [isEditing, transactionData]);
 
-    // Ordenação
+    // Ordenação (Regra 5: Ordem Alfabética)
     const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
@@ -73,9 +72,8 @@ const ComboioEntradaModal = ({
             liters: liters,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             fuelType: formData.fuelType,
-            // Campos de leitura removidos pois o comboio apenas transporta nesta etapa
-            odometro: null,
-            horimetro: null,
+            odometro: null, // Removido conforme solicitado
+            horimetro: null, // Removido conforme solicitado
             createdBy: {
                 userId: user.id || user.uid,
                 userEmail: user.email || 'sistema@frotasmak.com'
@@ -92,18 +90,18 @@ const ComboioEntradaModal = ({
                 setAlertMessage("Entrada registrada com sucesso!");
             }
             
-            // Geração do PDF apenas se não for edição
             if (!isEditing) {
                 const partner = partners.find(p => p.id === formData.partnerId);
                 const pdfData = {
                     ...payload,
                     authNumber: response.refuelingOrder?.authNumber || 'N/A',
-                    litrosAbastecidos: response.refuelingOrder?.litrosAbastecidos || liters,
+                    litrosAbastecidos: liters,
                     partnerName: partner?.razaoSocial || 'N/A',
                     vehicleId: comboioVehicle.id,
                     createdBy: { userEmail: user.email }
                 };
-                generateAuthorizationPDF(pdfData, [comboioVehicle], partners, employees, vehicleGroups);
+                // Passa arrays vazios para evitar busca de leituras que não existem neste modal
+                generateAuthorizationPDF(pdfData, [comboioVehicle], partners, employees, {});
             }
 
             reloadData();
