@@ -1,22 +1,10 @@
 // Este arquivo centraliza todas as chamadas à sua API backend.
 
 // URL base da sua API no Easypanel
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api'; // Fallback para localhost
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api'; 
 
-/**
- * Pega o token JWT do localStorage.
- * @returns {string|null} O token ou null se não existir.
- */
 const getToken = () => localStorage.getItem('authToken');
 
-/**
- * Função genérica para fazer requisições à API (JSON).
- * Inclui automaticamente a URL base e o token de autenticação.
- * @param {string} endpoint - O caminho da rota (ex: '/vehicles').
- * @param {object} options - Opções adicionais para o fetch (method, body, headers).
- * @returns {Promise<any>} A resposta da API em JSON ou null.
- * @throws {Error} Lança um erro se a resposta não for OK.
- */
 const apiFetch = async (endpoint, options = {}) => {
     const token = getToken();
     
@@ -26,7 +14,7 @@ const apiFetch = async (endpoint, options = {}) => {
     };
 
     if (token) {
-        headers['Authorization'] = `Bearer ${token}`; // Adiciona o token ao cabeçalho
+        headers['Authorization'] = `Bearer ${token}`; 
     }
 
     try {
@@ -41,23 +29,20 @@ const apiFetch = async (endpoint, options = {}) => {
             throw new Error(errorMessage);
         }
         
-        // Retorna null para respostas sem conteúdo (ex: DELETE 204)
         if (response.status === 204) {
             return null;
         }
 
-        return await response.json(); // Retorna a resposta da API como JSON
+        return await response.json(); 
     } catch (error) {
         console.error(`Erro na chamada da API para ${API_URL}${endpoint}:`, error);
-        throw error; // Propaga o erro
+        throw error; 
     }
 };
 
-// Objeto que exporta todas as funções da sua API
 const apiClient = {
     // --- Autenticação ---
     login: async (email, password) => {
-        // Backend retorna: { token }
         return apiFetch('/auth/login', {
             method: 'POST',
             body: JSON.stringify({ email, password }),
@@ -108,7 +93,6 @@ const apiClient = {
         }
     },
 
-
     // --- Obras ---
     getObras: async () => apiFetch('/obras'),
     getObraById: async (id) => apiFetch(`/obras/${id}`),
@@ -123,7 +107,7 @@ const apiClient = {
         });
     },
 
-    // --- Faturamento / Controle Diário (NOVAS FUNÇÕES) ---
+    // --- Faturamento / Controle Diário ---
     getDailyLogs: async (obraId, filters = {}) => {
         const queryParams = new URLSearchParams(filters).toString();
         return apiFetch(`/billing/obra/${obraId}?${queryParams}`);
@@ -170,7 +154,8 @@ const apiClient = {
     getRefuelings: async () => apiFetch('/refuelings'),
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
-    updateRefuelingOrder: async (id, data) => apiFetch('/refuelings', { method: 'PUT', body: JSON.stringify(data) }), 
+    // CORREÇÃO: URL corrigida com /${id}
+    updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }), 
     confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), 
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
 
@@ -181,8 +166,7 @@ const apiClient = {
     createComboioEntrada: async (data) => apiFetch('/comboioTransactions/entrada', { method: 'POST', body: JSON.stringify(data) }),
     createComboioSaida: async (data) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: JSON.stringify(data) }),
     createComboioDrenagem: async (data) => apiFetch('/comboioTransactions/drenagem', { method: 'POST', body: JSON.stringify(data) }),
-    updateComboioTransaction: async (id, data) => apiFetch(`/comboioTransactions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    
+
     // --- Multas ---
     getFines: async () => apiFetch('/fines'),
     getFineById: async (id) => apiFetch(`/fines/${id}`),
