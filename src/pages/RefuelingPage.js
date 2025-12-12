@@ -12,7 +12,7 @@ const RefuelingPage = ({
     user,
     vehicles = [],
     obras = [],
-    partners = [],
+    partners = [], // Necessário para passar ao ConfirmRefuelingModal
     refuelings = [], 
     employees = [],
     expenses = [], 
@@ -432,13 +432,14 @@ const RefuelingPage = ({
                     order={orderToConfirm}
                     obras={obras}
                     expenses={expenses}
-                    vehicles={vehicles} // NOVA PROP
+                    vehicles={vehicles}
+                    partners={partners} // Passando Partners aqui
                     onClose={() => setIsConfirmModalOpen(false)}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
                     reloadData={reloadData}
                     refuelings={refuelings}
-                    PasswordConfirmationModal={PasswordConfirmationModal} // NOVA PROP
+                    PasswordConfirmationModal={PasswordConfirmationModal}
                 />
             )}
 

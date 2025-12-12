@@ -219,9 +219,9 @@ const PartnersPage = ({
                     refuelings={refuelings}
                     comboioTransactions={comboioTransactions}
                     onClose={() => setIsReportModalOpen(false)}
-                    apiClient={apiClient} // Passando apiClient
-                    reloadData={reloadData} // Passando reloadData
-                    setAlertMessage={setAlertMessage} // Passando setAlertMessage
+                    apiClient={apiClient}
+                    reloadData={reloadData} 
+                    setAlertMessage={setAlertMessage}
                 />
             )}
             {isDeleteModalOpen && itemToDelete && (
@@ -421,10 +421,16 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
 
             const outros = parseFloat(e.outrosValor) || 0;
             const litros = parseFloat(e.litrosAbastecidos) || 0;
-            const precoUnit = parseFloat(partner.fuel_prices?.[e.fuelType] || 0);
+            
+            // LÓGICA CORRIGIDA: Usa o preço registrado no abastecimento (histórico), não o atual
+            // Fallback para o preço atual do posto se o histórico não existir (dados antigos)
+            let precoUnit = parseFloat(e.pricePerLiter);
+            if (!precoUnit || precoUnit === 0) {
+                 precoUnit = parseFloat(partner.fuel_prices?.[e.fuelType] || 0);
+            }
+            
             const valorCombustivel = litros * precoUnit;
             
-            // Lógica de Veículo Aprimorada: Busca na lista de vehicles
             const vehicle = vehicles.find(v => v.id === e.vehicleId);
             const vehicleLabel = vehicle 
                 ? `${vehicle.modelo || ''} - ${vehicle.placa || ''}`.trim()
@@ -436,8 +442,8 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
                 type: 'Abastecimento',
                 icon: <Droplet size={14} className="text-blue-500" />,
                 description: `Auth: ${e.authNumber} (${vehicleLabel})`,
-                vehicleName: vehicleLabel, // Nome legível para o PDF e Listagem
-                invoiceNumber: e.invoiceNumber || e.notaFiscal || '', // Campo da NF
+                vehicleName: vehicleLabel,
+                invoiceNumber: e.invoiceNumber || e.notaFiscal || '', 
                 fuelType: e.fuelType,
                 liters: litros,
                 value: valorCombustivel,
@@ -463,7 +469,7 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
                 icon: <Truck size={14} className="text-green-500" />,
                 description: `Comboio: ${e.comboioVehicleName || 'N/A'}`,
                 vehicleName: e.comboioVehicleName || 'N/A',
-                invoiceNumber: e.invoiceNumber || '', // Se houver NF no comboio
+                invoiceNumber: e.invoiceNumber || '',
                 fuelType: e.fuelType,
                 liters: litros,
                 value: total,
@@ -501,7 +507,6 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
     const handleSaveNf = async (itemId) => {
         setIsUpdatingNf(true);
         try {
-            // Assume que existe uma rota para atualizar abastecimento (ou use a genérica)
             if (apiClient && apiClient.updateRefueling) {
                 await apiClient.updateRefueling(itemId, { invoiceNumber: newNfValue });
                 if (setAlertMessage) setAlertMessage("NF atualizada com sucesso!");
@@ -530,7 +535,6 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
         const endDateStr = dateRange.end ? new Date(dateRange.end + 'T12:00:00').toLocaleDateString('pt-BR') : 'Hoje';
         doc.text(`Período: ${startDateStr} a ${endDateStr}`, 14, 30);
 
-        // Adicionada coluna NF e renomeada coluna Veículo para Descrição Completa, e trazido de volta Vl Comb e Vl Outros
         const head = [['Data', 'NF', 'Descrição / Veículo', 'Comb.', 'Litros', 'Vl Comb.', 'Vl Outros', 'Vl Total']];
         const body = reportData.map(item => [
             formatDate(item.date),
@@ -538,8 +542,8 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
             item.description, 
             item.fuelType,
             item.liters.toFixed(2),
-            `R$ ${item.value.toFixed(2)}`, // Valor Comb
-            `R$ ${item.others.toFixed(2)}`, // Valor Outros
+            `R$ ${item.value.toFixed(2)}`,
+            `R$ ${item.others.toFixed(2)}`,
             `R$ ${item.total.toFixed(2)}`,
         ]);
 
@@ -609,7 +613,6 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
                                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descrição</th>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Comb.</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Litros</th>
-                                    {/* NOVAS COLUNAS */}
                                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Valor Comb.</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Outros</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
