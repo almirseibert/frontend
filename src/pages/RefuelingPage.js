@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
-import autoTable from 'jspdf-autotable'; 
+import 'jspdf-autotable'; // Importação de efeito colateral para registrar o plugin
 
-// Importações corretas baseadas na estrutura original do projeto
+// Importações de componentes
 import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
@@ -90,7 +90,7 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
+    // --- GERAÇÃO DE PDF ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         setIsGeneratingPdf(true);
         try {
@@ -175,6 +175,7 @@ const RefuelingPage = ({
                 const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
                 body.push(['Emitido por', createdByEmail]);
 
+                // CORREÇÃO: Uso de doc.autoTable (método injetado pelo import 'jspdf-autotable')
                 doc.autoTable({
                     startY: 35,
                     body: body,
@@ -198,7 +199,6 @@ const RefuelingPage = ({
                 doc.setDrawColor(180, 180, 180);
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                // --- ALTERAÇÃO: Baixa o PDF automaticamente ---
                 doc.save(`Autorizacao_${order.authNumber}.pdf`);
                 setIsGeneratingPdf(false);
             };
@@ -291,7 +291,7 @@ const RefuelingPage = ({
                                             <div>
                                                 <div className="font-bold text-gray-900 text-lg">#{String(order.authNumber).padStart(6, '0')}</div>
                                                 <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno} - {vehicle?.placa}</p>
-                                                {/* DATA ADICIONADA */}
+                                                {/* DATA ADICIONADA AQUI */}
                                                 <p className="text-xs text-gray-600 mb-1">{formatDateSafe(order.data || order.date)}</p>
                                                 <p className="text-xs text-gray-500">{order.partnerName}</p>
                                             </div>
