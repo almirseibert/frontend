@@ -12,7 +12,7 @@ import {
     Printer,
     ChevronDown,
     ChevronUp,
-    Save // Adicionado para o botão de salvar NF
+    Save
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
@@ -530,14 +530,16 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
         const endDateStr = dateRange.end ? new Date(dateRange.end + 'T12:00:00').toLocaleDateString('pt-BR') : 'Hoje';
         doc.text(`Período: ${startDateStr} a ${endDateStr}`, 14, 30);
 
-        // Adicionada coluna NF e renomeada coluna Veículo para Descrição Completa
-        const head = [['Data', 'NF', 'Descrição / Veículo', 'Comb.', 'Litros', 'Vl Total']];
+        // Adicionada coluna NF e renomeada coluna Veículo para Descrição Completa, e trazido de volta Vl Comb e Vl Outros
+        const head = [['Data', 'NF', 'Descrição / Veículo', 'Comb.', 'Litros', 'Vl Comb.', 'Vl Outros', 'Vl Total']];
         const body = reportData.map(item => [
             formatDate(item.date),
             item.invoiceNumber || '-',
-            item.description, // Usando a descrição completa (Auth + Veículo)
+            item.description, 
             item.fuelType,
             item.liters.toFixed(2),
+            `R$ ${item.value.toFixed(2)}`, // Valor Comb
+            `R$ ${item.others.toFixed(2)}`, // Valor Outros
             `R$ ${item.total.toFixed(2)}`,
         ]);
 
@@ -607,6 +609,9 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
                                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descrição</th>
                                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Comb.</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Litros</th>
+                                    {/* NOVAS COLUNAS */}
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Valor Comb.</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Outros</th>
                                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
                                 </tr>
                             </thead>
@@ -652,6 +657,8 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
                                         <td className="px-4 py-2">{item.description}</td>
                                         <td className="px-4 py-2">{item.fuelType}</td>
                                         <td className="px-4 py-2 text-right">{item.liters.toFixed(2)} L</td>
+                                        <td className="px-4 py-2 text-right">R$ {item.value.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-right">R$ {item.others.toFixed(2)}</td>
                                         <td className="px-4 py-2 text-right font-bold">R$ {item.total.toFixed(2)}</td>
                                     </tr>
                                 ))}
@@ -660,6 +667,8 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
                                 <tr className="font-bold text-gray-900">
                                     <td colSpan="5" className="px-4 py-3 text-right text-sm">TOTAIS</td>
                                     <td className="px-4 py-3 text-right text-sm">{totals.liters.toFixed(2)} L</td>
+                                    <td className="px-4 py-3 text-right text-sm">R$ {totals.value.toFixed(2)}</td>
+                                    <td className="px-4 py-3 text-right text-sm">R$ {totals.others.toFixed(2)}</td>
                                     <td className="px-4 py-3 text-right text-sm">R$ {totals.total.toFixed(2)}</td>
                                 </tr>
                             </tfoot>
