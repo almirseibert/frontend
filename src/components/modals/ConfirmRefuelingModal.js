@@ -152,25 +152,25 @@ const ConfirmRefuelingModal = ({
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-gray-200">
-                <div className="p-5 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
-                    <h2 className="text-xl font-bold text-gray-800">Confirmar Abastecimento</h2>
-                    <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-full"><X size={20}/></button>
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm border border-gray-200 text-xs">
+                <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h2 className="text-base font-bold text-gray-800">Confirmar Abastecimento</h2>
+                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full"><X size={16}/></button>
                 </div>
                 
-                <form onSubmit={handleConfirm} className="p-6 space-y-4">
-                    <div className="bg-blue-50 p-3 rounded-lg text-sm border border-blue-100">
+                <form onSubmit={handleConfirm} className="p-4 space-y-3">
+                    <div className="bg-blue-50 p-2 rounded text-blue-900 border border-blue-100">
                         <p><strong>Ordem:</strong> #{String(order.authNumber).padStart(6, '0')}</p>
                         <p><strong>Combustível:</strong> {order.fuelType}</p>
                         {order.litrosLiberados && <p><strong>Liberado:</strong> {order.litrosLiberados} L</p>}
                         {order.outros && <p className="mt-1 border-t border-blue-200 pt-1"><strong>Obs:</strong> {order.outros}</p>}
                     </div>
 
-                    {/* Painel de Status da Obra (NOVO) */}
+                    {/* Painel de Status da Obra (NOVO & COMPACTO) */}
                     {obraStatus && (
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                        <div className="p-2 bg-blue-50 border border-blue-200 rounded">
                             <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
-                                <TrendingUp size={16}/> Progresso Financeiro
+                                <TrendingUp size={14}/> Progresso Financeiro
                             </h4>
                             <div className="flex justify-between text-blue-700">
                                 <span>Gasto Comb.:</span>
@@ -180,55 +180,55 @@ const ConfirmRefuelingModal = ({
                                 <span>Contrato:</span>
                                 <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
                             </div>
-                            <div className="mt-2 w-full bg-blue-200 rounded-full h-2.5">
-                                <div className={`h-2.5 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
+                            <div className="mt-1 w-full bg-blue-200 rounded-full h-2">
+                                <div className={`h-2 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
                             </div>
-                            <div className="text-right text-xs mt-1 text-blue-600 font-bold">{obraStatus.percentual.toFixed(1)}% utilizado</div>
+                            <div className="text-right text-blue-600 font-bold mt-0.5">{obraStatus.percentual.toFixed(1)}% utilizado</div>
                         </div>
                     )}
 
                     {averageAlert && (
-                        <div className="p-3 bg-red-50 text-red-800 rounded-lg border border-red-200 text-sm font-medium flex gap-2">
-                            <TrendingDown className="shrink-0" size={18}/>
+                        <div className="p-2 bg-red-50 text-red-800 rounded border border-red-200 font-medium flex gap-2">
+                            <TrendingDown className="shrink-0" size={14}/>
                             {averageAlert}
                         </div>
                     )}
                     
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Litros Combustível *</label>
-                            <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-2 border rounded font-bold" required autoFocus/>
+                            <label className="block font-bold text-gray-700 mb-0.5 uppercase">Litros Comb. *</label>
+                            <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1.5 border rounded font-bold" required autoFocus/>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Preço Litro (R$)</label>
-                            <input type="number" step="0.001" value={precoUnitario} onChange={e => setPrecoUnitario(e.target.value)} className="w-full p-2 border rounded" placeholder="0.000"/>
+                            <label className="block font-bold text-gray-700 mb-0.5 uppercase">Preço Litro (R$)</label>
+                            <input type="number" step="0.001" value={precoUnitario} onChange={e => setPrecoUnitario(e.target.value)} className="w-full p-1.5 border rounded" placeholder="0.000"/>
                         </div>
                     </div>
                     
                     {order.needsArla && (
                          <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Litros Arla 32 *</label>
-                            <input type="number" step="0.01" value={litrosArla} onChange={e => setLitrosArla(e.target.value)} className="w-full p-2 border rounded" required />
+                            <label className="block font-bold text-gray-700 mb-0.5">Litros Arla 32 *</label>
+                            <input type="number" step="0.01" value={litrosArla} onChange={e => setLitrosArla(e.target.value)} className="w-full p-1.5 border rounded" required />
                         </div>
                     )}
 
                     {order.outrosGeraValor && (
-                        <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
-                            <label className="block text-sm font-bold text-yellow-900 mb-1">Valor referente a "{order.outros}" (R$) *</label>
-                            <input type="number" step="0.01" value={outrosValorConfirmado} onChange={e => setOutrosValorConfirmado(e.target.value)} className="w-full p-2 border border-yellow-400 rounded bg-white font-bold text-yellow-900" required placeholder="0.00"/>
+                        <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
+                            <label className="block font-bold text-yellow-900 mb-0.5">Valor "{order.outros}" (R$) *</label>
+                            <input type="number" step="0.01" value={outrosValorConfirmado} onChange={e => setOutrosValorConfirmado(e.target.value)} className="w-full p-1.5 border border-yellow-400 rounded bg-white font-bold text-yellow-900" required placeholder="0.00"/>
                         </div>
                     )}
 
                     <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">Leitura Painel (Km ou Horas) *</label>
-                        <input type="number" step="0.1" value={kmOuHrConfirmado} onChange={e => setKmOuHrConfirmado(e.target.value)} className="w-full p-2 border rounded" required placeholder="Ex: 150230"/>
-                        <p className="text-xs text-gray-500 mt-1">Sugerido com base na emissão. Corrija se necessário.</p>
+                        <label className="block font-bold text-gray-700 mb-0.5">Leitura Painel (Km/H) *</label>
+                        <input type="number" step="0.1" value={kmOuHrConfirmado} onChange={e => setKmOuHrConfirmado(e.target.value)} className="w-full p-1.5 border rounded" required placeholder="Ex: 150230"/>
+                        <p className="text-[10px] text-gray-500 mt-0.5">Sugerido com base na emissão. Corrija se necessário.</p>
                     </div>
 
-                    <div className="pt-2 flex justify-end gap-3">
-                        <button type="button" onClick={onClose} className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 shadow-md flex items-center gap-2">
-                            {isSaving ? <Loader className="animate-spin" size={18}/> : 'Confirmar'}
+                    <div className="pt-2 flex justify-end gap-2">
+                        <button type="button" onClick={onClose} className="px-3 py-2 bg-gray-100 text-gray-600 rounded font-bold hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" disabled={isSaving} className="px-3 py-2 bg-green-500 text-white font-bold rounded hover:bg-green-600 shadow flex items-center gap-1">
+                            {isSaving ? <Loader className="animate-spin" size={14}/> : 'Confirmar'}
                         </button>
                     </div>
                 </form>

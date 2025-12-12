@@ -92,21 +92,20 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
-    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
+    // --- GERAÇÃO DE PDF (Atualizada para suportar Download) ---
+    // Adicionado parâmetro 'forceDownload'
+    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, forceDownload = false) => {
         try {
             const buildPdf = (logoDataUrl) => {
-                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' }); // Alterado para A5 para ficar mais compacto na impressão também
                 const pageWidth = doc.internal.pageSize.getWidth();
-                const effectivePageHeight = 148.5; 
+                const effectivePageHeight = 148.5; // Altura A5 landscape ou meia folha
                 const margin = 10;
 
                 const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
                 const partner = partnersList.find(p => p.id === order.partnerId);
                 const employee = employeesList.find(e => e.id === order.employeeId);
                 
-                // Correção de Data no PDF usando lógica segura
-                // Verifica tanto 'data' (banco novo) quanto 'date' (legado/frontend)
                 const dateToUse = order.data || order.date;
                 let emissionDateStr = 'N/A';
                 if (isValidDbDate(dateToUse)) {
@@ -114,8 +113,8 @@ const RefuelingPage = ({
                 }
 
                 if (logoDataUrl) {
-                    const imgWidth = 45;
-                    const imgHeight = 16.875;
+                    const imgWidth = 40;
+                    const imgHeight = 15;
                     try {
                         doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
                     } catch (e) {
@@ -123,10 +122,10 @@ const RefuelingPage = ({
                     }
                 }
 
-                doc.setFontSize(16);
+                doc.setFontSize(14);
                 doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
-                doc.setFontSize(12);
-                doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+                doc.setFontSize(10);
+                doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 20, { align: 'right' });
 
                 let leituraLabel = 'Leitura';
                 let leituraValue = 'N/A';
@@ -148,7 +147,6 @@ const RefuelingPage = ({
                          leituraValue = order.odometro || 'N/A';
                      }
                 } else { 
-                     // Fallback genérico
                      if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
                          leituraLabel = 'Horímetro';
                          leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
@@ -180,29 +178,30 @@ const RefuelingPage = ({
                 body.push(['Emitido por', createdByEmail]);
 
                 autoTable(doc, {
-                    startY: 35,
+                    startY: 30,
                     body: body,
                     theme: 'striped',
-                    styles: { fontSize: 9, cellPadding: 1.5 },
+                    styles: { fontSize: 8, cellPadding: 1 },
                     headStyles: { fillColor: [24, 49, 83] },
                     columnStyles: {
                         0: { cellWidth: 40, fontStyle: 'bold' }
                     }
                 });
 
-                let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
-                const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
-                doc.setFontSize(8);
+                let finalY = (doc.lastAutoTable?.finalY || 35) + 5;
+                const footerStartY = Math.max(finalY, effectivePageHeight - 30); 
+                doc.setFontSize(7);
                 doc.setFont('helvetica', 'italic');
-                doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
-                doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
-                doc.text('*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.', margin, footerStartY + 8);
+                doc.text('*Esta ordem é válida exclusivamente para a placa/RE indicada.', margin, footerStartY);
+                doc.text('*Estão autorizados somente os itens discriminados.', margin, footerStartY + 3);
 
-                doc.setLineDashPattern([1, 1], 0);
-                doc.setDrawColor(180, 180, 180);
-                doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
+                const fileName = `Autorizacao_${String(order.authNumber || '0').padStart(6, '0')}.pdf`;
 
-                doc.output('dataurlnewwindow', { filename: `Autorizacao_${order.authNumber}.pdf` });
+                if (forceDownload) {
+                    doc.save(fileName);
+                } else {
+                    doc.output('dataurlnewwindow', { filename: fileName });
+                }
             };
 
             const logo = new Image();
@@ -437,6 +436,8 @@ const RefuelingPage = ({
                     apiClient={apiClient}
                     reloadData={reloadData}
                     refuelings={refuelings}
+                    obras={obras}
+                    expenses={expenses}
                 />
             )}
 
