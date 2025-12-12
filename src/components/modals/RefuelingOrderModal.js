@@ -21,7 +21,7 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER DE DATA ---
+    // --- HELPERS DE DATA ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
@@ -86,8 +86,6 @@ const RefuelingOrderModal = ({
     const [lastAverage, setLastAverage] = useState(null); 
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
-    
-    // --- NOVO: Estado para Progresso Financeiro ---
     const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
@@ -228,9 +226,11 @@ const RefuelingOrderModal = ({
         }
     }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
+    // --- VALIDAÇÕES DE LEITURA (Regra de Negócio: Bloqueio por Senha) ---
     useEffect(() => {
+        setBlockReason(null); // Reseta motivo de bloqueio antes de validar
+
         if (!lastRefuelData) {
-            setBlockReason(null);
             return;
         }
 
@@ -240,25 +240,35 @@ const RefuelingOrderModal = ({
             const current = parseFloat(formData.odometro);
             const last = parseFloat(lastRefuelData.odometro || 0);
             
-            if (current <= last) reason = `Odômetro (${current}) <= anterior (${last}).`;
-            else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
+            if (!isNaN(current) && last > 0) {
+                 if (current <= last) reason = `Odômetro (${current}) <= anterior (${last}).`;
+                 else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
+            }
         }
 
         if ((isTruck || isHeavyMachinery)) {
-            const currentVal = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
+            // Pega o valor digitado
+            const currentValStr = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
             
-            if (currentVal) {
-                const current = parseFloat(currentVal);
+            if (currentValStr) {
+                const current = parseFloat(currentValStr);
+                // Pega a última leitura válida do histórico
                 const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || lastRefuelData.odometro || 0);
                 
-                if (last > 0) {
-                    if (current <= last) reason = `Horímetro (${current}) <= anterior (${last}).`;
-                    else if ((current - last) > 50) reason = `Salto excessivo de Hr (> 50).`;
+                if (!isNaN(current) && last > 0) {
+                    if (current <= last) {
+                        reason = `Horímetro (${current}) <= anterior (${last}).`;
+                    }
+                    else if ((current - last) > 50) {
+                        reason = `Salto excessivo de Hr (> 50). Diferença: ${(current - last).toFixed(1)}h.`;
+                    }
                 }
             }
         }
 
-        setBlockReason(reason);
+        if (reason) {
+            setBlockReason(reason);
+        }
     }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle, isTruck, isHeavyMachinery]);
 
     useEffect(() => {
@@ -357,6 +367,7 @@ _Por favor, confirme o recebimento._`;
 
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
+
         const validationError = validateMandatoryFields();
         if (validationError) {
             setAlertMessage(validationError);
@@ -441,7 +452,7 @@ _Por favor, confirme o recebimento._`;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[98vh] flex flex-col overflow-hidden">
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
                     <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={16}/> : <FileText size={16}/>}
@@ -450,19 +461,19 @@ _Por favor, confirme o recebimento._`;
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={18}/></button>
                 </div>
 
-                <div className="px-3 pt-2 space-y-1 flex-shrink-0">
+                <div className="px-4 pt-1 space-y-1 shrink-0">
                     {warnings.map((w, i) => (
-                        <div key={i} className="flex items-center gap-1 p-1 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-[10px] font-medium"><Info size={12}/> {w}</div>
+                        <div key={i} className="flex items-center gap-2 p-1 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-[10px] font-medium"><Info size={12}/> {w}</div>
                     ))}
                     
                     {blockReason && (
-                        <div className="flex items-center gap-1 p-1.5 bg-red-100 text-red-800 rounded border border-red-200 text-[10px] font-bold animate-pulse">
-                            <Lock size={12}/> {blockReason}
+                        <div className="flex items-center gap-2 p-1.5 bg-red-100 text-red-800 rounded border border-red-200 text-[10px] font-bold animate-pulse">
+                            <Lock size={12}/> BLOQUEIO: {blockReason}
                         </div>
                     )}
 
                     {budgetWarning && (
-                        <div className="flex items-center gap-1 p-1.5 bg-orange-100 text-orange-900 rounded border border-orange-200 text-[10px] font-bold">
+                        <div className="flex items-center gap-2 p-1.5 bg-orange-100 text-orange-900 rounded border border-orange-200 text-[10px] font-bold">
                             <Wallet size={12}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
                         </div>
                     )}
@@ -478,16 +489,18 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO COMPACTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-1.5 rounded border border-gray-200 text-[10px] text-gray-600 flex justify-between items-center">
                                 <div>
-                                    <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
-                                    <p>{lastRefuelData.partnerName || 'N/A'} - {lastRefuelData.fuelType}</p>
-                                    <div className="mt-0.5 pt-0.5 border-t border-gray-300">
-                                        {isKmVehicle && <span>Ant: <strong>{lastRefuelData.odometro} Km</strong></span>}
-                                        {isTruck && <span>Ant: <strong>{lastRefuelData.horimetro} Hr</strong></span>}
-                                        {isHeavyMachinery && <span>Ant: <strong>{lastRefuelData.horimetroDigital} / {lastRefuelData.horimetroAnalogico}</strong></span>}
+                                    <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> Último: {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
+                                    <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
+                                    <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
+                                    
+                                    <div className="mt-0.5 pt-0.5 border-t border-gray-300 flex gap-2">
+                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'}</strong></p>}
+                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'}</strong></p>}
+                                        {isHeavyMachinery && <p>Horímetro: <strong>{lastRefuelData.horimetroDigital || 'N/A'}</strong></p>}
                                     </div>
                                 </div>
                                 <div className="text-right">
@@ -521,7 +534,7 @@ _Por favor, confirme o recebimento._`;
                                             <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-1 border rounded"/>
                                         </div>
                                         <div>
-                                            <label className="block text--[10px] font-bold text-gray-700">Horí. Analógico</label>
+                                            <label className="block text-[10px] font-bold text-gray-700">Horí. Analógico</label>
                                             <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-1 border rounded"/>
                                         </div>
                                     </>
@@ -536,10 +549,8 @@ _Por favor, confirme o recebimento._`;
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                             </select>
                         </div>
-                    </div>
 
-                    <div className="space-y-2 col-span-2 sm:col-span-1">
-                        <div>
+                         <div>
                             <label className="block font-bold text-gray-700 mb-0.5">Obra / Alocação *</label>
                             <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
                                 <option value="">Selecione...</option>
@@ -549,7 +560,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
 
-                        {/* NOVO: PROGRESSO FINANCEIRO */}
+                        {/* NOVO: PROGRESSO FINANCEIRO REPOSICIONADO AQUI */}
                         {obraStatus && (
                             <div className="p-2 bg-blue-50 border border-blue-200 rounded text-[10px]">
                                 <h4 className="font-bold text-blue-800 flex items-center gap-1 mb-1">
@@ -574,7 +585,9 @@ _Por favor, confirme o recebimento._`;
                                 </div>
                             </div>
                         )}
+                    </div>
 
+                    <div className="space-y-2 col-span-2 sm:col-span-1">
                         <div>
                             <label className="block font-bold text-gray-700 mb-0.5">Posto *</label>
                             <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
@@ -585,7 +598,7 @@ _Por favor, confirme o recebimento._`;
 
                         <div className="bg-blue-50 p-2 rounded border border-blue-100">
                             <label className="block text-[10px] font-bold text-blue-900 mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1 border border-blue-200 rounded mb-1 bg-white" required>
+                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1 border border-blue-200 rounded mb-1 bg-white text-xs" required>
                                 <option value="">Selecione...</option>
                                 <option value="gasolinaComum">Gasolina Comum</option>
                                 <option value="gasolinaAditivada">Gasolina Aditivada</option>
@@ -601,14 +614,22 @@ _Por favor, confirme o recebimento._`;
                                 <input type="number" name="litrosLiberados" value={formData.litrosLiberados} onChange={handleChange} className="w-full p-1 border rounded" placeholder="Qtd. Litros"/>
                             )}
 
-                            {formData.needsArla && (
-                                <div className="mt-1 pt-1 border-t border-blue-200 pl-2">
-                                     <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-1 border rounded text-[10px]" placeholder="Litros Arla"/>
+                            <div className="mt-1 pt-1 border-t border-blue-200">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-3 h-3 text-blue-600 rounded"/>
+                                    <label htmlFor="arla" className="text-[10px] font-bold text-blue-900">Arla 32</label>
                                 </div>
-                            )}
-                             <div className="mt-1 flex items-center gap-1">
-                                <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-3 h-3 text-blue-600 rounded"/>
-                                <label htmlFor="arla" className="text-[10px] font-bold text-blue-900">Arla 32</label>
+                                {formData.needsArla && (
+                                    <div className="pl-3 space-y-1">
+                                        <div className="flex items-center gap-1">
+                                            <input type="checkbox" name="isFillUpArla" checked={formData.isFillUpArla} onChange={handleChange} className="w-3 h-3"/>
+                                            <label className="text-[10px]">Completar Arla</label>
+                                        </div>
+                                        {!formData.isFillUpArla && (
+                                             <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder="Litros Arla"/>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -629,8 +650,9 @@ _Por favor, confirme o recebimento._`;
                     </div>
                 </form>
 
-                <div className="p-3 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg flex-shrink-0">
+                <div className="p-2 border-t bg-gray-50 flex justify-end gap-2 rounded-b-xl shrink-0">
                     <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition">Cancelar</button>
+                    {/* Botão Condicional para Bloqueio */}
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-3 py-1.5 bg-red-500 text-white font-bold text-xs rounded shadow hover:bg-red-600 transition flex items-center gap-1">
                             <Lock size={12}/> Liberar
@@ -643,6 +665,7 @@ _Por favor, confirme o recebimento._`;
                 </div>
             </div>
 
+            {/* Modais de Confirmação */}
             {isNoHorimetroConfirmVisible && (
                 <ConfirmationModal 
                     title="Aviso" 
