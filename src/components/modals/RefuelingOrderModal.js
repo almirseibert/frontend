@@ -215,7 +215,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / liters) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -226,41 +226,56 @@ const RefuelingOrderModal = ({
         }
     }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
-    // --- VALIDAÇÕES DE LEITURA (Regra de Negócio: Bloqueio por Senha) ---
+    // --- VALIDAÇÕES DE LEITURA (RIGOROSA - BASEADA NA TABELA VEHICLES) ---
     useEffect(() => {
-        setBlockReason(null); // Reseta motivo de bloqueio antes de validar
+        setBlockReason(null);
 
-        if (!lastRefuelData) {
-            return;
-        }
+        // 1. Identifica o veículo e o tipo
+        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
+        if (!vehicle) return;
+
+        const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(vehicle.tipo));
+        const isTruckType = group === 'Caminhões';
+        const isMachineType = group === 'Máquinas Pesadas';
+        const isKmType = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
 
         let reason = null;
-        
-        if (isKmVehicle && formData.odometro) {
+
+        // 2. Validação para KM
+        if (isKmType && formData.odometro) {
             const current = parseFloat(formData.odometro);
-            const last = parseFloat(lastRefuelData.odometro || 0);
-            
+            const last = parseFloat(vehicle.odometro || 0);
+
             if (!isNaN(current) && last > 0) {
-                 if (current <= last) reason = `Odômetro (${current}) <= anterior (${last}).`;
+                 if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual do veículo (${last}).`;
                  else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
             }
         }
 
-        if ((isTruck || isHeavyMachinery)) {
-            // Pega o valor digitado
+        // 3. Validação para HORAS (Caminhões e Máquinas)
+        if ((isTruckType || isMachineType)) {
+            // Pega o valor digitado (prioriza digital, depois geral, depois analógico)
             const currentValStr = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
             
             if (currentValStr) {
                 const current = parseFloat(currentValStr);
-                // Pega a última leitura válida do histórico
-                const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || lastRefuelData.odometro || 0);
                 
+                // Define a leitura anterior baseada no tipo de veículo (REGRA SOLICITADA)
+                let last = 0;
+                if (isTruckType) {
+                    last = parseFloat(vehicle.horimetro || 0);
+                } else if (isMachineType) {
+                    // Prioriza Digital, se não tiver, usa Analógico
+                    last = parseFloat(vehicle.horimetroDigital || 0);
+                    if (last === 0) last = parseFloat(vehicle.horimetroAnalogico || 0);
+                }
+
                 if (!isNaN(current) && last > 0) {
                     if (current <= last) {
-                        reason = `Horímetro (${current}) <= anterior (${last}).`;
+                        reason = `Horímetro (${current}) menor/igual ao atual do veículo (${last}).`;
                     }
                     else if ((current - last) > 50) {
-                        reason = `Salto excessivo de Hr (> 50). Diferença: ${(current - last).toFixed(1)}h.`;
+                        reason = `Salto excessivo de Horímetro (> 50h). Diferença: ${(current - last).toFixed(1)}h.`;
                     }
                 }
             }
@@ -269,7 +284,7 @@ const RefuelingOrderModal = ({
         if (reason) {
             setBlockReason(reason);
         }
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle, isTruck, isHeavyMachinery]);
+    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, formData.vehicleId, vehicles, vehicleGroups]);
 
     useEffect(() => {
         if (formData.obraId && obras.length > 0) {

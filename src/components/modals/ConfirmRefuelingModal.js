@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, TrendingDown, TrendingUp } from 'lucide-react';
+import { X, Loader, TrendingDown, TrendingUp, Lock } from 'lucide-react';
 
 const ConfirmRefuelingModal = ({ 
     user, 
@@ -9,8 +9,10 @@ const ConfirmRefuelingModal = ({
     apiClient, 
     reloadData,
     refuelings = [],
-    obras = [],       // Recebe obras
-    expenses = []     // Recebe despesas
+    obras = [],
+    expenses = [],
+    vehicles = [], // Nova prop para validação rigorosa
+    PasswordConfirmationModal // Nova prop para bloqueio
 }) => {
     const [litros, setLitros] = useState(order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
@@ -27,12 +29,15 @@ const ConfirmRefuelingModal = ({
     // --- ESTADO PROGRESSO FINANCEIRO ---
     const [obraStatus, setObraStatus] = useState(null);
 
+    // --- ESTADO BLOQUEIO ---
+    const [blockReason, setBlockReason] = useState(null);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+
     // --- CÁLCULO DE PROGRESSO (Baseado na Obra da Ordem) ---
     useEffect(() => {
         if (order.obraId && obras.length > 0) { 
             const obra = obras.find(o => o.id === order.obraId);
             
-            // Ignora se não for obra válida ou se for "Pátio/Oficina" (lógica simples)
             if (!obra) {
                 setObraStatus(null);
                 return;
@@ -58,6 +63,51 @@ const ConfirmRefuelingModal = ({
             setObraStatus(null);
         }
     }, [order.obraId, obras, expenses]);
+
+    // --- VALIDAÇÃO RIGOROSA DE LEITURA (IGUAL AO MODAL DE EMISSÃO) ---
+    useEffect(() => {
+        setBlockReason(null);
+        if (!kmOuHrConfirmado || !order.vehicleId) return;
+
+        const vehicle = vehicles.find(v => v.id === order.vehicleId);
+        if (!vehicle) return;
+
+        // Determina tipo e leitura anterior
+        const isTruck = vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Bitruck') || vehicle.tipo.includes('Cavalo');
+        const isMachine = !isTruck && (vehicle.tipo.includes('Motoniveladora') || vehicle.tipo.includes('Escavadeira') || vehicle.tipo.includes('Pá') || vehicle.tipo.includes('Retro') || vehicle.tipo.includes('Rolo') || vehicle.tipo.includes('Trator'));
+        
+        let last = 0;
+        let isHourMeter = false;
+
+        if (isTruck) {
+            last = parseFloat(vehicle.horimetro || 0);
+            isHourMeter = true;
+        } else if (isMachine) {
+            last = parseFloat(vehicle.horimetroDigital || 0);
+            if (last === 0) last = parseFloat(vehicle.horimetroAnalogico || 0);
+            isHourMeter = true;
+        } else {
+            // Leves/Outros -> Odômetro
+            last = parseFloat(vehicle.odometro || 0);
+        }
+
+        const current = parseFloat(kmOuHrConfirmado);
+        
+        if (!isNaN(current) && last > 0) {
+            // Regra: Regressão
+            if (current <= last) {
+                setBlockReason(`Leitura (${current}) menor/igual à atual (${last}).`);
+            }
+            // Regra: Salto > 50h (apenas para horímetros)
+            else if (isHourMeter && (current - last) > 50) {
+                setBlockReason(`Salto excessivo de Horímetro (> 50h). Diferença: ${(current - last).toFixed(1)}h.`);
+            }
+            // Regra: Salto > 1000km (apenas para odômetros)
+            else if (!isHourMeter && (current - last) > 1000) {
+                setBlockReason(`Salto excessivo de Km (> 1000).`);
+            }
+        }
+    }, [kmOuHrConfirmado, order.vehicleId, vehicles]);
 
 
     // --- HELPER SAFE DATE ---
@@ -133,8 +183,17 @@ const ConfirmRefuelingModal = ({
 
     }, [litros, kmOuHrConfirmado, refuelings, order.vehicleId]);
 
-    const handleConfirm = async (e) => {
+    const handleConfirmClick = (e) => {
         e.preventDefault();
+        if (blockReason) {
+            setShowPasswordModal(true);
+        } else {
+            executeConfirm();
+        }
+    };
+
+    const executeConfirm = async () => {
+        setShowPasswordModal(false);
         setIsSaving(true);
         try {
             const payload = {
@@ -165,7 +224,7 @@ const ConfirmRefuelingModal = ({
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full"><X size={16}/></button>
                 </div>
                 
-                <form onSubmit={handleConfirm} className="p-3 space-y-3 overflow-y-auto flex-1 text-xs">
+                <form onSubmit={handleConfirmClick} className="p-3 space-y-3 overflow-y-auto flex-1 text-xs">
                     {/* INFO DA ORDEM */}
                     <div className="bg-blue-50 p-2 rounded text-[10px] border border-blue-100">
                         <div className="flex justify-between font-bold">
@@ -232,11 +291,27 @@ const ConfirmRefuelingModal = ({
 
                     <div className="pt-1 flex justify-end gap-2 shrink-0">
                         <button type="button" onClick={onClose} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded font-bold hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-3 py-1.5 bg-green-500 text-white font-bold rounded hover:bg-green-600 shadow-md flex items-center gap-1">
-                            {isSaving ? <Loader className="animate-spin" size={12}/> : 'Confirmar'}
-                        </button>
+                        {blockReason ? (
+                            <button onClick={handleConfirmClick} type="button" className="px-3 py-1.5 bg-red-500 text-white font-bold rounded hover:bg-red-600 shadow-md flex items-center gap-1">
+                                <Lock size={12}/> Liberar
+                            </button>
+                        ) : (
+                            <button type="submit" disabled={isSaving} className="px-3 py-1.5 bg-green-500 text-white font-bold rounded hover:bg-green-600 shadow-md flex items-center gap-1">
+                                {isSaving ? <Loader className="animate-spin" size={12}/> : 'Confirmar'}
+                            </button>
+                        )}
                     </div>
                 </form>
+
+                {/* MODAL DE SENHA INTEGRADO */}
+                {showPasswordModal && (
+                    <PasswordConfirmationModal
+                        message={`BLOQUEIO DE SEGURANÇA:\n${blockReason}\nInsira senha para autorizar.`}
+                        onConfirm={executeConfirm}
+                        onClose={() => setShowPasswordModal(false)}
+                        apiClient={apiClient}
+                    />
+                )}
             </div>
         </div>
     );
