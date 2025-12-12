@@ -11,14 +11,16 @@ const ConfirmRefuelingModal = ({
     refuelings = [],
     obras = [],
     expenses = [],
-    vehicles = [], // Nova prop para validação rigorosa
-    PasswordConfirmationModal // Nova prop para bloqueio
+    vehicles = [], 
+    PasswordConfirmationModal 
 }) => {
     const [litros, setLitros] = useState(order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
     const [precoUnitario, setPrecoUnitario] = useState(''); 
     
-    // Sugestão de leitura
+    // Novo Estado para NF
+    const [invoiceNumber, setInvoiceNumber] = useState(order.invoiceNumber || '');
+
     const suggestedReading = order.horimetro || order.horimetroDigital || order.odometro || '';
     const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState(suggestedReading);
     
@@ -33,7 +35,7 @@ const ConfirmRefuelingModal = ({
     const [blockReason, setBlockReason] = useState(null);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
 
-    // --- CÁLCULO DE PROGRESSO (Baseado na Obra da Ordem) ---
+    // --- CÁLCULO DE PROGRESSO ---
     useEffect(() => {
         if (order.obraId && obras.length > 0) { 
             const obra = obras.find(o => o.id === order.obraId);
@@ -64,7 +66,7 @@ const ConfirmRefuelingModal = ({
         }
     }, [order.obraId, obras, expenses]);
 
-    // --- VALIDAÇÃO RIGOROSA DE LEITURA (IGUAL AO MODAL DE EMISSÃO) ---
+    // --- VALIDAÇÃO RIGOROSA ---
     useEffect(() => {
         setBlockReason(null);
         if (!kmOuHrConfirmado || !order.vehicleId) return;
@@ -72,7 +74,6 @@ const ConfirmRefuelingModal = ({
         const vehicle = vehicles.find(v => v.id === order.vehicleId);
         if (!vehicle) return;
 
-        // Determina tipo e leitura anterior
         const isTruck = vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Bitruck') || vehicle.tipo.includes('Cavalo');
         const isMachine = !isTruck && (vehicle.tipo.includes('Motoniveladora') || vehicle.tipo.includes('Escavadeira') || vehicle.tipo.includes('Pá') || vehicle.tipo.includes('Retro') || vehicle.tipo.includes('Rolo') || vehicle.tipo.includes('Trator'));
         
@@ -87,22 +88,18 @@ const ConfirmRefuelingModal = ({
             if (last === 0) last = parseFloat(vehicle.horimetroAnalogico || 0);
             isHourMeter = true;
         } else {
-            // Leves/Outros -> Odômetro
             last = parseFloat(vehicle.odometro || 0);
         }
 
         const current = parseFloat(kmOuHrConfirmado);
         
         if (!isNaN(current) && last > 0) {
-            // Regra: Regressão
             if (current <= last) {
                 setBlockReason(`Leitura (${current}) menor/igual à atual (${last}).`);
             }
-            // Regra: Salto > 50h (apenas para horímetros)
             else if (isHourMeter && (current - last) > 50) {
                 setBlockReason(`Salto excessivo de Horímetro (> 50h). Diferença: ${(current - last).toFixed(1)}h.`);
             }
-            // Regra: Salto > 1000km (apenas para odômetros)
             else if (!isHourMeter && (current - last) > 1000) {
                 setBlockReason(`Salto excessivo de Km (> 1000).`);
             }
@@ -144,14 +141,12 @@ const ConfirmRefuelingModal = ({
         let sumAvgs = 0;
         let count = 0;
 
-        const getReading = (r) => parseFloat(r.horimetroDigital || r.horimetro || r.odometro || 0);
-
         if (history.length >= 2) {
             const r1 = history[0];
             const r2 = history[1];
             const l1 = parseFloat(r1.litrosAbastecidos || 0);
-            const read1 = getReading(r1);
-            const read2 = getReading(r2);
+            const read1 = parseFloat(r1.horimetroDigital || r1.horimetro || r1.odometro || 0);
+            const read2 = parseFloat(r2.horimetroDigital || r2.horimetro || r2.odometro || 0);
 
             if (l1 > 0 && read1 > read2) {
                 const avg1 = (read1 - read2) / l1;
@@ -164,8 +159,8 @@ const ConfirmRefuelingModal = ({
              const r2 = history[1];
              const r3 = history[2];
              const l2 = parseFloat(r2.litrosAbastecidos || 0);
-             const read2 = getReading(r2);
-             const read3 = getReading(r3);
+             const read2 = parseFloat(r2.horimetroDigital || r2.horimetro || r2.odometro || 0);
+             const read3 = parseFloat(r3.horimetroDigital || r3.horimetro || r3.odometro || 0);
 
              if (l2 > 0 && read2 > read3) {
                  const avg2 = (read2 - read3) / l2;
@@ -202,7 +197,9 @@ const ConfirmRefuelingModal = ({
                 pricePerLiter: parseFloat(precoUnitario) || 0,
                 confirmedReading: parseFloat(kmOuHrConfirmado) || 0,
                 confirmedBy: user,
-                outrosValor: order.outrosGeraValor ? (parseFloat(outrosValorConfirmado) || 0) : 0
+                outrosValor: order.outrosGeraValor ? (parseFloat(outrosValorConfirmado) || 0) : 0,
+                // NOVO CAMPO
+                invoiceNumber: invoiceNumber
             };
 
             await apiClient.confirmRefuelingOrder(order.id, payload);
@@ -235,7 +232,7 @@ const ConfirmRefuelingModal = ({
                         {order.outros && <p className="mt-1 border-t border-blue-200 pt-0.5">Obs: {order.outros}</p>}
                     </div>
 
-                    {/* NOVO: PROGRESSO FINANCEIRO COMPACTO */}
+                    {/* PROGRESSO FINANCEIRO */}
                     {obraStatus && (
                         <div className="p-2 bg-gray-50 border border-gray-200 rounded text-[10px]">
                             <div className="flex justify-between items-center mb-1">
@@ -259,14 +256,20 @@ const ConfirmRefuelingModal = ({
                     )}
                     
                     <div className="grid grid-cols-2 gap-2">
+                        {/* NOVO CAMPO DE NF */}
                         <div>
-                            <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Lts Abastecidos *</label>
-                            <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1 border rounded font-bold" required autoFocus/>
+                            <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Nota Fiscal</label>
+                            <input type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} className="w-full p-1 border rounded font-bold uppercase" placeholder="Nº NF"/>
                         </div>
-                        <div>
+                         <div>
                             <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Preço Litro (R$)</label>
                             <input type="number" step="0.001" value={precoUnitario} onChange={e => setPrecoUnitario(e.target.value)} className="w-full p-1 border rounded" placeholder="0.000"/>
                         </div>
+                    </div>
+
+                    <div>
+                         <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Lts Abastecidos *</label>
+                         <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1 border rounded font-bold" required autoFocus/>
                     </div>
                     
                     {order.needsArla && (
