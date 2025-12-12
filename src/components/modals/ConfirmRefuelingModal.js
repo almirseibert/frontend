@@ -9,27 +9,58 @@ const ConfirmRefuelingModal = ({
     apiClient, 
     reloadData,
     refuelings = [],
-    obras = [], // Necessário para status
-    expenses = [] // Necessário para status
+    obras = [],       // Recebe obras
+    expenses = []     // Recebe despesas
 }) => {
     const [litros, setLitros] = useState(order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
     const [precoUnitario, setPrecoUnitario] = useState(''); 
     
-    // --- LÓGICA DE SUGESTÃO DE LEITURA (PREENCHIMENTO AUTOMÁTICO) ---
-    // Tenta pegar a leitura informada na emissão da ordem para facilitar a vida do frentista/admin
-    // Prioriza o Horímetro Geral, depois o Digital, depois o Odômetro
+    // Sugestão de leitura
     const suggestedReading = order.horimetro || order.horimetroDigital || order.odometro || '';
     const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState(suggestedReading);
     
-    // Regra 3: Campo valor outros
     const [outrosValorConfirmado, setOutrosValorConfirmado] = useState('');
-
     const [averageAlert, setAverageAlert] = useState(null); 
     const [isSaving, setIsSaving] = useState(false);
+    
+    // --- ESTADO PROGRESSO FINANCEIRO ---
     const [obraStatus, setObraStatus] = useState(null);
 
-    // --- HELPER SAFE DATE (CRÍTICO PARA SAFARI) ---
+    // --- CÁLCULO DE PROGRESSO (Baseado na Obra da Ordem) ---
+    useEffect(() => {
+        if (order.obraId && obras.length > 0) { 
+            const obra = obras.find(o => o.id === order.obraId);
+            
+            // Ignora se não for obra válida ou se for "Pátio/Oficina" (lógica simples)
+            if (!obra) {
+                setObraStatus(null);
+                return;
+            }
+
+            const totalFuelExpenses = expenses
+                .filter(e => e.obraId === order.obraId && (e.category === 'Combustível' || e.fuelType))
+                .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+            const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
+            
+            if (valorTotalObra > 0) {
+                const percentual = (totalFuelExpenses / valorTotalObra) * 100;
+                setObraStatus({
+                    totalGasto: totalFuelExpenses,
+                    valorContrato: valorTotalObra,
+                    percentual: percentual
+                });
+            } else {
+                setObraStatus(null);
+            }
+        } else {
+            setObraStatus(null);
+        }
+    }, [order.obraId, obras, expenses]);
+
+
+    // --- HELPER SAFE DATE ---
     const safeDate = (dateInput) => {
         if (!dateInput) return new Date(0);
         try {
@@ -39,30 +70,7 @@ const ConfirmRefuelingModal = ({
         } catch { return new Date(0); }
     };
 
-    // PROGRESSO DA OBRA
-    useEffect(() => {
-        if (order.obraId && obras.length > 0) {
-            const obra = obras.find(o => o.id === order.obraId);
-            if (obra) {
-                const totalFuelExpenses = expenses
-                    .filter(e => e.obraId === order.obraId && (e.category === 'Combustível' || e.fuelType))
-                    .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-
-                const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
-                
-                if (valorTotalObra > 0) {
-                    const percentual = (totalFuelExpenses / valorTotalObra) * 100;
-                    setObraStatus({
-                        totalGasto: totalFuelExpenses,
-                        valorContrato: valorTotalObra,
-                        percentual: percentual
-                    });
-                }
-            }
-        }
-    }, [order.obraId, obras, expenses]);
-
-    // Alerta de Média (Regra 4) - Lógica Completa e Expandida
+    // Alerta de Média
     useEffect(() => {
         setAverageAlert(null);
 
@@ -83,7 +91,6 @@ const ConfirmRefuelingModal = ({
         const diff = currentReading - lastReading;
         const currentAverage = diff / parseFloat(litros); 
 
-        // --- CÁLCULO DA MÉDIA HISTÓRICA ---
         let sumAvgs = 0;
         let count = 0;
 
@@ -120,7 +127,7 @@ const ConfirmRefuelingModal = ({
         if (count > 0) {
             const baselineAverage = sumAvgs / count;
             if (currentAverage < (baselineAverage * 0.75)) {
-                setAverageAlert(`⚠️ ALERTA DE CONSUMO: Média atual (${currentAverage.toFixed(2)}) caiu mais de 25% em relação à média recente (${baselineAverage.toFixed(2)}).`);
+                setAverageAlert(`⚠️ ALERTA: Média caiu >25% (Atual: ${currentAverage.toFixed(2)} / Base: ${baselineAverage.toFixed(2)})`);
             }
         }
 
@@ -140,7 +147,7 @@ const ConfirmRefuelingModal = ({
             };
 
             await apiClient.confirmRefuelingOrder(order.id, payload);
-            setAlertMessage("Abastecimento confirmado e veículo atualizado!");
+            setAlertMessage("Abastecimento confirmado!");
             reloadData();
             onClose();
         } catch (error) {
@@ -152,83 +159,81 @@ const ConfirmRefuelingModal = ({
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm border border-gray-200 text-xs">
-                <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-base font-bold text-gray-800">Confirmar Abastecimento</h2>
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm border border-gray-200 flex flex-col">
+                <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg shrink-0">
+                    <h2 className="text-base font-bold text-gray-800">Confirmar</h2>
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full"><X size={16}/></button>
                 </div>
                 
-                <form onSubmit={handleConfirm} className="p-4 space-y-3">
-                    <div className="bg-blue-50 p-2 rounded text-blue-900 border border-blue-100">
-                        <p><strong>Ordem:</strong> #{String(order.authNumber).padStart(6, '0')}</p>
-                        <p><strong>Combustível:</strong> {order.fuelType}</p>
-                        {order.litrosLiberados && <p><strong>Liberado:</strong> {order.litrosLiberados} L</p>}
-                        {order.outros && <p className="mt-1 border-t border-blue-200 pt-1"><strong>Obs:</strong> {order.outros}</p>}
+                <form onSubmit={handleConfirm} className="p-3 space-y-3 overflow-y-auto flex-1 text-xs">
+                    {/* INFO DA ORDEM */}
+                    <div className="bg-blue-50 p-2 rounded text-[10px] border border-blue-100">
+                        <div className="flex justify-between font-bold">
+                            <span>#{String(order.authNumber).padStart(6, '0')}</span>
+                            <span>{order.fuelType}</span>
+                        </div>
+                        {order.litrosLiberados && <p>Liberado: {order.litrosLiberados} L</p>}
+                        {order.outros && <p className="mt-1 border-t border-blue-200 pt-0.5">Obs: {order.outros}</p>}
                     </div>
 
-                    {/* Painel de Status da Obra (NOVO & COMPACTO) */}
+                    {/* NOVO: PROGRESSO FINANCEIRO COMPACTO */}
                     {obraStatus && (
-                        <div className="p-2 bg-blue-50 border border-blue-200 rounded">
-                            <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
-                                <TrendingUp size={14}/> Progresso Financeiro
-                            </h4>
-                            <div className="flex justify-between text-blue-700">
-                                <span>Gasto Comb.:</span>
-                                <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                        <div className="p-2 bg-gray-50 border border-gray-200 rounded text-[10px]">
+                            <div className="flex justify-between items-center mb-1">
+                                <h4 className="font-bold text-gray-700 flex items-center gap-1"><TrendingUp size={10}/> Obra</h4>
+                                <span className="font-bold text-blue-600">{obraStatus.percentual.toFixed(1)}%</span>
                             </div>
-                            <div className="flex justify-between text-blue-700">
-                                <span>Contrato:</span>
-                                <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            <div className="w-full bg-gray-200 rounded-full h-1">
+                                <div className={`h-1 rounded-full ${obraStatus.percentual > 80 ? 'bg-red-500' : 'bg-blue-500'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
                             </div>
-                            <div className="mt-1 w-full bg-blue-200 rounded-full h-2">
-                                <div className={`h-2 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
+                             <div className="flex justify-between mt-0.5 text-gray-500">
+                                <span>Gasto: {obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                <span>Total: {obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
                             </div>
-                            <div className="text-right text-blue-600 font-bold mt-0.5">{obraStatus.percentual.toFixed(1)}% utilizado</div>
                         </div>
                     )}
 
                     {averageAlert && (
-                        <div className="p-2 bg-red-50 text-red-800 rounded border border-red-200 font-medium flex gap-2">
-                            <TrendingDown className="shrink-0" size={14}/>
-                            {averageAlert}
+                        <div className="p-2 bg-red-50 text-red-800 rounded border border-red-200 text-[10px] font-medium flex gap-1 items-center">
+                            <TrendingDown size={12}/> {averageAlert}
                         </div>
                     )}
                     
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="block font-bold text-gray-700 mb-0.5 uppercase">Litros Comb. *</label>
-                            <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1.5 border rounded font-bold" required autoFocus/>
+                            <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Lts Abastecidos *</label>
+                            <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1 border rounded font-bold" required autoFocus/>
                         </div>
                         <div>
-                            <label className="block font-bold text-gray-700 mb-0.5 uppercase">Preço Litro (R$)</label>
-                            <input type="number" step="0.001" value={precoUnitario} onChange={e => setPrecoUnitario(e.target.value)} className="w-full p-1.5 border rounded" placeholder="0.000"/>
+                            <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Preço Litro (R$)</label>
+                            <input type="number" step="0.001" value={precoUnitario} onChange={e => setPrecoUnitario(e.target.value)} className="w-full p-1 border rounded" placeholder="0.000"/>
                         </div>
                     </div>
                     
                     {order.needsArla && (
                          <div>
-                            <label className="block font-bold text-gray-700 mb-0.5">Litros Arla 32 *</label>
-                            <input type="number" step="0.01" value={litrosArla} onChange={e => setLitrosArla(e.target.value)} className="w-full p-1.5 border rounded" required />
+                            <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Lts Arla 32 *</label>
+                            <input type="number" step="0.01" value={litrosArla} onChange={e => setLitrosArla(e.target.value)} className="w-full p-1 border rounded" required />
                         </div>
                     )}
 
                     {order.outrosGeraValor && (
                         <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
-                            <label className="block font-bold text-yellow-900 mb-0.5">Valor "{order.outros}" (R$) *</label>
-                            <input type="number" step="0.01" value={outrosValorConfirmado} onChange={e => setOutrosValorConfirmado(e.target.value)} className="w-full p-1.5 border border-yellow-400 rounded bg-white font-bold text-yellow-900" required placeholder="0.00"/>
+                            <label className="block text-[10px] font-bold text-yellow-900 mb-0.5">Valor "{order.outros}" (R$) *</label>
+                            <input type="number" step="0.01" value={outrosValorConfirmado} onChange={e => setOutrosValorConfirmado(e.target.value)} className="w-full p-1 border border-yellow-400 rounded bg-white font-bold text-yellow-900" required placeholder="0.00"/>
                         </div>
                     )}
 
                     <div>
-                        <label className="block font-bold text-gray-700 mb-0.5">Leitura Painel (Km/H) *</label>
-                        <input type="number" step="0.1" value={kmOuHrConfirmado} onChange={e => setKmOuHrConfirmado(e.target.value)} className="w-full p-1.5 border rounded" required placeholder="Ex: 150230"/>
-                        <p className="text-[10px] text-gray-500 mt-0.5">Sugerido com base na emissão. Corrija se necessário.</p>
+                        <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Leitura Painel *</label>
+                        <input type="number" step="0.1" value={kmOuHrConfirmado} onChange={e => setKmOuHrConfirmado(e.target.value)} className="w-full p-1 border rounded" required/>
+                        <p className="text-[9px] text-gray-400 text-right">Sugerido: {suggestedReading}</p>
                     </div>
 
-                    <div className="pt-2 flex justify-end gap-2">
-                        <button type="button" onClick={onClose} className="px-3 py-2 bg-gray-100 text-gray-600 rounded font-bold hover:bg-gray-200">Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-3 py-2 bg-green-500 text-white font-bold rounded hover:bg-green-600 shadow flex items-center gap-1">
-                            {isSaving ? <Loader className="animate-spin" size={14}/> : 'Confirmar'}
+                    <div className="pt-1 flex justify-end gap-2 shrink-0">
+                        <button type="button" onClick={onClose} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded font-bold hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" disabled={isSaving} className="px-3 py-1.5 bg-green-500 text-white font-bold rounded hover:bg-green-600 shadow-md flex items-center gap-1">
+                            {isSaving ? <Loader className="animate-spin" size={12}/> : 'Confirmar'}
                         </button>
                     </div>
                 </form>

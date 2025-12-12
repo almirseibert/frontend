@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
-import 'jspdf-autotable'; // Importação de efeito colateral para registrar o plugin
+import autoTable from 'jspdf-autotable'; 
 
-// Importações de componentes
+// Importações corretas baseadas na estrutura original do projeto
 import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
@@ -38,10 +38,11 @@ const RefuelingPage = ({
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // --- HELPER: Validação de Data ---
+    // --- HELPER: Validação de Data (Consistente com todo o sistema) ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
+        // Filtra strings vazias, nulas, ou data "zero" do MySQL/Unix
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
@@ -50,11 +51,13 @@ const RefuelingPage = ({
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
             let dateStr = String(dateInput);
+            // Se for string SQL (YYYY-MM-DD HH:MM:SS), substitui espaço por T
             if (dateStr.includes(' ') && !dateStr.includes('T')) {
                 dateStr = dateStr.replace(' ', 'T');
             }
             const date = new Date(dateStr);
             if (isNaN(date.getTime())) return 'Data Inválida';
+            // Força UTC para evitar erro de fuso horário (D-1)
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
@@ -90,7 +93,7 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF ---
+    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         setIsGeneratingPdf(true);
         try {
@@ -104,6 +107,8 @@ const RefuelingPage = ({
                 const partner = partnersList.find(p => p.id === order.partnerId);
                 const employee = employeesList.find(e => e.id === order.employeeId);
                 
+                // Correção de Data no PDF usando lógica segura
+                // Verifica tanto 'data' (banco novo) quanto 'date' (legado/frontend)
                 const dateToUse = order.data || order.date;
                 let emissionDateStr = 'N/A';
                 if (isValidDbDate(dateToUse)) {
@@ -145,6 +150,7 @@ const RefuelingPage = ({
                          leituraValue = order.odometro || 'N/A';
                      }
                 } else { 
+                     // Fallback genérico
                      if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
                          leituraLabel = 'Horímetro';
                          leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
@@ -175,8 +181,8 @@ const RefuelingPage = ({
                 const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
                 body.push(['Emitido por', createdByEmail]);
 
-                // CORREÇÃO: Uso de doc.autoTable (método injetado pelo import 'jspdf-autotable')
-                doc.autoTable({
+                // CORREÇÃO: Uso de autoTable(doc, options) em vez de doc.autoTable(options)
+                autoTable(doc, {
                     startY: 35,
                     body: body,
                     theme: 'striped',
@@ -199,6 +205,7 @@ const RefuelingPage = ({
                 doc.setDrawColor(180, 180, 180);
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
+                // --- ALTERAÇÃO: Baixa o PDF automaticamente ---
                 doc.save(`Autorizacao_${order.authNumber}.pdf`);
                 setIsGeneratingPdf(false);
             };
@@ -435,6 +442,8 @@ const RefuelingPage = ({
                 <ConfirmRefuelingModal 
                     user={user}
                     order={orderToConfirm}
+                    obras={obras}
+                    expenses={expenses}
                     onClose={() => setIsConfirmModalOpen(false)}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}

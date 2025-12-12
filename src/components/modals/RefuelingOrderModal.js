@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity } from 'lucide-react';
+import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
 
 const RefuelingOrderModal = ({
     user,
@@ -21,7 +21,7 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPERS DE DATA ---
+    // --- HELPER DE DATA ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
@@ -86,8 +86,43 @@ const RefuelingOrderModal = ({
     const [lastAverage, setLastAverage] = useState(null); 
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
+    
+    // --- NOVO: Estado para Progresso Financeiro ---
+    const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
+
+    // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
+    useEffect(() => {
+        if (formData.obraId && obras.length > 0) { 
+            const obra = obras.find(o => o.id === formData.obraId);
+            
+            if (!obra || (extraObraOptions && extraObraOptions.includes(formData.obraId))) {
+                setObraStatus(null);
+                return;
+            }
+
+            const totalFuelExpenses = expenses
+                .filter(e => e.obraId === formData.obraId && (e.category === 'Combustível' || e.fuelType))
+                .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+            const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
+            
+            if (valorTotalObra > 0) {
+                const percentual = (totalFuelExpenses / valorTotalObra) * 100;
+                setObraStatus({
+                    totalGasto: totalFuelExpenses,
+                    valorContrato: valorTotalObra,
+                    percentual: percentual
+                });
+            } else {
+                setObraStatus(null);
+            }
+        } else {
+            setObraStatus(null);
+        }
+    }, [formData.obraId, obras, expenses, extraObraOptions]);
+
 
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
@@ -182,7 +217,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / litros) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -193,7 +228,6 @@ const RefuelingOrderModal = ({
         }
     }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
-    // --- VALIDAÇÕES DE LEITURA (Regra de Negócio: Bloqueio por Senha) ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
@@ -206,8 +240,8 @@ const RefuelingOrderModal = ({
             const current = parseFloat(formData.odometro);
             const last = parseFloat(lastRefuelData.odometro || 0);
             
-            if (current <= last) reason = `Odômetro informado (${current}) é menor ou igual ao anterior (${last} Km).`;
-            else if (current - last > 1000) reason = `Salto excessivo de Odômetro (> 1000 Km).`;
+            if (current <= last) reason = `Odômetro (${current}) <= anterior (${last}).`;
+            else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
         }
 
         if ((isTruck || isHeavyMachinery)) {
@@ -218,12 +252,8 @@ const RefuelingOrderModal = ({
                 const last = parseFloat(lastRefuelData.horimetroDigital || lastRefuelData.horimetro || lastRefuelData.odometro || 0);
                 
                 if (last > 0) {
-                    if (current <= last) {
-                        reason = `Horímetro informado (${current}) é menor ou igual ao anterior (${last} Hr).`;
-                    }
-                    else if ((current - last) > 50) {
-                        reason = `Salto excessivo de Horímetro (> 50 Hr). Diferença: ${(current - last).toFixed(1)}h.`;
-                    }
+                    if (current <= last) reason = `Horímetro (${current}) <= anterior (${last}).`;
+                    else if ((current - last) > 50) reason = `Salto excessivo de Hr (> 50).`;
                 }
             }
         }
@@ -253,7 +283,7 @@ const RefuelingOrderModal = ({
             const limit = obra.valorContrato * 0.20; 
             
             if (totalFuelExpenses >= limit) {
-                setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
+                setBudgetWarning(`Combustível atingiu 20% do contrato.`);
                 setRequiresBudgetOverride(true);
             } else {
                 setBudgetWarning(null);
@@ -293,7 +323,7 @@ const RefuelingOrderModal = ({
         const phone = partner?.whatsapp || partner?.telefone;
 
         if (!phone) {
-            setAlertMessage("Ordem salva e PDF baixado! O posto não possui WhatsApp cadastrado para envio automático.");
+            setAlertMessage("Salvo! Posto sem WhatsApp cadastrado.");
             return;
         }
 
@@ -302,7 +332,7 @@ const RefuelingOrderModal = ({
 *Segue em anexo o arquivo PDF da autorização.*
 
 *Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})
-*Motorista:* ${employee?.nome || 'N/A'}
+*Motorista:* ${employees.find(e => e.id === formData.employeeId)?.nome || 'N/A'}
 *Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
 *Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
 
@@ -315,39 +345,33 @@ _Por favor, confirme o recebimento._`;
 
     const validateMandatoryFields = () => {
         if (!formData.vehicleId) return "Selecione um Veículo.";
-        if (!formData.employeeId) return "Selecione um Motorista/Operador.";
-        if (!formData.obraId) return "Selecione uma Obra ou 'Pátio'.";
+        if (!formData.employeeId) return "Selecione um Motorista.";
+        if (!formData.obraId) return "Selecione uma Obra.";
         if (!formData.partnerId) return "Selecione um Posto.";
-        if (!formData.fuelType) return "Selecione o Tipo de Combustível.";
-        
-        if (isKmVehicle && !formData.odometro) return "Informe o Odômetro atual.";
-        if (isTruck && !formData.horimetro) return "Informe o Horímetro Geral.";
-        if (isHeavyMachinery && (!formData.horimetroDigital && !formData.horimetroAnalogico)) return "Informe ao menos um Horímetro (Digital ou Analógico).";
-        
+        if (!formData.fuelType) return "Selecione o Combustível.";
+        if (isKmVehicle && !formData.odometro) return "Informe o Odômetro.";
+        if (isTruck && !formData.horimetro) return "Informe o Horímetro.";
+        if (isHeavyMachinery && (!formData.horimetroDigital && !formData.horimetroAnalogico)) return "Informe Horímetro.";
         return null;
     };
 
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
-
         const validationError = validateMandatoryFields();
         if (validationError) {
-            setAlertMessage("Campos Obrigatórios: " + validationError);
+            setAlertMessage(validationError);
             return;
         }
-
         if (blockReason) {
             setPasswordAction('blockOverride');
             setShowPasswordModal(true);
             return;
         }
-
         if (requiresBudgetOverride) {
             setPasswordAction('budgetOverride');
             setShowPasswordModal(true);
             return;
         }
-        
         executeSave();
     };
 
@@ -365,12 +389,8 @@ _Por favor, confirme o recebimento._`;
         if (formData.date) {
             try {
                  const dateObj = new Date(formData.date + 'T12:00:00Z');
-                 if (!isNaN(dateObj.getTime())) {
-                     isoDate = dateObj.toISOString();
-                 }
-            } catch (e) {
-                 console.error("Erro ao converter data:", e);
-            }
+                 if (!isNaN(dateObj.getTime())) isoDate = dateObj.toISOString();
+            } catch (e) {}
         }
 
         const selectedPartner = partners.find(p => p.id === formData.partnerId);
@@ -395,7 +415,7 @@ _Por favor, confirme o recebimento._`;
             
             if (isEditing && hasValidId) {
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
-                setAlertMessage(`Ordem atualizada com sucesso!`);
+                setAlertMessage(`Ordem atualizada!`);
             } else {
                 res = await apiClient.createRefuelingOrder(payload);
                 setAlertMessage(`Ordem Nº ${res.authNumber} emitida!`);
@@ -410,67 +430,64 @@ _Por favor, confirme o recebimento._`;
                  };
                  sendToWhatsApp(fullOrderData);
             }
-            
             onClose();
         } catch (error) {
             console.error(error);
-            setAlertMessage("Erro ao salvar ordem: " + (error.response?.data?.error || error.message));
+            setAlertMessage("Erro ao salvar: " + (error.response?.data?.error || error.message));
         } finally {
             setIsSaving(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[98vh] flex flex-col">
-                <div className="p-2 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 backdrop-blur-sm">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden">
+                <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
                     <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={16}/> : <FileText size={16}/>}
                         {isEditing ? 'Editar' : 'Emitir'} Ordem
                     </h2>
-                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={16}/></button>
+                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={18}/></button>
                 </div>
 
-                <div className="px-4 pt-1 space-y-1 shrink-0">
+                <div className="px-3 pt-2 space-y-1 flex-shrink-0">
                     {warnings.map((w, i) => (
-                        <div key={i} className="flex items-center gap-2 p-1 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-[10px] font-medium"><Info size={12}/> {w}</div>
+                        <div key={i} className="flex items-center gap-1 p-1 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-[10px] font-medium"><Info size={12}/> {w}</div>
                     ))}
                     
                     {blockReason && (
-                        <div className="flex items-center gap-2 p-1.5 bg-red-100 text-red-800 rounded border border-red-200 text-[10px] font-bold animate-pulse">
-                            <Lock size={12}/> BLOQUEIO: {blockReason}
+                        <div className="flex items-center gap-1 p-1.5 bg-red-100 text-red-800 rounded border border-red-200 text-[10px] font-bold animate-pulse">
+                            <Lock size={12}/> {blockReason}
                         </div>
                     )}
 
                     {budgetWarning && (
-                        <div className="flex items-center gap-2 p-1.5 bg-orange-100 text-orange-900 rounded border border-orange-200 text-[10px] font-bold">
+                        <div className="flex items-center gap-1 p-1.5 bg-orange-100 text-orange-900 rounded border border-orange-200 text-[10px] font-bold">
                             <Wallet size={12}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
                         </div>
                     )}
                 </div>
 
-                <form onSubmit={handleSaveClick} className="p-3 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <div className="space-y-2">
+                <form onSubmit={handleSaveClick} className="p-3 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <div className="space-y-2 col-span-2 sm:col-span-1">
                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Veículo *</label>
-                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-yellow-400 outline-none transition" required>
+                            <label className="block font-bold text-gray-700 mb-0.5">Veículo *</label>
+                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1 border border-gray-300 rounded focus:ring-1 focus:ring-yellow-400 outline-none" required>
                                 <option value="">Selecione...</option>
                                 {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO COMPACTO */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-1.5 rounded border border-gray-200 text-[10px] text-gray-600 flex justify-between items-center">
                                 <div>
-                                    <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> Último: {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
-                                    <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
-                                    <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
-                                    
-                                    <div className="mt-0.5 pt-0.5 border-t border-gray-300 flex gap-2">
-                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'}</strong></p>}
-                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'}</strong></p>}
-                                        {isHeavyMachinery && <p>Horímetro: <strong>{lastRefuelData.horimetroDigital || 'N/A'}</strong></p>}
+                                    <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
+                                    <p>{lastRefuelData.partnerName || 'N/A'} - {lastRefuelData.fuelType}</p>
+                                    <div className="mt-0.5 pt-0.5 border-t border-gray-300">
+                                        {isKmVehicle && <span>Ant: <strong>{lastRefuelData.odometro} Km</strong></span>}
+                                        {isTruck && <span>Ant: <strong>{lastRefuelData.horimetro} Hr</strong></span>}
+                                        {isHeavyMachinery && <span>Ant: <strong>{lastRefuelData.horimetroDigital} / {lastRefuelData.horimetroAnalogico}</strong></span>}
                                     </div>
                                 </div>
                                 <div className="text-right">
@@ -480,21 +497,20 @@ _Por favor, confirme o recebimento._`;
                             </div>
                         )}
 
-                        {/* LEITURAS COMPACTO */}
                         <div className="bg-gray-50 p-2 rounded border border-gray-200">
                             <h3 className="text-[10px] font-bold text-gray-500 uppercase mb-1">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-2">
                                 {isKmVehicle && (
                                     <div className="col-span-2">
                                         <label className="block text-[10px] font-bold text-gray-700">Odômetro (Km) *</label>
-                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`} required/>
+                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-1 border rounded" required/>
                                     </div>
                                 )}
                                 
                                 {isTruck && (
                                     <div className="col-span-2">
-                                        <label className="block text-[10px] font-bold text-gray-700">Horímetro Geral (Hrs) *</label>
-                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`} required/>
+                                        <label className="block text-[10px] font-bold text-gray-700">Horímetro Geral *</label>
+                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required/>
                                     </div>
                                 )}
 
@@ -502,11 +518,11 @@ _Por favor, confirme o recebimento._`;
                                     <>
                                         <div>
                                             <label className="block text-[10px] font-bold text-gray-700">Horí. Digital *</label>
-                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder={`Ant: ${lastRefuelData?.horimetroDigital || 'N/A'}`}/>
+                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-1 border rounded"/>
                                         </div>
                                         <div>
-                                            <label className="block text-[10px] font-bold text-gray-700">Horí. Analógico</label>
-                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder={`Ant: ${lastRefuelData?.horimetroAnalogico || 'N/A'}`}/>
+                                            <label className="block text--[10px] font-bold text-gray-700">Horí. Analógico</label>
+                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-1 border rounded"/>
                                         </div>
                                     </>
                                 )}
@@ -514,27 +530,54 @@ _Por favor, confirme o recebimento._`;
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Motorista / Operador *</label>
-                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded text-xs" required>
+                            <label className="block font-bold text-gray-700 mb-0.5">Motorista *</label>
+                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
                                 <option value="">Selecione...</option>
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                             </select>
                         </div>
+                    </div>
+
+                    <div className="space-y-2 col-span-2 sm:col-span-1">
                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Obra / Alocação *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded text-xs" required>
+                            <label className="block font-bold text-gray-700 mb-0.5">Obra / Alocação *</label>
+                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
                                 <option value="">Selecione...</option>
                                 <option value="Patio">Pátio</option>
                                 {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                 {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
                         </div>
-                    </div>
 
-                    <div className="space-y-2">
+                        {/* NOVO: PROGRESSO FINANCEIRO */}
+                        {obraStatus && (
+                            <div className="p-2 bg-blue-50 border border-blue-200 rounded text-[10px]">
+                                <h4 className="font-bold text-blue-800 flex items-center gap-1 mb-1">
+                                    <TrendingUp size={12}/> Progresso Financeiro
+                                </h4>
+                                <div className="flex justify-between text-blue-700">
+                                    <span>Gasto Combustível:</span>
+                                    <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                </div>
+                                <div className="flex justify-between text-blue-700">
+                                    <span>Contrato Total:</span>
+                                    <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                </div>
+                                <div className="mt-1 w-full bg-blue-200 rounded-full h-1.5">
+                                    <div 
+                                        className={`h-1.5 rounded-full ${obraStatus.percentual > 80 ? 'bg-red-500' : 'bg-blue-600'}`} 
+                                        style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}
+                                    ></div>
+                                </div>
+                                <div className="text-right mt-0.5 text-blue-600 font-bold">
+                                    {obraStatus.percentual.toFixed(1)}% utilizado
+                                </div>
+                            </div>
+                        )}
+
                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Posto *</label>
-                            <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded text-xs" required>
+                            <label className="block font-bold text-gray-700 mb-0.5">Posto *</label>
+                            <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
                                 <option value="">Selecione...</option>
                                 {sortedPartners.map(p => <option key={p.id} value={p.id}>{p.razaoSocial}</option>)}
                             </select>
@@ -542,7 +585,7 @@ _Por favor, confirme o recebimento._`;
 
                         <div className="bg-blue-50 p-2 rounded border border-blue-100">
                             <label className="block text-[10px] font-bold text-blue-900 mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1 border border-blue-200 rounded mb-1 bg-white text-xs" required>
+                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1 border border-blue-200 rounded mb-1 bg-white" required>
                                 <option value="">Selecione...</option>
                                 <option value="gasolinaComum">Gasolina Comum</option>
                                 <option value="gasolinaAditivada">Gasolina Aditivada</option>
@@ -555,50 +598,42 @@ _Por favor, confirme o recebimento._`;
                                 <label htmlFor="fill" className="text-[10px] font-medium text-blue-800">Completar Tanque</label>
                             </div>
                             {!formData.isFillUp && (
-                                <input type="number" name="litrosLiberados" value={formData.litrosLiberados} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder="Qtd. Litros Liberados"/>
+                                <input type="number" name="litrosLiberados" value={formData.litrosLiberados} onChange={handleChange} className="w-full p-1 border rounded" placeholder="Qtd. Litros"/>
                             )}
 
-                            <div className="mt-1 pt-1 border-t border-blue-200">
-                                <div className="flex items-center gap-1 mb-1">
-                                    <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-3 h-3 text-blue-600 rounded"/>
-                                    <label htmlFor="arla" className="text-[10px] font-bold text-blue-900">Abastecer Arla 32</label>
+                            {formData.needsArla && (
+                                <div className="mt-1 pt-1 border-t border-blue-200 pl-2">
+                                     <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-1 border rounded text-[10px]" placeholder="Litros Arla"/>
                                 </div>
-                                {formData.needsArla && (
-                                    <div className="pl-3 space-y-1">
-                                        <div className="flex items-center gap-1">
-                                            <input type="checkbox" name="isFillUpArla" checked={formData.isFillUpArla} onChange={handleChange} className="w-3 h-3"/>
-                                            <label className="text-[10px]">Completar Arla</label>
-                                        </div>
-                                        {!formData.isFillUpArla && (
-                                             <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-1 border rounded text-xs" placeholder="Litros Arla"/>
-                                        )}
-                                    </div>
-                                )}
+                            )}
+                             <div className="mt-1 flex items-center gap-1">
+                                <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-3 h-3 text-blue-600 rounded"/>
+                                <label htmlFor="arla" className="text-[10px] font-bold text-blue-900">Arla 32</label>
                             </div>
                         </div>
 
-                         <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Data</label>
-                            <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-1 border rounded text-xs"/>
-                        </div>
-
-                        <div className="bg-gray-50 p-2 rounded border">
-                            <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Outros / Observação</label>
-                            <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-1 border rounded mb-1 text-xs" placeholder="Ex: Óleo de motor..."/>
-                            <div className="flex items-center gap-1">
-                                <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-3 h-3 text-green-600"/>
-                                <label htmlFor="geraValor" className="text-[10px] font-medium text-gray-700">Preenchimento Gera Valor</label>
+                         <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Data</label>
+                                <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-1 border rounded"/>
                             </div>
+                             <div>
+                                <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Outros</label>
+                                <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-1 border rounded" placeholder="Obs..."/>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-3 h-3 text-green-600"/>
+                            <label htmlFor="geraValor" className="text-[10px] font-medium text-gray-700">Preenchimento Gera Valor</label>
                         </div>
                     </div>
                 </form>
 
-                <div className="p-2 border-t bg-gray-50 flex justify-end gap-2 rounded-b-xl shrink-0">
+                <div className="p-3 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg flex-shrink-0">
                     <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition">Cancelar</button>
-                    {/* Botão Condicional para Bloqueio */}
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-3 py-1.5 bg-red-500 text-white font-bold text-xs rounded shadow hover:bg-red-600 transition flex items-center gap-1">
-                            <Lock size={12}/> Liberar c/ Senha
+                            <Lock size={12}/> Liberar
                         </button>
                     ) : (
                         <button onClick={handleSaveClick} disabled={isSaving} className="px-3 py-1.5 bg-yellow-400 text-gray-900 font-bold text-xs rounded shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-1">
@@ -608,25 +643,20 @@ _Por favor, confirme o recebimento._`;
                 </div>
             </div>
 
-            {/* Modais de Confirmação */}
             {isNoHorimetroConfirmVisible && (
                 <ConfirmationModal 
-                    title="Aviso de Segurança" 
+                    title="Aviso" 
                     message={noHorimetroWarning} 
                     onConfirm={executeSave} 
                     onClose={() => setIsNoHorimetroConfirmVisible(false)}
-                    confirmText="Salvar Mesmo Assim"
+                    confirmText="Salvar"
                     confirmColor="bg-red-600 hover:bg-red-700 text-white"
                 />
             )}
 
             {showPasswordModal && (
                 <PasswordConfirmationModal
-                    message={
-                        passwordAction === 'blockOverride' 
-                        ? `BLOQUEIO OPERACIONAL: ${blockReason}\nInsira a senha administrativa para liberar esta ordem.`
-                        : `BLOQUEIO FINANCEIRO: Esta obra excedeu 20% do contrato.\nInsira a senha administrativa para autorizar.`
-                    }
+                    message={passwordAction === 'blockOverride' ? `BLOQUEIO: ${blockReason}` : `BLOQUEIO FINANCEIRO: Orçamento excedido.`}
                     onConfirm={executeSave}
                     onClose={() => setShowPasswordModal(false)}
                     apiClient={apiClient}
