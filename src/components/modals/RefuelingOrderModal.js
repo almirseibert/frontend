@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
+import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity } from 'lucide-react';
 
 const RefuelingOrderModal = ({
     user,
@@ -21,41 +21,33 @@ const RefuelingOrderModal = ({
     reloadData
 }) => {
     
-    // --- HELPER: Validação de Data ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
-    // --- HELPER: Objeto Date Seguro ---
     const getSafeDateObj = (dateInput) => {
         if (!isValidDbDate(dateInput)) return new Date(0);
         try {
             let dateStr = String(dateInput);
-            if (dateStr.includes(' ') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T');
-            }
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
             const d = new Date(dateStr);
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { return new Date(0); }
     };
 
-    // --- HELPER: Formatação de Data ---
     const formatDateDisplay = (dateInput) => {
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
             let dateStr = String(dateInput);
-            if (dateStr.includes(' ') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T');
-            }
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
             const date = new Date(dateStr);
             if (isNaN(date.getTime())) return 'Data Inválida';
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
 
-    // --- ESTADOS ---
     const [formData, setFormData] = useState({
         vehicleId: orderToEdit?.vehicleId || '',
         partnerId: orderToEdit?.partnerId || '',
@@ -92,25 +84,14 @@ const RefuelingOrderModal = ({
     const [lastAverage, setLastAverage] = useState(null); 
     const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
     const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
-    
-    // Novo estado para o painel de status da obra
-    const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
 
-    // --- ORDENAÇÃO E FILTROS ---
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
-    
-    // FILTRO DE OBRAS ATIVAS
-    const sortedObras = useMemo(() => {
-        return [...obras]
-            .filter(o => o.status === 'ativa') 
-            .sort((a,b) => (a.nome || '').localeCompare(b.nome || ''));
-    }, [obras]);
+    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
-    // --- REGRAS DE GRUPO ---
     const vehicleGroup = useMemo(() => {
         if (!formData.vehicleId) return null;
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
@@ -122,7 +103,6 @@ const RefuelingOrderModal = ({
     const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
     const isTruck = vehicleGroup === 'Caminhões';
 
-    // --- AUTO-PREENCHIMENTO E AVISOS ---
     useEffect(() => {
         if (formData.vehicleId) {
             const vehicle = vehicles.find(v => v.id === formData.vehicleId);
@@ -177,8 +157,8 @@ const RefuelingOrderModal = ({
             }
 
             const newWarnings = [];
-            if (vehicle.naoPodeCircular) newWarnings.push("⚠️ CHECKBOX 'NÃO PODE CIRCULAR' MARCADO!");
-            if (vehicle.status === 'manutencao') newWarnings.push("🔧 Veículo em manutenção.");
+            if (vehicle.naoPodeCircular) newWarnings.push("⚠️ 'NÃO PODE CIRCULAR'");
+            if (vehicle.status === 'manutencao') newWarnings.push("🔧 Em manutenção.");
             if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
             setWarnings(newWarnings);
 
@@ -200,7 +180,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / liters) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -211,7 +191,6 @@ const RefuelingOrderModal = ({
         }
     }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
 
-    // --- VALIDAÇÕES DE LEITURA ---
     useEffect(() => {
         if (!lastRefuelData) {
             setBlockReason(null);
@@ -240,49 +219,35 @@ const RefuelingOrderModal = ({
         setBlockReason(reason);
     }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, lastRefuelData, isKmVehicle]);
 
-    // --- REGRA DE ORÇAMENTO E PROGRESSO DA OBRA ---
     useEffect(() => {
         if (formData.obraId && obras.length > 0) {
             const obra = obras.find(o => o.id === formData.obraId);
-            // Ignora verificação se for "Pátio" ou outras opções extras
             if (!obra || extraObraOptions.includes(formData.obraId)) {
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
-                setObraStatus(null);
                 return;
             }
 
-            // Calcula total gasto e progresso visual
+            if (!obra.valorContrato || obra.valorContrato <= 0) {
+                setBudgetWarning(null);
+                setRequiresBudgetOverride(false);
+                return;
+            }
+
             const totalFuelExpenses = expenses
-                .filter(e => e.obraId === formData.obraId && (e.category === 'Combustível' || e.fuelType))
+                .filter(e => e.obraId === formData.obraId && e.category === 'Combustível')
                 .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
 
-            // Suporta campo antigo valorContrato ou novo valorTotalContrato
-            const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
+            const limit = obra.valorContrato * 0.20; 
             
-            if (valorTotalObra > 0) {
-                const percentual = (totalFuelExpenses / valorTotalObra) * 100;
-                setObraStatus({
-                    totalGasto: totalFuelExpenses,
-                    valorContrato: valorTotalObra,
-                    percentual: percentual
-                });
-
-                const limit = valorTotalObra * 0.20; 
-                if (totalFuelExpenses >= limit) {
-                    setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
-                    setRequiresBudgetOverride(true);
-                } else {
-                    setBudgetWarning(null);
-                    setRequiresBudgetOverride(false);
-                }
+            if (totalFuelExpenses >= limit) {
+                setBudgetWarning(`Custo de combustível (R$ ${totalFuelExpenses.toLocaleString()}) atingiu 20% do contrato.`);
+                setRequiresBudgetOverride(true);
             } else {
-                setObraStatus(null);
                 setBudgetWarning(null);
                 setRequiresBudgetOverride(false);
             }
         } else {
-            setObraStatus(null);
             setBudgetWarning(null);
             setRequiresBudgetOverride(false);
         }
@@ -311,7 +276,6 @@ const RefuelingOrderModal = ({
             employeeName: employee?.nome,
         };
         
-        // Gera o PDF (espera-se que onGeneratePDF agora faça o download automático)
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
         const phone = partner?.whatsapp || partner?.telefone;
@@ -445,119 +409,92 @@ _Por favor, confirme o recebimento._`;
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 backdrop-blur-sm">
-            {/* Modal Compacto */}
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col text-xs">
-                <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
-                        {isEditing ? <Edit size={16}/> : <FileText size={16}/>}
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[98vh] flex flex-col">
+                <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
+                    <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        {isEditing ? <Edit size={18}/> : <FileText size={18}/>}
                         {isEditing ? 'Editar' : 'Emitir'} Ordem
                     </h2>
-                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={16}/></button>
+                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={18}/></button>
                 </div>
 
-                <div className="px-4 pt-2 space-y-1">
+                <div className="px-4 pt-2 space-y-1 shrink-0">
                     {warnings.map((w, i) => (
-                        <div key={i} className="flex items-center gap-2 p-1.5 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 font-medium"><Info size={14}/> {w}</div>
+                        <div key={i} className="flex items-center gap-2 p-1.5 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-xs font-medium"><Info size={14}/> {w}</div>
                     ))}
                     
                     {blockReason && (
-                        <div className="flex items-center gap-2 p-2 bg-red-100 text-red-800 rounded border border-red-200 font-bold animate-pulse">
+                        <div className="flex items-center gap-2 p-2 bg-red-100 text-red-800 rounded border border-red-200 text-xs font-bold animate-pulse">
                             <Lock size={14}/> BLOQUEIO: {blockReason}
                         </div>
                     )}
 
                     {budgetWarning && (
-                        <div className="flex items-center gap-2 p-2 bg-orange-100 text-orange-900 rounded border border-orange-200 font-bold">
+                        <div className="flex items-center gap-2 p-2 bg-orange-100 text-orange-900 rounded border border-orange-200 text-xs font-bold">
                             <Wallet size={14}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
-                        </div>
-                    )}
-
-                    {/* PAINEL DE STATUS DA OBRA (NOVO) */}
-                    {obraStatus && (
-                        <div className="p-2 bg-blue-50 border border-blue-200 rounded">
-                            <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
-                                <TrendingUp size={14}/> Progresso Financeiro da Obra
-                            </h4>
-                            <div className="flex justify-between text-blue-700">
-                                <span>Gasto Combustível:</span>
-                                <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <div className="flex justify-between text-blue-700">
-                                <span>Contrato Total:</span>
-                                <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <div className="mt-1 w-full bg-blue-200 rounded-full h-2">
-                                <div className={`h-2 rounded-full ${obraStatus.percentual > 20 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
-                            </div>
-                            <div className="text-right mt-0.5 text-blue-600 font-bold">{obraStatus.percentual.toFixed(1)}% utilizado</div>
                         </div>
                     )}
                 </div>
 
-                <form onSubmit={handleSaveClick} className="p-4 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <form onSubmit={handleSaveClick} className="p-4 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-3">
                         <div>
-                            <label className="block font-bold text-gray-700 mb-0.5">Veículo *</label>
-                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-yellow-400 outline-none transition" required>
+                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Veículo *</label>
+                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-yellow-400 outline-none transition" required>
                                 <option value="">Selecione...</option>
                                 {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO (Compacto) */}
+                        {/* CARD ÚLTIMO ABASTECIMENTO COMPACTO */}
                         {lastRefuelData && (
-                            <div className="bg-gray-100 p-2 rounded border border-gray-200 text-gray-600 flex justify-between items-center">
+                            <div className="bg-gray-100 p-2 rounded border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
                                 <div>
-                                    <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</div>
-                                    <p>Data: <strong>{formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</strong></p>
+                                    <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> Último: {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
                                     <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
-                                    <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong></p>
+                                    <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
+                                    
                                     <div className="mt-0.5 pt-0.5 border-t border-gray-300">
-                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'} Km</strong></p>}
-                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'} Hr</strong></p>}
-                                        {isHeavyMachinery && (
-                                            <>
-                                                <p>Horí. Digital: <strong>{lastRefuelData.horimetroDigital || 'N/A'} Hr</strong></p>
-                                                <p>Horí. Analógico: <strong>{lastRefuelData.horimetroAnalogico || 'N/A'} Hr</strong></p>
-                                            </>
-                                        )}
+                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'}</strong></p>}
+                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'}</strong></p>}
+                                        {isHeavyMachinery && <p>Horímetro: <strong>{lastRefuelData.horimetroDigital || 'N/A'}</strong></p>}
                                     </div>
                                 </div>
                                 <div className="text-right">
                                     <div className="font-bold text-gray-700 mb-0.5 flex items-center justify-end gap-1"><Activity size={10}/> Média</div>
-                                    <p className="text-base font-bold text-blue-600">{lastAverage || '--'}</p>
+                                    <p className="text-sm font-bold text-blue-600">{lastAverage || '--'}</p>
                                 </div>
                             </div>
                         )}
 
-                        {/* LEITURAS ATUAIS (OBRIGATÓRIAS) */}
-                        <div className="bg-gray-50 p-2 rounded border border-gray-200">
-                            <h3 className="font-bold text-gray-500 uppercase mb-2">Leituras Atuais</h3>
+                        {/* LEITURAS COMPACTO */}
+                        <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                            <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-2">
                                 {isKmVehicle && (
                                     <div className="col-span-2">
-                                        <label className="block font-bold text-gray-700">Odômetro (Km) *</label>
-                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-1.5 border rounded" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`} required/>
+                                        <label className="block text-xs font-bold text-gray-700">Odômetro (Km) *</label>
+                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder={`Ant: ${lastRefuelData?.odometro || 'N/A'}`} required/>
                                     </div>
                                 )}
                                 
                                 {isTruck && (
                                     <div className="col-span-2">
-                                        <label className="block font-bold text-gray-700">Horímetro Geral (Hrs) *</label>
-                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1.5 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`} required/>
+                                        <label className="block text-xs font-bold text-gray-700">Horímetro Geral (Hrs) *</label>
+                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder={`Ant: ${lastRefuelData?.horimetro || 'N/A'}`} required/>
                                     </div>
                                 )}
 
                                 {isHeavyMachinery && (
                                     <>
                                         <div>
-                                            <label className="block font-bold text-gray-700">Horímetro Digital *</label>
-                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-1.5 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroDigital || 'N/A'}`}/>
+                                            <label className="block text-xs font-bold text-gray-700">Horí. Digital *</label>
+                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder={`Ant: ${lastRefuelData?.horimetroDigital || 'N/A'}`}/>
                                         </div>
                                         <div>
-                                            <label className="block font-bold text-gray-700">Horímetro Analógico</label>
-                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-1.5 border rounded" placeholder={`Ant: ${lastRefuelData?.horimetroAnalogico || 'N/A'}`}/>
+                                            <label className="block text-xs font-bold text-gray-700">Horí. Analógico</label>
+                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder={`Ant: ${lastRefuelData?.horimetroAnalogico || 'N/A'}`}/>
                                         </div>
                                     </>
                                 )}
@@ -565,15 +502,15 @@ _Por favor, confirme o recebimento._`;
                         </div>
 
                         <div>
-                            <label className="block font-bold text-gray-700 mb-0.5">Motorista / Operador *</label>
-                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded" required>
+                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Motorista / Operador *</label>
+                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded text-sm" required>
                                 <option value="">Selecione...</option>
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="block font-bold text-gray-700 mb-0.5">Obra / Alocação *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded" required>
+                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Obra / Alocação *</label>
+                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded text-sm" required>
                                 <option value="">Selecione...</option>
                                 <option value="Patio">Pátio</option>
                                 {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
@@ -584,16 +521,16 @@ _Por favor, confirme o recebimento._`;
 
                     <div className="space-y-3">
                         <div>
-                            <label className="block font-bold text-gray-700 mb-0.5">Posto *</label>
-                            <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded" required>
+                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Posto *</label>
+                            <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded text-sm" required>
                                 <option value="">Selecione...</option>
                                 {sortedPartners.map(p => <option key={p.id} value={p.id}>{p.razaoSocial}</option>)}
                             </select>
                         </div>
 
                         <div className="bg-blue-50 p-3 rounded border border-blue-100">
-                            <label className="block font-bold text-blue-900 mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1.5 border border-blue-200 rounded mb-2 bg-white" required>
+                            <label className="block text-xs font-bold text-blue-900 mb-1">Combustível *</label>
+                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1.5 border border-blue-200 rounded mb-2 bg-white text-sm" required>
                                 <option value="">Selecione...</option>
                                 <option value="gasolinaComum">Gasolina Comum</option>
                                 <option value="gasolinaAditivada">Gasolina Aditivada</option>
@@ -601,27 +538,27 @@ _Por favor, confirme o recebimento._`;
                                 <option value="dieselS10">Diesel S10</option>
                             </select>
                             
-                            <div className="flex items-center gap-2 mb-2">
-                                <input type="checkbox" id="fill" name="isFillUp" checked={formData.isFillUp} onChange={handleChange} className="w-3.5 h-3.5 text-blue-600 rounded"/>
-                                <label htmlFor="fill" className="font-medium text-blue-800">Completar Tanque</label>
+                            <div className="flex items-center gap-2 mb-1">
+                                <input type="checkbox" id="fill" name="isFillUp" checked={formData.isFillUp} onChange={handleChange} className="w-4 h-4 text-blue-600 rounded"/>
+                                <label htmlFor="fill" className="text-xs font-medium text-blue-800">Completar Tanque</label>
                             </div>
                             {!formData.isFillUp && (
-                                <input type="number" name="litrosLiberados" value={formData.litrosLiberados} onChange={handleChange} className="w-full p-1.5 border rounded" placeholder="Qtd. Litros Liberados"/>
+                                <input type="number" name="litrosLiberados" value={formData.litrosLiberados} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder="Qtd. Litros Liberados"/>
                             )}
 
                             <div className="mt-2 pt-2 border-t border-blue-200">
                                 <div className="flex items-center gap-2 mb-1">
-                                    <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-3.5 h-3.5 text-blue-600 rounded"/>
-                                    <label htmlFor="arla" className="font-bold text-blue-900">Abastecer Arla 32</label>
+                                    <input type="checkbox" id="arla" name="needsArla" checked={formData.needsArla} onChange={handleChange} className="w-4 h-4 text-blue-600 rounded"/>
+                                    <label htmlFor="arla" className="text-xs font-bold text-blue-900">Abastecer Arla 32</label>
                                 </div>
                                 {formData.needsArla && (
-                                    <div className="pl-5 space-y-1">
+                                    <div className="pl-4 space-y-1">
                                         <div className="flex items-center gap-2">
-                                            <input type="checkbox" name="isFillUpArla" checked={formData.isFillUpArla} onChange={handleChange} className="w-3.5 h-3.5"/>
-                                            <label>Completar Arla</label>
+                                            <input type="checkbox" name="isFillUpArla" checked={formData.isFillUpArla} onChange={handleChange} className="w-3 h-3"/>
+                                            <label className="text-xs">Completar Arla</label>
                                         </div>
                                         {!formData.isFillUpArla && (
-                                             <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-1.5 border rounded" placeholder="Litros Arla"/>
+                                             <input type="number" name="litrosLiberadosArla" value={formData.litrosLiberadosArla} onChange={handleChange} className="w-full p-1.5 border rounded text-xs" placeholder="Litros Arla"/>
                                         )}
                                     </div>
                                 )}
@@ -629,36 +566,37 @@ _Por favor, confirme o recebimento._`;
                         </div>
 
                          <div>
-                            <label className="block font-bold text-gray-700 mb-0.5">Data</label>
-                            <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-1.5 border rounded"/>
+                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Data</label>
+                            <input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full p-1.5 border rounded text-sm"/>
                         </div>
 
                         <div className="bg-gray-50 p-2 rounded border">
-                            <label className="block font-bold text-gray-700 mb-0.5">Outros / Observação</label>
-                            <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-1.5 border rounded mb-1" placeholder="Ex: Óleo de motor..."/>
+                            <label className="block text-xs font-bold text-gray-700 mb-0.5">Outros / Observação</label>
+                            <input type="text" name="outros" value={formData.outros} onChange={handleChange} className="w-full p-1.5 border rounded mb-1 text-sm" placeholder="Ex: Óleo de motor..."/>
                             <div className="flex items-center gap-2">
-                                <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-3.5 h-3.5 text-green-600"/>
-                                <label htmlFor="geraValor" className="font-medium text-gray-700">Preenchimento Gera Valor (Cobrar R$)</label>
+                                <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-3 h-3 text-green-600"/>
+                                <label htmlFor="geraValor" className="text-xs font-medium text-gray-700">Preenchimento Gera Valor</label>
                             </div>
                         </div>
                     </div>
                 </form>
 
-                <div className="p-3 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg">
-                    <button onClick={onClose} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded transition">Cancelar</button>
+                <div className="p-3 border-t bg-gray-50 flex justify-end gap-2 rounded-b-xl shrink-0">
+                    <button onClick={onClose} className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition">Cancelar</button>
+                    {/* Botão Condicional para Bloqueio */}
                     {blockReason || requiresBudgetOverride ? (
-                        <button onClick={handleSaveClick} className="px-4 py-2 bg-red-500 text-white font-bold rounded shadow hover:bg-red-600 transition flex items-center gap-2">
-                            <Lock size={16}/> Liberar com Senha
+                        <button onClick={handleSaveClick} className="px-4 py-2 bg-red-500 text-white font-bold text-xs rounded shadow hover:bg-red-600 transition flex items-center gap-2">
+                            <Lock size={14}/> Liberar c/ Senha
                         </button>
                     ) : (
-                        <button onClick={handleSaveClick} disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-bold rounded shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-2">
-                            {isSaving ? <Loader className="animate-spin" size={16}/> : 'Salvar & Baixar PDF'}
+                        <button onClick={handleSaveClick} disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-bold text-xs rounded shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-2">
+                            {isSaving ? <Loader className="animate-spin" size={14}/> : 'Salvar & PDF'}
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Modal de Confirmação para Horímetro Vazio */}
+            {/* Modais de Confirmação */}
             {isNoHorimetroConfirmVisible && (
                 <ConfirmationModal 
                     title="Aviso de Segurança" 
@@ -670,7 +608,6 @@ _Por favor, confirme o recebimento._`;
                 />
             )}
 
-            {/* Modal de Senha para Override */}
             {showPasswordModal && (
                 <PasswordConfirmationModal
                     message={

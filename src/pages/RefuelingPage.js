@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History } from 'lucide-react';
+import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
 import autoTable from 'jspdf-autotable'; 
@@ -36,12 +36,12 @@ const RefuelingPage = ({
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [openOrdersSearchTerm, setOpenOrdersSearchTerm] = useState('');
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // --- HELPER: Validação de Data (Consistente com todo o sistema) ---
+    // --- HELPER: Validação de Data ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
-        // Filtra strings vazias, nulas, ou data "zero" do MySQL/Unix
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
@@ -50,13 +50,11 @@ const RefuelingPage = ({
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
             let dateStr = String(dateInput);
-            // Se for string SQL (YYYY-MM-DD HH:MM:SS), substitui espaço por T
             if (dateStr.includes(' ') && !dateStr.includes('T')) {
                 dateStr = dateStr.replace(' ', 'T');
             }
             const date = new Date(dateStr);
             if (isNaN(date.getTime())) return 'Data Inválida';
-            // Força UTC para evitar erro de fuso horário (D-1)
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
@@ -92,14 +90,14 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Atualizada para suportar Download) ---
-    // Adicionado parâmetro 'forceDownload'
-    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, forceDownload = false) => {
+    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
+    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
+        setIsGeneratingPdf(true);
         try {
             const buildPdf = (logoDataUrl) => {
-                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' }); // Alterado para A5 para ficar mais compacto na impressão também
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                 const pageWidth = doc.internal.pageSize.getWidth();
-                const effectivePageHeight = 148.5; // Altura A5 landscape ou meia folha
+                const effectivePageHeight = 148.5; 
                 const margin = 10;
 
                 const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
@@ -113,8 +111,8 @@ const RefuelingPage = ({
                 }
 
                 if (logoDataUrl) {
-                    const imgWidth = 40;
-                    const imgHeight = 15;
+                    const imgWidth = 45;
+                    const imgHeight = 16.875;
                     try {
                         doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
                     } catch (e) {
@@ -122,10 +120,10 @@ const RefuelingPage = ({
                     }
                 }
 
-                doc.setFontSize(14);
+                doc.setFontSize(16);
                 doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
-                doc.setFontSize(10);
-                doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 20, { align: 'right' });
+                doc.setFontSize(12);
+                doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
 
                 let leituraLabel = 'Leitura';
                 let leituraValue = 'N/A';
@@ -177,31 +175,32 @@ const RefuelingPage = ({
                 const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
                 body.push(['Emitido por', createdByEmail]);
 
-                autoTable(doc, {
-                    startY: 30,
+                doc.autoTable({
+                    startY: 35,
                     body: body,
                     theme: 'striped',
-                    styles: { fontSize: 8, cellPadding: 1 },
+                    styles: { fontSize: 9, cellPadding: 1.5 },
                     headStyles: { fillColor: [24, 49, 83] },
                     columnStyles: {
                         0: { cellWidth: 40, fontStyle: 'bold' }
                     }
                 });
 
-                let finalY = (doc.lastAutoTable?.finalY || 35) + 5;
-                const footerStartY = Math.max(finalY, effectivePageHeight - 30); 
-                doc.setFontSize(7);
+                let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
+                const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
+                doc.setFontSize(8);
                 doc.setFont('helvetica', 'italic');
-                doc.text('*Esta ordem é válida exclusivamente para a placa/RE indicada.', margin, footerStartY);
-                doc.text('*Estão autorizados somente os itens discriminados.', margin, footerStartY + 3);
+                doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
+                doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
+                doc.text('*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.', margin, footerStartY + 8);
 
-                const fileName = `Autorizacao_${String(order.authNumber || '0').padStart(6, '0')}.pdf`;
+                doc.setLineDashPattern([1, 1], 0);
+                doc.setDrawColor(180, 180, 180);
+                doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                if (forceDownload) {
-                    doc.save(fileName);
-                } else {
-                    doc.output('dataurlnewwindow', { filename: fileName });
-                }
+                // --- ALTERAÇÃO: Baixa o PDF automaticamente ---
+                doc.save(`Autorizacao_${order.authNumber}.pdf`);
+                setIsGeneratingPdf(false);
             };
 
             const logo = new Image();
@@ -220,6 +219,7 @@ const RefuelingPage = ({
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
             setAlertMessage("Erro ao gerar o PDF.");
+            setIsGeneratingPdf(false);
         }
     };
 
@@ -291,7 +291,7 @@ const RefuelingPage = ({
                                             <div>
                                                 <div className="font-bold text-gray-900 text-lg">#{String(order.authNumber).padStart(6, '0')}</div>
                                                 <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno} - {vehicle?.placa}</p>
-                                                {/* DATA ADICIONADA AQUI */}
+                                                {/* DATA ADICIONADA */}
                                                 <p className="text-xs text-gray-600 mb-1">{formatDateSafe(order.data || order.date)}</p>
                                                 <p className="text-xs text-gray-500">{order.partnerName}</p>
                                             </div>
@@ -303,7 +303,9 @@ const RefuelingPage = ({
                                                         <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Excluir"><Trash2 size={16}/></button>
                                                     </div>
                                                 </ProtectedComponent>
-                                                <button onClick={() => generateAuthorizationPDF(order)} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF"><Printer size={16}/></button>
+                                                <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} className="p-1.5 bg-white border text-gray-600 rounded hover:bg-gray-50 w-full flex justify-center" title="PDF">
+                                                    {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -361,7 +363,9 @@ const RefuelingPage = ({
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
                                                 <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
-                                                    <button onClick={() => generateAuthorizationPDF(order)} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50"><Printer size={16}/></button>
+                                                    <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
+                                                        {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
+                                                    </button>
                                                     <ProtectedComponent requiredPermission="editor">
                                                         <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-yellow-600 rounded hover:bg-yellow-50"><Edit size={16}/></button>
                                                         <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
@@ -436,8 +440,6 @@ const RefuelingPage = ({
                     apiClient={apiClient}
                     reloadData={reloadData}
                     refuelings={refuelings}
-                    obras={obras}
-                    expenses={expenses}
                 />
             )}
 
