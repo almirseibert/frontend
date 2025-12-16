@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, TrendingDown, TrendingUp, Lock, AlertTriangle, Save } from 'lucide-react';
+import { X, Loader, TrendingDown, TrendingUp, Lock, AlertTriangle } from 'lucide-react';
 
 const ConfirmRefuelingModal = ({ 
     user, 
@@ -181,7 +181,22 @@ const ConfirmRefuelingModal = ({
     const handleConfirmClick = (e) => {
         e.preventDefault();
         
-        // 1. Verifica Bloqueio de Leitura
+        // A. Validação de Duplicidade de NF (Cliente-side para feedback rápido)
+        if (invoiceNumber && order.partnerId) {
+            const nfStr = invoiceNumber.toString().trim();
+            const isDuplicate = refuelings.some(r => 
+                r.partnerId === order.partnerId && 
+                r.invoiceNumber === nfStr && 
+                r.id !== order.id
+            );
+
+            if (isDuplicate) {
+                setAlertMessage(`A Nota Fiscal ${nfStr} já consta lançada para este posto. Verifique se não é um lançamento duplicado.`);
+                return;
+            }
+        }
+
+        // B. Validação Bloqueio de Leitura
         if (blockReason) {
             setShowPasswordModal(true);
             return;
