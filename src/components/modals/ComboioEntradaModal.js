@@ -24,7 +24,6 @@ const ComboioEntradaModal = ({
         date: new Date().toISOString().split('T')[0],
         fuelType: '',
         employeeId: '',
-        // Obra removida daqui
         invoiceNumber: '', 
         pricePerLiter: ''  
     });
@@ -111,12 +110,13 @@ const ComboioEntradaModal = ({
 
         const liters = parseFloat(formData.liters);
         
+        // CORREÇÃO DO ERRO 500: Passando null explicitamente para campos opcionais removidos (obraId)
         const payload = {
             id: isEditing ? transactionData.id : undefined,
             comboioVehicleId: comboioVehicle.id,
             partnerId: formData.partnerId,
             employeeId: formData.employeeId,
-            // Obra removida
+            obraId: null, // Fix: Envia NULL explicitamente
             liters: liters,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             fuelType: formData.fuelType,
@@ -146,7 +146,6 @@ const ComboioEntradaModal = ({
                 const partner = partners.find(p => p.id === formData.partnerId);
                 const pdfData = {
                     ...payload,
-                    // authNumber: 'ENTRADA', // Ou algum contador se tiver
                     authNumber: response.refuelingOrder?.authNumber || 0,
                     litrosAbastecidos: liters,
                     partnerName: partner?.razaoSocial || 'N/A',
@@ -154,7 +153,6 @@ const ComboioEntradaModal = ({
                     createdBy: { userEmail: user.email },
                     isEntrada: true // Flag para o gerador saber que é entrada
                 };
-                // Passa arrays vazios/nulos onde não aplica
                 generateAuthorizationPDF(pdfData, [comboioVehicle], partners, employees, {});
             }
 
@@ -235,8 +233,6 @@ const ComboioEntradaModal = ({
                                 {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                             </select>
                         </div>
-
-                        {/* CAMPO OBRA REMOVIDO */}
 
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Data *</label>

@@ -15,7 +15,7 @@ const ComboioSaidaModal = ({
     apiClient, 
     extraObraOptions = [], 
     vehicleGroups = {}, 
-    // generateAuthorizationPDF removido (não deve gerar PDF)
+    // generateAuthorizationPDF removido (não deve gerar PDF na saída)
     reloadData,
     PasswordConfirmationModal 
 }) => {
@@ -83,7 +83,6 @@ const ComboioSaidaModal = ({
                 employeeId: prev.employeeId || autoEmployee
             }));
 
-            // Verificações básicas de documentos (simplificado aqui, foco no controller)
             const issues = [];
             if(selectedVehicle.naoPodeCircular) issues.push({ type: 'bloqueio', message: "Veículo marcado como NÃO PODE CIRCULAR" });
             setVehicleIssues(issues);
@@ -148,7 +147,6 @@ const ComboioSaidaModal = ({
         // 1. Definição do Tipo
         const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(selectedVehicle.tipo));
         const isKmVehicle = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
-        // Todo o resto usa horas (Caminhões, Máquinas, etc)
         const isHourVehicle = !isKmVehicle; 
 
         // 2. Validação KM
