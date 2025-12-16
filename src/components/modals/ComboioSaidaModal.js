@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X, AlertTriangle, AlertOctagon, TrendingUp, Lock } from 'lucide-react';
-import { checkReadingConsistency, checkVehicleRestrictions, getAllowedReadingTypes } from '../../utils/vehicleRules';
+import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const ComboioSaidaModal = ({ 
     user, 
     comboioVehicle, 
-    transactionData = null, // Prop para edição
+    transactionData = null, 
     vehicles = [], 
     obras = [], 
     employees = [], 
@@ -15,13 +15,12 @@ const ComboioSaidaModal = ({
     apiClient, 
     extraObraOptions = [], 
     vehicleGroups = {}, 
-    generateAuthorizationPDF, 
+    // generateAuthorizationPDF removido (não deve gerar PDF)
     reloadData,
     PasswordConfirmationModal 
 }) => {
     const isEditing = !!transactionData;
 
-    // --- ESTADOS ---
     const [formData, setFormData] = useState({
         receivingVehicleId: '',
         obraId: '',
@@ -37,19 +36,17 @@ const ComboioSaidaModal = ({
     
     const [isSaving, setIsSaving] = useState(false);
     const [vehicleIssues, setVehicleIssues] = useState([]);
-    const [blockReason, setBlockReason] = useState(null); // Motivo do bloqueio
+    const [blockReason, setBlockReason] = useState(null); 
     const [pendingSubmission, setPendingSubmission] = useState(null);
-    const [passwordAction, setPasswordAction] = useState(null); // 'blockOverride' ou 'budgetOverride'
+    const [passwordAction, setPasswordAction] = useState(null); 
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [obraStatus, setObraStatus] = useState(null);
 
-    // --- MEMOIZAÇÃO DE LISTAS (Regra 5: Ordem Alfabética) ---
     const availableMachines = useMemo(() => vehicles.filter(v => !v.isComboioVehicle && v.id !== comboioVehicle?.id).sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles, comboioVehicle]);
     const sortedObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => employees.sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.receivingVehicleId), [formData.receivingVehicleId, vehicles]);
 
-    // --- EFEITO DE CARREGAMENTO PARA EDIÇÃO ---
     useEffect(() => {
         if (isEditing && transactionData) {
             setFormData({
@@ -67,7 +64,6 @@ const ComboioSaidaModal = ({
         }
     }, [isEditing, transactionData]);
 
-    // --- AUTO-PREENCHIMENTO (Regra 8) ---
     useEffect(() => {
         if (!isEditing && selectedVehicle) {
             let autoObra = selectedVehicle.obraAtualId || '';
@@ -87,8 +83,9 @@ const ComboioSaidaModal = ({
                 employeeId: prev.employeeId || autoEmployee
             }));
 
-            // Regra 4: Avisos
-            const issues = checkVehicleRestrictions(selectedVehicle, []); 
+            // Verificações básicas de documentos (simplificado aqui, foco no controller)
+            const issues = [];
+            if(selectedVehicle.naoPodeCircular) issues.push({ type: 'bloqueio', message: "Veículo marcado como NÃO PODE CIRCULAR" });
             setVehicleIssues(issues);
             setBlockReason(null);
         } else if (!selectedVehicle && !isEditing) {
@@ -97,7 +94,6 @@ const ComboioSaidaModal = ({
         }
     }, [selectedVehicle, isEditing]);
 
-    // --- PROGRESSO DA OBRA (Regra 6) ---
     useEffect(() => {
         if (formData.obraId) {
             const obra = obras.find(o => o.id === formData.obraId);
@@ -109,11 +105,7 @@ const ComboioSaidaModal = ({
                 const valorContrato = parseFloat(obra.valorTotalContrato || 0);
                 const percentual = valorContrato > 0 ? (totalGasto / valorContrato) * 100 : 0;
 
-                setObraStatus({
-                    totalGasto,
-                    valorContrato,
-                    percentual
-                });
+                setObraStatus({ totalGasto, valorContrato, percentual });
             } else {
                 setObraStatus(null);
             }
@@ -122,7 +114,6 @@ const ComboioSaidaModal = ({
         }
     }, [formData.obraId, obras, expenses]);
 
-    // --- CÁLCULO DE ORÇAMENTO ---
     const checkBudgetLimit = (obraId, costToAdd) => {
         const obra = obras.find(o => o.id === obraId);
         if (!obra || !obra.valorTotalContrato || parseFloat(obra.valorTotalContrato) <= 0) return null;
@@ -136,9 +127,6 @@ const ComboioSaidaModal = ({
 
         if (newTotal >= limit) {
             return {
-                current: currentExpenses,
-                limit: limit,
-                total: obra.valorTotalContrato,
                 message: `ORÇAMENTO EXCEDIDO: O custo ultrapassa 20% do contrato.`
             };
         }
@@ -151,32 +139,49 @@ const ComboioSaidaModal = ({
         setBlockReason(null); 
     };
 
-    // --- VALIDAÇÃO RIGOROSA EM TEMPO REAL (Para exibir o bloqueio visualmente) ---
+    // --- VALIDAÇÃO RIGOROSA EM TEMPO REAL (Km e Horas) ---
     useEffect(() => {
         if (!selectedVehicle || isEditing) return;
         
-        const allowedReadings = getAllowedReadingTypes(selectedVehicle.tipo);
-        let validation = null;
+        let reason = null;
+        
+        // 1. Definição do Tipo
+        const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(selectedVehicle.tipo));
+        const isKmVehicle = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
+        // Todo o resto usa horas (Caminhões, Máquinas, etc)
+        const isHourVehicle = !isKmVehicle; 
 
-        if (allowedReadings.includes('odometro') && formData.odometro) {
-            validation = checkReadingConsistency(selectedVehicle, formData.odometro, 'odometro');
-        } else if (allowedReadings.includes('horimetro')) {
-            // Verifica qual campo tem valor
-            const val = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
-            if (val) {
-                // Determina o tipo para o validador
-                const type = formData.horimetroDigital ? 'horimetroDigital' : (formData.horimetroAnalogico ? 'horimetroAnalogico' : 'horimetro');
-                validation = checkReadingConsistency(selectedVehicle, val, type);
+        // 2. Validação KM
+        if (isKmVehicle && formData.odometro) {
+            const current = parseFloat(formData.odometro);
+            const last = parseFloat(selectedVehicle.odometro || 0);
+            
+            if (!isNaN(current) && last > 0) {
+                if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual (${last}).`;
+                else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
             }
         }
 
-        if (validation && validation.status === 'bloqueio') {
-            setBlockReason(validation.message);
-        } else {
-            setBlockReason(null);
+        // 3. Validação HORAS
+        if (isHourVehicle) {
+            const currentStr = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
+            if (currentStr) {
+                const current = parseFloat(currentStr);
+                // Prioriza: Digital > Geral > Analógico (para obter o último valor)
+                let last = parseFloat(selectedVehicle.horimetroDigital || 0);
+                if (last === 0) last = parseFloat(selectedVehicle.horimetro || 0);
+                if (last === 0) last = parseFloat(selectedVehicle.horimetroAnalogico || 0);
+
+                if (!isNaN(current) && last > 0) {
+                    if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
+                    else if (current - last > 50) reason = `Salto excessivo de Horas (> 50h).`;
+                }
+            }
         }
 
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, selectedVehicle, isEditing]);
+        setBlockReason(reason);
+
+    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, selectedVehicle, isEditing, vehicleGroups]);
 
 
     const handleSubmit = async (e) => {
@@ -196,7 +201,7 @@ const ComboioSaidaModal = ({
             }
         }
 
-        // 1. Bloqueio de Leitura (Regras 2 e 3)
+        // 1. Bloqueio de Leitura (Senha necessária)
         if (blockReason && !isEditing) {
             setPendingSubmission(formData);
             setPasswordAction('blockOverride');
@@ -204,13 +209,13 @@ const ComboioSaidaModal = ({
             return;
         }
 
-        // 2. Bloqueio de Orçamento (Regra 6 e 10)
+        // 2. Bloqueio de Orçamento
         if (!isEditing) { 
-            const estimatedCost = liters * 6.50; // Estimativa
+            const estimatedCost = liters * 6.50; 
             const budgetCheck = checkBudgetLimit(formData.obraId, estimatedCost);
             
             if (budgetCheck) {
-                setBlockReason(budgetCheck.message); // Reusa o estado visual
+                setBlockReason(budgetCheck.message); 
                 setPendingSubmission(formData);
                 setPasswordAction('budgetOverride');
                 setShowPasswordModal(true);
@@ -243,28 +248,15 @@ const ComboioSaidaModal = ({
                 }
             };
 
-            let response;
             if (isEditing) {
-                response = await apiClient.updateComboioTransaction(transactionData.id, payload);
+                await apiClient.updateComboioTransaction(transactionData.id, payload);
                 setAlertMessage("Abastecimento atualizado com sucesso!");
             } else {
-                response = await apiClient.createComboioSaida(payload);
+                await apiClient.createComboioSaida(payload);
                 setAlertMessage("Abastecimento registrado com sucesso!");
             }
             
-            if (!isEditing) {
-                const pdfData = {
-                    ...payload,
-                    authNumber: response.refuelingOrder?.authNumber || 'N/A',
-                    litrosAbastecidos: payload.liters,
-                    partnerName: `Comboio ${comboioVehicle.registroInterno}`,
-                    vehicleId: data.receivingVehicleId,
-                    createdBy: { userEmail: user.email },
-                    odometroSaida: payload.odometro,
-                    horimetroSaida: payload.horimetro || payload.horimetroDigital
-                };
-                generateAuthorizationPDF(pdfData, vehicles, [], employees, vehicleGroups);
-            }
+            // NÃO GERA PDF AQUI (Conforme solicitado)
 
             reloadData();
             onClose();
@@ -326,7 +318,7 @@ const ComboioSaidaModal = ({
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[95vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Distribuição' : 'Distribuição (Abastecer Veículo)'}</h2>
+                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Distribuição' : 'Distribuição (Saída)'}</h2>
                     <button onClick={onClose} disabled={isSaving}><X size={20}/></button>
                 </div>
 
@@ -339,7 +331,6 @@ const ComboioSaidaModal = ({
                         </div>
                     )}
                     
-                    {/* Painel de Status da Obra */}
                     {obraStatus && (
                         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-xs">
                             <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
@@ -386,8 +377,9 @@ const ComboioSaidaModal = ({
                             </select>
                         </div>
 
+                        {/* OBRA MANTIDA AQUI (Obrigatório) */}
                         <div className="md:col-span-2">
-                            <label className="block font-medium mb-1">Obra *</label>
+                            <label className="block font-medium mb-1">Obra (Centro de Custo) *</label>
                             <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border rounded" required>
                                 <option value="">Selecione...</option>
                                 {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}

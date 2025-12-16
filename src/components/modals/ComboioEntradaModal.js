@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader, X, AlertTriangle } from 'lucide-react';
+import { Loader, X, AlertTriangle, FileText } from 'lucide-react';
 
 const ComboioEntradaModal = ({ 
     user, 
@@ -14,7 +14,7 @@ const ComboioEntradaModal = ({
     obras = [], 
     extraObraOptions = [], 
     reloadData,
-    comboioTransactions = [] // Necessário para validar duplicidade de NF no front
+    comboioTransactions = [] 
 }) => {
     const isEditing = !!transactionData;
 
@@ -24,9 +24,9 @@ const ComboioEntradaModal = ({
         date: new Date().toISOString().split('T')[0],
         fuelType: '',
         employeeId: '',
-        obraId: '',
-        invoiceNumber: '', // Novo
-        pricePerLiter: ''  // Novo
+        // Obra removida daqui
+        invoiceNumber: '', 
+        pricePerLiter: ''  
     });
     
     const [initialPartnerPrice, setInitialPartnerPrice] = useState(0);
@@ -42,14 +42,13 @@ const ComboioEntradaModal = ({
                 date: transactionData.date ? new Date(transactionData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
                 fuelType: transactionData.fuelType || '',
                 employeeId: transactionData.employeeId || '',
-                obraId: transactionData.obraId || '',
                 invoiceNumber: transactionData.invoiceNumber || '',
-                pricePerLiter: '' // Não temos histórico fácil, deixa vazio ou carrega média
+                pricePerLiter: '' 
             });
         }
     }, [isEditing, transactionData]);
 
-    // Atualiza preço sugerido quando muda Posto ou Combustível
+    // Atualiza preço sugerido
     useEffect(() => {
         if (formData.partnerId && formData.fuelType) {
             const partner = partners.find(p => p.id === formData.partnerId);
@@ -57,7 +56,6 @@ const ComboioEntradaModal = ({
                 const price = parseFloat(partner.fuel_prices[formData.fuelType] || 0);
                 if (price > 0) {
                     setInitialPartnerPrice(price);
-                    // Só preenche se não estiver editando ou se o campo estiver vazio
                     if (!isEditing && !formData.pricePerLiter) {
                         setFormData(prev => ({ ...prev, pricePerLiter: price.toString() }));
                     }
@@ -66,8 +64,6 @@ const ComboioEntradaModal = ({
         }
     }, [formData.partnerId, formData.fuelType, partners, isEditing]);
 
-    // Ordenação
-    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
 
@@ -76,8 +72,7 @@ const ComboioEntradaModal = ({
     const handlePreSubmit = async (e) => {
         e.preventDefault();
         
-        // 1. Validação Básica
-        if (!formData.partnerId || !formData.liters || !formData.fuelType || !formData.employeeId || !formData.obraId) {
+        if (!formData.partnerId || !formData.liters || !formData.fuelType || !formData.employeeId) {
             setAlertMessage("Preencha todos os campos obrigatórios (*).");
             return;
         }
@@ -88,7 +83,6 @@ const ComboioEntradaModal = ({
             return;
         }
 
-        // 2. Validação Duplicidade de NF (Frontend)
         if (formData.invoiceNumber) {
             const isDuplicate = comboioTransactions.some(t => 
                 t.type === 'entrada' &&
@@ -103,7 +97,6 @@ const ComboioEntradaModal = ({
             }
         }
 
-        // 3. Verificação de Preço
         const inputPrice = parseFloat(formData.pricePerLiter);
         if (initialPartnerPrice > 0 && inputPrice > 0 && Math.abs(inputPrice - initialPartnerPrice) > 0.01) {
             setShowPriceUpdateDialog(true);
@@ -123,7 +116,7 @@ const ComboioEntradaModal = ({
             comboioVehicleId: comboioVehicle.id,
             partnerId: formData.partnerId,
             employeeId: formData.employeeId,
-            obraId: formData.obraId,
+            // Obra removida
             liters: liters,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             fuelType: formData.fuelType,
@@ -148,16 +141,20 @@ const ComboioEntradaModal = ({
                 setAlertMessage("Entrada registrada com sucesso!");
             }
             
+            // GERA PDF AUTOMÁTICO (Entrada)
             if (!isEditing) {
                 const partner = partners.find(p => p.id === formData.partnerId);
                 const pdfData = {
                     ...payload,
-                    authNumber: response.refuelingOrder?.authNumber || 'N/A',
+                    // authNumber: 'ENTRADA', // Ou algum contador se tiver
+                    authNumber: response.refuelingOrder?.authNumber || 0,
                     litrosAbastecidos: liters,
                     partnerName: partner?.razaoSocial || 'N/A',
-                    vehicleId: comboioVehicle.id,
-                    createdBy: { userEmail: user.email }
+                    vehicleId: comboioVehicle.id, // O "Veículo" aqui é o próprio comboio
+                    createdBy: { userEmail: user.email },
+                    isEntrada: true // Flag para o gerador saber que é entrada
                 };
+                // Passa arrays vazios/nulos onde não aplica
                 generateAuthorizationPDF(pdfData, [comboioVehicle], partners, employees, {});
             }
 
@@ -193,7 +190,6 @@ const ComboioEntradaModal = ({
                             </select>
                         </div>
 
-                        {/* Linha de NF e Preço */}
                         <div>
                             <label className="block font-medium mb-1">Nota Fiscal (NF)</label>
                             <input 
@@ -240,14 +236,7 @@ const ComboioEntradaModal = ({
                             </select>
                         </div>
 
-                        <div>
-                            <label className="block font-medium mb-1">Obra (Custo) *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                {extraObraOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                        </div>
+                        {/* CAMPO OBRA REMOVIDO */}
 
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Data *</label>
@@ -259,11 +248,10 @@ const ComboioEntradaModal = ({
                 <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg">
                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
                     <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-yellow-500 flex items-center gap-2">
-                        {isSaving && <Loader className="animate-spin" size={16}/>} {isEditing ? 'Salvar Alterações' : 'Registrar Entrada'}
+                        {isSaving ? <Loader className="animate-spin" size={16}/> : <FileText size={16}/>} {isEditing ? 'Salvar' : 'Salvar & PDF'}
                     </button>
                 </div>
 
-                {/* --- DIALOG DE ATUALIZAÇÃO DE PREÇO --- */}
                 {showPriceUpdateDialog && (
                     <div className="absolute inset-0 bg-white bg-opacity-95 z-20 flex flex-col items-center justify-center p-6 text-center animate-fadeIn">
                         <div className="bg-yellow-100 p-3 rounded-full mb-3 text-yellow-600">

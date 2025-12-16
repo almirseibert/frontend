@@ -10,7 +10,7 @@ import ComboioDrenagemModal from '../components/modals/ComboioDrenagemModal';
 
 import ProtectedComponent from '../components/ProtectedComponent';
 
-// --- FUNÇÃO DE GERAÇÃO DE PDF (Atualizada com NF) ---
+// --- FUNÇÃO DE GERAÇÃO DE PDF (Atualizada com NF e Entrada) ---
 const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], employees = [], vehicleGroups = {}) => {
     // Constrói o PDF usando jsPDF e autoTable
     const buildPdf = (logoDataUrl) => {
@@ -18,9 +18,9 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
         const pageWidth = doc.internal.pageSize.getWidth();
         const margin = 10;
 
-        // Busca os dados completos baseados nos IDs
-        const vehicle = vehicles.find(v => v.id === orderData.vehicleId); // Veículo que RECEBEU
-        const partner = partners.find(p => p.id === orderData.partnerId); // Posto (se for entrada)
+        // Se for entrada, o vehicleId aponta para o comboio
+        const vehicle = vehicles.find(v => v.id === orderData.vehicleId); 
+        const partner = partners.find(p => p.id === orderData.partnerId); 
         const employee = employees.find(e => e.id === orderData.employeeId);
         
         // Usa a data passada em orderData
@@ -37,44 +37,53 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
             }
         }
 
-        // Cabeçalho do PDF
+        // Título dinâmico
         doc.setFontSize(16);
-        doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
+        const title = orderData.isEntrada ? 'Autorização de Abastecimento - Entrada' : 'Autorização de Abastecimento';
+        doc.text(title, pageWidth - margin, 15, { align: 'right' });
         doc.setFontSize(12);
         doc.text(`Nº: ${String(orderData.authNumber || 'N/A').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
 
-        // Determina a etiqueta e valor da leitura
-        let leituraLabel = 'Odômetro';
-        let leituraValue = orderData.odometro || orderData.odometroSaida || 'N/A';
-        
-        if (vehicle && vehicleGroups && Object.keys(vehicleGroups).length > 0) {
-            const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
-            if (vehicleGroup === 'Máquinas Pesadas') {
-                leituraLabel = 'Horímetro';
-                // Usa os valores específicos passados em orderData ou fallbacks
-                leituraValue = orderData.horimetroDigitalSaida ?? orderData.horimetroAnalogicoSaida ?? orderData.horimetroSaida ?? orderData.horimetro ?? 'N/A';
-            } else if (vehicleGroup === 'Caminhões') {
-                if (orderData.horimetroSaida != null || orderData.horimetro != null) {
+        // Determina a etiqueta e valor da leitura (apenas se não for entrada)
+        let leituraRow = [];
+        if (!orderData.isEntrada) {
+            let leituraLabel = 'Odômetro';
+            let leituraValue = orderData.odometro || orderData.odometroSaida || 'N/A';
+            
+            if (vehicle && vehicleGroups && Object.keys(vehicleGroups).length > 0) {
+                const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
+                if (vehicleGroup === 'Máquinas Pesadas') {
                     leituraLabel = 'Horímetro';
-                    leituraValue = orderData.horimetroSaida ?? orderData.horimetro ?? 'N/A';
-                } else {
-                    leituraLabel = 'Odômetro';
-                    leituraValue = orderData.odometroSaida ?? orderData.odometro ?? 'N/A';
+                    leituraValue = orderData.horimetroDigitalSaida ?? orderData.horimetroAnalogicoSaida ?? orderData.horimetroSaida ?? orderData.horimetro ?? 'N/A';
+                } else if (vehicleGroup === 'Caminhões') {
+                    if (orderData.horimetroSaida != null || orderData.horimetro != null) {
+                        leituraLabel = 'Horímetro';
+                        leituraValue = orderData.horimetroSaida ?? orderData.horimetro ?? 'N/A';
+                    } else {
+                        leituraLabel = 'Odômetro';
+                        leituraValue = orderData.odometroSaida ?? orderData.odometro ?? 'N/A';
+                    }
                 }
             }
+            leituraRow = [leituraLabel, `${leituraValue}`];
         }
 
         // Corpo da tabela do PDF
         const body = [
             ['Data de Emissão', transactionDate.toLocaleString('pt-BR')],
             ['Funcionário Responsável', employee?.nome || 'Não especificado'],
-            ['Veículo Abastecido', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+            [orderData.isEntrada ? 'Veículo Comboio' : 'Veículo Abastecido', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
             ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
-            [leituraLabel, `${leituraValue}`],
-            ['Origem do Combustível', orderData.partnerName || partner?.razaoSocial || 'N/A'],
-            ['Combustível', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A'],
-            ['Litros', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`],
         ];
+
+        // Adiciona leitura se não for entrada
+        if (!orderData.isEntrada && leituraRow.length > 0) {
+            body.push(leituraRow);
+        }
+
+        body.push(['Origem do Combustível', orderData.partnerName || partner?.razaoSocial || 'N/A']);
+        body.push(['Combustível', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A']);
+        body.push(['Litros', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`]);
 
         // Se tiver NF, adiciona
         if (orderData.invoiceNumber) {
@@ -96,8 +105,9 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
             }
         });
 
+        // Salva automaticamente (sem abrir nova janela)
         const fileName = `Autorizacao_${orderData.authNumber || 'TEMP'}_${vehicle?.registroInterno || 'VEIC'}_${transactionDate.toISOString().split('T')[0]}.pdf`;
-        doc.output('dataurlnewwindow', { filename: fileName });
+        doc.save(fileName);
     };
 
     const logo = new Image();
