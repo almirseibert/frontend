@@ -35,7 +35,7 @@ const FilterSection = ({ children }) => (
 );
 
 // ===================================================================================
-// 1. GERADOR DE RELATÓRIO DE VEÍCULOS (Padrão Ouro)
+// 1. GERADOR DE RELATÓRIO DE VEÍCULOS
 // ===================================================================================
 const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
     const [filters, setFilters] = useState({ type: '', obraId: '', status: '', group: '' });
@@ -206,7 +206,7 @@ const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} 
 };
 
 // ===================================================================================
-// 2. GERADOR DE RELATÓRIO DE FUNCIONÁRIOS (Padrão Ouro)
+// 2. GERADOR DE RELATÓRIO DE FUNCIONÁRIOS
 // ===================================================================================
 const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fines = [] }) => {
     const [filters, setFilters] = useState({ cidade: '', funcao: '', status: 'ativo', obraId: '' });
@@ -361,7 +361,7 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
 };
 
 // ===================================================================================
-// 3. GERADOR DE RELATÓRIO DE ALERTAS (Padrão Ouro)
+// 3. GERADOR DE RELATÓRIO DE ALERTAS
 // ===================================================================================
 const AlertsReportGenerator = ({ vehicles, employees }) => {
     const [filterType, setFilterType] = useState('Todos');
@@ -485,7 +485,7 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
 };
 
 // ===================================================================================
-// 4. RELATÓRIO DE FATURAMENTO (Padrão Ouro)
+// 4. RELATÓRIO DE FATURAMENTO
 // ===================================================================================
 const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
@@ -575,7 +575,7 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
 };
 
 // ===================================================================================
-// 5. RELATÓRIO DE PLANO DE TRABALHO (Restaurado com Lógica Original)
+// 5. RELATÓRIO DE PLANO DE TRABALHO
 // ===================================================================================
 const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = [], equipmentTypesForHours = [] }) => {
     // --- ESTADO LOCAL ---
@@ -594,7 +594,7 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
         setPdfWorkplanSelectedObras([]);
     }, [pdfWorkplanFilterStatus]);
 
-    // --- FUNÇÃO DE EXPORTAÇÃO (LÓGICA ORIGINAL RESTAURADA) ---
+    // --- FUNÇÃO DE EXPORTAÇÃO (LÓGICA ORIGINAL) ---
     const exportWorkplanToPDF = () => {
         const doc = new jsPDF();
         
@@ -717,7 +717,7 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
                     footStyles: { fontStyle: 'bold', fillColor: [105, 105, 105] }
                 });
 
-                let finalY = (doc).lastAutoTable.finalY + 10;
+                let finalY = doc.lastAutoTable.finalY + 10;
                 const percentualConcluido = progressData.totalContratado > 0 ? ((progressData.totalConcluido / progressData.totalContratado) * 100).toFixed(2) : 0;
                 doc.setFontSize(12);
                 doc.setFont('helvetica', 'bold');
@@ -799,7 +799,7 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
                         theme: 'striped', 
                         headStyles: { fillColor: [60, 179, 113] } 
                     });
-                    finalY = (doc).lastAutoTable.finalY + 15;
+                    finalY = doc.lastAutoTable.finalY + 15;
                 } else {
                     doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Nenhum veículo alocado nesta obra.', 14, finalY); finalY += 15;
                 }
