@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader, X } from 'lucide-react';
+import { Loader, X, AlertTriangle } from 'lucide-react';
 
 const ComboioEntradaModal = ({ 
     user, 
     comboioVehicle, 
-    transactionData = null, // Se existir, é modo edição
+    transactionData = null, 
     partners = [], 
     employees = [], 
     onClose, 
@@ -13,7 +13,8 @@ const ComboioEntradaModal = ({
     generateAuthorizationPDF, 
     obras = [], 
     extraObraOptions = [], 
-    reloadData 
+    reloadData,
+    comboioTransactions = [] // Necessário para validar duplicidade de NF no front
 }) => {
     const isEditing = !!transactionData;
 
@@ -24,8 +25,13 @@ const ComboioEntradaModal = ({
         fuelType: '',
         employeeId: '',
         obraId: '',
+        invoiceNumber: '', // Novo
+        pricePerLiter: ''  // Novo
     });
+    
+    const [initialPartnerPrice, setInitialPartnerPrice] = useState(0);
     const [isSaving, setIsSaving] = useState(false);
+    const [showPriceUpdateDialog, setShowPriceUpdateDialog] = useState(false);
 
     // Carrega dados se for edição
     useEffect(() => {
@@ -37,19 +43,40 @@ const ComboioEntradaModal = ({
                 fuelType: transactionData.fuelType || '',
                 employeeId: transactionData.employeeId || '',
                 obraId: transactionData.obraId || '',
+                invoiceNumber: transactionData.invoiceNumber || '',
+                pricePerLiter: '' // Não temos histórico fácil, deixa vazio ou carrega média
             });
         }
     }, [isEditing, transactionData]);
 
-    // Ordenação (Regra 5: Ordem Alfabética)
+    // Atualiza preço sugerido quando muda Posto ou Combustível
+    useEffect(() => {
+        if (formData.partnerId && formData.fuelType) {
+            const partner = partners.find(p => p.id === formData.partnerId);
+            if (partner && partner.fuel_prices) {
+                const price = parseFloat(partner.fuel_prices[formData.fuelType] || 0);
+                if (price > 0) {
+                    setInitialPartnerPrice(price);
+                    // Só preenche se não estiver editando ou se o campo estiver vazio
+                    if (!isEditing && !formData.pricePerLiter) {
+                        setFormData(prev => ({ ...prev, pricePerLiter: price.toString() }));
+                    }
+                }
+            }
+        }
+    }, [formData.partnerId, formData.fuelType, partners, isEditing]);
+
+    // Ordenação
     const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
 
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
-    const handleSubmit = async (e) => {
+    const handlePreSubmit = async (e) => {
         e.preventDefault();
+        
+        // 1. Validação Básica
         if (!formData.partnerId || !formData.liters || !formData.fuelType || !formData.employeeId || !formData.obraId) {
             setAlertMessage("Preencha todos os campos obrigatórios (*).");
             return;
@@ -61,8 +88,36 @@ const ComboioEntradaModal = ({
             return;
         }
 
+        // 2. Validação Duplicidade de NF (Frontend)
+        if (formData.invoiceNumber) {
+            const isDuplicate = comboioTransactions.some(t => 
+                t.type === 'entrada' &&
+                t.partnerId === formData.partnerId &&
+                t.invoiceNumber === formData.invoiceNumber &&
+                t.id !== transactionData?.id
+            );
+            
+            if (isDuplicate) {
+                setAlertMessage(`A Nota Fiscal ${formData.invoiceNumber} já consta lançada para este posto.`);
+                return;
+            }
+        }
+
+        // 3. Verificação de Preço
+        const inputPrice = parseFloat(formData.pricePerLiter);
+        if (initialPartnerPrice > 0 && inputPrice > 0 && Math.abs(inputPrice - initialPartnerPrice) > 0.01) {
+            setShowPriceUpdateDialog(true);
+        } else {
+            executeSubmit(false);
+        }
+    };
+
+    const executeSubmit = async (updatePartnerPrice) => {
+        setShowPriceUpdateDialog(false);
         setIsSaving(true);
 
+        const liters = parseFloat(formData.liters);
+        
         const payload = {
             id: isEditing ? transactionData.id : undefined,
             comboioVehicleId: comboioVehicle.id,
@@ -72,8 +127,11 @@ const ComboioEntradaModal = ({
             liters: liters,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             fuelType: formData.fuelType,
-            odometro: null, // Removido conforme solicitado
-            horimetro: null, // Removido conforme solicitado
+            odometro: null, 
+            horimetro: null, 
+            invoiceNumber: formData.invoiceNumber || null,
+            pricePerLiter: parseFloat(formData.pricePerLiter) || 0,
+            updatePartnerPrice: updatePartnerPrice,
             createdBy: {
                 userId: user.id || user.uid,
                 userEmail: user.email || 'sistema@frotasmak.com'
@@ -100,7 +158,6 @@ const ComboioEntradaModal = ({
                     vehicleId: comboioVehicle.id,
                     createdBy: { userEmail: user.email }
                 };
-                // Passa arrays vazios para evitar busca de leituras que não existem neste modal
                 generateAuthorizationPDF(pdfData, [comboioVehicle], partners, employees, {});
             }
 
@@ -116,16 +173,16 @@ const ComboioEntradaModal = ({
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[95vh] flex flex-col">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[95vh] flex flex-col relative overflow-hidden">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Entrada' : 'Entrada de Combustível (Abastecer Comboio)'}</h2>
+                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Entrada' : 'Entrada de Combustível'}</h2>
                     <button onClick={onClose} disabled={isSaving}><X size={20}/></button>
                 </div>
                 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6">
+                <form onSubmit={handlePreSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div className="md:col-span-2 p-3 bg-blue-50 border border-blue-100 rounded text-blue-800">
-                            Veículo Comboio: <strong>{comboioVehicle?.registroInterno} - {comboioVehicle?.modelo}</strong>
+                        <div className="md:col-span-2 p-3 bg-blue-50 border border-blue-100 rounded text-blue-800 mb-2">
+                            Comboio: <strong>{comboioVehicle?.registroInterno} - {comboioVehicle?.modelo}</strong>
                         </div>
 
                         <div className="md:col-span-2">
@@ -136,21 +193,29 @@ const ComboioEntradaModal = ({
                             </select>
                         </div>
 
+                        {/* Linha de NF e Preço */}
                         <div>
-                            <label className="block font-medium mb-1">Funcionário Responsável *</label>
-                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                            </select>
+                            <label className="block font-medium mb-1">Nota Fiscal (NF)</label>
+                            <input 
+                                name="invoiceNumber" 
+                                type="text" 
+                                value={formData.invoiceNumber} 
+                                onChange={handleChange} 
+                                className="w-full p-2 border rounded font-bold uppercase" 
+                                placeholder="Nº NF"
+                            />
                         </div>
-
                         <div>
-                            <label className="block font-medium mb-1">Obra (Centro de Custo) *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                {extraObraOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
+                            <label className="block font-medium mb-1">Preço Litro (R$)</label>
+                            <input 
+                                name="pricePerLiter" 
+                                type="number" 
+                                step="0.001" 
+                                value={formData.pricePerLiter} 
+                                onChange={handleChange} 
+                                className={`w-full p-2 border rounded ${initialPartnerPrice > 0 && parseFloat(formData.pricePerLiter) !== initialPartnerPrice ? 'bg-yellow-50 border-yellow-300' : ''}`} 
+                                placeholder="0.000"
+                            />
                         </div>
 
                         <div>
@@ -167,6 +232,23 @@ const ComboioEntradaModal = ({
                             <input name="liters" type="number" step="0.01" value={formData.liters} onChange={handleChange} className="w-full p-2 border rounded" required />
                         </div>
 
+                        <div>
+                            <label className="block font-medium mb-1">Funcionário *</label>
+                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2 border rounded" required>
+                                <option value="">Selecione...</option>
+                                {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block font-medium mb-1">Obra (Custo) *</label>
+                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border rounded" required>
+                                <option value="">Selecione...</option>
+                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                                {extraObraOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                        </div>
+
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Data *</label>
                             <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded" required />
@@ -176,10 +258,39 @@ const ComboioEntradaModal = ({
 
                 <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg">
                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
-                    <button onClick={handleSubmit} disabled={isSaving} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-yellow-500 flex items-center gap-2">
-                        {isSaving && <Loader className="animate-spin" size={16}/>} {isEditing ? 'Salvar Alterações' : 'Salvar'}
+                    <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-yellow-500 flex items-center gap-2">
+                        {isSaving && <Loader className="animate-spin" size={16}/>} {isEditing ? 'Salvar Alterações' : 'Registrar Entrada'}
                     </button>
                 </div>
+
+                {/* --- DIALOG DE ATUALIZAÇÃO DE PREÇO --- */}
+                {showPriceUpdateDialog && (
+                    <div className="absolute inset-0 bg-white bg-opacity-95 z-20 flex flex-col items-center justify-center p-6 text-center animate-fadeIn">
+                        <div className="bg-yellow-100 p-3 rounded-full mb-3 text-yellow-600">
+                            <AlertTriangle size={24} />
+                        </div>
+                        <h3 className="text-sm font-bold text-gray-800 mb-2">Valor Diferente do Cadastro</h3>
+                        <p className="text-xs text-gray-600 mb-4">
+                            O valor informado (R$ {parseFloat(formData.pricePerLiter).toFixed(3)}) é diferente do valor atual no cadastro do posto (R$ {initialPartnerPrice.toFixed(3)}).
+                            <br/><br/>
+                            <strong>Deseja atualizar o valor no cadastro do posto?</strong>
+                        </p>
+                        <div className="flex gap-2 w-full">
+                            <button 
+                                onClick={() => executeSubmit(false)}
+                                className="flex-1 py-2 px-3 bg-gray-100 text-gray-700 font-bold rounded text-xs hover:bg-gray-200"
+                            >
+                                Não, manter antigo
+                            </button>
+                            <button 
+                                onClick={() => executeSubmit(true)}
+                                className="flex-1 py-2 px-3 bg-yellow-400 text-gray-900 font-bold rounded text-xs hover:bg-yellow-500 shadow-sm"
+                            >
+                                Sim, atualizar
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

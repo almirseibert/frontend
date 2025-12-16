@@ -10,7 +10,7 @@ import ComboioDrenagemModal from '../components/modals/ComboioDrenagemModal';
 
 import ProtectedComponent from '../components/ProtectedComponent';
 
-// --- FUNÇÃO DE GERAÇÃO DE PDF (Reintegrada) ---
+// --- FUNÇÃO DE GERAÇÃO DE PDF (Atualizada com NF) ---
 const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], employees = [], vehicleGroups = {}) => {
     // Constrói o PDF usando jsPDF e autoTable
     const buildPdf = (logoDataUrl) => {
@@ -76,6 +76,11 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
             ['Litros', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`],
         ];
 
+        // Se tiver NF, adiciona
+        if (orderData.invoiceNumber) {
+            body.push(['Nota Fiscal (NF)', orderData.invoiceNumber]);
+        }
+
         if (orderData.createdBy?.userEmail) {
             body.push(['Emitido por', orderData.createdBy.userEmail]);
         }
@@ -135,7 +140,6 @@ const ComboioPage = ({
     vehicleGroups = {},
     PasswordConfirmationModal,
     reloadData,
-    // generateAuthorizationPDF removido dos props pois agora é interno
 }) => {
     // Estado
     const [selectedComboioId, setSelectedComboioId] = useState(null);
@@ -335,7 +339,7 @@ const ComboioPage = ({
                                         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400"></span> {new Date(t.date).toLocaleString('pt-BR')}</span>
                                         <span className="flex items-center gap-1 font-medium text-gray-600 bg-gray-100 px-1.5 rounded">{t.fuelType === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'}</span>
                                         {t.obraName && <span className="flex items-center gap-1"><MapPin size={10}/> {t.obraName}</span>}
-                                        {t.responsibleUserEmail && <span className="hidden sm:inline">({t.responsibleUserEmail.split('@')[0]})</span>}
+                                        {t.invoiceNumber && <span className="flex items-center gap-1 bg-yellow-50 text-yellow-800 px-1 rounded border border-yellow-100">NF: {t.invoiceNumber}</span>}
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-1 ml-3 pl-3 border-l border-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -387,6 +391,7 @@ const ComboioPage = ({
                     generateAuthorizationPDF={generateAuthorizationPDF}
                     vehicleGroups={vehicleGroups}
                     reloadData={reloadData}
+                    comboioTransactions={comboioTransactions} // Passado para validação de NF
                 />
             )}
 
