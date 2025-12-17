@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText,
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext'; 
@@ -110,6 +110,87 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
     );
 };
 
+// --- Modal de Troca de Senha ---
+const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [message, setMessage] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if(isOpen) {
+            setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setMessage(null);
+        }
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setMessage(null);
+
+        if (newPassword !== confirmPassword) {
+            setMessage({ type: 'error', text: 'As novas senhas não conferem.' });
+            return;
+        }
+        if (newPassword.length < 6) {
+            setMessage({ type: 'error', text: 'A nova senha deve ter no mínimo 6 caracteres.' });
+            return;
+        }
+
+        setLoading(true);
+        try {
+            await apiClient.changePassword({ currentPassword, newPassword });
+            setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
+            setTimeout(() => { onClose(); }, 1500);
+        } catch (error) {
+            setMessage({ type: 'error', text: error.message || 'Erro ao alterar senha.' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
+                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <h2 className="text-lg font-bold text-gray-800">Alterar Senha</h2>
+                    <button onClick={onClose}><X size={20} className="text-gray-400 hover:text-gray-600"/></button>
+                </div>
+                
+                {message && (
+                    <div className={`p-2 mb-3 rounded text-sm text-center ${message.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {message.text}
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="space-y-3">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase">Senha Atual</label>
+                        <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase">Nova Senha</label>
+                        <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase">Confirmar Nova Senha</label>
+                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
+                    </div>
+
+                    <div className="flex justify-end gap-2 mt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm font-bold">Cancelar</button>
+                        <button type="submit" disabled={loading} className="px-4 py-2 bg-yellow-400 text-gray-900 rounded hover:bg-yellow-500 text-sm font-bold disabled:opacity-50">
+                            {loading ? 'Salvando...' : 'Confirmar'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 const UpdateMessageModal = ({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]"> 
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-xl">
@@ -132,7 +213,7 @@ const UpdateMessageModal = ({ message, onClose }) => (
 );
 
 // --- SIDEBAR (Otimizada e Compacta) ---
-const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
+const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     
     const navItems = [
@@ -140,13 +221,13 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
         { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
-        { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} /> },
+        { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} />, dimmed: true },
         { id: 'revisions', label: 'Revisões', icon: <Bell size={16} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
         { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
         { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
         { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
-        { id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/> },
+        { id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/>, dimmed: true },
         { id: 'expenses', label: 'Despesas', icon: <DollarSign size={16} /> },
         { id: 'employees', label: 'Funcionários', icon: <User size={16} /> },
         { id: 'fines', label: 'Multas', icon: <ShieldAlert size={16} /> },
@@ -182,6 +263,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                         if ((item.id === 'refueling' || item.id === 'comboio') && !canAccessRefuelingRelated) return null;
                         
                         const isActive = currentPage === item.id;
+                        const isDimmed = item.dimmed;
 
                         return (
                             <li key={item.id}>
@@ -191,7 +273,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
                                         isActive 
                                         ? 'bg-yellow-500 text-slate-900 shadow-md' 
                                         : 'hover:bg-slate-800 hover:text-white' 
-                                    }`}
+                                    } ${isDimmed && !isActive ? 'opacity-50 hover:opacity-100' : ''}`}
                                     title={isCollapsed ? item.label : ''}
                                 >
                                     <span className={`${isActive ? 'text-slate-900' : 'text-slate-400 group-hover:text-white'}`}>
@@ -226,6 +308,19 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
             
             {/* Footer Sidebar */}
             <div className="p-2 border-t border-slate-700 bg-slate-950 shrink-0">
+                <div className={`mb-2 px-2 flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
+                    <div className="w-6 h-6 rounded-full bg-yellow-500 text-slate-900 flex items-center justify-center font-bold text-xs">
+                        {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                    </div>
+                    {!isCollapsed && (
+                         <div className="ml-2 overflow-hidden">
+                             <p className="text-xs text-white truncate font-medium">{user.name}</p>
+                             <button onClick={onChangePassword} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                 <Key size={10} /> Trocar Senha
+                             </button>
+                         </div>
+                    )}
+                </div>
                 <button 
                     onClick={logout} 
                     className="flex items-center w-full px-2 py-1.5 rounded-md transition-colors duration-200 hover:bg-red-900/50 text-slate-400 hover:text-red-400"
@@ -257,13 +352,13 @@ const AppContent = () => {
     const [rawComboioTransactions, setRawComboioTransactions] = useState([]);
     const [rawFines, setRawFines] = useState([]);
     const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
-    const [dailyWorkLogs, setDailyWorkLogs] = useState([]); // Novo: Logs de trabalho diário
+    const [dailyWorkLogs, setDailyWorkLogs] = useState([]); 
     
     const [loadingData, setLoadingData] = useState(true); 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
+    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); // Modal Senha
 
-    // Memos para ordenação
     const partners = React.useMemo(() => [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [rawPartners]);
     const comboioTransactions = React.useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
     const fines = React.useMemo(() => [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime())), [rawFines]);
@@ -367,20 +462,17 @@ const AppContent = () => {
         return processVehiclesWithAlerts(vehicles, revisions || [], fines || []);
     }, [vehicles, revisions, fines]);
 
-    // Função para navegar entre páginas com filtro
     const navigate = (page, filter = null) => { 
         setCurrentPage(page); 
         setPageFilter(filter); 
     };
 
-    // Função de carregamento de dados
     const loadAllData = React.useCallback(async () => {
         if (!user) { setLoadingData(false); return; }
         
         setLoadingData(true);
         setAlertMessage(''); 
 
-        // Mapeamento de endpoints
         const dataEndpoints = {
             vehicles: { getter: apiClient.getVehicles, setter: setVehicles },
             obras: { getter: apiClient.getObras, setter: setObras },
@@ -392,10 +484,9 @@ const AppContent = () => {
             comboioTransactions: { getter: apiClient.getComboioTransactions, setter: setRawComboioTransactions },
             fines: { getter: apiClient.getFines, setter: setRawFines },
             diarioDeBordo: { getter: apiClient.getDiarioDeBordo, setter: setDiarioDeBordoLogs },
-            dailyWorkLogs: { getter: () => apiClient.getDailyLogs('all'), setter: setDailyWorkLogs }, // Busca logs de faturamento
+            dailyWorkLogs: { getter: () => apiClient.getDailyLogs('all'), setter: setDailyWorkLogs },
         };
 
-        // Filtra endpoints para operador
         if (user.user_type === 'operador') { 
             delete dataEndpoints.revisions;
             delete dataEndpoints.expenses;
@@ -415,7 +506,6 @@ const AppContent = () => {
                 }
             });
 
-            // Mensagem de Atualização (Apenas Admin/User)
             if (user.user_type !== 'operador') {
                 try {
                     const updateMsg = await apiClient.adminGetUpdateMessage();
@@ -437,7 +527,6 @@ const AppContent = () => {
 
     useEffect(() => { loadAllData(); }, [loadAllData]);
 
-    // Renderização para Operador (Simplificada)
     if (user && user.user_type === 'operador') { 
         if (loadingData) return <div className="flex justify-center items-center h-screen"><Loader className="animate-spin text-yellow-500" size={40} /></div>;
         return (
@@ -449,15 +538,14 @@ const AppContent = () => {
         );
     }
 
-    // Renderização de Página
     const renderPage = () => {
         const commonProps = { 
             user, setAlertMessage, PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
             ConfirmationModal, vehicleGroups, extraObraOptions, equipmentTypesForHours, operationalSubGroups,
             apiClient, reloadData: loadAllData, navigate, 
-            vehicles: processedVehicles, // Passa veículos já processados com alertas
+            vehicles: processedVehicles, 
             obras, revisions, expenses, employees, partners, refuelings, comboioTransactions, fines, diarioDeBordoLogs,
-            dailyWorkLogs, // Passa logs de trabalho para dashboard
+            dailyWorkLogs,
         };
         
         const Denied = () => <div className="p-10 text-center text-red-500 font-bold bg-white rounded shadow m-4">Acesso Negado</div>;
@@ -487,8 +575,20 @@ const AppContent = () => {
         <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
             {showUpdateModal && updateMessage && <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />}
             
-            <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} user={user} logout={logout} /> 
+            <Sidebar 
+                currentPage={currentPage} 
+                setCurrentPage={setCurrentPage} 
+                user={user} 
+                logout={logout} 
+                onChangePassword={() => setShowChangePasswordModal(true)} // Trigger Modal
+            /> 
             
+            <ChangePasswordModal 
+                isOpen={showChangePasswordModal} 
+                onClose={() => setShowChangePasswordModal(false)} 
+                apiClient={apiClient} 
+            />
+
             <main className="flex-1 flex flex-col relative overflow-hidden">
                 <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 bg-slate-100 scroll-smooth">
                     {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}

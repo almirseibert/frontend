@@ -1,3 +1,5 @@
+// src/services/apiClient.js
+
 // Este arquivo centraliza todas as chamadas à sua API backend.
 
 // URL base da sua API no Easypanel
@@ -55,6 +57,21 @@ const apiClient = {
         return apiFetch('/auth/validate-password', {
             method: 'POST',
             body: JSON.stringify({ password }),
+        });
+    },
+    // *** NOVA FUNÇÃO ADICIONADA: Troca de Senha ***
+    changePassword: async (data) => {
+        return apiFetch('/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+    // Solicitações de Registro (Público)
+    createRegistrationRequest: async (data) => {
+        // Aponta para auth/register que cria user inativo conforme sua regra
+        return apiFetch('/auth/register', { 
+            method: 'POST', 
+            body: JSON.stringify(data) 
         });
     },
 
@@ -154,9 +171,7 @@ const apiClient = {
     getRefuelings: async () => apiFetch('/refuelings'),
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
-    // CORREÇÃO: URL corrigida com /${id}
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    // NOVA FUNÇÃO para edição genérica (usada para atualizar NF no modal)
     updateRefueling: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), 
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
@@ -205,9 +220,6 @@ const apiClient = {
     updateInactivityAlert: async (id, data) => apiFetch(`/inactivityAlerts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteInactivityAlert: async (id) => apiFetch(`/inactivityAlerts/${id}`, { method: 'DELETE' }),
 
-    // --- Solicitações de Registro (Público) ---
-    createRegistrationRequest: async (data) => apiFetch('/registrationRequests', { method: 'POST', body: JSON.stringify(data) }),
-    
     // --- Usuários (Admin) ---
     getUsers: async () => apiFetch('/users'), 
 

@@ -46,7 +46,6 @@ export const getVehicleMainReading = (vehicle) => {
 /**
  * Regras 2 e 3: Validação Rigorosa de Leitura
  * Retorna um objeto { status: 'ok' | 'bloqueio', message: string }
- * Renomeado para manter compatibilidade com importações existentes.
  */
 export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
     // Se não tiver veículo anterior (criação), não valida consistência, apenas formato
@@ -72,12 +71,13 @@ export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
         return { status: 'ok' }; // Campo desconhecido
     }
 
-    // Regra: Bloquear valor INFERIOR (Regressão)
-    // Tolerância minúscula para erro de float
-    if (newValue < currentValue - 0.01) {
+    // Regra: Bloquear valor INFERIOR ou IGUAL (Regressão/Estagnação sem justificativa)
+    // Usamos uma pequena tolerância (epsilon) apenas para evitar erros de ponto flutuante em 'iguais'
+    // Mas a lógica é: Se Novo <= Atual -> Bloqueio
+    if (newValue <= currentValue + 0.001) {
         return {
             status: 'bloqueio',
-            message: `REGRESSÃO DETECTADA: O novo valor (${newValue} ${unit}) é menor que o atual (${currentValue} ${unit}).`
+            message: `VALOR INVÁLIDO: A nova leitura (${newValue} ${unit}) deve ser superior à atual (${currentValue} ${unit}). Se houve erro anterior, contate o supervisor.`
         };
     }
 
