@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus // <--- ADICIONADO AQUI
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext'; 
