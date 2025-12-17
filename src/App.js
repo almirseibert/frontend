@@ -212,6 +212,35 @@ const UpdateMessageModal = ({ message, onClose }) => (
     </div>
 );
 
+// --- Componente de Notificação de Admin ---
+const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
+    <div className="fixed bottom-4 right-4 z-[120] bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm animate-bounce-in">
+        <div className="flex justify-between items-start">
+            <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                    <UserPlus size={24} />
+                </div>
+                <div>
+                    <h3 className="font-bold text-gray-800">Solicitações Pendentes</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                        Há <strong className="text-blue-600">{pendingCount}</strong> novos usuários aguardando aprovação.
+                    </p>
+                </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+            <button onClick={onClose} className="text-sm text-gray-500 hover:underline px-2">Agora não</button>
+            <button 
+                onClick={() => { onClose(); navigate('admin'); }} 
+                className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 font-semibold transition-colors"
+            >
+                Ver Solicitações
+            </button>
+        </div>
+    </div>
+);
+
 // --- SIDEBAR (Otimizada e Compacta) ---
 const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -357,7 +386,8 @@ const AppContent = () => {
     const [loadingData, setLoadingData] = useState(true); 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
-    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); // Modal Senha
+    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); 
+    const [pendingRequestsCount, setPendingRequestsCount] = useState(0); // Novo Estado para Notificação Admin
 
     const partners = React.useMemo(() => [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [rawPartners]);
     const comboioTransactions = React.useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
@@ -506,8 +536,29 @@ const AppContent = () => {
                 }
             });
 
-            if (user.user_type !== 'operador') {
+            // Lógica Específica para Administradores
+            if (user.user_type === 'admin') {
+                // 1. Mensagem de Atualização
                 try {
+                    const updateMsg = await apiClient.adminGetUpdateMessage();
+                    if (updateMsg && updateMsg.showPopup) {
+                        setUpdateMessage(updateMsg.message);
+                        setShowUpdateModal(true);
+                    }
+                } catch (e) { console.warn("Erro msg update", e); }
+
+                // 2. Verificar Solicitações Pendentes (NOVO)
+                try {
+                    const requests = await apiClient.adminGetRegistrationRequests();
+                    if (requests && requests.length > 0) {
+                        setPendingRequestsCount(requests.length);
+                    } else {
+                        setPendingRequestsCount(0);
+                    }
+                } catch (e) { console.warn("Erro requests check", e); }
+            } else if (user.user_type !== 'operador') {
+                 // Usuários normais só veem updateMsg
+                 try {
                     const updateMsg = await apiClient.adminGetUpdateMessage();
                     if (updateMsg && updateMsg.showPopup) {
                         setUpdateMessage(updateMsg.message);
@@ -574,6 +625,15 @@ const AppContent = () => {
     return (
         <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
             {showUpdateModal && updateMessage && <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />}
+            
+            {/* Pop-up de Notificação para Admin */}
+            {pendingRequestsCount > 0 && user.user_type === 'admin' && (
+                <AdminPendingRequestAlert 
+                    pendingCount={pendingRequestsCount} 
+                    onClose={() => setPendingRequestsCount(0)} 
+                    navigate={setCurrentPage} 
+                />
+            )}
             
             <Sidebar 
                 currentPage={currentPage} 
