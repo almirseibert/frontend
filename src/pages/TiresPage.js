@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
 
 import { getVehicleMainReading, checkVehicleRestrictions, vehicleGroups } from '../utils/vehicleRules';
 
@@ -62,6 +63,9 @@ const StatCard = ({ label, value, icon, color }) => (
 const TiresPage = ({ 
     user, vehicles = [], employees = [], obras = [], revisions = [], apiClient, setAlertMessage, reloadData, PasswordConfirmationModal 
 }) => {
+    // Pega a permissão de visualizador do contexto
+    const { isViewer } = useAuth();
+
     const [activeTab, setActiveTab] = useState('stock'); 
     const [tires, setTires] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -70,7 +74,7 @@ const TiresPage = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('todos'); 
     const [showNewTireModal, setShowNewTireModal] = useState(false);
-    const [showSpareTireModal, setShowSpareTireModal] = useState(false); // CORREÇÃO: Estado reintroduzido
+    const [showSpareTireModal, setShowSpareTireModal] = useState(false); 
     const [showStockActionModal, setShowStockActionModal] = useState(false); 
     const [selectedTireForAction, setSelectedTireForAction] = useState(null);
     const [showEditTireModal, setShowEditTireModal] = useState(false);
@@ -476,7 +480,12 @@ const TiresPage = ({
                                 <option value="Sucata">Sucata</option>
                             </select>
                         </div>
-                        <button onClick={() => setShowNewTireModal(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm"><Plus size={18} /> Cadastrar Pneu</button>
+                        {/* TRAVA VISUALIZADOR: Botão de Cadastrar Pneu oculto */}
+                        {!isViewer && (
+                            <button onClick={() => setShowNewTireModal(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm">
+                                <Plus size={18} /> Cadastrar Pneu
+                            </button>
+                        )}
                     </div>
 
                     <div className="overflow-x-auto">
@@ -509,18 +518,24 @@ const TiresPage = ({
                                         </td>
                                         <td className="px-4 py-3">{tire.status === 'Em Uso' ? <span className="flex items-center gap-1"><Truck size={12}/> {tire.vehicleRegistro}</span> : tire.location}</td>
                                         <td className="px-4 py-3 text-center flex justify-center gap-2">
+                                            {/* Histórico visível para todos */}
                                             <button onClick={() => { setTireHistoryId(tire.id); }} title="Histórico" className="p-1.5 text-gray-500 hover:bg-gray-200 rounded"><History size={16} /></button>
-                                            <button onClick={() => { setSelectedTireForAction(tire); setShowEditTireModal(true); }} title="Editar" className="p-1.5 text-blue-500 hover:bg-blue-100 rounded"><Edit size={16} /></button>
                                             
-                                            {/* Botão de Ação disponível para todos, EXCETO os que já estão instalados em veículos (Em Uso) */}
-                                            {tire.status !== 'Em Uso' && (
-                                                <button 
-                                                    onClick={() => { setSelectedTireForAction(tire); setShowStockActionModal(true); }} 
-                                                    title="Movimentar / Ações" 
-                                                    className="p-1.5 text-green-600 hover:bg-green-100 rounded bg-green-50 border border-green-200"
-                                                >
-                                                    <Settings size={16} />
-                                                </button>
+                                            {/* TRAVA VISUALIZADOR: Ações de edição e movimentação ocultas */}
+                                            {!isViewer && (
+                                                <>
+                                                    <button onClick={() => { setSelectedTireForAction(tire); setShowEditTireModal(true); }} title="Editar" className="p-1.5 text-blue-500 hover:bg-blue-100 rounded"><Edit size={16} /></button>
+                                                    
+                                                    {tire.status !== 'Em Uso' && (
+                                                        <button 
+                                                            onClick={() => { setSelectedTireForAction(tire); setShowStockActionModal(true); }} 
+                                                            title="Movimentar / Ações" 
+                                                            className="p-1.5 text-green-600 hover:bg-green-100 rounded bg-green-50 border border-green-200"
+                                                        >
+                                                            <Settings size={16} />
+                                                        </button>
+                                                    )}
+                                                </>
                                             )}
                                         </td>
                                     </tr>
@@ -602,10 +617,13 @@ const TiresPage = ({
                                                         ) : <span className="text-sm text-gray-400 italic">Vazio</span>}
                                                     </div>
                                                     <div>
-                                                        {installedTire ? (
-                                                            <button onClick={() => { setTransactionType('remove'); setSelectedPosition(pos); setSelectedTireForTransaction(installedTire); setShowTransactionModal(true); }} className="p-2 text-red-600 hover:bg-red-100 rounded-full" title="Remover Pneu"><ArrowRight size={18} /></button>
-                                                        ) : (
-                                                            <button onClick={() => { setTransactionType('install'); setSelectedPosition(pos); setShowTransactionModal(true); }} className="p-2 text-green-600 hover:bg-green-100 rounded-full" title="Instalar Pneu"><ArrowLeft size={18} /></button>
+                                                        {/* TRAVA VISUALIZADOR: Botões de Instalar/Remover ocultos */}
+                                                        {!isViewer && (
+                                                            installedTire ? (
+                                                                <button onClick={() => { setTransactionType('remove'); setSelectedPosition(pos); setSelectedTireForTransaction(installedTire); setShowTransactionModal(true); }} className="p-2 text-red-600 hover:bg-red-100 rounded-full" title="Remover Pneu"><ArrowRight size={18} /></button>
+                                                            ) : (
+                                                                <button onClick={() => { setTransactionType('install'); setSelectedPosition(pos); setShowTransactionModal(true); }} className="p-2 text-green-600 hover:bg-green-100 rounded-full" title="Instalar Pneu"><ArrowLeft size={18} /></button>
+                                                            )
                                                         )}
                                                     </div>
                                                 </div>

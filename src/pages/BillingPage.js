@@ -6,9 +6,10 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
+import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
 
 const BillingPage = ({ 
-    user, 
+    user: userProp, // Renomeado para evitar conflito com user do hook
     obras = [], 
     vehicles = [], 
     employees = [], 
@@ -16,13 +17,16 @@ const BillingPage = ({
     setAlertMessage, 
     PasswordConfirmationModal
 }) => {
+    // Pega a permissão de visualizador do contexto
+    const { isViewer } = useAuth();
+
     // --- ESTADOS GERAIS ---
-    const [activeTab, setActiveTab] = useState('controle'); 
+    // Se for visualizador, começa na aba relatório obrigatoriamente
+    const [activeTab, setActiveTab] = useState(isViewer ? 'relatorio' : 'controle'); 
     const [selectedObraId, setSelectedObraId] = useState('');
     const [loadingLogs, setLoadingLogs] = useState(false);
     
     // --- ESTADOS CONTROLE DIÁRIO ---
-    // Inicializa com o mês LOCAL correto (evita erro de fuso no dia 1 do mês)
     const [controlMonth, setControlMonth] = useState(() => {
         const now = new Date();
         const year = now.getFullYear();
@@ -42,36 +46,31 @@ const BillingPage = ({
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [pendingDateChange, setPendingDateChange] = useState(null);
 
+    // Efeito para garantir que visualizador nunca acesse a aba controle
+    useEffect(() => {
+        if (isViewer && activeTab === 'controle') {
+            setActiveTab('relatorio');
+        }
+    }, [isViewer, activeTab]);
+
     // ===================================================================================
-    // HELPERS DE DATA E HORA (CORREÇÃO DEFINITIVA DE FUSO HORÁRIO)
+    // HELPERS DE DATA E HORA
     // ===================================================================================
 
-    /**
-     * Converte string YYYY-MM-DD para DD/MM/YYYY sem sofrer alteração de fuso horário.
-     * Usa split de string para garantir integridade.
-     */
     const formatDateToBR = (dateString) => {
         if (!dateString) return '';
-        // Pega apenas a parte da data, ignora tempo se houver
         const cleanDate = dateString.split('T')[0]; 
         const [year, month, day] = cleanDate.split('-');
         return `${day}/${month}/${year}`;
     };
 
-    /**
-     * Retorna o dia da semana baseado na string de data, forçando interpretação correta.
-     */
     const getDayOfWeek = (dateString) => {
         if (!dateString) return '';
-        // Adiciona T12:00:00Z para garantir que caia no dia correto em qualquer fuso
         const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
         const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
         return days[date.getUTCDay()];
     };
 
-    /**
-     * Gera array de dias do mês selecionado (YYYY-MM) como strings YYYY-MM-DD.
-     */
     const getDaysInMonth = (yearMonth) => {
         if (!yearMonth) return [];
         const [year, month] = yearMonth.split('-').map(Number);
@@ -86,7 +85,6 @@ const BillingPage = ({
         return days;
     };
 
-    // --- HELPER: Formatação de Horas (Decimal -> HH:MM) ---
     const formatDecimalToTime = (decimal) => {
         const val = parseFloat(decimal);
         if (isNaN(val) || val === 0) return '00:00';
@@ -100,7 +98,6 @@ const BillingPage = ({
         return `${finalHours.toString().padStart(2, '0')}:${finalMinutes.toString().padStart(2, '0')}`;
     };
 
-    // --- HELPER: Cálculo de Diferença de Horas (Retorna Decimal) ---
     const calculateTimeDiffDecimal = (start, end) => {
         if (!start || !end) return 0;
         const [h1, m1] = start.split(':').map(Number);
@@ -109,7 +106,6 @@ const BillingPage = ({
         return diffMinutes > 0 ? diffMinutes / 60 : 0;
     };
 
-    // --- HELPER: Carregar Imagem para o PDF ---
     const getImageDataUrl = (url) => {
         return new Promise((resolve, reject) => {
             const img = new Image();
@@ -291,7 +287,6 @@ const BillingPage = ({
             const startLimit = new Date(obra.dataInicio);
             const endLimit = obra.dataFim ? new Date(obra.dataFim) : new Date();
             const checkDate = new Date(value);
-            // Ajuste leve para permitir o próprio dia (setHours)
             checkDate.setHours(12,0,0,0);
             startLimit.setHours(0,0,0,0);
             endLimit.setHours(23,59,59,999);
@@ -315,14 +310,13 @@ const BillingPage = ({
     };
 
     // ===================================================================================
-    // GERAÇÃO DE PDF (COM CORREÇÃO DE DATAS)
+    // GERAÇÃO DE PDF
     // ===================================================================================
 
     const generateDetailedPDF = async () => {
-        const doc = new jsPDF('l', 'mm', 'a4'); // Landscape
+        const doc = new jsPDF('l', 'mm', 'a4'); 
         const obra = obras.find(o => o.id === selectedObraId);
         
-        // Prepara dados do Veículo
         let vehicleLabel = "Todos";
         let frotaLabel = "";
         let operatorLabel = "Diversos";
@@ -332,7 +326,6 @@ const BillingPage = ({
             if (v) {
                 vehicleLabel = `${v.tipo} ${v.marca} ${v.modelo}`;
                 frotaLabel = v.registroInterno;
-                // Operador mais frequente
                 const operators = reportData.map(d => d.employeeName).filter(Boolean);
                 if (operators.length > 0) {
                     const mode = operators.sort((a,b) =>
@@ -351,7 +344,6 @@ const BillingPage = ({
             console.warn("Logo não carregado", err);
         }
 
-        // --- CABEÇALHO ---
         doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
         doc.text("RELATÓRIO DE SERVIÇOS", 14, 15);
@@ -361,7 +353,6 @@ const BillingPage = ({
         doc.setLineWidth(0.5);
         doc.line(14, 28, 283, 28); 
 
-        // Bloco de Dados
         doc.setFontSize(10);
         doc.text("DADOS DE IDENTIFICAÇÃO", 14, 33);
         
@@ -381,11 +372,9 @@ const BillingPage = ({
         doc.setFont('helvetica', 'normal');
         doc.text(frotaLabel, 40, 46);
 
-        // --- CORREÇÃO DE DATA NO CABEÇALHO DO PDF ---
         doc.setFont('helvetica', 'bold');
         doc.text("Período:", 140, 46);
         doc.setFont('helvetica', 'normal');
-        // Usa formatDateToBR para evitar o problema do "dia anterior"
         const periodoStr = `${formatDateToBR(reportStartDate)} A ${formatDateToBR(reportEndDate)}`;
         doc.text(periodoStr, 165, 46);
 
@@ -394,14 +383,13 @@ const BillingPage = ({
         doc.setFont('helvetica', 'normal');
         doc.text(operatorLabel, 40, 52);
 
-        // --- TABELA ---
         const tableBody = reportData.map(log => {
             const morningHours = calculateTimeDiffDecimal(log.morningStart, log.morningEnd);
             const afternoonHours = calculateTimeDiffDecimal(log.afternoonStart, log.afternoonEnd);
             
             return [
-                formatDateToBR(log.date), // Data Corrigida na Tabela
-                getDayOfWeek(log.date), // Dia da Semana Corrigido
+                formatDateToBR(log.date), 
+                getDayOfWeek(log.date),
                 log.morningStart ? log.morningStart.slice(0, 5) : '',
                 log.morningEnd ? log.morningEnd.slice(0, 5) : '',
                 formatDecimalToTime(morningHours),
@@ -452,7 +440,6 @@ const BillingPage = ({
             alternateRowStyles: { fillColor: [255, 255, 255] }
         });
 
-        // Rodapé
         const totalDecimal = reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
         const finalY = doc.lastAutoTable.finalY + 5;
 
@@ -499,24 +486,18 @@ const BillingPage = ({
         doc.setFontSize(16);
         doc.text(`Resumo de Horas: ${obra?.nome || 'N/A'}`, 14, 15);
         doc.setFontSize(10);
-        // Correção de data no resumo
         doc.text(`Filtro: ${vehicleInfo} | Período: ${formatDateToBR(reportStartDate)} a ${formatDateToBR(reportEndDate)}`, 14, 22);
 
-        // ... (Resto da geração do PDF mantido igual) ...
-        
-        // Tabela Grupo
         const groupTableData = Object.keys(groupSummary).map(group => [group, formatDecimalToTime(groupSummary[group].hours)]);
         doc.setFontSize(12);
         doc.text("Resumo por Grupo de Veículos", 14, 30);
         autoTable(doc, { startY: 32, head: [['Grupo', 'Horas Totais']], body: groupTableData, headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' }, theme: 'grid' });
 
-        // Tabela Tipo
         const typeTableData = Object.keys(typeSummary).map(type => [type, typeSummary[type].vehicles.size, formatDecimalToTime(typeSummary[type].hours)]);
         doc.setFontSize(12);
         doc.text("Detalhamento por Tipo de Equipamento", 14, doc.lastAutoTable.finalY + 10);
         autoTable(doc, { startY: doc.lastAutoTable.finalY + 12, head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']], body: typeTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
 
-        // Tabela Veículo
         const vehicleTableData = Object.values(vehicleSummary).sort((a, b) => a.label.localeCompare(b.label)).map(v => [v.label, v.type, formatDecimalToTime(v.hours)]);
         let finalY = doc.lastAutoTable.finalY; 
         if (finalY > 240) { doc.addPage(); finalY = 20; }
@@ -553,12 +534,17 @@ const BillingPage = ({
                 <>
                     {/* Abas */}
                     <div className="flex border-b border-gray-300 mb-6">
-                        <button 
-                            onClick={() => setActiveTab('controle')}
-                            className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
-                        >
-                            <Clock size={18}/> Controle Diário
-                        </button>
+                        {/* TRAVA DE VISUALIZADOR:
+                            Se isViewer for true, esta aba NÃO é renderizada.
+                        */}
+                        {!isViewer && (
+                            <button 
+                                onClick={() => setActiveTab('controle')}
+                                className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
+                            >
+                                <Clock size={18}/> Controle Diário
+                            </button>
+                        )}
                         <button 
                             onClick={() => setActiveTab('relatorio')}
                             className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'relatorio' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
@@ -568,7 +554,7 @@ const BillingPage = ({
                     </div>
 
                     {/* CONTEÚDO DA ABA: CONTROLE DIÁRIO */}
-                    {activeTab === 'controle' && (
+                    {activeTab === 'controle' && !isViewer && (
                         <div className="space-y-6">
                             <div className="flex flex-col md:flex-row items-end gap-4 bg-gray-50 p-4 rounded-md border">
                                 <div className="flex-1 w-full">
@@ -659,7 +645,6 @@ const BillingPage = ({
                                                     };
                                                     const totalDecimal = (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
                                                     
-                                                    // Comparação de data segura para marcar "Hoje"
                                                     const now = new Date();
                                                     const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                                                     const isToday = dayDate === todayStr;
