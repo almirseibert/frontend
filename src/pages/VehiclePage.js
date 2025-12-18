@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle, 
-    Upload, Download, ChevronsUpDown, Info, AlertTriangle, Briefcase, Truck
+    Upload, Download, ChevronsUpDown, Info, AlertTriangle, Briefcase, Truck, FileText, Ban
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -37,13 +37,13 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos' });
     
-    // Regra 5: Ordenação Padrão Alfabética
+    // Regra 5: Ordenação Padrão Alfabética pelo Registro
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
 
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
     const handleFilterChange = (e) => { const { name, value } = e.target; setFilters(prev => ({ ...prev, [name]: value })); };
 
-    // --- Processamento de Dados (Regra 4: Alertas e Status) ---
+    // --- Processamento de Dados (Regra 4: Alertas Divididos) ---
     const processedVehicles = useMemo(() => {
         return (vehicles || []).map(v => {
             let currentStatus = v.status;
@@ -56,19 +56,17 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             }
              
              const readingData = getVehicleMainReading(v);
-             // Verifica restrições (Regra 4)
              const restrictions = checkVehicleRestrictions(v, revisions);
-             
-             // Encontra a obra se existir
              const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
 
             return { 
                 ...v, 
                 computedStatus: currentStatus,
-                obra, // Anexa o objeto obra para uso no display
-                vehicleReading: `${readingData.value ?? 'N/A'} ${readingData.unit}`,
+                obra, 
+                vehicleReading: `${readingData.value ?? '0'} ${readingData.unit}`,
                 vehicleReadingRaw: readingData.raw,
-                restrictions: restrictions // Array de problemas
+                vehicleReadingUnit: readingData.unit,
+                restrictions: restrictions // Agora com { category, type, message }
             };
         });
     }, [vehicles, revisions, obras]); 
@@ -109,6 +107,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 return sortConfig.direction === 'ascending' ? numA - numB : numB - numA;
             }
 
+            // Ordem Alfabética Padrão
             return sortConfig.direction === 'ascending' 
                 ? valA.localeCompare(valB) 
                 : valB.localeCompare(valA);
@@ -125,17 +124,40 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
     // --- Helpers Visuais ---
     const getRowStyle = (vehicle) => {
-        // Regra 7: Terceirizados
         if (vehicle.isOutsourced) return 'bg-purple-50 hover:bg-purple-100 border-l-4 border-purple-500';
-        
-        // Alertas de Regra 4
-        const critical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'vencido');
-        const warning = vehicle.restrictions.some(r => r.type === 'aviso');
+        // Se houver bloqueio manual, fundo levemente avermelhado
+        if (vehicle.restrictions.some(r => r.category === 'bloqueio')) return 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500';
+        return 'bg-white hover:bg-gray-50 border-l-4 border-transparent'; 
+    };
 
-        if (critical) return 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500';
-        if (warning) return 'bg-yellow-50 hover:bg-yellow-100 border-l-4 border-yellow-400';
+    // Renderiza Badge de Alerta por Categoria (Regra 4)
+    const renderAlertBadges = (restrictions) => {
+        if (!restrictions.length) return null;
 
-        return 'bg-white hover:bg-gray-50 border-l-4 border-transparent'; // Padrão
+        // Agrupa por categoria para não poluir
+        const manuntencao = restrictions.filter(r => r.category === 'manutencao');
+        const documentos = restrictions.filter(r => r.category === 'documento');
+        const bloqueio = restrictions.filter(r => r.category === 'bloqueio');
+
+        return (
+            <div className="flex gap-1 flex-wrap mt-1">
+                {bloqueio.length > 0 && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white cursor-help" title={bloqueio[0].message}>
+                        <Ban size={10}/> BLOQUEADO
+                    </span>
+                )}
+                {manuntencao.length > 0 && (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-help ${manuntencao.some(r=>r.type==='error') ? 'bg-orange-500 text-white' : 'bg-yellow-400 text-black'}`} title={manuntencao.map(r=>r.message).join('\n')}>
+                        <Wrench size={10}/> {manuntencao.some(r=>r.type==='error') ? 'VENCIDA' : 'PREV.'}
+                    </span>
+                )}
+                {documentos.length > 0 && (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-help ${documentos.some(r=>r.type==='error') ? 'bg-blue-600 text-white' : 'bg-blue-200 text-blue-800'}`} title={documentos.map(r=>r.message).join('\n')}>
+                        <FileText size={10}/> DOCS
+                    </span>
+                )}
+            </div>
+        );
     };
 
     // --- Ações ---
@@ -155,9 +177,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     
     // Exportar CSV
     const exportToCSV = () => {
-        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?'];
+        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Unidade', 'Status', 'Terceiro?'];
         const rows = filteredVehicles.map(v => [
-            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO'
+            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReadingRaw, v.vehicleReadingUnit, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO'
         ]);
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(","))].join("\n");
         const link = document.createElement("a");
@@ -182,7 +204,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
                         <Truck className="text-yellow-500"/> Gestão da Frota
                     </h1>
-                    <p className="text-gray-500 text-sm mt-1">Gerencie veículos, máquinas e caminhões.</p>
+                    <p className="text-gray-500 text-sm mt-1">Controle unificado de Caminhões, Máquinas e Leves.</p>
                 </div>
                 
                 <ProtectedComponent requiredPermission="editor">
@@ -231,21 +253,18 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     ) : filteredVehicles.map(vehicle => {
                         const statusColors = {
                             'Em Manutenção': 'bg-red-100 text-red-800',
-                            'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse', // Restaurado
+                            'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse',
                             'Em Obra': 'bg-green-100 text-green-800',
                             'Em Operação': 'bg-blue-100 text-blue-800',
                             'Disponível': 'bg-gray-100 text-gray-800'
                         };
                         
-                        // Lógica restaurada para texto de status com localização
                         const statusText = vehicle.computedStatus === 'Disponível'
                             ? `${vehicle.computedStatus} - ${vehicle.localizacaoAtual || 'Pátio'}`
                             : vehicle.computedStatus === 'Em Obra' && vehicle.obra
                                 ? `Obra: ${vehicle.obra.nome}`
                                 : vehicle.computedStatus;
 
-                        const hasCritical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'vencido');
-                        
                         return (
                             <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 transition-all ${getRowStyle(vehicle)}`}>
                                 {/* Info Veículo */}
@@ -255,19 +274,18 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                             <img src={vehicle.fotoURL ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${(process.env.REACT_APP_API_URL || '').replace('/api','')}${vehicle.fotoURL}`) : 'https://placehold.co/100?text=Foto'} 
                                                  alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform"/>
                                         </div>
-                                        {hasCritical && (
-                                            <div className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 shadow-lg animate-bounce" title="Atenção Necessária">
-                                                <AlertTriangle size={12} fill="white" />
-                                            </div>
-                                        )}
                                     </div>
-                                    <div className="overflow-hidden">
+                                    <div className="overflow-hidden w-full">
                                         <div className="flex items-center gap-2">
                                             <span className="font-extrabold text-gray-900 text-base">{vehicle.registroInterno}</span>
                                             {vehicle.isOutsourced && <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 font-bold uppercase">Terceiro</span>}
                                         </div>
                                         <p className="text-sm text-gray-600 font-medium truncate" title={`${vehicle.marca} ${vehicle.modelo}`}>{vehicle.marca} {vehicle.modelo}</p>
-                                        <p className="text-xs text-gray-400">{vehicle.tipo}</p>
+                                        <div className="flex justify-between items-center">
+                                            <p className="text-xs text-gray-400">{vehicle.tipo}</p>
+                                            {/* Alertas Visuais Aqui */}
+                                            {renderAlertBadges(vehicle.restrictions)}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -290,7 +308,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                     </div>
                                 </div>
 
-                                {/* Botões de Ação - Atualizado para flex-wrap */}
+                                {/* Botões de Ação */}
                                 <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
                                     <button onClick={() => { setSelectedVehicle(vehicle); setIsFinesModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-md transition" title="Multas"><ShieldAlert size={14}/></button>
                                     <button onClick={() => { setSelectedVehicle(vehicle); setIsHistoryModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Histórico"><Clock size={14}/></button>
@@ -298,7 +316,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                     <ProtectedComponent requiredPermission="editor">
                                         <button onClick={() => handleEdit(vehicle)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition" title="Editar"><Edit size={14}/></button>
                                         
-                                        {/* Ações Dinâmicas */}
                                         {vehicle.computedStatus === 'Disponível' && (
                                             <>
                                                 <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition" title="Alocar Obra"><HardHat size={14}/></button>
@@ -323,14 +340,13 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 </div>
             </div>
 
-            {/* --- Modais --- */}
             {isModalOpen && (
                 <VehicleModal 
                     user={user} 
                     vehicle={selectedVehicle} 
                     vehicles={vehicles} 
-                    vehicleTypes={vehicleTypes} // Passando os tipos de veículos
-                    vehicleGroups={vehicleGroups} // Passando os grupos de veículos
+                    vehicleTypes={vehicleTypes}
+                    vehicleGroups={vehicleGroups}
                     onClose={() => setIsModalOpen(false)} 
                     setAlertMessage={setAlertMessage} 
                     apiClient={apiClient} 

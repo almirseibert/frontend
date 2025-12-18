@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase } from 'lucide-react';
+import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge } from 'lucide-react';
 import { checkReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (REVISADO v2.0 - FIX IMPORT) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.0 - UNIFIED HORIMETRO) ---
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     
     // Estado do Formulário
@@ -14,17 +14,13 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         marca: vehicle?.marca || '',
         modelo: vehicle?.modelo || '',
         
-        // Leituras
+        // Leituras (Unificadas)
         odometro: vehicle?.odometro?.toString() || '0',
-        horimetro: vehicle?.horimetro?.toString() || '0',
-        horimetroDigital: vehicle?.horimetroDigital?.toString() || '0',
-        horimetroAnalogico: vehicle?.horimetroAnalogico?.toString() || '0',
-        possuiHorimetroAnalogico: vehicle?.possuiHorimetroAnalogico || false,
-        mediaCalculo: vehicle?.mediaCalculo || 'odometro',
+        horimetro: vehicle?.horimetro?.toString() || (vehicle?.horimetroDigital?.toString() || '0'), // Migra visualmente se antigo existir
         
-        // Configurações Especiais
+        // Configurações
         isComboioVehicle: vehicle?.isComboioVehicle || false,
-        isOutsourced: vehicle?.isOutsourced || false, // Regra 7: Terceirizado
+        isOutsourced: vehicle?.isOutsourced || false,
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
         
         // Detalhes
@@ -45,7 +41,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
     
-    // Controle do Modal de Senha para Override
+    // Controle do Modal de Senha
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [pendingSaveData, setPendingSaveData] = useState(null);
     const [violationMessage, setViolationMessage] = useState('');
@@ -56,54 +52,31 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         return Object.keys(groups).find(group => groups[group]?.includes(formData.tipo));
     }, [formData.tipo]);
 
+    // Regra 1: Show Odometro (Leves e Trecho)
     const showOdometro = useMemo(() => {
-        // Regra 1: Leves e Trecho usam KM. Pesados usam Hr.
         if (currentGroup === 'Veículos Leves' || currentGroup === 'Caminhões de Trecho') return true;
-        if (currentGroup === 'Caminhões') {
-             // Exceção: Caminhão Prancha é Trecho, mas as vezes cai em Caminhões dependendo do cadastro.
-             // Vamos forçar visualização de odometro para caminhões genéricos também, pois alguns têm os dois.
-             return true; 
-        }
-        return false; // Máquinas Pesadas
+        return false;
     }, [currentGroup]);
 
+    // Regra 1: Show Horimetro (Caminhões Pesados e Máquinas)
     const showHorimetro = useMemo(() => {
-        return currentGroup === 'Máquinas Pesadas' || currentGroup === 'Caminhões';
+        if (currentGroup === 'Máquinas Pesadas' || currentGroup === 'Caminhões') return true;
+        return false;
     }, [currentGroup]);
 
     // --- Handlers ---
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         
-        // Checkbox Invertido "Não Pode Circular"
         if (name === 'naoPodeCircular') {
             setFormData(prev => ({ ...prev, canCirculate: !checked }));
             return;
         }
 
-        setFormData(prev => {
-            const newState = {
-                ...prev,
-                [name]: type === 'checkbox' ? checked : value
-            };
-
-            // Lógica de reset se desmarcar analógico
-            if (name === 'possuiHorimetroAnalogico' && !checked) {
-                 newState.horimetroAnalogico = '0';
-            }
-
-            // Regra de Exceção para Cálculo de Média
-            if (name === 'tipo') {
-                const newGroup = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(value));
-                if (value === 'Caminhões Prancha' || value === 'Caminhão Prancha' || newGroup === 'Veículos Leves' || newGroup === 'Caminhões de Trecho') {
-                    newState.mediaCalculo = 'odometro';
-                } else if (newGroup === 'Caminhões' || newGroup === 'Máquinas Pesadas') {
-                     newState.mediaCalculo = 'horimetro'; 
-                }
-            }
-
-            return newState;
-        });
+        setFormData(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value
+        }));
     };
 
     const handleFileChange = (e) => {
@@ -127,24 +100,18 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
         const isEditing = !!vehicle;
 
-        // Validação Básica
         if (!formData.placa || !formData.registroInterno || !formData.tipo || !formData.marca || !formData.modelo) {
              setError('Preencha os campos obrigatórios (*).');
              return;
          }
 
-        // Validação de Duplicidade (Front-end check rápido)
-        if (!isEditing || (vehicle && vehicle.placa !== formData.placa)) {
-             const plateExists = vehicles.some(v => v.placa === formData.placa && v.id !== vehicle?.id);
-             if (plateExists) { setError('Já existe um veículo com esta placa.'); return; }
-        }
+        // Validação de Duplicidade
         if (!isEditing || (vehicle && vehicle.registroInterno !== formData.registroInterno)) {
             const internalIdExists = vehicles.some(v => v.registroInterno === formData.registroInterno && v.id !== vehicle?.id);
             if (internalIdExists) { setError('Já existe um veículo com este registro interno.'); return; }
         }
 
-        // --- REGRAS 2 e 3: Validação de Consistência de Leitura ---
-        // Só valida se estiver editando um veículo existente
+        // --- REGRAS 2 e 3: Validação de Consistência ---
         let consistencyIssues = [];
         
         if (isEditing) {
@@ -153,31 +120,27 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                 if (check.status === 'bloqueio') consistencyIssues.push(check.message);
             }
             if (showHorimetro) {
-                // Checa digital (principal)
-                const checkDig = checkReadingConsistency(vehicle, formData.horimetroDigital, 'horimetroDigital');
-                if (checkDig.status === 'bloqueio') consistencyIssues.push(checkDig.message);
-                
-                // Checa analógico se tiver
-                if (formData.possuiHorimetroAnalogico) {
-                    const checkAna = checkReadingConsistency(vehicle, formData.horimetroAnalogico, 'horimetroAnalogico');
-                    if (checkAna.status === 'bloqueio') consistencyIssues.push(checkAna.message);
-                }
-                
-                // Checa horímetro genérico (caso legado)
-                if (!formData.horimetroDigital && !formData.possuiHorimetroAnalogico) {
-                    const checkGen = checkReadingConsistency(vehicle, formData.horimetro, 'horimetro');
-                    if (checkGen.status === 'bloqueio') consistencyIssues.push(checkGen.message);
-                }
+                // Valida campo UNIFICADO 'horimetro'
+                const check = checkReadingConsistency(vehicle, formData.horimetro, 'horimetro');
+                if (check.status === 'bloqueio') consistencyIssues.push(check.message);
             }
         }
 
         // Preparar objeto final
+        // Regra 7: Média
+        let mediaCalculo = 'odometro';
+        if (showHorimetro) mediaCalculo = 'horimetro'; // L/Hr para pesados
+        if (showOdometro) mediaCalculo = 'odometro'; // Km/L para leves/trecho
+
         const dataToSave = {
             ...formData,
-            odometro: parseFloat(formData.odometro) || 0,
-            horimetro: parseFloat(formData.horimetro) || 0,
-            horimetroDigital: parseFloat(formData.horimetroDigital) || 0,
-            horimetroAnalogico: formData.possuiHorimetroAnalogico ? (parseFloat(formData.horimetroAnalogico) || 0) : null,
+            odometro: showOdometro ? (parseFloat(formData.odometro) || 0) : null,
+            horimetro: showHorimetro ? (parseFloat(formData.horimetro) || 0) : null,
+            // Zera legados para evitar confusão futura
+            horimetroDigital: null,
+            horimetroAnalogico: null,
+            
+            mediaCalculo: mediaCalculo,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
@@ -187,7 +150,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             validadeAET_DNIT: formData.validadeAET_DNIT || null,
         };
         
-        // Regra 6: Inicializar Combustível se for Comboio e for novo (ou acabou de virar comboio)
+        // Inicializar Combustível se for Comboio novo
         if (formData.isComboioVehicle) {
             if (!vehicle?.isComboioVehicle || !vehicle?.fuelLevels) {
                 dataToSave.fuelLevels = { dieselS10: 0, dieselComum: 0 };
@@ -197,7 +160,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         delete dataToSave.anoFabricacao;
         delete dataToSave.anoModelo;
 
-        // Se houver violações de regra, pede senha
         if (consistencyIssues.length > 0) {
             setViolationMessage(consistencyIssues.join('\n'));
             setPendingSaveData(dataToSave);
@@ -205,7 +167,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             return;
         }
 
-        // Se tudo ok, salva direto
         executeSave(dataToSave);
     };
 
@@ -225,17 +186,10 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                 successMessage = `Veículo ${data.registroInterno} adicionado!`;
             }
 
-            // Upload de Imagem separado
             if (fotoFile && vehicleId) {
                 const uploadFormData = new FormData();
                 uploadFormData.append('fotoFile', fotoFile); 
-                try {
-                    await apiClient.uploadVehicleImage(vehicleId, uploadFormData);
-                    successMessage += ' Imagem enviada.';
-                } catch (uploadError) {
-                    console.error("Erro imagem:", uploadError);
-                    successMessage += ' (Erro na imagem).';
-                }
+                await apiClient.uploadVehicleImage(vehicleId, uploadFormData);
             }
             
             setAlertMessage(successMessage);
@@ -250,7 +204,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         }
     };
 
-    // Imagem Preview
     const apiBaseUrl = (process.env.REACT_APP_API_URL || 'http://localhost:3001/api').replace('/api', '');
     const previewImageUrl = fotoFile 
         ? URL.createObjectURL(fotoFile)
@@ -258,22 +211,19 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
 
     return (
         <>
-            {/* Modal Principal */}
             <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col my-auto border border-gray-100">
                     
-                    {/* Header */}
                     <div className="p-5 border-b flex justify-between items-center bg-gray-50 rounded-t-xl sticky top-0 z-10">
                         <div>
                             <h2 className="text-xl font-bold text-gray-800">{vehicle ? `Editar ${vehicle.registroInterno}` : 'Novo Veículo'}</h2>
-                            <p className="text-xs text-gray-500">Preencha os dados cadastrais e técnicos.</p>
+                            <p className="text-xs text-gray-500">Cadastro Unificado (Odômetro / Horímetro).</p>
                         </div>
                         <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500 transition-colors" disabled={isSaving}>
                             <X size={20}/>
                         </button>
                     </div>
 
-                    {/* Form */}
                     <form onSubmit={validateAndPrepareSave} className="flex-1 overflow-y-auto p-6 bg-white">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             
@@ -312,58 +262,40 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                     </div>
                                 </div>
                                 
-                                {/* Regra 7: Terceirizado */}
                                 <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
                                     <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input 
-                                            type="checkbox" 
-                                            name="isOutsourced" 
-                                            checked={formData.isOutsourced} 
-                                            onChange={handleChange} 
-                                            className="h-5 w-5 text-purple-600 focus:ring-purple-500 border-gray-300 rounded" 
-                                        />
-                                        <span className="text-purple-800 font-bold text-sm flex items-center gap-2">
-                                            <Briefcase size={16}/> Veículo Terceirizado?
-                                        </span>
+                                        <input type="checkbox" name="isOutsourced" checked={formData.isOutsourced} onChange={handleChange} className="h-5 w-5 text-purple-600 rounded" />
+                                        <span className="text-purple-800 font-bold text-sm flex items-center gap-2"><Briefcase size={16}/> Veículo Terceirizado?</span>
                                     </label>
-                                    <p className="text-[10px] text-purple-600 mt-1 ml-8">Destaque visual na listagem e relatórios.</p>
                                 </div>
                             </div>
 
                             {/* Coluna 2: Dados Técnicos e Leitura */}
                             <div className="space-y-5">
                                 <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2">
-                                    <AlertTriangle size={18}/> Leituras e Capacidades
+                                    <Gauge size={18}/> Leituras e Capacidades
                                 </h3>
 
-                                {/* Horímetro (Máquinas/Caminhões) */}
+                                {/* INPUT DINÂMICO BASEADO NO GRUPO */}
                                 {showHorimetro && (
-                                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                                        <div className="mb-3">
-                                            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Horímetro Digital (Hr) *</label>
-                                            <input name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} type="number" step="0.1" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
-                                        </div>
-                                        <div className="flex items-center mb-2">
-                                            <input name="possuiHorimetroAnalogico" id="possuiHorimetroAnalogico" type="checkbox" checked={formData.possuiHorimetroAnalogico} onChange={handleChange} className="h-4 w-4 rounded text-yellow-600 focus:ring-yellow-500"/>
-                                            <label htmlFor="possuiHorimetroAnalogico" className="ml-2 text-sm text-gray-700 font-medium cursor-pointer">Possui Horímetro Analógico?</label>
-                                        </div>
-                                        {formData.possuiHorimetroAnalogico && (
-                                            <div>
-                                                <input name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} type="number" step="0.1" placeholder="Valor Analógico" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none bg-white" />
-                                            </div>
-                                        )}
+                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
+                                        <label className="block text-sm font-bold text-blue-900 uppercase mb-1 flex justify-between">
+                                            Horímetro Atual (Hr) *
+                                            <span className="text-[10px] font-normal text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Campo Unificado</span>
+                                        </label>
+                                        <input name="horimetro" value={formData.horimetro} onChange={handleChange} type="number" step="0.1" className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none text-lg font-mono text-blue-900" />
+                                        <p className="text-[10px] text-blue-500 mt-1">Para Caminhões Pesados e Máquinas. Substitui digital/analógico.</p>
                                     </div>
                                 )}
 
-                                {/* Odômetro (Leves/Caminhões) */}
                                 {showOdometro && (
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Odômetro (Km) *</label>
-                                        <input name="odometro" value={formData.odometro} onChange={handleChange} type="number" step="any" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                                    <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
+                                        <label className="block text-sm font-bold text-green-900 uppercase mb-1">Odômetro (Km) *</label>
+                                        <input name="odometro" value={formData.odometro} onChange={handleChange} type="number" step="any" className="w-full p-3 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-400 outline-none text-lg font-mono text-green-900" />
+                                        <p className="text-[10px] text-green-500 mt-1">Para Veículos Leves e Caminhões de Trecho (Pranchas).</p>
                                     </div>
                                 )}
                                 
-                                {/* Regra 6: Comboio */}
                                 <div className="flex items-center p-3 border rounded-lg hover:bg-gray-50 transition">
                                     <input name="isComboioVehicle" id="isComboioVehicle" type="checkbox" checked={formData.isComboioVehicle} onChange={handleChange} className="h-5 w-5 rounded text-yellow-600 focus:ring-yellow-500"/>
                                     <label htmlFor="isComboioVehicle" className="ml-3 text-sm font-bold text-gray-700 cursor-pointer w-full">É um veículo Comboio?</label>
@@ -400,8 +332,8 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                     </label>
                                 </div>
 
-                                {/* Regra 4: Validades (Condicional) */}
-                                {currentGroup === 'Caminhões' && (
+                                {/* Regra 4: Validades (Caminhões e Trecho) */}
+                                {(currentGroup === 'Caminhões' || currentGroup === 'Caminhões de Trecho') && (
                                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm space-y-3">
                                         <p className="font-bold text-blue-800 text-xs uppercase">Validades Obrigatórias</p>
                                         <div>
@@ -419,19 +351,10 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                     </div>
                                 )}
                                 
-                                {/* Regra 4: Checkbox Não Pode Circular */}
                                 <div className={`p-3 rounded-lg border ${!formData.canCirculate ? 'bg-red-100 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
                                     <label className="flex items-center space-x-3 cursor-pointer">
-                                        <input 
-                                            type="checkbox" 
-                                            name="naoPodeCircular" 
-                                            checked={!formData.canCirculate} 
-                                            onChange={handleChange} 
-                                            className="h-5 w-5 text-red-600 focus:ring-red-500 border-gray-300 rounded" 
-                                        />
-                                        <span className={`font-bold text-sm ${!formData.canCirculate ? 'text-red-800' : 'text-gray-600'}`}>
-                                            NÃO Pode Circular?
-                                        </span>
+                                        <input type="checkbox" name="naoPodeCircular" checked={!formData.canCirculate} onChange={handleChange} className="h-5 w-5 text-red-600 rounded" />
+                                        <span className={`font-bold text-sm ${!formData.canCirculate ? 'text-red-800' : 'text-gray-600'}`}>NÃO Pode Circular?</span>
                                     </label>
                                 </div>
 
@@ -445,16 +368,9 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                         </div>
                     </form>
 
-                    {/* Footer */}
                     <div className="p-4 bg-gray-50 border-t rounded-b-xl flex justify-end gap-3 sticky bottom-0 z-10">
-                        <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-medium hover:bg-gray-200 rounded-lg transition-colors" disabled={isSaving}>
-                            Cancelar
-                        </button>
-                        <button 
-                            onClick={validateAndPrepareSave} 
-                            disabled={isSaving} 
-                            className="px-6 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg hover:bg-yellow-500 shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                        >
+                        <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-medium hover:bg-gray-200 rounded-lg transition-colors" disabled={isSaving}>Cancelar</button>
+                        <button onClick={validateAndPrepareSave} disabled={isSaving} className="px-6 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg hover:bg-yellow-500 shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
                             {isSaving ? <Loader size={18} className="animate-spin"/> : <Save size={18}/>}
                             {isSaving ? 'Salvando...' : 'Salvar Veículo'}
                         </button>
@@ -462,7 +378,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                 </div>
             </div>
 
-            {/* Modal de Confirmação de Senha (Regras 2 e 3) */}
             {showPasswordModal && (
                 <PasswordConfirmationModal 
                     message={`ATENÇÃO: Inconsistência de leitura detectada!\n\n${violationMessage}\n\nÉ necessário autorização de supervisor para prosseguir.`}

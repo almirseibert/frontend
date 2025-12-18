@@ -9,24 +9,28 @@ export const vehicleGroups = {
 
 export const extraObraOptions = ['Administração', 'Oficina', 'Pátio', 'Rampa', 'Diversos'];
 export const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional', 'Supervisor'];
-export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras', 'Bitruck', 'Caçamba'];
+export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras', 'Bitruck', 'Caçamba', 'Caminhão Pipa', 'Caminhão Tanque'];
 
 /**
  * Regra 1: Define estritamente quais tipos de leitura são permitidos por grupo.
  * Somente Leves e Caminhões de Trecho usam KM. O resto é Hora.
  */
 export const getAllowedReadingTypes = (vehicleType) => {
+    // Busca o grupo do veículo
     const group = Object.keys(vehicleGroups).find(key => vehicleGroups[key].includes(vehicleType));
 
+    // Regra Global 1:
+    // Leves e Trecho -> Odômetro (Km)
     if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') {
         return ['odometro'];
     }
-    // Todos os outros (Caminhões comuns, Máquinas) usam apenas Horímetro
+    
+    // Caminhões Pesados e Máquinas -> Horímetro (Hr)
     return ['horimetro']; 
 };
 
 /**
- * Retorna a leitura principal (Valor, Unidade e Label) de forma robusta.
+ * Retorna a leitura principal (Valor, Unidade e Label) de forma robusta e unificada.
  */
 export const getVehicleMainReading = (vehicle) => {
     if (!vehicle) return { value: 0, unit: '', label: 'N/A', raw: 0 };
@@ -35,11 +39,13 @@ export const getVehicleMainReading = (vehicle) => {
     const usesKm = allowedTypes.includes('odometro');
 
     if (usesKm) {
-        return { value: vehicle.odometro, unit: 'Km', label: 'Odômetro', raw: parseFloat(vehicle.odometro || 0) };
+        const val = vehicle.odometro || 0;
+        return { value: val, unit: 'Km', label: 'Odômetro', raw: parseFloat(val) };
     } else {
-        // Prioriza digital, depois analógico, depois o campo genérico
-        const val = vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro;
-        return { value: val, unit: 'Hr', label: 'Horímetro', raw: parseFloat(val || 0) };
+        // Regra unificada: Usa apenas a coluna 'horimetro'
+        // Fallback para campos antigos apenas para visualização se a migração falhar, mas prioriza 'horimetro'
+        const val = vehicle.horimetro ?? vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? 0;
+        return { value: val, unit: 'Hr', label: 'Horímetro', raw: parseFloat(val) };
     }
 };
 
@@ -48,40 +54,43 @@ export const getVehicleMainReading = (vehicle) => {
  * Retorna um objeto { status: 'ok' | 'bloqueio', message: string }
  */
 export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
-    // Se não tiver veículo anterior (criação), não valida consistência, apenas formato
+    // Se não tiver veículo anterior (criação), não valida consistência de histórico
     if (!vehicle) return { status: 'ok' };
 
     const newValue = parseFloat(newValueStr);
-    if (isNaN(newValue)) return { status: 'ok' }; // Deixa passar se for vazio/inválido, o form html valida required
+    if (isNaN(newValue)) return { status: 'ok' }; 
 
-    // Descobre qual é o valor ATUAL salvo no banco para o campo específico que está sendo editado
+    // Descobre qual é o valor ATUAL salvo no banco
     let currentValue = 0;
     let unit = '';
     let limit = 0;
 
+    // Se o campo editado for odômetro
     if (fieldType === 'odometro') {
         currentValue = parseFloat(vehicle.odometro || 0);
         unit = 'Km';
         limit = 1000; // Regra 2: Trava 1000km
-    } else if (['horimetro', 'horimetroDigital', 'horimetroAnalogico'].includes(fieldType)) {
-        currentValue = parseFloat(vehicle[fieldType] || 0);
+    } 
+    // Se o campo editado for horímetro (unificado)
+    else if (fieldType === 'horimetro') {
+        // Pega o valor unificado do banco
+        currentValue = parseFloat(vehicle.horimetro || vehicle.horimetroDigital || 0);
         unit = 'Hr';
         limit = 50;   // Regra 3: Trava 50h
     } else {
-        return { status: 'ok' }; // Campo desconhecido
+        return { status: 'ok' }; 
     }
 
-    // Regra: Bloquear valor INFERIOR ou IGUAL (Regressão/Estagnação sem justificativa)
-    // Usamos uma pequena tolerância (epsilon) apenas para evitar erros de ponto flutuante em 'iguais'
-    // Mas a lógica é: Se Novo <= Atual -> Bloqueio
+    // Regra: Bloquear valor INFERIOR ou IGUAL (Regressão/Estagnação)
+    // Tolerância mínima para float
     if (newValue <= currentValue + 0.001) {
         return {
             status: 'bloqueio',
-            message: `VALOR INVÁLIDO: A nova leitura (${newValue} ${unit}) deve ser superior à atual (${currentValue} ${unit}). Se houve erro anterior, contate o supervisor.`
+            message: `REGRESSÃO DETECTADA: A nova leitura (${newValue} ${unit}) não pode ser menor ou igual à atual (${currentValue} ${unit}).`
         };
     }
 
-    // Regra: Bloquear SALTO excessivo (> 1000km ou > 50h)
+    // Regra: Bloquear SALTO excessivo
     const diff = newValue - currentValue;
     if (diff > limit) {
         return {
@@ -94,7 +103,7 @@ export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
 };
 
 /**
- * Regra 4: Verificações de Documentos e Avisos
+ * Regra 4: Verificações de Documentos e Avisos (Separados por Categoria)
  */
 export const checkVehicleRestrictions = (vehicle, revisions = []) => {
     const issues = [];
@@ -106,10 +115,10 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
 
     // 1. Bloqueio Manual
     if (vehicle.canCirculate === false || vehicle.canCirculate === 0 || vehicle.canCirculate === '0') {
-        issues.push({ type: 'bloqueio', message: "BLOQUEIO MANUAL: Veículo marcado como 'NÃO PODE CIRCULAR'." });
+        issues.push({ category: 'bloqueio', type: 'error', message: "BLOQUEIO MANUAL: Veículo marcado como 'NÃO PODE CIRCULAR'." });
     }
 
-    // 2. Revisões
+    // 2. Revisões (Mecânica)
     const revision = revisions.find(r => r.vehicleId === vehicle.id);
     if (revision) {
         // Por Data
@@ -118,12 +127,12 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
             revDate.setHours(0, 0, 0, 0);
             
             if (now >= revDate) {
-                issues.push({ type: 'vencido', message: `REVISÃO VENCIDA (Data): ${revDate.toLocaleDateString('pt-BR')}.` });
+                issues.push({ category: 'manutencao', type: 'error', message: `REVISÃO VENCIDA (Data): ${revDate.toLocaleDateString('pt-BR')}.` });
             } else if (revision.avisoAntecedenciaDias > 0) {
                 const dataAviso = new Date(revDate);
                 dataAviso.setDate(dataAviso.getDate() - revision.avisoAntecedenciaDias);
                 if (now >= dataAviso) {
-                    issues.push({ type: 'aviso', message: `Revisão PRÓXIMA (Data): Vence em ${revDate.toLocaleDateString('pt-BR')}.` });
+                    issues.push({ category: 'manutencao', type: 'warning', message: `Revisão PRÓXIMA (Data): Vence em ${revDate.toLocaleDateString('pt-BR')}.` });
                 }
             }
         }
@@ -133,10 +142,11 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
         const unit = readingInfo.unit; 
         const currentReading = readingInfo.raw;
         
-        // Determina meta (prioriza horimetro se for maquina)
+        // Determina meta (unificado horimetro)
         let proximaLeitura = 0;
         if (unit === 'Hr') {
             proximaLeitura = parseFloat(revision.proximaRevisaoHorimetro || 0);
+            // Fallback legado
             if (proximaLeitura === 0 && revision.proximaRevisaoOdometro > 0) proximaLeitura = parseFloat(revision.proximaRevisaoOdometro);
         } else {
             proximaLeitura = parseFloat(revision.proximaRevisaoOdometro || 0);
@@ -146,15 +156,16 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
         
         if (proximaLeitura > 0) {
             if (currentReading >= proximaLeitura) {
-                issues.push({ type: 'vencido', message: `REVISÃO VENCIDA (Leitura): Atual ${currentReading} ${unit} >= Meta ${proximaLeitura} ${unit}.` });
+                issues.push({ category: 'manutencao', type: 'error', message: `REVISÃO VENCIDA (Leitura): ${currentReading}/${proximaLeitura} ${unit}.` });
             } else if (avisoAntecedencia > 0 && currentReading >= (proximaLeitura - avisoAntecedencia)) {
                 const faltam = (proximaLeitura - currentReading).toFixed(1);
-                issues.push({ type: 'aviso', message: `Revisão PRÓXIMA (Leitura): Faltam ${faltam} ${unit}.` });
+                issues.push({ category: 'manutencao', type: 'warning', message: `Revisão PRÓXIMA (Leitura): Faltam ${faltam} ${unit}.` });
             }
         }
     }
 
-    // 3. Documentos (Caminhões e Trecho)
+    // 3. Documentos (Legal)
+    // Regra: Caminhões e Caminhões de Trecho têm documentos específicos
     const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho'].includes(vehicle.tipo);
 
     if (isTruck) {
@@ -170,12 +181,18 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
                 const dCompare = new Date(d.getFullYear(), d.getMonth(), d.getDate());
                 
                 if (now > dCompare) {
-                    issues.push({ type: 'vencido', message: `DOCUMENTO VENCIDO: ${doc.name}.` });
+                    issues.push({ category: 'documento', type: 'error', message: `${doc.name} VENCIDO.` });
                 } else if (dCompare <= thirtyDaysFromNow) {
-                    issues.push({ type: 'aviso', message: `Documento ${doc.name} vence em breve.` });
+                    issues.push({ category: 'documento', type: 'warning', message: `${doc.name} vence em breve.` });
                 }
             }
         });
+    }
+
+    // 4. Inatividade (Operacional) - Exemplo básico, pode ser expandido
+    if (vehicle.status === 'Disponível' && !vehicle.obraAtualId) {
+        // Se precisarmos de alerta de inatividade baseado em última movimentação, seria aqui
+        // issues.push({ category: 'inatividade', type: 'info', message: 'Veículo parado no pátio.' });
     }
 
     return issues;
