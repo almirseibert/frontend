@@ -216,11 +216,9 @@ const ComboioSaidaModal = ({
                 id: isEditing ? transactionData.id : undefined,
                 comboioVehicleId: comboioVehicle.id,
                 receivingVehicleId: data.receivingVehicleId,
+                // CORREÇÃO: Removemos campos legados horimetroDigital/Analogico
                 odometro: parseFloat(data.odometro) || null,
                 horimetro: parseFloat(data.horimetro) || null,
-                // Zera legados
-                horimetroDigital: null,
-                horimetroAnalogico: null,
                 liters: parseFloat(data.liters),
                 date: new Date(data.date + 'T12:00:00Z').toISOString(),
                 fuelType: data.fuelType,
