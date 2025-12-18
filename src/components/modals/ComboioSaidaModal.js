@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Loader, X, AlertTriangle, AlertOctagon, TrendingUp, Lock } from 'lucide-react';
+import { Loader, X, Lock, TrendingUp, AlertTriangle } from 'lucide-react';
 import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const ComboioSaidaModal = ({ 
@@ -15,7 +15,6 @@ const ComboioSaidaModal = ({
     apiClient, 
     extraObraOptions = [], 
     vehicleGroups = {}, 
-    // generateAuthorizationPDF removido (não deve gerar PDF na saída)
     reloadData,
     PasswordConfirmationModal 
 }) => {
@@ -30,15 +29,12 @@ const ComboioSaidaModal = ({
         employeeId: '',
         odometro: '',
         horimetro: '',
-        horimetroDigital: '',
-        horimetroAnalogico: '',
     });
     
     const [isSaving, setIsSaving] = useState(false);
     const [vehicleIssues, setVehicleIssues] = useState([]);
     const [blockReason, setBlockReason] = useState(null); 
     const [pendingSubmission, setPendingSubmission] = useState(null);
-    const [passwordAction, setPasswordAction] = useState(null); 
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [obraStatus, setObraStatus] = useState(null);
 
@@ -58,8 +54,6 @@ const ComboioSaidaModal = ({
                 employeeId: transactionData.employeeId || '',
                 odometro: transactionData.odometro || '',
                 horimetro: transactionData.horimetro || '',
-                horimetroDigital: transactionData.horimetroDigital || '',
-                horimetroAnalogico: transactionData.horimetroAnalogico || '',
             });
         }
     }, [isEditing, transactionData]);
@@ -77,8 +71,6 @@ const ComboioSaidaModal = ({
                 ...prev,
                 odometro: selectedVehicle.odometro || '',
                 horimetro: selectedVehicle.horimetro || '',
-                horimetroDigital: selectedVehicle.horimetroDigital || '',
-                horimetroAnalogico: selectedVehicle.horimetroAnalogico || '',
                 obraId: prev.obraId || autoObra,
                 employeeId: prev.employeeId || autoEmployee
             }));
@@ -138,18 +130,17 @@ const ComboioSaidaModal = ({
         setBlockReason(null); 
     };
 
-    // --- VALIDAÇÃO RIGOROSA EM TEMPO REAL (Km e Horas) ---
+    // --- VALIDAÇÃO RIGOROSA EM TEMPO REAL ---
     useEffect(() => {
         if (!selectedVehicle || isEditing) return;
         
         let reason = null;
         
-        // 1. Definição do Tipo
-        const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(selectedVehicle.tipo));
-        const isKmVehicle = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
-        const isHourVehicle = !isKmVehicle; 
+        const allowedTypes = getAllowedReadingTypes(selectedVehicle.tipo);
+        const isKmVehicle = allowedTypes.includes('odometro');
+        const isHourVehicle = allowedTypes.includes('horimetro'); 
 
-        // 2. Validação KM
+        // 1. Validação KM
         if (isKmVehicle && formData.odometro) {
             const current = parseFloat(formData.odometro);
             const last = parseFloat(selectedVehicle.odometro || 0);
@@ -160,26 +151,22 @@ const ComboioSaidaModal = ({
             }
         }
 
-        // 3. Validação HORAS
-        if (isHourVehicle) {
-            const currentStr = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
-            if (currentStr) {
-                const current = parseFloat(currentStr);
-                // Prioriza: Digital > Geral > Analógico (para obter o último valor)
-                let last = parseFloat(selectedVehicle.horimetroDigital || 0);
-                if (last === 0) last = parseFloat(selectedVehicle.horimetro || 0);
-                if (last === 0) last = parseFloat(selectedVehicle.horimetroAnalogico || 0);
+        // 2. Validação HORAS (Unificado)
+        if (isHourVehicle && formData.horimetro) {
+            const current = parseFloat(formData.horimetro);
+            // Busca o último valor unificado, ou fallback para legados se ainda existirem
+            let last = parseFloat(selectedVehicle.horimetro || 0);
+            if (last === 0) last = parseFloat(selectedVehicle.horimetroDigital || 0);
 
-                if (!isNaN(current) && last > 0) {
-                    if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
-                    else if (current - last > 50) reason = `Salto excessivo de Horas (> 50h).`;
-                }
+            if (!isNaN(current) && last > 0) {
+                if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
+                else if (current - last > 50) reason = `Salto excessivo de Horas (> 50h).`;
             }
         }
 
         setBlockReason(reason);
 
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, selectedVehicle, isEditing, vehicleGroups]);
+    }, [formData.odometro, formData.horimetro, selectedVehicle, isEditing]);
 
 
     const handleSubmit = async (e) => {
@@ -202,7 +189,6 @@ const ComboioSaidaModal = ({
         // 1. Bloqueio de Leitura (Senha necessária)
         if (blockReason && !isEditing) {
             setPendingSubmission(formData);
-            setPasswordAction('blockOverride');
             setShowPasswordModal(true);
             return;
         }
@@ -215,7 +201,6 @@ const ComboioSaidaModal = ({
             if (budgetCheck) {
                 setBlockReason(budgetCheck.message); 
                 setPendingSubmission(formData);
-                setPasswordAction('budgetOverride');
                 setShowPasswordModal(true);
                 return;
             }
@@ -233,8 +218,9 @@ const ComboioSaidaModal = ({
                 receivingVehicleId: data.receivingVehicleId,
                 odometro: parseFloat(data.odometro) || null,
                 horimetro: parseFloat(data.horimetro) || null,
-                horimetroDigital: parseFloat(data.horimetroDigital) || null,
-                horimetroAnalogico: parseFloat(data.horimetroAnalogico) || null,
+                // Zera legados
+                horimetroDigital: null,
+                horimetroAnalogico: null,
                 liters: parseFloat(data.liters),
                 date: new Date(data.date + 'T12:00:00Z').toISOString(),
                 fuelType: data.fuelType,
@@ -254,8 +240,6 @@ const ComboioSaidaModal = ({
                 setAlertMessage("Abastecimento registrado com sucesso!");
             }
             
-            // NÃO GERA PDF AQUI (Conforme solicitado)
-
             reloadData();
             onClose();
 
@@ -275,6 +259,7 @@ const ComboioSaidaModal = ({
         }
     };
 
+    // Renderiza Input Único Baseado no Tipo
     const renderReadingInputs = () => {
         if (!selectedVehicle) return null;
         const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
@@ -288,26 +273,11 @@ const ComboioSaidaModal = ({
             );
         } else {
             return (
-                <>
-                    {selectedVehicle.possuiHorimetroDigital && (
-                        <div>
-                            <label className="block font-medium mb-1">Horímetro Digital (Hr) *</label>
-                            <input name="horimetroDigital" type="number" step="0.1" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetroDigital || 0}`} />
-                        </div>
-                    )}
-                    {selectedVehicle.possuiHorimetroAnalogico && (
-                        <div>
-                            <label className="block font-medium mb-1">Horímetro Analógico (Hr)</label>
-                            <input name="horimetroAnalogico" type="number" step="0.1" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Atual: ${selectedVehicle.horimetroAnalogico || 0}`} />
-                        </div>
-                    )}
-                    {!selectedVehicle.possuiHorimetroDigital && !selectedVehicle.possuiHorimetroAnalogico && (
-                        <div>
-                            <label className="block font-medium mb-1">Horímetro (Hr) *</label>
-                            <input name="horimetro" type="number" step="0.1" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || 0}`} />
-                        </div>
-                    )}
-                </>
+                <div>
+                    <label className="block font-medium mb-1">Horímetro Final (Hr) *</label>
+                    <input name="horimetro" type="number" step="0.1" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || selectedVehicle.horimetroDigital || 0}`} />
+                    <p className="text-[10px] text-gray-400 mt-0.5">Unificado (Substitui Digital/Analógico)</p>
+                </div>
             );
         }
     };
