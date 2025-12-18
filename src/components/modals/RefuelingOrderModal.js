@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
+import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const RefuelingOrderModal = ({
     user,
@@ -58,10 +59,10 @@ const RefuelingOrderModal = ({
         date: orderToEdit?.date 
             ? getSafeDateObj(orderToEdit.date).toISOString().split('T')[0] 
             : new Date().toISOString().split('T')[0],
+        // Leitura Unificada
         odometro: orderToEdit?.odometro?.toString() || '',
         horimetro: orderToEdit?.horimetro?.toString() || '',
-        horimetroDigital: orderToEdit?.horimetroDigital?.toString() || '',
-        horimetroAnalogico: orderToEdit?.horimetroAnalogico?.toString() || '',
+        
         isFillUp: orderToEdit?.isFillUp || false,
         litrosLiberados: orderToEdit?.litrosLiberados?.toString() || '',
         fuelType: orderToEdit?.fuelType || '',
@@ -84,8 +85,6 @@ const RefuelingOrderModal = ({
     const [warnings, setWarnings] = useState([]); 
     const [lastRefuelData, setLastRefuelData] = useState(null);
     const [lastAverage, setLastAverage] = useState(null); 
-    const [noHorimetroWarning, setNoHorimetroWarning] = useState('');
-    const [isNoHorimetroConfirmVisible, setIsNoHorimetroConfirmVisible] = useState(false);
     const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
@@ -127,24 +126,13 @@ const RefuelingOrderModal = ({
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
     const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
-    const vehicleGroup = useMemo(() => {
-        if (!formData.vehicleId) return null;
-        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
-        if (!vehicle) return null;
-        return Object.keys(vehicleGroups).find(group => vehicleGroups[group]?.includes(vehicle.tipo));
-    }, [formData.vehicleId, vehicles, vehicleGroups]);
-
-    const isKmVehicle = vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões de Trecho';
-    const isHeavyMachinery = vehicleGroup === 'Máquinas Pesadas';
-    const isTruck = vehicleGroup === 'Caminhões';
-
+    // Helpers de Grupo (usando vehicleRules)
+    const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.vehicleId), [formData.vehicleId, vehicles]);
+    
     useEffect(() => {
-        if (formData.vehicleId) {
-            const vehicle = vehicles.find(v => v.id === formData.vehicleId);
-            if (!vehicle) return;
-
+        if (selectedVehicle) {
             const history = refuelings
-                .filter(r => r.vehicleId === formData.vehicleId && r.status === 'Concluída')
+                .filter(r => r.vehicleId === selectedVehicle.id && r.status === 'Concluída')
                 .sort((a,b) => {
                     const dateA = a.data || a.date;
                     const dateB = b.data || b.date;
@@ -158,11 +146,11 @@ const RefuelingOrderModal = ({
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
-                if (vehicle.obraAtualId) {
-                    const obra = obras.find(o => o.id === vehicle.obraAtualId);
+                if (selectedVehicle.obraAtualId) {
+                    const obra = obras.find(o => o.id === selectedVehicle.obraAtualId);
                     if (obra && obra.status === 'ativa') {
-                        autoObraId = vehicle.obraAtualId;
-                        const alocacao = obra?.historicoVeiculos?.find(h => h.veiculoId === vehicle.id && !h.dataSaida);
+                        autoObraId = selectedVehicle.obraAtualId;
+                        const alocacao = obra?.historicoVeiculos?.find(h => h.veiculoId === selectedVehicle.id && !h.dataSaida);
                         if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
                     }
                 }
@@ -184,28 +172,27 @@ const RefuelingOrderModal = ({
                     partnerId: autoPartnerId || prev.partnerId,
                     fuelType: autoFuelType || prev.fuelType,
                     litrosLiberados: autoLitros || prev.litrosLiberados,
-                    odometro: prev.odometro || vehicle.odometro?.toString() || '',
-                    horimetro: prev.horimetro || vehicle.horimetro?.toString() || '',
-                    horimetroDigital: prev.horimetroDigital || vehicle.horimetroDigital?.toString() || '',
-                    horimetroAnalogico: prev.horimetroAnalogico || vehicle.horimetroAnalogico?.toString() || ''
+                    odometro: prev.odometro || selectedVehicle.odometro?.toString() || '',
+                    horimetro: prev.horimetro || selectedVehicle.horimetro?.toString() || ''
                 }));
             }
 
             const newWarnings = [];
-            if (vehicle.naoPodeCircular) newWarnings.push("⚠️ 'NÃO PODE CIRCULAR'");
-            if (vehicle.status === 'manutencao') newWarnings.push("🔧 Em manutenção.");
-            if (vehicle.possuiAviso) newWarnings.push(`📄 ${vehicle.avisoTexto}`);
+            if (selectedVehicle.naoPodeCircular) newWarnings.push("⚠️ 'NÃO PODE CIRCULAR'");
+            if (selectedVehicle.status === 'manutencao') newWarnings.push("🔧 Em manutenção.");
             setWarnings(newWarnings);
 
+            // Média Simples
             if (last && history[1]) {
                 const prev = history[1];
                 const litros = parseFloat(last.litrosAbastecidos || 0);
                 let diff = 0;
                 let unit = 'Km/L';
 
-                if (isHeavyMachinery || (isTruck && vehicle.mediaCalculo === 'horimetro')) {
-                    const lastHr = parseFloat(last.horimetroDigital || last.horimetro || last.odometro || 0); 
-                    const prevHr = parseFloat(prev.horimetroDigital || prev.horimetro || prev.odometro || 0);
+                const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
+                if (allowed.includes('horimetro')) {
+                    const lastHr = parseFloat(last.horimetro || last.horimetroDigital || 0); 
+                    const prevHr = parseFloat(prev.horimetro || prev.horimetroDigital || 0);
                     diff = lastHr - prevHr;
                     unit = 'L/Hr';
                 } else {
@@ -224,67 +211,45 @@ const RefuelingOrderModal = ({
                 setLastAverage(null);
             }
         }
-    }, [formData.vehicleId, vehicles, obras, refuelings, isEditing, isHeavyMachinery, isTruck]);
+    }, [selectedVehicle, obras, refuelings, isEditing]);
 
-    // --- VALIDAÇÕES DE LEITURA (RIGOROSA - BASEADA NA TABELA VEHICLES) ---
+    // --- VALIDAÇÕES DE LEITURA (UNIFICADO) ---
     useEffect(() => {
         setBlockReason(null);
+        if (!selectedVehicle) return;
 
-        // 1. Identifica o veículo e o tipo
-        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
-        if (!vehicle) return;
-
-        const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(vehicle.tipo));
-        const isTruckType = group === 'Caminhões';
-        const isMachineType = group === 'Máquinas Pesadas';
-        const isKmType = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
+        const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
+        const isKm = allowed.includes('odometro');
+        const isHr = allowed.includes('horimetro');
 
         let reason = null;
 
-        // 2. Validação para KM
-        if (isKmType && formData.odometro) {
+        // Validação KM
+        if (isKm && formData.odometro) {
             const current = parseFloat(formData.odometro);
-            const last = parseFloat(vehicle.odometro || 0);
+            const last = parseFloat(selectedVehicle.odometro || 0);
 
             if (!isNaN(current) && last > 0) {
-                 if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual do veículo (${last}).`;
+                 if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual (${last}).`;
                  else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
             }
         }
 
-        // 3. Validação para HORAS (Caminhões e Máquinas)
-        if ((isTruckType || isMachineType)) {
-            // Pega o valor digitado (prioriza digital, depois geral, depois analógico)
-            const currentValStr = formData.horimetroDigital || formData.horimetro || formData.horimetroAnalogico;
-            
-            if (currentValStr) {
-                const current = parseFloat(currentValStr);
-                
-                // Define a leitura anterior baseada no tipo de veículo (REGRA SOLICITADA)
-                let last = 0;
-                if (isTruckType) {
-                    last = parseFloat(vehicle.horimetro || 0);
-                } else if (isMachineType) {
-                    // Prioriza Digital, se não tiver, usa Analógico
-                    last = parseFloat(vehicle.horimetroDigital || 0);
-                    if (last === 0) last = parseFloat(vehicle.horimetroAnalogico || 0);
-                }
+        // Validação HORAS (Unificado)
+        if (isHr && formData.horimetro) {
+            const current = parseFloat(formData.horimetro);
+            // Busca a última leitura (seja do campo novo ou do antigo legado)
+            let last = parseFloat(selectedVehicle.horimetro || 0);
+            if (last === 0) last = parseFloat(selectedVehicle.horimetroDigital || 0);
 
-                if (!isNaN(current) && last > 0) {
-                    if (current <= last) {
-                        reason = `Horímetro (${current}) menor/igual ao atual do veículo (${last}).`;
-                    }
-                    else if ((current - last) > 50) {
-                        reason = `Salto excessivo de Horímetro (> 50h). Diferença: ${(current - last).toFixed(1)}h.`;
-                    }
-                }
+            if (!isNaN(current) && last > 0) {
+                if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
+                else if (current - last > 50) reason = `Salto excessivo (> 50h).`;
             }
         }
 
-        if (reason) {
-            setBlockReason(reason);
-        }
-    }, [formData.odometro, formData.horimetro, formData.horimetroDigital, formData.horimetroAnalogico, formData.vehicleId, vehicles, vehicleGroups]);
+        if (reason) setBlockReason(reason);
+    }, [formData.odometro, formData.horimetro, selectedVehicle]);
 
     useEffect(() => {
         if (formData.obraId && obras.length > 0) {
@@ -329,7 +294,6 @@ const RefuelingOrderModal = ({
     const sendToWhatsApp = async (orderData) => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
-        const employee = employees.find(e => e.id === formData.employeeId);
         
         const finalData = orderData || {
             ...formData,
@@ -340,7 +304,6 @@ const RefuelingOrderModal = ({
         const pdfData = {
             ...finalData,
             partnerName: partner?.razaoSocial,
-            employeeName: employee?.nome,
         };
         
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
@@ -368,26 +331,14 @@ _Por favor, confirme o recebimento._`;
         }, 1000);
     };
 
-    const validateMandatoryFields = () => {
-        if (!formData.vehicleId) return "Selecione um Veículo.";
-        if (!formData.employeeId) return "Selecione um Motorista.";
-        if (!formData.obraId) return "Selecione uma Obra.";
-        if (!formData.partnerId) return "Selecione um Posto.";
-        if (!formData.fuelType) return "Selecione o Combustível.";
-        if (isKmVehicle && !formData.odometro) return "Informe o Odômetro.";
-        if (isTruck && !formData.horimetro) return "Informe o Horímetro.";
-        if (isHeavyMachinery && (!formData.horimetroDigital && !formData.horimetroAnalogico)) return "Informe Horímetro.";
-        return null;
-    };
-
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
 
-        const validationError = validateMandatoryFields();
-        if (validationError) {
-            setAlertMessage(validationError);
+        if (!formData.vehicleId || !formData.employeeId || !formData.partnerId || !formData.fuelType) {
+            setAlertMessage("Preencha os campos obrigatórios.");
             return;
         }
+
         if (blockReason) {
             setPasswordAction('blockOverride');
             setShowPasswordModal(true);
@@ -403,7 +354,6 @@ _Por favor, confirme o recebimento._`;
 
     const executeSave = async () => {
         setIsSaving(true);
-        setIsNoHorimetroConfirmVisible(false);
         setShowPasswordModal(false);
 
         const safeFloat = (val) => {
@@ -411,35 +361,23 @@ _Por favor, confirme o recebimento._`;
             return isNaN(num) ? null : num;
         };
 
-        let isoDate = new Date().toISOString();
-        if (formData.date) {
-            try {
-                 const dateObj = new Date(formData.date + 'T12:00:00Z');
-                 if (!isNaN(dateObj.getTime())) isoDate = dateObj.toISOString();
-            } catch (e) {}
-        }
-
-        const selectedPartner = partners.find(p => p.id === formData.partnerId);
-
         const payload = {
             ...formData,
-            partnerName: selectedPartner ? selectedPartner.razaoSocial : null,
+            // Envia campos unificados e zera os legados explicitamente
             odometro: safeFloat(formData.odometro),
             horimetro: safeFloat(formData.horimetro),
-            horimetroDigital: safeFloat(formData.horimetroDigital),
-            horimetroAnalogico: safeFloat(formData.horimetroAnalogico),
+            horimetroDigital: null,
+            horimetroAnalogico: null,
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
-            date: isoDate,
+            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             createdBy: user 
         };
 
         try {
             let res;
-            const hasValidId = orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW';
-            
-            if (isEditing && hasValidId) {
+            if (isEditing && orderToEdit.id) {
                 res = await apiClient.updateRefuelingOrder(orderToEdit.id, payload);
                 setAlertMessage(`Ordem atualizada!`);
             } else {
@@ -458,10 +396,32 @@ _Por favor, confirme o recebimento._`;
             }
             onClose();
         } catch (error) {
-            console.error(error);
             setAlertMessage("Erro ao salvar: " + (error.response?.data?.error || error.message));
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    // Renderiza Input Único Baseado no Tipo
+    const renderReadingInputs = () => {
+        if (!selectedVehicle) return null;
+        const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
+
+        if (allowed.includes('odometro')) {
+            return (
+                <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-gray-700">Odômetro (Km) *</label>
+                    <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-1 border rounded" required placeholder={`Atual: ${selectedVehicle.odometro}`}/>
+                </div>
+            );
+        } else {
+            return (
+                <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-gray-700">Horímetro (Hr) *</label>
+                    <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || selectedVehicle.horimetroDigital || 0}`}/>
+                    <p className="text-[9px] text-gray-400 mt-0.5">Campo Unificado</p>
+                </div>
+            );
         }
     };
 
@@ -513,9 +473,7 @@ _Por favor, confirme o recebimento._`;
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
                                     
                                     <div className="mt-0.5 pt-0.5 border-t border-gray-300 flex gap-2">
-                                        {isKmVehicle && <p>Odômetro: <strong>{lastRefuelData.odometro || 'N/A'}</strong></p>}
-                                        {isTruck && <p>Horímetro: <strong>{lastRefuelData.horimetro || 'N/A'}</strong></p>}
-                                        {isHeavyMachinery && <p>Horímetro: <strong>{lastRefuelData.horimetroDigital || 'N/A'}</strong></p>}
+                                        <p>Leitura: <strong>{lastRefuelData.horimetro || lastRefuelData.horimetroDigital || lastRefuelData.odometro || 'N/A'}</strong></p>
                                     </div>
                                 </div>
                                 <div className="text-right">
@@ -528,32 +486,7 @@ _Por favor, confirme o recebimento._`;
                         <div className="bg-gray-50 p-2 rounded border border-gray-200">
                             <h3 className="text-[10px] font-bold text-gray-500 uppercase mb-1">Leituras Atuais</h3>
                             <div className="grid grid-cols-2 gap-2">
-                                {isKmVehicle && (
-                                    <div className="col-span-2">
-                                        <label className="block text-[10px] font-bold text-gray-700">Odômetro (Km) *</label>
-                                        <input type="number" name="odometro" value={formData.odometro} onChange={handleChange} className="w-full p-1 border rounded" required/>
-                                    </div>
-                                )}
-                                
-                                {isTruck && (
-                                    <div className="col-span-2">
-                                        <label className="block text-[10px] font-bold text-gray-700">Horímetro Geral *</label>
-                                        <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required/>
-                                    </div>
-                                )}
-
-                                {isHeavyMachinery && (
-                                    <>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-700">Horí. Digital *</label>
-                                            <input type="number" name="horimetroDigital" value={formData.horimetroDigital} onChange={handleChange} className="w-full p-1 border rounded"/>
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-700">Horí. Analógico</label>
-                                            <input type="number" name="horimetroAnalogico" value={formData.horimetroAnalogico} onChange={handleChange} className="w-full p-1 border rounded"/>
-                                        </div>
-                                    </>
-                                )}
+                                {renderReadingInputs()}
                             </div>
                         </div>
 
@@ -575,7 +508,7 @@ _Por favor, confirme o recebimento._`;
                             </select>
                         </div>
 
-                        {/* NOVO: PROGRESSO FINANCEIRO REPOSICIONADO AQUI */}
+                        {/* PROGRESSO FINANCEIRO */}
                         {obraStatus && (
                             <div className="p-2 bg-blue-50 border border-blue-200 rounded text-[10px]">
                                 <h4 className="font-bold text-blue-800 flex items-center gap-1 mb-1">
@@ -679,18 +612,6 @@ _Por favor, confirme o recebimento._`;
                     )}
                 </div>
             </div>
-
-            {/* Modais de Confirmação */}
-            {isNoHorimetroConfirmVisible && (
-                <ConfirmationModal 
-                    title="Aviso" 
-                    message={noHorimetroWarning} 
-                    onConfirm={executeSave} 
-                    onClose={() => setIsNoHorimetroConfirmVisible(false)}
-                    confirmText="Salvar"
-                    confirmColor="bg-red-600 hover:bg-red-700 text-white"
-                />
-            )}
 
             {showPasswordModal && (
                 <PasswordConfirmationModal

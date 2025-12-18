@@ -7,12 +7,13 @@ import autoTable from 'jspdf-autotable';
 import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
+import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
 const RefuelingPage = ({
     user,
     vehicles = [],
     obras = [],
-    partners = [], // Necessário para passar ao ConfirmRefuelingModal
+    partners = [], 
     refuelings = [], 
     employees = [],
     expenses = [], 
@@ -44,7 +45,6 @@ const RefuelingPage = ({
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
-    // --- HELPER: Formatação de Data Segura ---
     const formatDateSafe = (dateInput) => {
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
@@ -89,7 +89,7 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
+    // --- GERAÇÃO DE PDF (Unificado) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         setIsGeneratingPdf(true);
         try {
@@ -124,33 +124,21 @@ const RefuelingPage = ({
                 doc.setFontSize(12);
                 doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
 
+                // Lógica de Leitura Unificada para o PDF
                 let leituraLabel = 'Leitura';
                 let leituraValue = 'N/A';
-                if (vehicle && groups && Object.keys(groups).length > 0) {
-                     const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
-                     if (group === 'Máquinas Pesadas') {
-                         leituraLabel = 'Horímetro';
-                         leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
-                     } else if (group === 'Caminhões') {
-                         if (order.horimetro != null && order.horimetro > 0) {
-                            leituraLabel = 'Horímetro';
-                            leituraValue = order.horimetro;
-                         } else {
-                            leituraLabel = 'Odômetro';
-                            leituraValue = order.odometro || 'N/A';
-                         }
-                     } else { 
-                         leituraLabel = 'Odômetro';
-                         leituraValue = order.odometro || 'N/A';
-                     }
-                } else { 
-                     if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
-                         leituraLabel = 'Horímetro';
-                         leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
-                     } else {
-                         leituraLabel = 'Odômetro';
-                         leituraValue = order.odometro || 'N/A';
-                     }
+                
+                if (vehicle) {
+                    const allowed = getAllowedReadingTypes(vehicle.tipo);
+                    if (allowed.includes('odometro')) {
+                        leituraLabel = 'Odômetro';
+                        // Pega do pedido ou fallback
+                        leituraValue = order.odometro || 'N/A';
+                    } else {
+                        leituraLabel = 'Horímetro';
+                        // Pega do pedido, fallback para digital/analogico se for antigo
+                        leituraValue = order.horimetro || order.horimetroDigital || order.horimetroAnalogico || 'N/A';
+                    }
                 }
 
                 const body = [

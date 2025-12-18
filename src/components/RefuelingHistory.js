@@ -13,38 +13,29 @@ const RefuelingHistory = ({
     
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // --- HELPER: Validação de Data (Consistente com RefuelingPage) ---
+    // --- HELPER: Validação de Data ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
-        // Filtra strings vazias, nulas, ou data "zero" do MySQL/Unix
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
-    // --- HELPER: Formatação de Data Segura ---
     const formatDateSafe = (dateInput) => {
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
             let dateStr = String(dateInput);
-            // Se for string SQL (YYYY-MM-DD HH:MM:SS), substitui espaço por T
-            if (dateStr.includes(' ') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T');
-            }
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
             const date = new Date(dateStr);
             if (isNaN(date.getTime())) return 'Data Inválida';
-            // Força UTC para evitar erro de fuso horário (D-1)
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
 
-    // --- HELPER: Objeto Date Seguro para Ordenação ---
     const getSafeDateObj = (dateInput) => {
         if (!isValidDbDate(dateInput)) return new Date(0);
         try {
             let dateStr = String(dateInput);
-            if (dateStr.includes(' ') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T');
-            }
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
             const d = new Date(dateStr);
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { return new Date(0); }
@@ -55,7 +46,7 @@ const RefuelingHistory = ({
         const vehicle = vehicles.find(v => v.id === vehicleId);
         if (!vehicle || !Array.isArray(refuelings)) return { historyWithAverages: [], overallAverage: null, unit: 'N/A', readingLabel: 'Leitura' };
 
-        // 1. Filtra e Ordena usando DATA SEGURA (Priorizando 'data' do banco, fallback para 'date')
+        // 1. Filtra e Ordena
         const history = refuelings
             .filter(r => r.vehicleId === vehicleId && r.status === 'Concluída')
             .sort((a,b) => {
@@ -64,31 +55,34 @@ const RefuelingHistory = ({
                 return getSafeDateObj(dateB).getTime() - getSafeDateObj(dateA).getTime();
             }); 
 
-        // 2. Determina Unidade
+        // 2. Determina Unidade (Unificada)
         const getUnitAndLabel = () => {
              let isHourBased = false;
              if (vehicleGroups && Object.keys(vehicleGroups).length > 0) {
                  const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(vehicle.tipo));
-                 if (group === 'Máquinas Pesadas' || group === 'Caminhões Pesados') isHourBased = true;
-                 if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') isHourBased = false;
+                 if (group === 'Máquinas Pesadas' || group === 'Caminhões' || group === 'Caminhões Pesados') {
+                     // Verifica se é exceção (trecho/leve)
+                     if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') isHourBased = false;
+                     else isHourBased = true;
+                 }
              }
              if (vehicle.mediaCalculo === 'horimetro') isHourBased = true;
              return isHourBased ? { unit: 'L/Hr', label: 'Horímetro' } : { unit: 'Km/L', label: 'Odômetro' };
         };
         const { unit, readingLabel } = getUnitAndLabel();
 
-        // 3. Calcula Médias (Comparando item N com N+1)
+        // 3. Calcula Médias
         const historyWithAverages = history.map((current, index) => {
             const previous = history[index + 1]; 
             let average = null;
             
+            // Leitura Unificada (fallback para legados)
             const getReading = (item) => {
-                if (unit === 'L/Hr') return parseFloat(item.horimetroDigital || item.horimetroAnalogico || item.horimetro || 0);
+                if (unit === 'L/Hr') return parseFloat(item.horimetro || item.horimetroDigital || item.horimetroAnalogico || 0);
                 return parseFloat(item.odometro || 0);
             };
             
-            // Define qual leitura será exibida na tabela
-            let displayReading = unit === 'L/Hr' ? (current.horimetroDigital || current.horimetro || '-') : (current.odometro || '-');
+            let displayReading = unit === 'L/Hr' ? (current.horimetro || current.horimetroDigital || '-') : (current.odometro || '-');
 
             if (previous) {
                 const currentVal = getReading(current);
@@ -103,14 +97,14 @@ const RefuelingHistory = ({
             return { ...current, average, displayReading, readingLabel };
         });
 
-        // 4. Média Geral Global
+        // 4. Média Geral
         let overallAverage = null;
         if (history.length > 1) {
             const newest = history[0];
             const oldest = history[history.length - 1];
             
             const getReading = (item) => {
-                 if (unit === 'L/Hr') return parseFloat(item.horimetroDigital || item.horimetroAnalogico || item.horimetro || 0);
+                 if (unit === 'L/Hr') return parseFloat(item.horimetro || item.horimetroDigital || item.horimetroAnalogico || 0);
                  return parseFloat(item.odometro || 0);
             }
 
@@ -125,13 +119,10 @@ const RefuelingHistory = ({
         return { historyWithAverages, overallAverage, unit, readingLabel };
     }, [vehicleId, refuelings, vehicles, vehicleGroups]);
 
-    // --- CARREGAMENTO DINÂMICO DE SCRIPTS (CORREÇÃO DE BUILD) ---
+    // --- PDF ---
     const loadScript = (src) => {
         return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) {
-                resolve();
-                return;
-            }
+            if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
             const script = document.createElement('script');
             script.src = src;
             script.onload = resolve;
@@ -147,9 +138,7 @@ const RefuelingHistory = ({
             await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
 
             const vehicle = vehicles.find(v => v.id === vehicleId);
-            if (!vehicle || !window.jspdf) {
-                throw new Error("Biblioteca PDF não carregada ou veículo não encontrado.");
-            }
+            if (!vehicle || !window.jspdf) return;
 
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
@@ -161,7 +150,7 @@ const RefuelingHistory = ({
                 startY: 30,
                 head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
                 body: processedHistory.historyWithAverages.map(h => [
-                    formatDateSafe(h.data || h.date), // CORREÇÃO: Usa data OU date
+                    formatDateSafe(h.data || h.date),
                     h.partnerName,
                     h.displayReading,
                     (h.litrosAbastecidos || 0).toFixed(2),
@@ -174,7 +163,7 @@ const RefuelingHistory = ({
             doc.save(`Historico_${vehicle.registroInterno}.pdf`);
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
-            alert("Erro ao gerar o PDF. Verifique sua conexão com a internet.");
+            alert("Erro ao gerar PDF.");
         } finally {
             setIsGeneratingPdf(false);
         }
@@ -189,7 +178,6 @@ const RefuelingHistory = ({
 
     return (
         <div className="animate-fadeIn">
-            {/* Cards de Resumo */}
             <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">Média Geral</span>
@@ -226,7 +214,7 @@ const RefuelingHistory = ({
                         <tbody className="divide-y divide-gray-100 bg-white">
                             {processedHistory.historyWithAverages.map(h => (
                                 <tr key={h.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="p-3">{formatDateSafe(h.data || h.date)}</td> {/* DATA CORRIGIDA VISÍVEL AQUI */}
+                                    <td className="p-3">{formatDateSafe(h.data || h.date)}</td>
                                     <td className="p-3 truncate max-w-[140px]">{h.partnerName}</td>
                                     <td className="p-3 text-right font-mono text-gray-600">{h.displayReading}</td>
                                     <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>

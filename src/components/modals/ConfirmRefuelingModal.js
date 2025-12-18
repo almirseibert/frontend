@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader, TrendingDown, TrendingUp, Lock, AlertTriangle } from 'lucide-react';
+import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const ConfirmRefuelingModal = ({ 
     user, 
@@ -12,7 +13,7 @@ const ConfirmRefuelingModal = ({
     obras = [],
     expenses = [],
     vehicles = [], 
-    partners = [], // Precisamos da lista de parceiros para buscar o preço
+    partners = [], 
     PasswordConfirmationModal 
 }) => {
     const [litros, setLitros] = useState(order.litrosLiberados || '');
@@ -22,9 +23,10 @@ const ConfirmRefuelingModal = ({
     const [precoUnitario, setPrecoUnitario] = useState(''); 
     const [initialPartnerPrice, setInitialPartnerPrice] = useState(0);
 
-    // Novo Estado para NF
+    // Estado para NF
     const [invoiceNumber, setInvoiceNumber] = useState(order.invoiceNumber || '');
 
+    // Sugestão de leitura (Unificada)
     const suggestedReading = order.horimetro || order.horimetroDigital || order.odometro || '';
     const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState(suggestedReading);
     
@@ -87,7 +89,7 @@ const ConfirmRefuelingModal = ({
         }
     }, [order.obraId, obras, expenses]);
 
-    // --- 3. Validação Rigorosa (Regras do Sistema) ---
+    // --- 3. Validação Rigorosa (Unificada) ---
     useEffect(() => {
         setBlockReason(null);
         if (!kmOuHrConfirmado || !order.vehicleId) return;
@@ -95,35 +97,31 @@ const ConfirmRefuelingModal = ({
         const vehicle = vehicles.find(v => v.id === order.vehicleId);
         if (!vehicle) return;
 
-        // Regra 1: Determinar Grupo
-        const isTruck = vehicle.tipo.includes('Caminhão') || vehicle.tipo.includes('Bitruck') || vehicle.tipo.includes('Cavalo');
-        const isMachine = !isTruck && (vehicle.tipo.includes('Motoniveladora') || vehicle.tipo.includes('Escavadeira') || vehicle.tipo.includes('Pá') || vehicle.tipo.includes('Retro') || vehicle.tipo.includes('Rolo') || vehicle.tipo.includes('Trator'));
+        const allowedTypes = getAllowedReadingTypes(vehicle.tipo);
+        const isKm = allowedTypes.includes('odometro');
+        const isHr = allowedTypes.includes('horimetro');
         
         let last = 0;
-        let isHourMeter = false;
-
-        if (isTruck) {
-            last = parseFloat(vehicle.horimetro || 0);
-            isHourMeter = true;
-        } else if (isMachine) {
-            last = parseFloat(vehicle.horimetroDigital || 0);
-            if (last === 0) last = parseFloat(vehicle.horimetroAnalogico || 0);
-            isHourMeter = true;
-        } else {
+        if (isKm) {
             last = parseFloat(vehicle.odometro || 0);
+        } else {
+            // Unificado: Pega horimetro, fallback para legados
+            last = parseFloat(vehicle.horimetro || 0);
+            if (last === 0) last = parseFloat(vehicle.horimetroDigital || 0);
         }
 
         const current = parseFloat(kmOuHrConfirmado);
         
         if (!isNaN(current) && last > 0) {
-            // Regra 2 & 3: Bloqueio de Regressão e Saltos
+            // Regra: Bloqueio de Regressão
             if (current <= last) {
                 setBlockReason(`Leitura (${current}) menor/igual à atual (${last}).`);
             }
-            else if (isHourMeter && (current - last) > 50) {
+            // Regra: Saltos
+            else if (isHr && (current - last) > 50) {
                 setBlockReason(`Salto excessivo de Horímetro (> 50h). Diferença: ${(current - last).toFixed(1)}h.`);
             }
-            else if (!isHourMeter && (current - last) > 1000) {
+            else if (isKm && (current - last) > 1000) {
                 setBlockReason(`Salto excessivo de Km (> 1000).`);
             }
         }
@@ -143,14 +141,15 @@ const ConfirmRefuelingModal = ({
 
         const currentReading = parseFloat(kmOuHrConfirmado);
         const lastRefuel = history[0];
-        const lastReading = parseFloat(lastRefuel.horimetroDigital || lastRefuel.horimetro || lastRefuel.odometro || 0);
+        // Leitura anterior unificada
+        const lastReading = parseFloat(lastRefuel.horimetro || lastRefuel.horimetroDigital || lastRefuel.odometro || 0);
 
         if (currentReading <= lastReading) return;
 
         const diff = currentReading - lastReading;
         const currentAverage = diff / parseFloat(litros); 
 
-        // Cálculo Simples de Média Histórica (últimos 3)
+        // Média Histórica
         let sumAvgs = 0;
         let count = 0;
         
@@ -158,8 +157,8 @@ const ConfirmRefuelingModal = ({
             const rCurrent = history[i];
             const rPrev = history[i+1];
             const l = parseFloat(rCurrent.litrosAbastecidos || 0);
-            const valCurr = parseFloat(rCurrent.horimetroDigital || rCurrent.horimetro || rCurrent.odometro || 0);
-            const valPrev = parseFloat(rPrev.horimetroDigital || rPrev.horimetro || rPrev.odometro || 0);
+            const valCurr = parseFloat(rCurrent.horimetro || rCurrent.horimetroDigital || rCurrent.odometro || 0);
+            const valPrev = parseFloat(rPrev.horimetro || rPrev.horimetroDigital || rPrev.odometro || 0);
             
             if (l > 0 && valCurr > valPrev) {
                 sumAvgs += (valCurr - valPrev) / l;
@@ -169,7 +168,6 @@ const ConfirmRefuelingModal = ({
 
         if (count > 0) {
             const baselineAverage = sumAvgs / count;
-            // Se cair mais de 25% da média
             if (currentAverage < (baselineAverage * 0.75)) {
                 setAverageAlert(`⚠️ ALERTA: Média caiu >25% (Atual: ${currentAverage.toFixed(2)} / Base: ${baselineAverage.toFixed(2)})`);
             }
@@ -181,7 +179,6 @@ const ConfirmRefuelingModal = ({
     const handleConfirmClick = (e) => {
         e.preventDefault();
         
-        // A. Validação de Duplicidade de NF (Cliente-side para feedback rápido)
         if (invoiceNumber && order.partnerId) {
             const nfStr = invoiceNumber.toString().trim();
             const isDuplicate = refuelings.some(r => 
@@ -191,12 +188,11 @@ const ConfirmRefuelingModal = ({
             );
 
             if (isDuplicate) {
-                setAlertMessage(`A Nota Fiscal ${nfStr} já consta lançada para este posto. Verifique se não é um lançamento duplicado.`);
+                setAlertMessage(`A Nota Fiscal ${nfStr} já consta lançada para este posto.`);
                 return;
             }
         }
 
-        // B. Validação Bloqueio de Leitura
         if (blockReason) {
             setShowPasswordModal(true);
             return;
@@ -205,17 +201,12 @@ const ConfirmRefuelingModal = ({
         checkPriceAndSubmit();
     };
 
-    // Chamado após passar pelo bloqueio de leitura (se houver)
     const checkPriceAndSubmit = () => {
         setShowPasswordModal(false);
-
-        // 2. Verifica Mudança de Preço
         const inputPrice = parseFloat(precoUnitario);
         if (initialPartnerPrice > 0 && inputPrice > 0 && Math.abs(inputPrice - initialPartnerPrice) > 0.01) {
-            // Preço mudou -> Pergunta se quer atualizar cadastro
             setShowPriceUpdateDialog(true);
         } else {
-            // Preço igual ou era zero -> Segue normal (não atualiza cadastro)
             executeConfirm(false);
         }
     };
@@ -232,7 +223,7 @@ const ConfirmRefuelingModal = ({
                 confirmedBy: user,
                 outrosValor: order.outrosGeraValor ? (parseFloat(outrosValorConfirmado) || 0) : 0,
                 invoiceNumber: invoiceNumber,
-                updatePartnerPrice: shouldUpdatePartnerPrice // Flag importante
+                updatePartnerPrice: shouldUpdatePartnerPrice
             };
 
             await apiClient.confirmRefuelingOrder(order.id, payload);
@@ -289,12 +280,10 @@ const ConfirmRefuelingModal = ({
                     )}
                     
                     <div className="grid grid-cols-2 gap-2">
-                        {/* CAMPO DE NF */}
                         <div>
                             <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Nota Fiscal (NF)</label>
                             <input type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} className="w-full p-1 border rounded font-bold uppercase focus:ring-1 focus:ring-yellow-400 outline-none" placeholder="Nº NF"/>
                         </div>
-                        {/* CAMPO DE PREÇO */}
                          <div>
                             <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Preço Litro (R$)</label>
                             <input 
@@ -347,18 +336,12 @@ const ConfirmRefuelingModal = ({
                     </div>
                 </form>
 
-                {/* --- DIALOG DE ATUALIZAÇÃO DE PREÇO --- */}
                 {showPriceUpdateDialog && (
                     <div className="absolute inset-0 bg-white bg-opacity-95 z-10 flex flex-col items-center justify-center p-6 text-center animate-fadeIn">
                         <div className="bg-yellow-100 p-3 rounded-full mb-3 text-yellow-600">
                             <AlertTriangle size={24} />
                         </div>
                         <h3 className="text-sm font-bold text-gray-800 mb-2">Valor Diferente do Cadastro</h3>
-                        <p className="text-xs text-gray-600 mb-4">
-                            O valor informado (R$ {parseFloat(precoUnitario).toFixed(3)}) é diferente do valor atual no cadastro do posto (R$ {initialPartnerPrice.toFixed(3)}).
-                            <br/><br/>
-                            <strong>Deseja atualizar o valor no cadastro do posto?</strong>
-                        </p>
                         <div className="flex gap-2 w-full">
                             <button 
                                 onClick={() => executeConfirm(false)}
@@ -376,11 +359,10 @@ const ConfirmRefuelingModal = ({
                     </div>
                 )}
 
-                {/* MODAL DE SENHA INTEGRADO */}
                 {showPasswordModal && (
                     <PasswordConfirmationModal
                         message={`BLOQUEIO DE SEGURANÇA:\n${blockReason}\nInsira senha para autorizar.`}
-                        onConfirm={checkPriceAndSubmit} // Após senha, verifica preço
+                        onConfirm={checkPriceAndSubmit} 
                         onClose={() => setShowPasswordModal(false)}
                         apiClient={apiClient}
                     />
