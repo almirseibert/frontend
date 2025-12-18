@@ -7,7 +7,8 @@ import {
     X,
     Loader,
     AlertTriangle,
-    Info
+    Info,
+    History
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -52,7 +53,6 @@ const RevisionsPage = ({
      const formatNextRevisionDate = (dateString) => {
          if (!isValidDbDate(dateString)) return 'N/A';
          try {
-             // Ajuste de timezone para exibição correta (evita D-1)
              const date = new Date(dateString);
              return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
          } catch (e) { return 'Inválida'; }
@@ -60,16 +60,16 @@ const RevisionsPage = ({
 
      const formatNextRevisionReading = (revision, vehicle) => {
         if (!revision) return 'N/A';
-        
-        // Usa a regra central para saber a unidade correta (Km ou Hr)
         const readingInfo = getVehicleMainReading(vehicle);
         const unit = readingInfo.unit;
         
         let reading;
         if (unit === 'Hr') {
             reading = revision.proximaRevisaoHorimetro;
-            // Fallback visual caso tenha sido salvo no campo errado antigamente
-            if (!reading && revision.proximaRevisaoOdometro) reading = revision.proximaRevisaoOdometro;
+            // Fallback visual para legado
+            if (!reading && revision.proximaRevisaoOdometro > 0 && vehicle.mediaCalculo === 'horimetro') {
+                 reading = revision.proximaRevisaoOdometro;
+            }
         } else {
             reading = revision.proximaRevisaoOdometro;
         }
@@ -103,25 +103,19 @@ const RevisionsPage = ({
                     if (!item || !item.revision) return null;
                     
                     const { revision, ...vehicle } = item;
-
-                    // --- LÓGICA DE AVISO RECUPERADA E CENTRALIZADA ---
-                    // Usamos checkVehicleRestrictions passando o veículo e a revisão atual.
-                    // Isso garante que a lógica de "Vencido" (Vermelho) e "Próximo" (Amarelo)
-                    // seja IDÊNTICA à da tela de veículos.
                     const issues = checkVehicleRestrictions(vehicle, [revision]);
                     
-                    const isOverdue = issues.some(i => i.type === 'vencido');
-                    const isWarning = issues.some(i => i.type === 'aviso');
+                    // Filtrar apenas alertas de manutenção
+                    const maintenanceIssues = issues.filter(i => i.category === 'manutencao');
                     
-                    // Captura a mensagem para tooltip (opcional)
-                    const alertMessage = issues.map(i => i.message).join('\n');
+                    const isOverdue = maintenanceIssues.some(i => i.type === 'error'); // error = vencido
+                    const isWarning = maintenanceIssues.some(i => i.type === 'warning'); // warning = aviso
+                    const alertMessage = maintenanceIssues.map(i => i.message).join('\n');
 
                     let rowBgClass = 'bg-white hover:bg-gray-50'; 
                     if (isOverdue) rowBgClass = 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500'; 
                     else if (isWarning) rowBgClass = 'bg-yellow-50 hover:bg-yellow-100 border-l-4 border-yellow-400'; 
-                    // ---------------------------------------------------
 
-                    // Dados para exibição
                     const readingInfo = getVehicleMainReading(vehicle);
                     const currentReadingStr = `${parseFloat(readingInfo.raw).toFixed(1)} ${readingInfo.unit}`;
                     const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
@@ -134,7 +128,6 @@ const RevisionsPage = ({
 
                     return (
                         <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm relative ${rowBgClass}`}>
-                            {/* Ícone de Alerta Flutuante (para mobile ou visual rápido) */}
                             {(isOverdue || isWarning) && (
                                 <div className="absolute top-2 right-2 md:hidden">
                                     {isOverdue ? <AlertTriangle size={16} className="text-red-600"/> : <Info size={16} className="text-yellow-600"/>}
@@ -170,365 +163,136 @@ const RevisionsPage = ({
                  )}
             </div>
             
-            {editingRevision && <ScheduleRevisionModal user={user} vehicle={editingRevision} onClose={() => setEditingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} />}
+            {/* Modal de Conclusão */}
+            {completingRevision && <CompleteRevisionModal user={user} vehicle={completingRevision} onClose={() => setCompletingRevision(null)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />}
             
-            {completingRevision && <CompleteRevisionModal user={user} vehicle={completingRevision} onClose={() => setCompletingRevision(null)} setAlertMessage={setAlertMessage} vehicleGroups={vehicleGroups} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />}
-            
-            {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} vehicleGroups={vehicleGroups} />}
+            {/* Modal de Histórico */}
+            {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} />}
         </div>
     );
 };
 
-// Modal para concluir revisão (ATUALIZADO COM VALIDAÇÃO E SENHA)
-const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData, PasswordConfirmationModal }) => {
-    const [currentReadingInput, setCurrentReadingInput] = useState(''); 
-    const [isSaving, setIsSaving] = useState(false);
-    const [detalhes, setDetalhes] = useState('');
-
-    const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
-    const [alertReason, setAlertReason] = useState(null);
-    const [blockedAction, setBlockedAction] = useState(null);
-
-    const revision = vehicle?.revision;
-
-    // Usa regra central para determinar unidade e valor
+// --- Modal de Conclusão de Revisão (Atualizado) ---
+const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
-    const isHourBased = readingInfo.unit === 'Hr';
-    const readingLabel = `Leitura Atual (${readingInfo.unit})`;
-    const currentReadingValue = readingInfo.raw;
+    
+    const [formData, setFormData] = useState({
+        realizadaEm: new Date().toISOString().split('T')[0],
+        leituraRealizada: readingInfo.raw.toString(),
+        descricao: vehicle.revision?.descricao || '',
+        custo: '',
+        notaFiscal: '',
+        proximaRevisaoData: '',
+        proximaRevisaoLeitura: ''
+    });
 
-    useEffect(() => {
-        setCurrentReadingInput(currentReadingValue.toString());
-        if (revision) {
-            setDetalhes(revision.descricao || '');
+    const [isSaving, setIsSaving] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
+    const [blockMessage, setBlockMessage] = useState('');
+
+    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+    const handlePreSubmit = () => {
+        // Validação de Leitura (Unificada)
+        // Se unit for 'Km', valida como odometro. Se 'Hr', valida como horimetro.
+        const fieldType = readingInfo.unit === 'Km' ? 'odometro' : 'horimetro';
+        const check = checkReadingConsistency(vehicle, formData.leituraRealizada, fieldType);
+        
+        if (check.status === 'bloqueio') {
+            setBlockMessage(check.message);
+            setShowPassword(true);
+        } else {
+            executeSave();
         }
-        setAlertReason(null);
-        setShowPasswordConfirm(false);
-    }, [currentReadingValue, revision]);
+    };
 
-    if (!vehicle || !revision) return null; 
-
-    const performSave = async () => {
+    const executeSave = async () => {
         setIsSaving(true);
-        const description = detalhes || 'Revisão Padrão';
-        const readingFloat = parseFloat(currentReadingInput);
-
-        const dataParaApi = {
-            vehicleId: revision.vehicleId, 
-            isHourBased: isHourBased, 
-            leituraRealizada: readingFloat,
-            realizadaEm: new Date().toISOString(), 
-            realizadaPor: user?.email || 'Sistema', 
-            descricao: description, 
-        };
-
+        setShowPassword(false);
         try {
-            await apiClient.completeRevision(dataParaApi);
-            setAlertMessage('Revisão concluída e veículo atualizado!');
-            reloadData(); 
+            await apiClient.completeRevision(vehicle.id, {
+                ...formData,
+                realizadaPor: user.email || 'Sistema'
+            });
+            setAlertMessage("Revisão concluída com sucesso!");
+            reloadData();
             onClose();
         } catch (error) {
-            console.error("Erro ao concluir revisão:", error);
-            setAlertMessage(error.message || "Falha ao concluir a revisão.");
+            setAlertMessage(error.message);
         } finally {
             setIsSaving(false);
         }
     };
 
-    const handleComplete = async () => {
-        const readingFloat = parseFloat(currentReadingInput);
-        if (currentReadingInput === '' || isNaN(readingFloat)) {
-            setAlertMessage("Insira a leitura atual válida.");
-            return;
-        }
-
-        // --- VALIDAÇÃO DE CONSISTÊNCIA ---
-        setAlertReason(null);
-        const issue = checkReadingConsistency(vehicle, currentReadingInput);
-        
-        if (issue) {
-            setAlertReason(issue.message);
-            setBlockedAction(() => performSave);
-            setShowPasswordConfirm(true);
-            return;
-        }
-
-        await performSave();
-    };
-
     return (
-        <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
-                    <div className="p-6 border-b flex justify-between items-center bg-gray-50 flex-none rounded-t-lg">
-                        <h2 className="text-xl font-bold">Concluir Revisão</h2>
-                        <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
+                <div className="p-4 border-b bg-green-50 flex justify-between items-center">
+                    <h2 className="text-lg font-bold text-green-900 flex items-center gap-2"><CheckCircle size={20}/> Concluir Revisão</h2>
+                    <button onClick={onClose}><X size={20}/></button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Data Realização</label>
+                            <input type="date" name="realizadaEm" value={formData.realizadaEm} onChange={handleChange} className="w-full p-2 border rounded"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Leitura ({readingInfo.unit})</label>
+                            <input type="number" name="leituraRealizada" value={formData.leituraRealizada} onChange={handleChange} className="w-full p-2 border rounded" placeholder={readingInfo.label}/>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Descrição do Serviço</label>
+                        <textarea name="descricao" value={formData.descricao} onChange={handleChange} className="w-full p-2 border rounded" rows="2"></textarea>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4 text-sm">
-                        {alertReason && (
-                            <div className="bg-red-50 p-4 border-b border-red-100 mb-4 rounded animate-pulse-once">
-                                <div className="flex items-start gap-3">
-                                    <AlertTriangle className="text-red-600 shrink-0 mt-1" size={20} />
-                                    <div>
-                                        <h3 className="font-bold text-red-800 text-sm">Inconsistência Detectada</h3>
-                                        <p className="text-red-700 text-xs mt-1">{alertReason}</p>
-                                        <p className="text-red-800 font-semibold text-xs mt-2">É necessária autorização de supervisor.</p>
-                                        <button 
-                                            type="button"
-                                            onClick={() => setShowPasswordConfirm(true)}
-                                            className="mt-2 w-full py-2 bg-red-600 text-white rounded font-bold text-xs hover:bg-red-700 flex items-center gap-1 justify-center"
-                                        >
-                                            Autorizar com Senha
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        <p><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</p>
-                        <p><strong>Serviço Planejado:</strong> {revision?.descricao || 'N/A'}</p>
-                        
+                    <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded border">
+                        <div className="col-span-2 text-xs font-bold text-gray-500 uppercase">Agendar Próxima</div>
                         <div>
-                            <label className="block font-medium text-gray-700 mb-1">
-                                {readingLabel} (Nova Leitura) *
-                            </label>
-                            <input
-                                type="number"
-                                step="any" 
-                                value={currentReadingInput}
-                                onChange={e => setCurrentReadingInput(e.target.value)}
-                                className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500"
-                                required
-                            />
-                            <p className="text-xs text-gray-500 mt-1">A leitura informada aqui irá atualizar o cadastro do veículo.</p>
+                            <label className="block text-sm font-medium mb-1">Data Meta</label>
+                            <input type="date" name="proximaRevisaoData" value={formData.proximaRevisaoData} onChange={handleChange} className="w-full p-2 border rounded"/>
                         </div>
-
                         <div>
-                            <label className="block font-medium text-gray-700 mb-1">
-                                Serviços Realizados / Observações
-                            </label>
-                            <textarea
-                                value={detalhes}
-                                onChange={e => setDetalhes(e.target.value)}
-                                rows={3}
-                                className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500"
-                                placeholder="Ex: Troca de óleo e filtros realizada na filial Lajeado."
-                            />
+                            <label className="block text-sm font-medium mb-1">Leitura Meta</label>
+                            <input type="number" name="proximaRevisaoLeitura" value={formData.proximaRevisaoLeitura} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ex: ${parseFloat(readingInfo.raw) + 250}`}/>
                         </div>
                     </div>
 
-                    <div className="p-4 bg-gray-50 border-t flex justify-end gap-4 flex-none rounded-b-lg">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300" disabled={isSaving}>Cancelar</button>
-                        <button 
-                            onClick={handleComplete} 
-                            disabled={isSaving || (alertReason && !showPasswordConfirm)} 
-                            className="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 disabled:bg-gray-400 flex items-center justify-center gap-2 text-sm"
-                        >
-                            {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Concluir e Atualizar'}
+                    <div className="flex justify-end pt-2">
+                        <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 flex items-center gap-2">
+                            {isSaving && <Loader size={16} className="animate-spin"/>} Confirmar Conclusão
                         </button>
                     </div>
                 </div>
             </div>
-
-            {showPasswordConfirm && PasswordConfirmationModal && (
-                <PasswordConfirmationModal
-                    message={`ATENÇÃO: O sistema detectou uma inconsistência na leitura (${alertReason}). Digite sua senha de supervisor para confirmar a atualização do veículo.`}
-                    onConfirm={async () => {
-                        if (blockedAction) await blockedAction();
-                        setShowPasswordConfirm(false);
-                        setBlockedAction(null);
-                        setAlertReason(null);
-                    }}
-                    onClose={() => setShowPasswordConfirm(false)}
+            {showPassword && (
+                <PasswordConfirmationModal 
+                    message={`Inconsistência de Leitura:\n${blockMessage}\nÉ necessário autorização de supervisor.`}
+                    onConfirm={executeSave}
+                    onClose={() => setShowPassword(false)}
+                    apiClient={apiClient}
                 />
             )}
-        </>
-    );
-};
-
-
-// Modal para agendar revisão
-const ScheduleRevisionModal = ({ user, vehicle, onClose, setAlertMessage, vehicleGroups, apiClient, reloadData }) => {
-    // Usa regra central para determinar unidade
-    const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
-    const isHourBased = readingInfo.unit === 'Hr';
-    const readingUnit = readingInfo.unit;
-
-    const [formData, setFormData] = useState({
-        proximaRevisaoData: '',
-        leituraUnica: '', 
-        avisoAntecedenciaDias: '',
-        avisoAntecedenciaKmHr: '',
-        descricao: '',
-    });
-    const [isSaving, setIsSaving] = useState(false);
-    
-    const revision = vehicle?.revision;
-
-    useEffect(() => {
-        if (revision) {
-            const leituraAgendada = (isHourBased 
-                ? (revision.proximaRevisaoHorimetro?.toString() || '') 
-                : (revision.proximaRevisaoOdometro?.toString() || ''));
-
-            const dbDate = revision.proximaRevisaoData;
-            const dataValidaFormatada = isValidDbDate(dbDate) 
-                ? new Date(dbDate).toISOString().split('T')[0] 
-                : '';
-
-            setFormData({
-                proximaRevisaoData: dataValidaFormatada,
-                leituraUnica: leituraAgendada,
-                avisoAntecedenciaDias: revision.avisoAntecedenciaDias?.toString() || '',
-                avisoAntecedenciaKmHr: revision.avisoAntecedenciaKmHr?.toString() || '',
-                descricao: revision.descricao || '', 
-            });
-        }
-    }, [revision, isHourBased]);
-
-    if (!vehicle || !revision) return null;
-
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSave = async (e) => {
-        e.preventDefault();
-         if (!formData.proximaRevisaoData && !formData.leituraUnica) {
-             setAlertMessage("Preencha a Data ou a Leitura da próxima revisão.");
-             return;
-         }
-         
-         const proxLeitura = parseFloat(formData.leituraUnica) || 0;
-         const currentReadingValue = readingInfo.raw;
-
-         if (proxLeitura > 0 && proxLeitura <= currentReadingValue) {
-             console.warn(`A próxima leitura (${proxLeitura}) é menor ou igual à leitura atual (${currentReadingValue}). Salvando mesmo assim.`);
-         }
-
-        setIsSaving(true);
-        
-        const dataToUpdate = {
-            proximaRevisaoData: formData.proximaRevisaoData || null, 
-            proximaRevisaoOdometro: !isHourBased ? (parseFloat(formData.leituraUnica) || null) : null,
-            proximaRevisaoHorimetro: isHourBased ? (parseFloat(formData.leituraUnica) || null) : null,
-            avisoAntecedenciaDias: parseInt(formData.avisoAntecedenciaDias, 10) || null,
-            avisoAntecedenciaKmHr: parseFloat(formData.avisoAntecedenciaKmHr) || null,
-            descricao: formData.descricao || null,
-        };
-        try {
-            await apiClient.updateRevisionPlan(revision.vehicleId, dataToUpdate); 
-            setAlertMessage("Agendamento salvo!");
-            reloadData(); 
-            onClose();
-        } catch (error) {
-            console.error("Erro ao salvar agendamento:", error);
-            setAlertMessage(error.message || "Erro ao salvar agendamento.");
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl">
-                <div className="p-6 border-b flex justify-between items-center">
-                     <h2 className="text-xl font-bold">Agendar Próxima Revisão</h2>
-                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
-                </div>
-                <form onSubmit={handleSave}>
-                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                         <p className="md:col-span-2 font-medium">Veículo: {vehicle.registroInterno} - {vehicle.placa}</p>
-                        <div>
-                            <label className="block font-medium text-gray-700 mb-1">Próxima Revisão (Data)</label>
-                            <input type="date" name="proximaRevisaoData" value={formData.proximaRevisaoData} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" />
-                        </div>
-                        <div>
-                            <label className="block font-medium text-gray-700 mb-1">Próxima Revisão ({readingUnit})</label>
-                            <input type="number" step="any" name="leituraUnica" value={formData.leituraUnica} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" placeholder="Leitura"/>
-                        </div>
-                        <div>
-                            <label className="block font-medium text-gray-700 mb-1">Avisar (Dias antes)</label>
-                            <input type="number" name="avisoAntecedenciaDias" value={formData.avisoAntecedenciaDias} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" placeholder="Ex: 7"/>
-                        </div>
-                        <div>
-                            <label className="block font-medium text-gray-700 mb-1">Avisar ({readingUnit} antes)</label>
-                            <input type="number" step="any" name="avisoAntecedenciaKmHr" value={formData.avisoAntecedenciaKmHr} onChange={handleChange} className="w-full p-2 border rounded-lg bg-gray-50" placeholder="Ex: 500"/>
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="block font-medium text-gray-700 mb-1">Descrição do Serviço</label>
-                            <input type="text" name="descricao" value={formData.descricao} onChange={handleChange} placeholder="Ex: Troca de óleo e filtros" className="w-full p-2 border rounded-lg bg-gray-50" />
-                        </div>
-                    </div>
-                    <div className="p-4 bg-gray-50 border-t flex justify-end gap-4">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium" disabled={isSaving}>Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm">
-                             {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Salvar Agendamento'}
-                        </button>
-                    </div>
-                </form>
-            </div>
         </div>
     );
 };
 
-// Modal de Histórico
-const RevisionHistoryModal = ({ vehicle, onClose, vehicleGroups }) => {
-    if (!vehicle || !vehicle.revision) return null;
-    
-    // Usa regra central para unidade
-    const readingInfo = getVehicleMainReading(vehicle);
-    const isHourBased = readingInfo.unit === 'Hr';
-    const readingUnit = readingInfo.unit;
-
-    const history = Array.isArray(vehicle.revision.historico) ? vehicle.revision.historico : [];
-
-    const formatHistoryDate = (dateString) => {
-        if (!isValidDbDate(dateString)) return 'N/A';
-        try {
-            return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-        } catch (e) { return 'Inválida'; }
-    };
-
-    const formatHistoryReading = (historyEntry) => {
-        const reading = isHourBased ? historyEntry.horimetro : historyEntry.odometro;
-        if (reading == null) return 'N/A';
-        return `${parseFloat(reading).toFixed(1)} ${readingUnit}`;
-    };
-
+const RevisionHistoryModal = ({ vehicle, onClose }) => {
+    const history = vehicle?.revision?.historico || [];
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col my-auto">
-                <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
-                    <div>
-                        <h2 className="text-xl font-bold">Histórico de Revisões</h2>
-                        <p className="text-gray-600 text-sm">{vehicle.registroInterno} - {vehicle.placa}</p>
-                    </div>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={18}/></button>
-                </div>
-                <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
-                    {history.length > 0 ? (
-                        <ul className="space-y-3">
-                            {[...history].sort((a,b) => new Date(b.realizadaEm || b.data) - new Date(a.realizadaEm || a.data)).map((h, index) => (
-                                <li key={index} className="p-3 bg-gray-50 rounded-lg border text-sm">
-                                    <p className="font-semibold">{h.descricao || 'Revisão Padrão'}</p>
-                                    <p className="text-xs text-gray-600 mt-1">
-                                        Realizada em: {formatHistoryDate(h.realizadaEm || h.data)} por {h.realizadaPor || 'N/A'}
-                                    </p>
-                                    <p className="text-xs text-gray-600">
-                                        Leitura Realizada: {formatHistoryReading(h)}
-                                    </p>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : (
-                        <p className="text-gray-500 text-center italic py-10">Nenhum histórico de revisão encontrado.</p>
-                    )}
-                </div>
-                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg text-sm font-medium">Fechar</button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                <div className="p-4 border-b flex justify-between items-center"><h3 className="font-bold">Histórico de Revisões</h3><button onClick={onClose}><X size={20}/></button></div>
+                <div className="p-4 overflow-y-auto flex-1 space-y-3">
+                    {history.length === 0 ? <p className="text-gray-500 text-center">Nenhum histórico.</p> : history.map((h, i) => (
+                        <div key={i} className="p-3 border rounded bg-gray-50 text-sm">
+                            <div className="flex justify-between font-bold"><span>{new Date(h.data).toLocaleDateString('pt-BR')}</span><span>{h.km}</span></div>
+                            <p>{h.descricao}</p>
+                            {h.realizadaPor && <p className="text-xs text-gray-500 mt-1">Por: {h.realizadaPor}</p>}
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>

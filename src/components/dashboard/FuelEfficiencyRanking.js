@@ -18,15 +18,19 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             const isKm = allowedTypes.includes('odometro');
             const unit = isKm ? 'Km/L' : 'L/Hr';
 
+            // Pega apenas abastecimentos concluídos deste veículo
             const history = refuelings
                 .filter(r => r.vehicleId === vehicle.id && r.status === 'Concluída')
-                .sort((a,b) => new Date(a.date) - new Date(b.date));
+                .sort((a,b) => new Date(a.date) - new Date(b.date)); // Ordena do mais antigo para o mais novo
 
             if (history.length < 2) return null;
 
+            // Soma litros (ignorando o primeiro abastecimento do intervalo, pois ele é o marco zero da leitura)
             const totalLiters = history.slice(1).reduce((acc, r) => acc + (parseFloat(r.litrosAbastecidos) || 0), 0);
             
             let startReading = 0, endReading = 0;
+            
+            // CORREÇÃO UNIFICADA
             if (isKm) {
                 const first = history[0];
                 const last = history[history.length - 1];
@@ -35,8 +39,9 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             } else {
                 const first = history[0];
                 const last = history[history.length - 1];
-                startReading = parseFloat(first.horimetroDigital || first.horimetro || 0);
-                endReading = parseFloat(last.horimetroDigital || last.horimetro || 0);
+                // Prioriza horimetro unificado, fallback para legados
+                startReading = parseFloat(first.horimetro || first.horimetroDigital || 0);
+                endReading = parseFloat(last.horimetro || last.horimetroDigital || 0);
             }
 
             const diff = endReading - startReading;
@@ -63,7 +68,8 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
         const filteredStats = filterType === 'todos' ? stats : stats.filter(s => s.type === filterType);
 
         const sorted = [...filteredStats].sort((a, b) => {
-            if (a.unit !== b.unit) return a.unit.localeCompare(b.unit); 
+            if (a.unit !== b.unit) return a.unit.localeCompare(b.unit);
+            // Se for Km/L, maior é melhor. Se for L/Hr, menor é melhor.
             if (a.isKm) return b.average - a.average; 
             return a.average - b.average; 
         });
@@ -72,46 +78,47 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             best: sorted.slice(0, 5),
             worst: sorted.reverse().slice(0, 5)
         };
-
     }, [vehicles, refuelings, filterType]);
 
     const ListItem = ({ item, rank, isBest }) => (
-        <div className="flex justify-between items-center p-1.5 bg-gray-50 rounded border border-gray-100 text-xs hover:bg-white hover:shadow-sm transition-all">
-            <div className="flex items-center gap-2 overflow-hidden">
-                <span className={`font-bold w-3 shrink-0 ${isBest ? 'text-green-600' : 'text-red-600'}`}>{rank}</span>
-                <div className="min-w-0">
-                    <p className="font-bold text-gray-700 truncate">{item.code}</p>
-                    <p className="text-[9px] text-gray-400 truncate">{item.model}</p>
+        <div className="flex justify-between items-center p-1.5 bg-gray-50 rounded border border-gray-100 text-xs hover:bg-gray-100 transition">
+            <div className="flex items-center gap-2">
+                <span className={`font-bold w-4 h-4 flex items-center justify-center rounded-full text-[10px] ${isBest ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {rank}
+                </span>
+                <div>
+                    <p className="font-bold text-gray-800">{item.code}</p>
+                    <p className="text-[10px] text-gray-500 truncate w-20">{item.model}</p>
                 </div>
             </div>
-            <div className="text-right shrink-0 ml-1">
-                <span className={`font-bold block ${isBest ? 'text-green-700' : 'text-red-700'}`}>
-                    {item.average.toFixed(2)} <span className="text-[9px] font-normal text-gray-500">{item.unit}</span>
-                </span>
+            <div className="text-right">
+                <p className={`font-bold ${isBest ? 'text-green-600' : 'text-red-600'}`}>
+                    {item.average.toFixed(2)} <span className="text-[9px] text-gray-400 font-normal">{item.unit}</span>
+                </p>
             </div>
         </div>
     );
 
     return (
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
-            <div className="flex justify-between items-center mb-3 border-b pb-2 shrink-0">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                    <Activity className="text-indigo-600" size={18} /> Ranking de Eficiência
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                    <Activity size={18} className="text-purple-600"/> Eficiência
                 </h3>
-                <div className="flex items-center gap-1 bg-gray-50 rounded px-1.5 py-0.5 border border-gray-200">
-                    <Filter size={12} className="text-gray-400" />
+                <div className="relative">
+                    <Filter size={12} className="absolute left-2 top-2 text-gray-400"/>
                     <select 
-                        value={filterType}
-                        onChange={e => setFilterType(e.target.value)}
-                        className="bg-transparent border-none text-[10px] font-semibold text-gray-600 focus:ring-0 cursor-pointer p-0"
+                        value={filterType} 
+                        onChange={(e) => setFilterType(e.target.value)} 
+                        className="text-xs pl-6 pr-2 py-1 border rounded bg-gray-50 max-w-[120px]"
                     >
                         <option value="todos">Todos</option>
-                        {types.filter(t=>t!=='todos').map(t => <option key={t} value={t}>{t}</option>)}
+                        {types.filter(t => t !== 'todos').map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 flex-1 overflow-hidden">
+            <div className="flex-1 grid grid-cols-2 gap-4">
                 <div className="bg-green-50/30 p-2 rounded-lg border border-green-100 flex flex-col">
                     <h4 className="text-[10px] font-bold text-green-700 uppercase mb-2 flex items-center gap-1 shrink-0">
                         <TrendingUp size={12}/> Mais Econômicos
