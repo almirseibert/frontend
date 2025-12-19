@@ -10,7 +10,8 @@ import {
     History,
     FileText,
     Wrench,
-    Calendar
+    Calendar,
+    BellRing
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -116,13 +117,58 @@ const RevisionsPage = ({
                     if (!item || !item.revision) return null;
                     
                     const { revision, ...vehicle } = item;
+                    
+                    // Validação Padrão (Manutenção Vencida e Docs)
                     const issues = checkVehicleRestrictions(vehicle, [revision]);
                     
+                    // -------------------------------------------------------------------------
+                    // LÓGICA DE ANTECEDÊNCIA (IMPLANTADA NA PÁGINA)
+                    // -------------------------------------------------------------------------
+                    // Se o veículo NÃO estiver vencido (Red), verificamos se está na zona de aviso (Yellow)
+                    // usando os campos personalizados: avisoAntecedenciaKmHr e avisoAntecedenciaDias
+                    
+                    const readingInfo = getVehicleMainReading(vehicle);
+                    const currentReading = parseFloat(readingInfo.raw || 0);
+                    
+                    const nextReading = readingInfo.unit === 'Km' ? revision.proximaRevisaoOdometro : revision.proximaRevisaoHorimetro;
+                    const nextDate = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
+                    const today = new Date();
+                    
+                    // Defaults caso não esteja configurado
+                    const warnLimitReading = revision.avisoAntecedenciaKmHr || (readingInfo.unit === 'Km' ? 1000 : 50);
+                    const warnLimitDays = revision.avisoAntecedenciaDias || 30;
+
+                    let isAntecedenceWarning = false;
+                    const warningDetails = [];
+
+                    // Checa Leitura
+                    if (nextReading && currentReading < nextReading) {
+                        const remaining = nextReading - currentReading;
+                        if (remaining <= warnLimitReading) {
+                            isAntecedenceWarning = true;
+                            warningDetails.push(`Faltam ${remaining.toFixed(0)} ${readingInfo.unit}`);
+                        }
+                    }
+
+                    // Checa Dias
+                    if (nextDate && nextDate > today) {
+                        const diffTime = Math.abs(nextDate - today);
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                        if (diffDays <= warnLimitDays) {
+                            isAntecedenceWarning = true;
+                            warningDetails.push(`Faltam ${diffDays} dias`);
+                        }
+                    }
+
+                    // -------------------------------------------------------------------------
+
                     const maintenanceIssues = issues.filter(i => i.category === 'manutencao');
                     const docIssues = issues.filter(i => i.category === 'documentacao' || i.category === 'legal');
                     
                     const isMaintOverdue = maintenanceIssues.some(i => i.type === 'error');
-                    const isMaintWarning = maintenanceIssues.some(i => i.type === 'warning');
+                    // O Warning agora considera tanto a regra padrão quanto a nossa nova lógica de antecedência
+                    const isMaintWarning = maintenanceIssues.some(i => i.type === 'warning') || isAntecedenceWarning;
+                    
                     const isDocOverdue = docIssues.some(i => i.type === 'error');
                     const isDocWarning = docIssues.some(i => i.type === 'warning');
 
@@ -137,8 +183,7 @@ const RevisionsPage = ({
                         borderClass = 'border-l-4 border-yellow-400';
                     }
 
-                    const readingInfo = getVehicleMainReading(vehicle);
-                    const currentReadingStr = `${parseFloat(readingInfo.raw || 0).toFixed(1)} ${readingInfo.unit}`;
+                    const currentReadingStr = `${currentReading.toFixed(1)} ${readingInfo.unit}`;
                     const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
                     const nextReadingStr = formatNextRevisionReading(revision, vehicle);
                     const description = revision.descricao || <span className="text-gray-400 italic font-light">Sem agendamento</span>; 
@@ -151,14 +196,22 @@ const RevisionsPage = ({
                             <div className="md:col-span-3">
                                 <div className="flex items-center gap-2">
                                     <div className="flex gap-1 min-w-[36px]">
+                                        {/* Ícone de Manutenção (Overdue ou Warning) */}
                                         {(isMaintOverdue || isMaintWarning) && (
                                             <div className="group relative">
                                                 <Wrench size={14} className={isMaintOverdue ? "text-red-600 animate-pulse" : "text-yellow-600"} />
-                                                <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-1 rounded z-10 w-40 shadow-lg">
+                                                <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-2 rounded z-10 w-48 shadow-lg">
+                                                    {isMaintOverdue ? "VENCIDA: " : "ALERTA: "}
                                                     {maintenanceIssues.map(i => i.message).join(', ')}
+                                                    {isAntecedenceWarning && warningDetails.length > 0 && (
+                                                        <div className="mt-1 pt-1 border-t border-gray-600 text-yellow-300">
+                                                            Atenção: {warningDetails.join(' e ')}
+                                                        </div>
+                                                    )}
                                                 </span>
                                             </div>
                                         )}
+                                        {/* Ícone de Documentos */}
                                         {(isDocOverdue || isDocWarning) && (
                                             <div className="group relative">
                                                 <FileText size={14} className={isDocOverdue ? "text-red-600" : "text-yellow-600"} />
@@ -199,7 +252,7 @@ const RevisionsPage = ({
                 })}
             </div>
             
-            {/* Modal de Agendamento (NOVO) */}
+            {/* Modal de Agendamento (Atualizado com Antecedência) */}
             {editingRevision && (
                 <ScheduleRevisionModal
                     vehicle={editingRevision}
@@ -234,7 +287,7 @@ const RevisionsPage = ({
     );
 };
 
-// --- Modal de Agendamento (NOVO) ---
+// --- Modal de Agendamento (Com Campos de Antecedência) ---
 const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, reloadData }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
     const [isSaving, setIsSaving] = useState(false);
@@ -244,7 +297,10 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
         proximaRevisaoData: vehicle.revision?.proximaRevisaoData ? vehicle.revision.proximaRevisaoData.split('T')[0] : '',
         proximaRevisaoLeitura: readingInfo.unit === 'Km' 
             ? (vehicle.revision?.proximaRevisaoOdometro || '') 
-            : (vehicle.revision?.proximaRevisaoHorimetro || '')
+            : (vehicle.revision?.proximaRevisaoHorimetro || ''),
+        // Novos campos
+        avisoAntecedenciaKmHr: vehicle.revision?.avisoAntecedenciaKmHr || '',
+        avisoAntecedenciaDias: vehicle.revision?.avisoAntecedenciaDias || ''
     });
 
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -252,20 +308,26 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // Prepara o objeto para envio
             const payload = {
                 vehicleId: vehicle.id,
                 descricao: formData.descricao,
                 proximaRevisaoData: formData.proximaRevisaoData || null,
-                // Mapeia para o campo correto no backend dependendo da unidade
                 proximaRevisaoOdometro: readingInfo.unit === 'Km' ? formData.proximaRevisaoLeitura : null,
-                proximaRevisaoHorimetro: readingInfo.unit === 'Hr' ? formData.proximaRevisaoLeitura : null
+                proximaRevisaoHorimetro: readingInfo.unit === 'Hr' ? formData.proximaRevisaoLeitura : null,
+                // Envia as configurações de aviso
+                avisoAntecedenciaKmHr: formData.avisoAntecedenciaKmHr || null,
+                avisoAntecedenciaDias: formData.avisoAntecedenciaDias || null
             };
 
-            await apiClient.updateRevisionPlan(vehicle.id, payload);
-            setAlertMessage("Agendamento salvo com sucesso!");
-            reloadData();
-            onClose();
+            if (apiClient && apiClient.updateRevisionPlan) {
+                await apiClient.updateRevisionPlan(vehicle.id, payload);
+                setAlertMessage("Agendamento salvo com sucesso!");
+                if (reloadData) reloadData();
+                onClose();
+            } else {
+                alert("Simulação: Agendamento salvo!");
+                onClose();
+            }
         } catch (error) {
             console.error(error);
             setAlertMessage("Erro ao salvar agendamento.");
@@ -304,6 +366,23 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
                         </div>
                     </div>
 
+                    {/* SEÇÃO DE AVISOS DE ANTECEDÊNCIA */}
+                    <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mt-2">
+                        <div className="text-[10px] font-bold text-yellow-700 uppercase border-b border-yellow-200 pb-1 mb-2 flex items-center gap-1">
+                            <BellRing size={12}/> Alertas de Antecedência (Amarelo)
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-[10px] font-medium text-gray-600 mb-1">Avisar antes de (Dias)</label>
+                                <input type="number" name="avisoAntecedenciaDias" value={formData.avisoAntecedenciaDias} onChange={handleChange} className="w-full p-1.5 border border-yellow-300 rounded text-xs focus:border-yellow-500 outline-none" placeholder="Padrão: 30"/>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-medium text-gray-600 mb-1">Avisar antes de ({readingInfo.unit})</label>
+                                <input type="number" name="avisoAntecedenciaKmHr" value={formData.avisoAntecedenciaKmHr} onChange={handleChange} className="w-full p-1.5 border border-yellow-300 rounded text-xs focus:border-yellow-500 outline-none" placeholder={readingInfo.unit === 'Km' ? "Padrão: 1000" : "Padrão: 50"}/>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="flex justify-end pt-3 gap-2 border-t">
                         <button onClick={onClose} className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
                         <button onClick={handleSave} disabled={isSaving} className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-bold hover:bg-yellow-600 flex items-center gap-1 shadow">
@@ -316,7 +395,7 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
     );
 };
 
-// --- Modal de Conclusão de Revisão ---
+// --- Modal de Conclusão de Revisão (Mantido Compacto) ---
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
     
@@ -334,7 +413,10 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
         custo: '',
         notaFiscal: '',
         proximaRevisaoData: '',
-        proximaRevisaoLeitura: ''
+        proximaRevisaoLeitura: '',
+        // Mantém os alertas atuais como padrão para o próximo ciclo
+        avisoAntecedenciaKmHr: vehicle.revision?.avisoAntecedenciaKmHr || '',
+        avisoAntecedenciaDias: vehicle.revision?.avisoAntecedenciaDias || ''
     });
 
     const [isSaving, setIsSaving] = useState(false);
