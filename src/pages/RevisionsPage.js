@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import apiClient from '../services/apiClient';
 import {
     Edit,
     Clock,
@@ -29,6 +28,7 @@ const RevisionsPage = ({
     const [historyModalVehicle, setHistoryModalVehicle] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Combina veículos com seus planos de revisão
     const combinedData = useMemo(() => {
         const validVehicles = Array.isArray(vehicles) ? vehicles : [];
         const validRevisions = Array.isArray(revisions) ? revisions : [];
@@ -87,7 +87,7 @@ const RevisionsPage = ({
                     placeholder="Buscar por registro, placa, marca ou modelo..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500 text-sm"
+                    className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-yellow-500 text-sm outline-none"
                 />
             </div>
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
@@ -120,7 +120,7 @@ const RevisionsPage = ({
                     const currentReadingStr = `${parseFloat(readingInfo.raw).toFixed(1)} ${readingInfo.unit}`;
                     const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
                     const nextReadingStr = formatNextRevisionReading(revision, vehicle);
-                    const hasScheduledRevision = nextDateStr !== 'N/A' || nextReadingStr !== 'N/A';
+                    const hasScheduledRevision = (nextDateStr !== 'N/A' && nextDateStr !== 'Inválida') || (nextReadingStr !== 'N/A');
                     const description = revision.descricao || '-'; 
                     
                     const hasHistory = revision.historico && revision.historico.length > 0;
@@ -151,7 +151,8 @@ const RevisionsPage = ({
                             <div className="flex gap-1 justify-start md:justify-center flex-wrap mt-2 md:mt-0">
                                 <ProtectedComponent requiredPermission="editor">
                                     <button onClick={() => setEditingRevision(item)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition-colors" title="Agendar/Editar"><Edit size={14} /></button>
-                                     {hasScheduledRevision && <button onClick={() => setCompletingRevision(item)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full transition-colors" title="Concluir"><CheckCircle size={14} /></button>}
+                                     {/* Botão de Conclusão só aparece se houver algo agendado */}
+                                     <button onClick={() => setCompletingRevision(item)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full transition-colors" title="Concluir Revisão"><CheckCircle size={14} /></button>
                                 </ProtectedComponent>
                                 <button onClick={() => setHistoryModalVehicle(item)} className={`p-1.5 hover:bg-gray-100 rounded-full transition-colors ${historyIconClass}`} title="Histórico"><Clock size={14} /></button>
                             </div>
@@ -168,6 +169,8 @@ const RevisionsPage = ({
             
             {/* Modal de Histórico */}
             {historyModalVehicle && <RevisionHistoryModal vehicle={historyModalVehicle} onClose={() => setHistoryModalVehicle(null)} />}
+            
+            {/* Aqui você deve adicionar o Modal de Agendamento (ScheduleRevisionModal) se ele existir no projeto, para o botão de editar funcionar */}
         </div>
     );
 };
@@ -210,7 +213,10 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
         setIsSaving(true);
         setShowPassword(false);
         try {
+            // CORREÇÃO CRÍTICA: Enviar vehicleId no corpo para o backend identificar o veículo
+            // A rota /api/revisions/complete não tem o ID na URL, então deve ir no body.
             await apiClient.completeRevision(vehicle.id, {
+                vehicleId: vehicle.id,
                 ...formData,
                 realizadaPor: user.email || 'Sistema'
             });
@@ -218,7 +224,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
             reloadData();
             onClose();
         } catch (error) {
-            setAlertMessage(error.message);
+            setAlertMessage(error.message || "Erro ao concluir revisão.");
         } finally {
             setIsSaving(false);
         }
@@ -226,42 +232,58 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden animate-fadeIn">
                 <div className="p-4 border-b bg-green-50 flex justify-between items-center">
                     <h2 className="text-lg font-bold text-green-900 flex items-center gap-2"><CheckCircle size={20}/> Concluir Revisão</h2>
                     <button onClick={onClose}><X size={20}/></button>
                 </div>
                 <div className="p-6 space-y-4">
+                    <div className="bg-blue-50 p-3 rounded text-sm text-blue-800 mb-2 border border-blue-100">
+                        Veículo: <strong>{vehicle.registroInterno}</strong> ({vehicle.placa})
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium mb-1">Data Realização</label>
-                            <input type="date" name="realizadaEm" value={formData.realizadaEm} onChange={handleChange} className="w-full p-2 border rounded"/>
+                            <label className="block text-sm font-medium mb-1">Data Realização *</label>
+                            <input type="date" name="realizadaEm" value={formData.realizadaEm} onChange={handleChange} className="w-full p-2 border rounded" required/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium mb-1">Leitura ({readingInfo.unit})</label>
-                            <input type="number" name="leituraRealizada" value={formData.leituraRealizada} onChange={handleChange} className="w-full p-2 border rounded" placeholder={readingInfo.label}/>
+                            <label className="block text-sm font-medium mb-1">Leitura ({readingInfo.unit}) *</label>
+                            <input type="number" name="leituraRealizada" value={formData.leituraRealizada} onChange={handleChange} className="w-full p-2 border rounded" placeholder={readingInfo.label} required/>
                         </div>
                     </div>
                     
                     <div>
                         <label className="block text-sm font-medium mb-1">Descrição do Serviço</label>
-                        <textarea name="descricao" value={formData.descricao} onChange={handleChange} className="w-full p-2 border rounded" rows="2"></textarea>
+                        <textarea name="descricao" value={formData.descricao} onChange={handleChange} className="w-full p-2 border rounded" rows="2" placeholder="O que foi feito?"></textarea>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded border">
-                        <div className="col-span-2 text-xs font-bold text-gray-500 uppercase">Agendar Próxima</div>
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium mb-1">Data Meta</label>
-                            <input type="date" name="proximaRevisaoData" value={formData.proximaRevisaoData} onChange={handleChange} className="w-full p-2 border rounded"/>
+                            <label className="block text-sm font-medium mb-1">Custo (R$)</label>
+                            <input type="number" step="0.01" name="custo" value={formData.custo} onChange={handleChange} className="w-full p-2 border rounded" placeholder="0.00"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium mb-1">Leitura Meta</label>
-                            <input type="number" name="proximaRevisaoLeitura" value={formData.proximaRevisaoLeitura} onChange={handleChange} className="w-full p-2 border rounded" placeholder={`Ex: ${parseFloat(readingInfo.raw) + 250}`}/>
+                            <label className="block text-sm font-medium mb-1">Nota Fiscal</label>
+                            <input type="text" name="notaFiscal" value={formData.notaFiscal} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Nº NF"/>
                         </div>
                     </div>
 
-                    <div className="flex justify-end pt-2">
-                        <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 flex items-center gap-2">
+                    <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded border mt-2">
+                        <div className="col-span-2 text-xs font-bold text-gray-500 uppercase border-b pb-1 mb-1">Agendar Próxima</div>
+                        <div>
+                            <label className="block text-xs font-medium mb-1">Data Meta</label>
+                            <input type="date" name="proximaRevisaoData" value={formData.proximaRevisaoData} onChange={handleChange} className="w-full p-1.5 border rounded text-sm"/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium mb-1">Leitura Meta</label>
+                            <input type="number" name="proximaRevisaoLeitura" value={formData.proximaRevisaoLeitura} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder={`Ex: ${parseFloat(readingInfo.raw || 0) + 250}`}/>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2 gap-2">
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded text-gray-700 font-medium hover:bg-gray-300">Cancelar</button>
+                        <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 flex items-center gap-2 shadow-md">
                             {isSaving && <Loader size={16} className="animate-spin"/>} Confirmar Conclusão
                         </button>
                     </div>
@@ -284,13 +306,22 @@ const RevisionHistoryModal = ({ vehicle, onClose }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
-                <div className="p-4 border-b flex justify-between items-center"><h3 className="font-bold">Histórico de Revisões</h3><button onClick={onClose}><X size={20}/></button></div>
-                <div className="p-4 overflow-y-auto flex-1 space-y-3">
-                    {history.length === 0 ? <p className="text-gray-500 text-center">Nenhum histórico.</p> : history.map((h, i) => (
-                        <div key={i} className="p-3 border rounded bg-gray-50 text-sm">
-                            <div className="flex justify-between font-bold"><span>{new Date(h.data).toLocaleDateString('pt-BR')}</span><span>{h.km}</span></div>
-                            <p>{h.descricao}</p>
-                            {h.realizadaPor && <p className="text-xs text-gray-500 mt-1">Por: {h.realizadaPor}</p>}
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h3 className="font-bold text-gray-800">Histórico de Revisões</h3>
+                    <button onClick={onClose}><X size={20}/></button>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 space-y-3 custom-scrollbar">
+                    {history.length === 0 ? <p className="text-gray-500 text-center py-4">Nenhum histórico registrado.</p> : history.map((h, i) => (
+                        <div key={i} className="p-3 border rounded bg-gray-50 text-sm hover:shadow-sm transition">
+                            <div className="flex justify-between font-bold text-gray-800 border-b pb-1 mb-1">
+                                <span>{new Date(h.data).toLocaleDateString('pt-BR')}</span>
+                                <span>{h.km} {getVehicleMainReading(vehicle).unit}</span>
+                            </div>
+                            <p className="text-gray-700 mb-1">{h.descricao}</p>
+                            <div className="flex justify-between text-xs text-gray-500">
+                                {h.realizadaPor && <span>Por: {h.realizadaPor}</span>}
+                                {h.notaFiscal && <span>NF: {h.notaFiscal}</span>}
+                            </div>
                         </div>
                     ))}
                 </div>
