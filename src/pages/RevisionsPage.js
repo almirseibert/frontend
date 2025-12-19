@@ -9,89 +9,13 @@ import {
     Info,
     History,
     FileText,
-    Wrench
+    Wrench,
+    Calendar
 } from 'lucide-react';
 
-// --- IMPORTAÇÕES ORIGINAIS (Descomente em Produção) ---
 import ProtectedComponent from '../components/ProtectedComponent';
+// IMPORTA AS REGRAS CENTRALIZADAS (Consistência e Validação)
 import { checkReadingConsistency, checkVehicleRestrictions, getVehicleMainReading } from '../utils/vehicleRules';
-
-// --- IMPLEMENTAÇÕES LOCAIS PARA PREVIEW (Remova este bloco em Produção) ---
-/*
-// Mock do componente de permissão (assume permissão total no preview)
-const ProtectedComponent = ({ children }) => <>{children}</>;
-
-// Regras de Leitura baseadas na descrição do sistema
-const getVehicleMainReading = (vehicle) => {
-    if (!vehicle) return { raw: 0, unit: 'Km', label: 'Odômetro' };
-    
-    // Regra Global 1: Somente leves e caminhões de trecho usam Km. O resto usa Horímetro.
-    const isOdometroBased = 
-        vehicle.categoria === 'veiculos_leves' || 
-        vehicle.categoria === 'caminhoes_trecho' ||
-        vehicle.mediaCalculo === 'odometro'; 
-
-    if (isOdometroBased) {
-        return { raw: vehicle.odometro || 0, unit: 'Km', label: 'Odômetro' };
-    }
-    
-    return { raw: vehicle.horimetro || 0, unit: 'Hr', label: 'Horímetro' };
-};
-
-const checkReadingConsistency = (vehicle, newValueStr, type) => {
-    const newValue = parseFloat(newValueStr);
-    if (isNaN(newValue)) return { status: 'erro', message: 'Valor inválido.' };
-
-    const current = type === 'horimetro' ? (vehicle.horimetro || 0) : (vehicle.odometro || 0);
-    
-    if (newValue < current) {
-        return { 
-            status: 'bloqueio', 
-            message: `A nova leitura (${newValue}) não pode ser menor que a atual (${current}).` 
-        };
-    }
-
-    const diff = newValue - current;
-    if (type === 'odometro' && diff > 1000) {
-        return { 
-            status: 'bloqueio', 
-            message: `Diferença de ${diff} Km é suspeita (Limite: 1000 Km).` 
-        };
-    }
-    if (type === 'horimetro' && diff > 50) {
-        return { 
-            status: 'bloqueio', 
-            message: `Diferença de ${diff} Horas é suspeita (Limite: 50h).` 
-        };
-    }
-
-    return { status: 'ok' };
-};
-
-const checkVehicleRestrictions = (vehicle, revisions = []) => {
-    const issues = [];
-    const reading = getVehicleMainReading(vehicle);
-    
-    if (vehicle.status === 'manutencao') {
-        issues.push({ category: 'manutencao', type: 'error', message: 'Veículo em manutenção' });
-    }
-    
-    const revision = revisions[0]; 
-    if (revision) {
-        if (revision.proximaRevisaoData && new Date(revision.proximaRevisaoData) < new Date()) {
-            issues.push({ category: 'manutencao', type: 'error', message: 'Revisão Vencida por Data' });
-        }
-        
-        const nextReading = reading.unit === 'Km' ? revision.proximaRevisaoOdometro : revision.proximaRevisaoHorimetro;
-        if (nextReading && reading.raw >= nextReading) {
-            issues.push({ category: 'manutencao', type: 'error', message: 'Revisão Vencida por Leitura' });
-        }
-    }
-
-    return issues;
-};
-*/
-// --- FIM DAS IMPLEMENTAÇÕES LOCAIS ---
 
 const isValidDbDate = (dateString) => {
     return dateString && dateString.length > 8 && !dateString.startsWith('0000');
@@ -138,15 +62,15 @@ const RevisionsPage = ({
     }, [vehicles, revisions, searchTerm]);
 
      const formatNextRevisionDate = (dateString) => {
-         if (!isValidDbDate(dateString)) return 'N/A';
+         if (!isValidDbDate(dateString)) return '-';
          try {
              const date = new Date(dateString);
              return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
-         } catch (e) { return 'Inválida'; }
+         } catch (e) { return '-'; }
      };
 
      const formatNextRevisionReading = (revision, vehicle) => {
-        if (!revision) return 'N/A';
+        if (!revision) return '-';
         const readingInfo = getVehicleMainReading(vehicle);
         const unit = readingInfo.unit;
         
@@ -160,31 +84,31 @@ const RevisionsPage = ({
             reading = revision.proximaRevisaoOdometro;
         }
 
-        if (reading == null || reading <= 0) return 'N/A';
+        if (reading == null || reading <= 0) return '-';
         return `${parseFloat(reading).toFixed(1)} ${unit}`;
      };
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fadeIn">
-            <h1 className="text-3xl font-bold mb-6 text-gray-800">Controle de Revisões e Manutenção</h1>
+        <div className="container mx-auto p-2 md:p-4 animate-fadeIn">
+            <h1 className="text-2xl font-bold mb-4 text-gray-800">Revisões e Manutenção</h1>
             
-            <div className="mb-6 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="mb-4 p-3 bg-white rounded-lg shadow-sm border border-gray-200">
                 <input
                     type="text"
-                    placeholder="Buscar por registro, placa, marca ou modelo..."
+                    placeholder="Buscar por registro, placa..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm outline-none transition-all"
+                    className="w-full px-3 py-2 border rounded-md bg-gray-50 focus:ring-1 focus:ring-blue-500 text-sm outline-none"
                 />
             </div>
 
-            <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                <div className="hidden md:grid grid-cols-12 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
+            <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
+                <div className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-[11px] text-gray-500 border-b bg-gray-50 uppercase tracking-wider">
                     <div className="col-span-3">Veículo</div>
                     <div className="col-span-2 text-right">Leitura Atual</div>
                     <div className="col-span-2 text-center">Próx. Data</div>
                     <div className="col-span-2 text-right">Próx. Leitura</div>
-                    <div className="col-span-2">Descrição / Status</div>
+                    <div className="col-span-2">Status / Agendamento</div>
                     <div className="col-span-1 text-center">Ações</div>
                 </div>
 
@@ -199,7 +123,6 @@ const RevisionsPage = ({
                     
                     const isMaintOverdue = maintenanceIssues.some(i => i.type === 'error');
                     const isMaintWarning = maintenanceIssues.some(i => i.type === 'warning');
-                    
                     const isDocOverdue = docIssues.some(i => i.type === 'error');
                     const isDocWarning = docIssues.some(i => i.type === 'warning');
 
@@ -218,28 +141,28 @@ const RevisionsPage = ({
                     const currentReadingStr = `${parseFloat(readingInfo.raw || 0).toFixed(1)} ${readingInfo.unit}`;
                     const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
                     const nextReadingStr = formatNextRevisionReading(revision, vehicle);
-                    const description = revision.descricao || '-'; 
+                    const description = revision.descricao || <span className="text-gray-400 italic font-light">Sem agendamento</span>; 
                     
                     const hasHistory = revision.historico && revision.historico.length > 0;
                     const historyIconClass = hasHistory ? 'text-blue-600 hover:text-blue-800' : 'text-gray-300 hover:text-gray-500';
 
                     return (
-                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 text-sm relative transition-colors ${rowBgClass} ${borderClass}`}>
+                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-y-1 gap-x-2 items-center px-3 py-2 border-b last:border-b-0 text-xs relative transition-colors ${rowBgClass} ${borderClass}`}>
                             <div className="md:col-span-3">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex flex-col gap-1 min-w-[20px]">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex gap-1 min-w-[36px]">
                                         {(isMaintOverdue || isMaintWarning) && (
                                             <div className="group relative">
-                                                <Wrench size={16} className={isMaintOverdue ? "text-red-600 animate-pulse" : "text-yellow-600"} />
-                                                <span className="absolute left-6 top-0 hidden group-hover:block bg-gray-800 text-white text-xs p-1 rounded z-10 w-48 shadow-lg">
+                                                <Wrench size={14} className={isMaintOverdue ? "text-red-600 animate-pulse" : "text-yellow-600"} />
+                                                <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-1 rounded z-10 w-40 shadow-lg">
                                                     {maintenanceIssues.map(i => i.message).join(', ')}
                                                 </span>
                                             </div>
                                         )}
                                         {(isDocOverdue || isDocWarning) && (
                                             <div className="group relative">
-                                                <FileText size={16} className={isDocOverdue ? "text-red-600" : "text-yellow-600"} />
-                                                <span className="absolute left-6 top-0 hidden group-hover:block bg-gray-800 text-white text-xs p-1 rounded z-10 w-48 shadow-lg">
+                                                <FileText size={14} className={isDocOverdue ? "text-red-600" : "text-yellow-600"} />
+                                                <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-1 rounded z-10 w-40 shadow-lg">
                                                     {docIssues.map(i => i.message).join(', ')}
                                                 </span>
                                             </div>
@@ -247,28 +170,28 @@ const RevisionsPage = ({
                                     </div>
 
                                     <div>
-                                        <p className="font-bold text-gray-900">{vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}</p>
-                                        <p className="text-xs text-gray-500 font-mono">{vehicle.placa}</p>
+                                        <p className="font-bold text-gray-800 leading-tight">{vehicle.registroInterno}</p>
+                                        <p className="text-[10px] text-gray-500 leading-tight">{vehicle.modelo} ({vehicle.placa})</p>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="md:col-span-2 text-left md:text-right font-mono font-semibold text-blue-700">{currentReadingStr}</div>
+                            <div className="md:col-span-2 text-left md:text-right font-mono font-medium text-blue-700">{currentReadingStr}</div>
                             <div className="md:col-span-2 text-left md:text-center text-gray-700">{nextDateStr}</div>
                             <div className="md:col-span-2 text-left md:text-right text-gray-700">{nextReadingStr}</div>
-                            <div className="md:col-span-2 text-gray-600 truncate italic" title={description}>{description}</div>
+                            <div className="md:col-span-2 text-gray-600 truncate text-[11px]" title={typeof description === 'string' ? description : ''}>{description}</div>
                             
-                            <div className="md:col-span-1 flex gap-2 justify-start md:justify-center flex-wrap mt-2 md:mt-0">
+                            <div className="md:col-span-1 flex items-center justify-end md:justify-center gap-1 mt-1 md:mt-0">
                                 <ProtectedComponent requiredPermission="editor">
-                                    <button onClick={() => setEditingRevision(item)} className="p-1.5 text-gray-500 hover:text-yellow-600 hover:bg-white rounded shadow-sm border border-transparent hover:border-gray-200 transition-all" title="Agendar/Editar Plano">
-                                        <Edit size={16} />
+                                    <button onClick={() => setEditingRevision(item)} className="p-1 text-gray-500 hover:text-yellow-600 hover:bg-white rounded border border-transparent hover:border-gray-200" title="Agendar">
+                                        <Edit size={14} />
                                     </button>
-                                     <button onClick={() => setCompletingRevision(item)} className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-white rounded shadow-sm border border-transparent hover:border-gray-200 transition-all" title="Concluir Revisão (Baixa)">
-                                        <CheckCircle size={16} />
+                                     <button onClick={() => setCompletingRevision(item)} className="p-1 text-gray-500 hover:text-green-600 hover:bg-white rounded border border-transparent hover:border-gray-200" title="Concluir">
+                                        <CheckCircle size={14} />
                                     </button>
                                 </ProtectedComponent>
-                                <button onClick={() => setHistoryModalVehicle(item)} className={`p-1.5 rounded shadow-sm border border-transparent hover:border-gray-200 transition-all ${historyIconClass}`} title="Ver Histórico">
-                                    <History size={16} />
+                                <button onClick={() => setHistoryModalVehicle(item)} className={`p-1 rounded border border-transparent hover:border-gray-200 ${historyIconClass}`} title="Histórico">
+                                    <History size={14} />
                                 </button>
                             </div>
                         </div>
@@ -276,6 +199,18 @@ const RevisionsPage = ({
                 })}
             </div>
             
+            {/* Modal de Agendamento (NOVO) */}
+            {editingRevision && (
+                <ScheduleRevisionModal
+                    vehicle={editingRevision}
+                    onClose={() => setEditingRevision(null)}
+                    setAlertMessage={setAlertMessage}
+                    apiClient={apiClient}
+                    reloadData={reloadData}
+                />
+            )}
+
+            {/* Modal de Conclusão */}
             {completingRevision && (
                 <CompleteRevisionModal 
                     user={user} 
@@ -288,6 +223,7 @@ const RevisionsPage = ({
                 />
             )}
             
+            {/* Modal de Histórico */}
             {historyModalVehicle && (
                 <RevisionHistoryModal 
                     vehicle={historyModalVehicle} 
@@ -298,7 +234,89 @@ const RevisionsPage = ({
     );
 };
 
-// --- Modal de Conclusão de Revisão (Compacto e Corrigido) ---
+// --- Modal de Agendamento (NOVO) ---
+const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, reloadData }) => {
+    const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const [formData, setFormData] = useState({
+        descricao: vehicle.revision?.descricao || '',
+        proximaRevisaoData: vehicle.revision?.proximaRevisaoData ? vehicle.revision.proximaRevisaoData.split('T')[0] : '',
+        proximaRevisaoLeitura: readingInfo.unit === 'Km' 
+            ? (vehicle.revision?.proximaRevisaoOdometro || '') 
+            : (vehicle.revision?.proximaRevisaoHorimetro || '')
+    });
+
+    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            // Prepara o objeto para envio
+            const payload = {
+                vehicleId: vehicle.id,
+                descricao: formData.descricao,
+                proximaRevisaoData: formData.proximaRevisaoData || null,
+                // Mapeia para o campo correto no backend dependendo da unidade
+                proximaRevisaoOdometro: readingInfo.unit === 'Km' ? formData.proximaRevisaoLeitura : null,
+                proximaRevisaoHorimetro: readingInfo.unit === 'Hr' ? formData.proximaRevisaoLeitura : null
+            };
+
+            await apiClient.updateRevisionPlan(vehicle.id, payload);
+            setAlertMessage("Agendamento salvo com sucesso!");
+            reloadData();
+            onClose();
+        } catch (error) {
+            console.error(error);
+            setAlertMessage("Erro ao salvar agendamento.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-fadeInUp">
+                <div className="px-4 py-3 border-b bg-yellow-50 flex justify-between items-center">
+                    <h2 className="text-base font-bold text-yellow-800 flex items-center gap-2">
+                        <Calendar size={18} className="text-yellow-600"/> Agendar Manutenção
+                    </h2>
+                    <button onClick={onClose}><X size={18}/></button>
+                </div>
+                <div className="p-4 space-y-3">
+                    <div className="bg-gray-50 p-2 rounded text-xs text-gray-700 border">
+                        Veículo: <strong>{vehicle.registroInterno}</strong> ({readingInfo.raw} {readingInfo.unit})
+                    </div>
+                    
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Descrição do Plano</label>
+                        <input type="text" name="descricao" value={formData.descricao} onChange={handleChange} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-yellow-500 outline-none" placeholder="Ex: Troca de Óleo 10k"/>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Data Meta</label>
+                            <input type="date" name="proximaRevisaoData" value={formData.proximaRevisaoData} onChange={handleChange} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-yellow-500 outline-none"/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Leitura Meta ({readingInfo.unit})</label>
+                            <input type="number" name="proximaRevisaoLeitura" value={formData.proximaRevisaoLeitura} onChange={handleChange} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-yellow-500 outline-none"/>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-3 gap-2 border-t">
+                        <button onClick={onClose} className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                        <button onClick={handleSave} disabled={isSaving} className="px-3 py-1.5 bg-yellow-500 text-white rounded text-xs font-bold hover:bg-yellow-600 flex items-center gap-1 shadow">
+                            {isSaving ? <Loader size={12} className="animate-spin"/> : <CheckCircle size={12}/>} Salvar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- Modal de Conclusão de Revisão ---
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
     
@@ -312,7 +330,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
     const [formData, setFormData] = useState({
         realizadaEm: new Date().toISOString().split('T')[0],
         leituraRealizada: readingInfo.raw ? readingInfo.raw.toString() : '',
-        descricao: vehicle.revision?.descricao || '', // Pré-preenche apenas como sugestão
+        descricao: vehicle.revision?.descricao || '', 
         custo: '',
         notaFiscal: '',
         proximaRevisaoData: '',
@@ -346,33 +364,23 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
         setIsSaving(true);
         setShowPassword(false);
         try {
-            // CORREÇÃO ERRO 400: Envia apenas o payload. O apiClient deve lidar com a URL.
             const payload = {
                 vehicleId: vehicle.id,
                 ...formData,
                 realizadaPor: user.email || 'Sistema'
             };
 
-            console.log("Enviando payload:", payload);
-
             if (apiClient && apiClient.completeRevision) {
-                // Tenta chamar com um único argumento (objeto), pois a assinatura provável é completeRevision(data)
-                // Se a API esperasse (id, data), o código anterior teria funcionado ou a URL no log teria o ID.
                 await apiClient.completeRevision(payload); 
-                
-                // CORREÇÃO ERRO #31: Envia String, não objeto
                 setAlertMessage("Sucesso: Manutenção registrada!");
-                
                 if (reloadData) reloadData();
                 onClose();
             } else {
-                console.log("Mock API Call:", payload);
                 alert("Simulação: Revisão concluída!");
                 onClose();
             }
         } catch (error) {
             console.error("Erro ao salvar:", error);
-            // CORREÇÃO ERRO #31: Envia String
             setAlertMessage(`Erro: ${error.message || "Falha ao concluir"}`);
         } finally {
             setIsSaving(false);
