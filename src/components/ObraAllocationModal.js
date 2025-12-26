@@ -24,8 +24,12 @@ const ObraAllocationModal = ({
     const [obraId, setObraId] = useState(currentObraAllocation ? vehicle.obraAtualId : '');
     const [employeeId, setEmployeeId] = useState(currentObraAllocation?.details?.employeeId || '');
     const [dataEntrada, setDataEntrada] = useState(currentObraAllocation ? new Date(currentObraAllocation.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+    
+    // Configurações de saída
     const [dataSaida, setDataSaida] = useState(new Date().toISOString().split('T')[0]); 
     const [locationAfterDeallocate, setLocationAfterDeallocate] = useState('Pátio MAK Lajeado');
+    const [observacoes, setObservacoes] = useState(''); // Novo campo de observações para ambos os casos
+
     const [isSaving, setIsSaving] = useState(false);
 
     // Estados de Segurança e Alertas
@@ -38,12 +42,13 @@ const ObraAllocationModal = ({
     const readingType = allowedTypes.includes('horimetro') ? 'horimetro' : 'odometro';
     const readingLabel = readingType === 'horimetro' ? 'Horímetro' : 'Odômetro';
     
-    // Define leitura inicial
-    const initialReading = currentObraAllocation
-                            ? (currentObraAllocation.details?.[`${readingType}Entrada`] || '') 
-                            : (getVehicleMainReading(vehicle).value || '');
+    // Leitura do Veículo Atual
+    const currentVehicleReading = getVehicleMainReading(vehicle).value || '';
 
-    const [readingValue, setReadingValue] = useState(initialReading.toString());
+    // Define leitura inicial para o campo
+    // Se for desalocação, sugere a leitura ATUAL do veículo para facilitar.
+    // Se for alocação nova, também sugere a leitura ATUAL.
+    const [readingValue, setReadingValue] = useState(currentVehicleReading.toString());
 
     const activeObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const availableEmployees = useMemo(() =>
@@ -93,13 +98,19 @@ const ObraAllocationModal = ({
 
     const executeAllocate = async () => {
         setIsSaving(true);
+        // Busca nome do funcionário para salvar no histórico
+        const selectedEmployee = employees.find(e => e.id.toString() === employeeId.toString());
+        const employeeName = selectedEmployee ? selectedEmployee.nome : 'N/A';
+
         try {
             await apiClient.allocateVehicleToObra(vehicle.id, {
                 obraId,
                 employeeId,
+                employeeName, // Envia o nome também
                 dataEntrada: dataEntrada,
                 readingType: readingType,
-                readingValue: parseFloat(readingValue)
+                readingValue: parseFloat(readingValue),
+                observacoes: observacoes // Envia observações de entrada
             });
             setAlertMessage("Veículo alocado com sucesso!");
             reloadData();
@@ -132,7 +143,8 @@ const ObraAllocationModal = ({
                 location: locationAfterDeallocate,
                 shouldFinalizeObra: shouldFinalizeObra,
                 dataFimObra: dataFimObra,
-                obraId: vehicle.obraAtualId
+                obraId: vehicle.obraAtualId,
+                observacoes: observacoes // Envia observações de saída
             });
             setAlertMessage(`Veículo desalocado ${shouldFinalizeObra ? 'e obra finalizada' : ''} com sucesso!`);
             reloadData();
@@ -223,22 +235,25 @@ const ObraAllocationModal = ({
                                 <div className="space-y-4">
                                     <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
                                         Alocado na obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || 'Desconhecida'}</strong>
+                                        <br/>
+                                        Funcionário: <strong>{currentObraAllocation.details?.employeeName || employees.find(e => e.id === currentObraAllocation.details?.employeeId)?.nome || 'N/A'}</strong>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Data de Saída *</label>
                                         <input type="date" value={dataSaida} onChange={e => setDataSaida(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm" required/>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Saída *</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">{readingLabel} de Saída (Atual) *</label>
                                         <input
                                             type="number"
                                             step="any"
                                             value={readingValue}
                                             onChange={e => setReadingValue(e.target.value)}
-                                            placeholder={currentObraAllocation.details?.[`${readingType}Entrada`] ? `Entrada: ${currentObraAllocation.details[`${readingType}Entrada`]}` : ''}
+                                            placeholder={`Sugestão: ${currentVehicleReading}`}
                                             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
                                             required
                                         />
+                                        <p className="text-xs text-gray-400 mt-1">Leitura atual sugerida. Ajuste se necessário.</p>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Local de Disponibilidade após Saída *</label>
@@ -250,6 +265,16 @@ const ObraAllocationModal = ({
                                              className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
                                              required
                                          />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Observações (Saída)</label>
+                                        <textarea
+                                            rows="3"
+                                            value={observacoes}
+                                            onChange={e => setObservacoes(e.target.value)}
+                                            placeholder="Detalhes sobre a saída, estado do veículo..."
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                                        />
                                     </div>
                                     <button 
                                         onClick={checkAndDeallocate} 
@@ -290,6 +315,16 @@ const ObraAllocationModal = ({
                                             placeholder="Leitura atual"
                                             className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm"
                                             required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Observações (Entrada)</label>
+                                        <textarea
+                                            rows="3"
+                                            value={observacoes}
+                                            onChange={e => setObservacoes(e.target.value)}
+                                            placeholder="Detalhes sobre a alocação..."
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 text-sm"
                                         />
                                     </div>
                                     <button 

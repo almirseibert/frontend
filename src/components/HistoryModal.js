@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Loader, MapPin, Wrench, FileText, AlertTriangle } from 'lucide-react';
+import { X, Loader, MapPin, Wrench, FileText, AlertTriangle, User } from 'lucide-react';
 
-const HistoryModal = ({ vehicle, onClose, obras = [], apiClient }) => {
+const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] }) => {
     
     const [fetchedHistory, setFetchedHistory] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -49,15 +49,29 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient }) => {
                  const leituraEntrada = details.odometroInicial || details.horimetroInicial || 'N/A';
                  const leituraSaida = details.odometroFinal || details.horimetroFinal || (h.endDate ? '?' : 'Atual');
                  const obraNome = details.obraNome || (obras.find(o => o.id === details.obraId)?.nome) || 'Obra';
+                 
+                 // Tenta pegar o nome do funcionário dos detalhes ou busca na lista de funcionários
+                 const employeeName = details.employeeName || (employees.find(e => e.id === details.employeeId)?.nome) || 'Não informado';
                 
                 return (
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1.5">
                         <div className="flex justify-between items-center">
                             <span className="font-bold text-gray-800 flex items-center gap-1"><MapPin size={12}/> Alocação em Obra</span>
                             <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{startDate} - {endDate}</span>
                         </div>
-                        <p className="text-xs text-gray-600">Obra: <strong>{obraNome}</strong></p>
-                        <p className="text-[10px] text-gray-500">Leitura: {leituraEntrada} {'->'} {leituraSaida}</p>
+                        <p className="text-xs text-gray-700">Obra: <strong>{obraNome}</strong></p>
+                        <p className="text-xs text-gray-600 flex items-center gap-1"><User size={10} /> {employeeName}</p>
+                        
+                        <div className="flex gap-4 text-[10px] text-gray-500 bg-white p-1 rounded border border-gray-100 mt-1">
+                            <span><strong>Entrada:</strong> {leituraEntrada}</span>
+                            <span><strong>Saída:</strong> {leituraSaida}</span>
+                        </div>
+                        
+                        {details.observacoes && (
+                            <p className="text-[10px] text-gray-500 italic mt-1 border-l-2 border-gray-300 pl-1">
+                                " {details.observacoes} "
+                            </p>
+                        )}
                     </div>
                 );
             case 'operacional':
@@ -68,7 +82,9 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient }) => {
                             <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{startDate} - {endDate}</span>
                         </div>
                         <p className="text-xs text-gray-600">Grupo: {details.subGroup}</p>
-                        <p className="text-[10px] text-gray-500 italic truncate max-w-[200px]">{details.observacoes}</p>
+                        {details.observacoes && (
+                             <p className="text-[10px] text-gray-500 italic truncate max-w-[200px]">Obs: {details.observacoes}</p>
+                        )}
                     </div>
                 );
             case 'manutencao':
