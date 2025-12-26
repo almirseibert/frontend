@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert, Clock, CheckCircle, FileText, Badge } from 'lucide-react';
 // Importa a lógica unificada de restrições
-import { checkVehicleRestrictions, getVehicleMainReading } from '../utils/vehicleRules';
+import { checkVehicleRestrictions, getVehicleMainReading } from '../../utils/vehicleRules';
 
 const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [] }) => {
     const [activeTab, setActiveTab] = useState('todos');
