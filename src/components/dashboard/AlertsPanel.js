@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert, Clock, CheckCircle, FileText, Badge } from 'lucide-react';
+// Importa a lógica unificada de restrições
+import { checkVehicleRestrictions, getVehicleMainReading } from '../utils/vehicleRules';
 
-const AlertsPanel = ({ vehicles, employees, inactivityAlerts, obras, navigate, setSelectedInactivityAlert }) => {
+const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [] }) => {
     const [activeTab, setActiveTab] = useState('todos');
 
-    // Processamento centralizado de alertas
+    // Processamento centralizado de alertas (Unificado)
     const alerts = useMemo(() => {
         const list = [];
         const now = new Date();
@@ -12,178 +14,157 @@ const AlertsPanel = ({ vehicles, employees, inactivityAlerts, obras, navigate, s
         thirtyDays.setDate(now.getDate() + 30);
 
         // 1. Alertas de Veículos (Revisão, Docs, Bloqueio)
-        // Utiliza os dados já processados pelo App.js (possuiAviso e avisoTexto)
+        // Utiliza a função unificada checkVehicleRestrictions que já verifica horímetro/odômetro corretamente
         vehicles.forEach(v => {
-            if (v.possuiAviso) {
-                // Tenta categorizar baseado no texto do aviso
-                const text = (v.avisoTexto || '').toLowerCase();
-                let category = 'manutencao'; // Default
-                let type = 'warning';
+            // Busca revisões do veículo
+            const vehicleRevisions = revisions.filter(r => r.vehicleId === v.id);
+            const restrictions = checkVehicleRestrictions(v, vehicleRevisions);
 
-                if (text.includes('bloqueio') || text.includes('vencid') || text.includes('não pode')) {
-                    type = 'danger';
-                }
-
-                if (text.includes('documento') || text.includes('aet') || text.includes('tacógrafo')) {
-                    category = 'documentos';
-                }
+            restrictions.forEach((issue, index) => {
+                let category = 'manutencao'; 
+                if (issue.category === 'documento') category = 'documentos';
+                if (issue.category === 'bloqueio') category = 'alertas';
 
                 list.push({
-                    id: `v-${v.id}`,
-                    title: v.registroInterno,
-                    subtitle: v.modelo,
-                    message: v.avisoTexto,
-                    type: type,
+                    id: `v-${v.id}-${index}`,
                     category: category,
-                    date: new Date().toLocaleDateString(),
-                    action: () => navigate('vehicles', { search: v.registroInterno })
+                    type: issue.type === 'error' ? 'danger' : 'warning',
+                    title: `${v.registroInterno} - ${v.placa}`,
+                    subtitle: issue.category.toUpperCase(),
+                    message: issue.message,
+                    date: 'Hoje',
+                    action: () => navigate('/vehicles') // Redireciona para veículos
                 });
-            }
+            });
         });
 
-        // 2. Alertas de CNH
-        employees.forEach(e => {
-            if (e.cnhVencimento) {
-                // Tenta parsear a data corretamente independente do formato
-                let venc = null;
-                if (e.cnhVencimento.includes('T')) {
-                     venc = new Date(e.cnhVencimento);
-                } else {
-                     venc = new Date(e.cnhVencimento + 'T12:00:00Z');
-                }
-
-                if (!isNaN(venc.getTime())) {
-                    if (venc < now) {
-                        list.push({
-                            id: `e-${e.id}`,
-                            title: e.nome,
-                            subtitle: 'CNH Vencida',
-                            message: `Venceu em ${venc.toLocaleDateString()}`,
-                            type: 'danger',
-                            category: 'cnh',
-                            date: venc.toLocaleDateString(),
-                            action: () => navigate('employees', { search: e.nome })
-                        });
-                    } else if (venc <= thirtyDays) {
-                        list.push({
-                            id: `e-${e.id}`,
-                            title: e.nome,
-                            subtitle: 'CNH a Vencer',
-                            message: `Vence em ${venc.toLocaleDateString()}`,
-                            type: 'warning',
-                            category: 'cnh',
-                            date: venc.toLocaleDateString(),
-                            action: () => navigate('employees', { search: e.nome })
-                        });
-                    }
-                }
-            }
+        // 2. Alertas de Inatividade (Operacional)
+        inactivityAlerts.forEach(alert => {
+            if (alert.status !== 'Ativo') return;
+            
+            const daysInactive = Math.floor((now - new Date(alert.lastRefuelDate)) / (1000 * 60 * 60 * 24));
+            
+            list.push({
+                id: `inat-${alert.id}`,
+                category: 'alertas',
+                type: 'info',
+                title: `${alert.vehicle?.registroInterno} - Inatividade`,
+                subtitle: alert.obra?.nome || 'Obra Desconhecida',
+                message: `Veículo sem abastecer há ${daysInactive} dias na obra.`,
+                date: new Date(alert.lastRefuelDate).toLocaleDateString('pt-BR'),
+                action: () => setSelectedInactivityAlert(alert)
+            });
         });
 
-        // 3. Alertas de Inatividade
-        if (inactivityAlerts) {
-            inactivityAlerts.forEach(alert => {
-                const v = vehicles.find(veh => veh.id === alert.vehicleId);
-                const o = obras.find(obr => obr.id === alert.obraId);
-                
-                // Exibe se não estiver observado e não estiver em período de prolongamento válido
-                if (v && o && alert.status !== 'Observado' && !(alert.status === 'Prolongado' && new Date(alert.prolongedUntil) > now)) {
+        // 3. Alertas de Funcionários (CNH)
+        employees.forEach(emp => {
+            if (emp.validadeCNH) {
+                const validade = new Date(emp.validadeCNH);
+                if (validade < now) {
                     list.push({
-                        id: `i-${alert.id}`,
-                        title: v.registroInterno,
-                        subtitle: 'Inatividade Detectada',
-                        message: `Sem abastecimento há >7 dias na obra ${o.nome}`,
-                        type: 'info',
-                        category: 'inatividade',
-                        date: new Date().toLocaleDateString(),
-                        action: () => setSelectedInactivityAlert({ ...alert, vehicle: v, obra: o })
+                        id: `emp-${emp.id}`,
+                        category: 'documentos',
+                        type: 'danger',
+                        title: `CNH VENCIDA: ${emp.nome}`,
+                        subtitle: 'Documentos',
+                        message: `A CNH venceu em ${validade.toLocaleDateString('pt-BR')}.`,
+                        date: validade.toLocaleDateString('pt-BR'),
+                        action: () => navigate('/employees')
+                    });
+                } else if (validade < thirtyDays) {
+                    list.push({
+                        id: `emp-${emp.id}`,
+                        category: 'documentos',
+                        type: 'warning',
+                        title: `CNH a Vencer: ${emp.nome}`,
+                        subtitle: 'Documentos',
+                        message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
+                        date: validade.toLocaleDateString('pt-BR'),
+                        action: () => navigate('/employees')
                     });
                 }
-            });
-        }
+            }
+        });
 
-        // Ordenação por prioridade: Danger > Warning > Info
-        const priority = { danger: 0, warning: 1, info: 2 };
-        return list.sort((a, b) => priority[a.type] - priority[b.type]);
-    }, [vehicles, employees, inactivityAlerts, obras, navigate, setSelectedInactivityAlert]);
+        return list.sort((a, b) => (a.type === 'danger' ? -1 : 1));
+    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert]);
 
     const filteredAlerts = activeTab === 'todos' ? alerts : alerts.filter(a => a.category === activeTab);
 
-    // Componente de Aba
-    const TabButton = ({ id, icon: Icon, label, count, color }) => (
-        <button
-            onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors mb-1 mr-1 ${
-                activeTab === id 
-                ? `border-${color}-500 text-${color}-700 bg-${color}-50 ring-1 ring-${color}-200` 
-                : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
-            }`}
-        >
-            <Icon size={12} />
-            {label}
-            {count > 0 && <span className={`ml-1 px-1 py-0 rounded-full text-[9px] bg-${color}-200 text-${color}-800 min-w-[16px] text-center`}>{count}</span>}
-        </button>
-    );
-
     const counts = {
+        todos: alerts.length,
         manutencao: alerts.filter(a => a.category === 'manutencao').length,
         documentos: alerts.filter(a => a.category === 'documentos').length,
-        cnh: alerts.filter(a => a.category === 'cnh').length,
-        inatividade: alerts.filter(a => a.category === 'inatividade').length
+        alertas: alerts.filter(a => a.category === 'alertas').length
+    };
+
+    const tabs = [
+        { id: 'todos', label: 'Todos', icon: <Bell size={14}/> },
+        { id: 'manutencao', label: 'Manutenção', icon: <Clock size={14}/> },
+        { id: 'documentos', label: 'Docs', icon: <FileText size={14}/> },
+        { id: 'alertas', label: 'Avisos', icon: <ShieldAlert size={14}/> },
+    ];
+
+    const colors = {
+        danger: 'bg-red-50 border-l-red-500 text-red-900',
+        warning: 'bg-yellow-50 border-l-yellow-500 text-yellow-900',
+        info: 'bg-blue-50 border-l-blue-500 text-blue-900',
+        success: 'bg-green-50 border-l-green-500 text-green-900'
+    };
+
+    const icons = {
+        danger: <AlertTriangle size={18} className="text-red-500" />,
+        warning: <AlertTriangle size={18} className="text-yellow-500" />,
+        info: <Clock size={18} className="text-blue-500" />,
     };
 
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-full flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50 shrink-0">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                    <Bell className="text-yellow-500" size={18}/> Central de Alertas
+            <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                    <Bell size={18} className="text-yellow-600"/> Central de Alertas
                 </h3>
-                <span className="text-xs font-medium text-gray-500 bg-white px-2 py-0.5 rounded border">{alerts.length}</span>
-            </div>
-            
-            {/* Tabs de Navegação - Flex Wrap para evitar scroll */}
-            <div className="p-2 border-b border-gray-100 bg-gray-50/50 flex flex-wrap gap-1 shrink-0">
-                <TabButton id="todos" icon={Bell} label="Geral" count={alerts.length} color="gray" />
-                <TabButton id="manutencao" icon={AlertTriangle} label="Manut." count={counts.manutencao} color="red" />
-                <TabButton id="documentos" icon={FileText} label="Docs" count={counts.documentos} color="orange" />
-                <TabButton id="cnh" icon={Badge} label="CNH" count={counts.cnh} color="purple" />
-                <TabButton id="inatividade" icon={Clock} label="Inat." count={counts.inatividade} color="blue" />
+                <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded-full">{alerts.length}</span>
             </div>
 
-            {/* Lista de Alertas */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar bg-slate-50">
-                {filteredAlerts.length > 0 ? filteredAlerts.map(alert => {
-                    const colors = {
-                        danger: 'border-red-500 bg-white hover:bg-red-50',
-                        warning: 'border-yellow-400 bg-white hover:bg-yellow-50',
-                        info: 'border-blue-400 bg-white hover:bg-blue-50'
-                    };
-                    const icons = {
-                        danger: <ShieldAlert className="text-red-500" size={18}/>,
-                        warning: <AlertTriangle className="text-yellow-500" size={18}/>,
-                        info: <Clock className="text-blue-500" size={18}/>
-                    };
+            {/* Abas */}
+            <div className="flex border-b shrink-0 overflow-x-auto">
+                {tabs.map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex-1 py-3 text-xs font-medium flex items-center justify-center gap-1 border-b-2 transition-colors whitespace-nowrap px-2
+                            ${activeTab === tab.id ? 'border-yellow-500 text-yellow-700 bg-yellow-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                    >
+                        {tab.icon} {tab.label} 
+                        {counts[tab.id] > 0 && <span className={`ml-1 text-[10px] px-1.5 rounded-full ${activeTab === tab.id ? 'bg-yellow-200' : 'bg-gray-200'}`}>{counts[tab.id]}</span>}
+                    </button>
+                ))}
+            </div>
 
+            {/* Lista */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                {filteredAlerts.length > 0 ? filteredAlerts.map((alert) => {
                     return (
                         <div 
-                            key={alert.id}
+                            key={alert.id} 
                             onClick={alert.action}
-                            className={`p-3 rounded-lg border-l-4 shadow-sm cursor-pointer transition-all flex items-start gap-3 border border-gray-100 ${colors[alert.type]}`}
+                            className={`p-3 rounded-lg border-l-4 shadow-sm cursor-pointer transition-all flex items-start gap-3 border border-gray-100 ${colors[alert.type]} hover:opacity-90`}
                         >
                             <div className="mt-0.5 shrink-0">{icons[alert.type]}</div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-start">
-                                    <h4 className="text-xs font-bold text-gray-800 truncate">{alert.title}</h4>
-                                    <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{alert.date}</span>
+                                    <h4 className="text-xs font-bold text-gray-800 truncate pr-2">{alert.title}</h4>
+                                    <span className="text-[9px] bg-white bg-opacity-50 px-1.5 py-0.5 rounded text-gray-600 shrink-0 border border-gray-200">{alert.date}</span>
                                 </div>
-                                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">{alert.subtitle}</p>
-                                <p className="text-xs text-gray-700 leading-snug">{alert.message}</p>
+                                <p className="text-[10px] font-semibold opacity-70 uppercase tracking-wide mb-0.5">{alert.subtitle}</p>
+                                <p className="text-xs leading-snug">{alert.message}</p>
                             </div>
                         </div>
                     );
                 }) : (
                     <div className="flex flex-col items-center justify-center h-full text-gray-400 py-10">
-                        <CheckCircle size={32} className="mb-2 text-green-200"/>
+                        <CheckCircle size={32} className="mb-2 text-green-100"/>
                         <p className="text-xs">Nenhum alerta nesta categoria.</p>
                     </div>
                 )}

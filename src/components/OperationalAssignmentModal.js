@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Loader, X, AlertTriangle, Shield } from 'lucide-react';
+import { Loader, X, AlertTriangle, Shield, HardHat } from 'lucide-react';
 import { checkVehicleRestrictions } from '../utils/vehicleRules';
 
 const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions = [], onClose, setAlertMessage, apiClient, reloadData, operationalSubGroups = [], PasswordConfirmationModal }) => {
@@ -34,6 +34,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
     // --- VERIFICAÇÃO DE RESTRIÇÕES ---
     const validateRestrictions = () => {
         setRestrictionAlert(null);
+        // Regra Centralizada: checkVehicleRestrictions verifica documentos, CNH e manutenções vencidas
         const issues = checkVehicleRestrictions(vehicle, revisions);
         
         const blockingIssues = issues.filter(i => i.type === 'bloqueio' || i.type === 'vencido');
@@ -52,6 +53,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
             return;
         }
         
+        // Se houver restrições (documento vencido, manutenção), pede senha
         if (!validateRestrictions()) {
             return;
         }
@@ -96,19 +98,20 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
     return (
         <>
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                {/* Container com Altura Máxima Controlada e Flex Column */}
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
                     
-                    {/* Cabeçalho Fixo */}
+                    {/* Cabeçalho */}
                     <div className="p-6 border-b flex justify-between items-center bg-blue-50 flex-none rounded-t-lg">
-                        <h2 className="text-xl font-bold text-blue-800">Alocação Operacional</h2>
-                         <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
+                        <h2 className="text-xl font-bold text-blue-800 flex items-center gap-2">
+                            <HardHat size={24} /> Alocação Operacional
+                        </h2>
+                         <button onClick={onClose} className="p-2 rounded-full hover:bg-blue-100 transition-colors" disabled={isSaving}><X size={18}/></button>
                     </div>
 
-                    {/* Área de Conteúdo com Rolagem (Alertas + Form) */}
+                    {/* Conteúdo com Rolagem */}
                     <div className="flex-1 overflow-y-auto">
                         
-                        {/* Alertas */}
+                        {/* Alertas de Restrição */}
                         {restrictionAlert && restrictionAlert.length > 0 && !currentAssignment && (
                             <div className="bg-red-50 p-4 border-b border-red-100 animate-pulse-once">
                                 <div className="flex items-start gap-3">
@@ -135,14 +138,14 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
 
                         {/* Formulário */}
                         <div className="p-6 space-y-4">
-                            <div className="text-sm text-gray-600 mb-2 bg-gray-100 p-2 rounded">
+                            <div className="text-sm text-gray-600 mb-2 bg-gray-100 p-3 rounded border border-gray-200">
                                 <strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.marca} {vehicle.modelo}
                             </div>
 
                             {currentAssignment ? (
                                 <div className="space-y-4">
-                                    <div className="p-3 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm">
-                                        <p>Alocado no grupo: <strong>{currentAssignment.subGroup || 'N/A'}</strong></p>
+                                    <div className="p-4 bg-blue-50 rounded border border-blue-100 text-blue-800 text-sm shadow-sm">
+                                        <p className="mb-1">Alocado no grupo: <strong>{currentAssignment.subGroup || 'N/A'}</strong></p>
                                         <p>Responsável: <strong>{currentAssignment.employeeName || 'N/A'}</strong></p>
                                     </div>
                                     <div>
@@ -156,7 +159,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                                              required
                                          />
                                     </div>
-                                    <button onClick={handleUnassign} disabled={isSaving || !locationAfterUnassign} className="w-full px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-300 flex items-center justify-center gap-2 text-sm">
+                                    <button onClick={handleUnassign} disabled={isSaving || !locationAfterUnassign} className="w-full px-4 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:bg-red-300 flex items-center justify-center gap-2 text-sm shadow">
                                         {isSaving ? <Loader className="animate-spin" size={18}/> : "Finalizar Operação"}
                                     </button>
                                 </div>
@@ -189,7 +192,7 @@ const OperationalAssignmentModal = ({ user, vehicle, employees = [], revisions =
                                     <button 
                                         onClick={handleAssignClick} 
                                         disabled={isSaving || !subGroup || !employeeId || restrictionAlert !== null} 
-                                        className="w-full px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm transition-colors"
+                                        className="w-full px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm transition-colors shadow"
                                     >
                                         {isSaving ? <Loader className="animate-spin" size={18}/> : "Alocar Veículo"}
                                     </button>
