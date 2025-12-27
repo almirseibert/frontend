@@ -485,10 +485,15 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
 };
 
 // ===================================================================================
-// 4. RELATÓRIO DE FATURAMENTO (ATUALIZADO)
+// 4. RELATÓRIO DE FATURAMENTO (ATUALIZADO & CORRIGIDO)
 // ===================================================================================
 const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
+
+    // Ordenação Alfabética das Obras (Memoizado para performance)
+    const sortedObras = useMemo(() => {
+        return [...obras].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [obras]);
 
     const generatePDF = () => {
         const obra = obras.find(o => o.id === selectedObraId);
@@ -496,21 +501,33 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
 
         const doc = new jsPDF();
         doc.setFontSize(16); doc.text(`Relatório de Faturamento: ${obra.nome}`, 14, 20);
-        doc.setFontSize(10); doc.text(`Comparativo: Contratado vs. Realizado (Billing)`, 14, 26);
+        doc.setFontSize(10); doc.text(`Comparativo: Contratado vs. Realizado (Apontamentos)`, 14, 26);
 
-        // 1. Agrupar logs por tipo de veículo (Correção: usar dailyWorkLogs filtrado)
+        // 1. Agrupar logs por tipo de veículo (Correção Robusta baseada em ObraProgressBI)
         const executedByType = {};
         
-        // Filtra apenas logs desta obra
-        const logs = dailyWorkLogs.filter(l => l.obraId === selectedObraId);
+        let safeLogs = [];
+        // Tratamento robusto para diferentes formatos de retorno da API
+        if (Array.isArray(dailyWorkLogs)) safeLogs = dailyWorkLogs;
+        else if (dailyWorkLogs && dailyWorkLogs.data && Array.isArray(dailyWorkLogs.data)) safeLogs = dailyWorkLogs.data;
+
+        // Normalização de IDs para filtro seguro
+        const targetObraId = String(selectedObraId).trim();
+        
+        const logs = safeLogs.filter(log => {
+            const logObraId = log.obraId || log.obra_id;
+            return logObraId && String(logObraId).trim() === targetObraId;
+        });
 
         logs.forEach(log => {
             const vehicle = vehicles.find(v => v.id === log.vehicleId);
             const type = vehicle ? vehicle.tipo : 'Outros';
             
             if (!executedByType[type]) executedByType[type] = 0;
-            // Somar as horas totais do log
-            executedByType[type] += parseFloat(log.totalHours || 0);
+            
+            // Tratamento robusto de propriedade totalHours
+            const val = parseFloat(log.totalHours !== undefined ? log.totalHours : log.total_hours);
+            executedByType[type] += (isNaN(val) ? 0 : val);
         });
 
         // 2. Prepara tabela comparativa
@@ -556,11 +573,6 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
         doc.save(`Faturamento_${obra.nome}.pdf`);
     };
 
-    // Ordenação Alfabética das Obras
-    const sortedObras = useMemo(() => {
-        return [...obras].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    }, [obras]);
-
     return (
         <div className="animate-fade-in">
              <SectionHeader icon={ClipboardCheck} title="Relatório de Faturamento" description="Comparativo financeiro: Horas Contratadas vs. Horas Apontadas nos diários (Billing Page)." />
@@ -573,6 +585,7 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
                         className="flex-1 input-field"
                     >
                         <option value="">-- Selecione --</option>
+                        {/* Uso de sortedObras para garantir a ordem alfabética */}
                         {sortedObras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                     </select>
                     <button 
@@ -589,7 +602,7 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
 };
 
 // ===================================================================================
-// 5. NOVO: RELATÓRIO DE OBRAS (Físico x Financeiro)
+// 5. NOVO: RELATÓRIO DE OBRAS (Físico x Financeiro - Completo)
 // ===================================================================================
 const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGroups }) => {
     const [statusFilter, setStatusFilter] = useState('ativa');
@@ -597,10 +610,10 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
     const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
     const [selectAllVehicles, setSelectAllVehicles] = useState(false);
 
-    // 1. Filtrar Obras por Status
+    // 1. Filtrar Obras por Status e Ordenar
     const filteredObras = useMemo(() => {
         return obras
-            .filter(o => o.status === statusFilter)
+            .filter(o => statusFilter === 'todas' || o.status === statusFilter)
             .sort((a, b) => a.nome.localeCompare(b.nome));
     }, [obras, statusFilter]);
 
@@ -704,14 +717,25 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
             doc.setFontSize(12); doc.setFont('helvetica', 'bold');
             doc.text("2. Progresso Financeiro (Apontamentos de Faturamento)", 14, currentY);
 
-            // Agrupa logs da obra
-            const billingLogs = dailyWorkLogs.filter(l => l.obraId === obraId);
+            // Preparação robusta dos logs (mesma lógica do Faturamento)
+            let safeLogs = [];
+            if (Array.isArray(dailyWorkLogs)) safeLogs = dailyWorkLogs;
+            else if (dailyWorkLogs && dailyWorkLogs.data && Array.isArray(dailyWorkLogs.data)) safeLogs = dailyWorkLogs.data;
+
+            const targetObraId = String(obraId).trim();
+            const billingLogs = safeLogs.filter(l => {
+                const logObraId = l.obraId || l.obra_id;
+                return logObraId && String(logObraId).trim() === targetObraId;
+            });
+
             const billingByType = {};
             billingLogs.forEach(l => {
                 const v = vehicles.find(veh => veh.id === l.vehicleId);
                 const type = v ? v.tipo : 'Outros';
                 if (!billingByType[type]) billingByType[type] = 0;
-                billingByType[type] += parseFloat(l.totalHours || 0);
+                
+                const val = parseFloat(l.totalHours !== undefined ? l.totalHours : l.total_hours);
+                billingByType[type] += (isNaN(val) ? 0 : val);
             });
 
             const financialBody = [];
@@ -761,6 +785,7 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
                         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setSelectedObraIds([]); }} className="input-field">
                             <option value="ativa">Ativas</option>
                             <option value="finalizada">Finalizadas</option>
+                            <option value="todas">Todas</option>
                         </select>
                     </div>
 
