@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
     Download, Users, Truck, FileText, AlertTriangle, 
-    ClipboardCheck, Filter, Printer
+    ClipboardCheck, Filter, Printer, HardHat 
 } from 'lucide-react';
 
 // Importa o componente de proteção
@@ -69,7 +69,7 @@ const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} 
                 
                 // Formata leitura
                 let leituraPrincipal = '';
-                if (vehicleGroup === 'Máquinas Pesadas') leituraPrincipal = `${v.horimetroDigital ?? v.horimetroAnalogico ?? v.horimetro ?? 'N/A'} Hr`;
+                if (vehicleGroup === 'Máquinas Pesadas') leituraPrincipal = `${v.horimetro ?? 'N/A'} Hr`;
                 else if (vehicleGroup === 'Caminhões') leituraPrincipal = `${v.odometro ?? 'N/A'} Km / ${v.horimetro ?? 'N/A'} Hr`;
                 else leituraPrincipal = `${v.odometro ?? 'N/A'} Km`;
 
@@ -485,7 +485,7 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
 };
 
 // ===================================================================================
-// 4. RELATÓRIO DE FATURAMENTO
+// 4. RELATÓRIO DE FATURAMENTO (ATUALIZADO)
 // ===================================================================================
 const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
@@ -498,18 +498,26 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
         doc.setFontSize(16); doc.text(`Relatório de Faturamento: ${obra.nome}`, 14, 20);
         doc.setFontSize(10); doc.text(`Comparativo: Contratado vs. Realizado (Billing)`, 14, 26);
 
+        // 1. Agrupar logs por tipo de veículo (Correção: usar dailyWorkLogs filtrado)
         const executedByType = {};
+        
+        // Filtra apenas logs desta obra
         const logs = dailyWorkLogs.filter(l => l.obraId === selectedObraId);
 
         logs.forEach(log => {
             const vehicle = vehicles.find(v => v.id === log.vehicleId);
             const type = vehicle ? vehicle.tipo : 'Outros';
+            
             if (!executedByType[type]) executedByType[type] = 0;
+            // Somar as horas totais do log
             executedByType[type] += parseFloat(log.totalHours || 0);
         });
 
+        // 2. Prepara tabela comparativa
         const tableBody = [];
         const contracted = obra.horasContratadasPorTipo || {};
+        
+        // Une todos os tipos que existem no contrato OU nos logs
         const allTypes = new Set([...Object.keys(contracted), ...Object.keys(executedByType)]);
         
         allTypes.forEach(type => {
@@ -536,6 +544,7 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
             columnStyles: { 3: { fontStyle: 'bold' } }
         });
 
+        // Totais
         const totalCont = Object.values(contracted).reduce((a,b) => a + parseFloat(b||0), 0);
         const totalExec = Object.values(executedByType).reduce((a,b) => a + b, 0);
         
@@ -547,9 +556,14 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
         doc.save(`Faturamento_${obra.nome}.pdf`);
     };
 
+    // Ordenação Alfabética das Obras
+    const sortedObras = useMemo(() => {
+        return [...obras].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [obras]);
+
     return (
         <div className="animate-fade-in">
-             <SectionHeader icon={ClipboardCheck} title="Relatório de Faturamento" description="Comparativo financeiro: Horas Contratadas vs. Horas Apontadas no Faturamento." />
+             <SectionHeader icon={ClipboardCheck} title="Relatório de Faturamento" description="Comparativo financeiro: Horas Contratadas vs. Horas Apontadas nos diários (Billing Page)." />
              <div className="bg-white p-6 rounded-lg border shadow-sm max-w-2xl">
                 <label className="block text-sm font-bold text-gray-700 mb-2">Selecione a Obra</label>
                 <div className="flex gap-3">
@@ -559,7 +573,7 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
                         className="flex-1 input-field"
                     >
                         <option value="">-- Selecione --</option>
-                        {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                        {sortedObras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                     </select>
                     <button 
                         onClick={generatePDF} 
@@ -575,7 +589,226 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
 };
 
 // ===================================================================================
-// 5. RELATÓRIO DE PLANO DE TRABALHO
+// 5. NOVO: RELATÓRIO DE OBRAS (Físico x Financeiro)
+// ===================================================================================
+const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGroups }) => {
+    const [statusFilter, setStatusFilter] = useState('ativa');
+    const [selectedObraIds, setSelectedObraIds] = useState([]);
+    const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
+    const [selectAllVehicles, setSelectAllVehicles] = useState(false);
+
+    // 1. Filtrar Obras por Status
+    const filteredObras = useMemo(() => {
+        return obras
+            .filter(o => o.status === statusFilter)
+            .sort((a, b) => a.nome.localeCompare(b.nome));
+    }, [obras, statusFilter]);
+
+    // 2. Filtrar Veículos que estão nas Obras selecionadas
+    const filteredVehicles = useMemo(() => {
+        if (selectedObraIds.length === 0) return [];
+        
+        // Pega todos os veículos atualmente alocados nestas obras
+        return vehicles.filter(v => selectedObraIds.includes(v.obraAtualId))
+                       .sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
+    }, [vehicles, selectedObraIds]);
+
+    // Handle Select All Vehicles
+    const handleSelectAllVehicles = (e) => {
+        setSelectAllVehicles(e.target.checked);
+        setSelectedVehicleIds(e.target.checked ? filteredVehicles.map(v => v.id) : []);
+    };
+
+    const generatePDF = () => {
+        if (selectedObraIds.length === 0) return alert("Selecione pelo menos uma obra.");
+
+        const doc = new jsPDF();
+        
+        selectedObraIds.forEach((obraId, index) => {
+            const obra = obras.find(o => o.id === obraId);
+            if (!obra) return;
+            
+            if (index > 0) doc.addPage();
+
+            doc.setFontSize(16); doc.setTextColor(0);
+            doc.text(`Relatório de Obra: ${obra.nome}`, 14, 20);
+            doc.setFontSize(10); 
+            doc.text(`Status: ${obra.status.toUpperCase()} | Local: ${obra.localizacao || 'N/A'}`, 14, 26);
+
+            // --- SEÇÃO 1: PROGRESSO FÍSICO (Baseado em Leitura de Equipamentos) ---
+            doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+            doc.text("1. Progresso Físico (Leituras de Horímetro/Odômetro)", 14, 35);
+            
+            const physicalBody = [];
+            let totalHorasFisicas = 0;
+
+            // Filtra histórico desta obra
+            const history = obra.historicoVeiculos || [];
+            
+            // Itera sobre veículos selecionados (ou todos da obra se nenhum específico selecionado)
+            const targetVehicles = selectedVehicleIds.length > 0 
+                ? vehicles.filter(v => selectedVehicleIds.includes(v.id) && v.obraAtualId === obraId)
+                : vehicles.filter(v => v.obraAtualId === obraId);
+
+            targetVehicles.forEach(v => {
+                // Encontra a entrada mais recente deste veículo nesta obra
+                const entry = history.find(h => h.veiculoId === v.id && !h.dataSaida);
+                
+                // UNIFICAÇÃO HORÍMETRO: Usa apenas campos unificados se possível, ou fallback
+                // Regra: Máquinas e Caminhões usam horas para "trabalho". Caminhões de trecho usam Km.
+                const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(v.tipo));
+                const isKm = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
+                
+                let start = 0;
+                let current = 0;
+                let unit = isKm ? 'Km' : 'H';
+
+                if (entry) {
+                    if (isKm) {
+                        start = parseFloat(entry.odometroEntrada || 0);
+                        current = parseFloat(v.odometro || 0);
+                    } else {
+                        // Unificação: Pega horímetro direto (sem distinção digital/analógico se backend já unificou)
+                        start = parseFloat(entry.horimetroEntrada || entry.odometroEntrada || 0);
+                        current = parseFloat(v.horimetro ?? v.horimetroDigital ?? v.horimetroAnalogico ?? 0);
+                    }
+                }
+
+                const worked = Math.max(0, current - start);
+                if (!isKm) totalHorasFisicas += worked;
+
+                physicalBody.push([
+                    v.registroInterno,
+                    v.tipo,
+                    `${start.toFixed(1)} ${unit}`,
+                    `${current.toFixed(1)} ${unit}`,
+                    `${worked.toFixed(1)} ${unit}`
+                ]);
+            });
+
+            if (physicalBody.length > 0) {
+                autoTable(doc, {
+                    startY: 40,
+                    head: [['Registro', 'Tipo', 'Leitura Inicial', 'Leitura Atual', 'Executado']],
+                    body: physicalBody,
+                    theme: 'striped',
+                    headStyles: { fillColor: [44, 62, 80] } // Dark Blue
+                });
+            } else {
+                doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+                doc.text("Nenhum veículo alocado atualmente.", 14, 45);
+            }
+
+            // --- SEÇÃO 2: PROGRESSO FINANCEIRO (Baseado em Faturamento / Daily Logs) ---
+            let currentY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 15 : 60;
+            doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+            doc.text("2. Progresso Financeiro (Apontamentos de Faturamento)", 14, currentY);
+
+            // Agrupa logs da obra
+            const billingLogs = dailyWorkLogs.filter(l => l.obraId === obraId);
+            const billingByType = {};
+            billingLogs.forEach(l => {
+                const v = vehicles.find(veh => veh.id === l.vehicleId);
+                const type = v ? v.tipo : 'Outros';
+                if (!billingByType[type]) billingByType[type] = 0;
+                billingByType[type] += parseFloat(l.totalHours || 0);
+            });
+
+            const financialBody = [];
+            const contracted = obra.horasContratadasPorTipo || {};
+            const allTypes = new Set([...Object.keys(contracted), ...Object.keys(billingByType)]);
+            let totalContratado = 0;
+            let totalFaturado = 0;
+
+            allTypes.forEach(type => {
+                const cont = parseFloat(contracted[type] || 0);
+                const exec = billingByType[type] || 0;
+                totalContratado += cont;
+                totalFaturado += exec;
+                
+                financialBody.push([
+                    type,
+                    cont.toFixed(1),
+                    exec.toFixed(1),
+                    (cont - exec).toFixed(1),
+                    cont > 0 ? ((exec/cont)*100).toFixed(1) + '%' : '-'
+                ]);
+            });
+
+            autoTable(doc, {
+                startY: currentY + 5,
+                head: [['Tipo', 'Hrs Contratadas', 'Hrs Faturadas', 'Saldo', '%']],
+                body: financialBody,
+                theme: 'grid',
+                headStyles: { fillColor: [39, 174, 96] }, // Green
+                foot: [['TOTAL', totalContratado.toFixed(1), totalFaturado.toFixed(1), (totalContratado - totalFaturado).toFixed(1), '-']],
+                footStyles: { fillColor: [200, 200, 200], textColor: [0,0,0], fontStyle: 'bold' }
+            });
+        });
+
+        doc.save('Relatorio_Obras_Completo.pdf');
+    };
+
+    return (
+        <div className="animate-fade-in">
+            <SectionHeader icon={HardHat} title="Relatório de Obras" description="Comparativo completo: Progresso Físico (Leituras) vs. Financeiro (Apontamentos)." />
+            
+            <div className="bg-white p-6 rounded-lg border shadow-sm">
+                <div className="grid md:grid-cols-3 gap-6 mb-4">
+                    {/* Coluna 1: Status */}
+                    <div>
+                        <label className="label">Status da Obra</label>
+                        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setSelectedObraIds([]); }} className="input-field">
+                            <option value="ativa">Ativas</option>
+                            <option value="finalizada">Finalizadas</option>
+                        </select>
+                    </div>
+
+                    {/* Coluna 2: Obras */}
+                    <div>
+                        <label className="label">Selecionar Obras</label>
+                        <select 
+                            multiple 
+                            value={selectedObraIds} 
+                            onChange={e => setSelectedObraIds(Array.from(e.target.selectedOptions, o => o.value))} 
+                            className="w-full h-32 p-2 border rounded text-sm custom-scrollbar"
+                        >
+                            {filteredObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">Use Ctrl+Click para selecionar várias.</p>
+                    </div>
+
+                    {/* Coluna 3: Veículos (Filtrados pelas Obras) */}
+                    <div>
+                        <label className="label flex justify-between">
+                            Selecionar Veículos
+                            <span className="text-xs font-normal flex items-center gap-1">
+                                <input type="checkbox" checked={selectAllVehicles} onChange={handleSelectAllVehicles}/> Todos
+                            </span>
+                        </label>
+                        <select 
+                            multiple 
+                            value={selectedVehicleIds} 
+                            onChange={e => setSelectedVehicleIds(Array.from(e.target.selectedOptions, o => o.value))} 
+                            className="w-full h-32 p-2 border rounded text-sm custom-scrollbar"
+                            disabled={selectedObraIds.length === 0}
+                        >
+                            {filteredVehicles.length === 0 && <option disabled>Selecione uma obra primeiro</option>}
+                            {filteredVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                <button onClick={generatePDF} disabled={selectedObraIds.length === 0} className="btn-primary w-full md:w-auto flex items-center justify-center gap-2">
+                    <Printer size={18}/> Gerar Relatório de Obras
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// ===================================================================================
+// 6. RELATÓRIO DE PLANO DE TRABALHO
 // ===================================================================================
 const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = [], equipmentTypesForHours = [] }) => {
     // --- ESTADO LOCAL ---
@@ -884,7 +1117,8 @@ const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesF
         { id: 'vehicles', label: 'Frota & Veículos', icon: Truck, desc: 'Listagem geral, status e localização.', color: 'bg-blue-600' },
         { id: 'employees', label: 'Funcionários', icon: Users, desc: 'Quadro, alocações e documentos.', color: 'bg-green-600' },
         { id: 'alerts', label: 'Alertas & Pendências', icon: AlertTriangle, desc: 'Vencimentos, bloqueios e CNH.', color: 'bg-red-600' },
-        { id: 'billing', label: 'Faturamento', icon: ClipboardCheck, desc: 'Comparativo Contratado x Faturado.', color: 'bg-yellow-500' },
+        { id: 'billing', label: 'Relatório Faturamento', icon: ClipboardCheck, desc: 'Comparativo Contratado x Faturado.', color: 'bg-yellow-500' },
+        { id: 'construction', label: 'Relatório de Obras', icon: HardHat, desc: 'Progresso Físico vs. Financeiro.', color: 'bg-orange-600' },
         { id: 'workplan', label: 'Plano de Trabalho', icon: FileText, desc: 'Histórico físico, progresso e despesas.', color: 'bg-gray-600' },
     ];
 
@@ -894,7 +1128,7 @@ const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesF
             <p className="text-gray-500 mb-8">Selecione um tipo de relatório para configurar os filtros e gerar o PDF.</p>
 
             {/* SELETOR DE TIPO (Cards) */}
-            <div className={`grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8 transition-all duration-500`}>
+            <div className={`grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8 transition-all duration-500`}>
                 {reportTypes.map((type) => {
                     const isActive = reportType === type.id;
                     return (
@@ -936,6 +1170,7 @@ const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesF
                             {reportType === 'employees' && <EmployeeReportGenerator employees={employees} obras={obras} vehicles={vehicles} fines={fines} />}
                             {reportType === 'alerts' && <AlertsReportGenerator vehicles={vehicles} employees={employees} />}
                             {reportType === 'billing' && <BillingReportGenerator obras={obras} dailyWorkLogs={dailyWorkLogs} vehicles={vehicles} />}
+                            {reportType === 'construction' && <ConstructionReportGenerator obras={obras} vehicles={vehicles} dailyWorkLogs={dailyWorkLogs} vehicleGroups={vehicleGroups} />}
                             {reportType === 'workplan' && <WorkPlanReportGenerator obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} expenses={expenses} equipmentTypesForHours={equipmentTypesForHours} />}
                         </ProtectedComponent>
                     </div>
