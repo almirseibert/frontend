@@ -16,8 +16,6 @@ const ObraAllocationModal = ({
     PasswordConfirmationModal 
 }) => {
     // --- LÓGICA CORRIGIDA: Detecção de Estado ---
-    // A fonte da verdade se está em obra é 'vehicle.obraAtualId'.
-    // O histórico é usado apenas para recuperar detalhes anteriores.
     const isAllocated = !!vehicle.obraAtualId;
     
     // Tenta achar o registro histórico aberto correspondente
@@ -66,11 +64,15 @@ const ObraAllocationModal = ({
     const validateRestrictions = () => {
         setRestrictionAlert(null);
         const staticIssues = checkVehicleRestrictions(vehicle, revisions);
-        const consistencyIssue = checkReadingConsistency(vehicle, readingValue);
-        if (consistencyIssue) staticIssues.push(consistencyIssue);
+        
+        // Passa readingType ('horimetro' ou 'odometro') para ativar as travas específicas
+        const consistencyIssue = checkReadingConsistency(vehicle, readingValue, readingType);
+        if (consistencyIssue.status === 'bloqueio') {
+            staticIssues.push({ type: 'bloqueio', message: consistencyIssue.message });
+        }
 
-        const blockingIssues = staticIssues.filter(i => i.type === 'bloqueio' || i.type === 'vencido');
-        const warningIssues = staticIssues.filter(i => i.type === 'aviso');
+        const blockingIssues = staticIssues.filter(i => i.type === 'bloqueio' || i.type === 'vencido' || i.category === 'bloqueio');
+        const warningIssues = staticIssues.filter(i => i.type === 'aviso' || i.type === 'warning');
 
         if (blockingIssues.length > 0 || warningIssues.length > 0) {
             setRestrictionAlert(staticIssues.map(i => i.message));

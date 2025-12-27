@@ -43,7 +43,6 @@ export const getVehicleMainReading = (vehicle) => {
         return { value: val, unit: 'Km', label: 'Odômetro', raw: parseFloat(val) };
     } else {
         // Regra unificada: Usa apenas a coluna 'horimetro'
-        // Fallback para campos antigos apenas para visualização se a migração falhar, mas prioriza 'horimetro'
         const val = vehicle.horimetro ?? vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? 0;
         return { value: val, unit: 'Hr', label: 'Horímetro', raw: parseFloat(val) };
     }
@@ -69,24 +68,26 @@ export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
     if (fieldType === 'odometro') {
         currentValue = parseFloat(vehicle.odometro || 0);
         unit = 'Km';
-        limit = 1000; // Regra 2: Trava 1000km
+        limit = 1000; // Regra 2: Trava 1000km de salto
     } 
     // Se o campo editado for horímetro (unificado)
     else if (fieldType === 'horimetro') {
-        // Pega o valor unificado do banco
         currentValue = parseFloat(vehicle.horimetro || vehicle.horimetroDigital || 0);
         unit = 'Hr';
-        limit = 50;   // Regra 3: Trava 50h
+        limit = 50;   // Regra 3: Trava 50h de salto
     } else {
+        // Se o tipo não for passado ou desconhecido, tenta inferir ou ignora
         return { status: 'ok' }; 
     }
 
-    // Regra: Bloquear valor INFERIOR ou IGUAL (Regressão/Estagnação)
-    // Tolerância mínima para float
-    if (newValue <= currentValue + 0.001) {
+    // Regra: Bloquear valor ESTRITAMENTE INFERIOR (Regressão).
+    // ALTERAÇÃO SOLICITADA: Permitir valor IGUAL.
+    // Usamos uma pequena tolerância (0.1) apenas para erros de arredondamento de float.
+    // Se newValue for 350 e currentValue for 350, a condição (350 < 349.9) é falsa, então passa.
+    if (newValue < currentValue - 0.1) {
         return {
             status: 'bloqueio',
-            message: `REGRESSÃO DETECTADA: A nova leitura (${newValue} ${unit}) não pode ser menor ou igual à atual (${currentValue} ${unit}).`
+            message: `REGRESSÃO DETECTADA: A nova leitura (${newValue} ${unit}) não pode ser menor que a atual (${currentValue} ${unit}).`
         };
     }
 
@@ -146,7 +147,6 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
         let proximaLeitura = 0;
         if (unit === 'Hr') {
             proximaLeitura = parseFloat(revision.proximaRevisaoHorimetro || 0);
-            // Fallback legado
             if (proximaLeitura === 0 && revision.proximaRevisaoOdometro > 0) proximaLeitura = parseFloat(revision.proximaRevisaoOdometro);
         } else {
             proximaLeitura = parseFloat(revision.proximaRevisaoOdometro || 0);
@@ -165,8 +165,7 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
     }
 
     // 3. Documentos (Legal)
-    // Regra: Caminhões e Caminhões de Trecho têm documentos específicos
-    const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho'].includes(vehicle.tipo);
+    const isTruck = vehicleGroups['Caminhões']?.includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
 
     if (isTruck) {
         const docs = [
@@ -187,12 +186,6 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
                 }
             }
         });
-    }
-
-    // 4. Inatividade (Operacional) - Exemplo básico, pode ser expandido
-    if (vehicle.status === 'Disponível' && !vehicle.obraAtualId) {
-        // Se precisarmos de alerta de inatividade baseado em última movimentação, seria aqui
-        // issues.push({ category: 'inatividade', type: 'info', message: 'Veículo parado no pátio.' });
     }
 
     return issues;
