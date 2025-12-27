@@ -3,11 +3,12 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
     Download, Users, Truck, FileText, AlertTriangle, 
-    ClipboardCheck, Filter, Printer, HardHat 
+    ClipboardCheck, Filter, Printer, HardHat, Loader 
 } from 'lucide-react';
 
 // Importa o componente de proteção
 import ProtectedComponent from '../components/ProtectedComponent';
+import apiClient from '../services/apiClient'; // Adicionado para buscar dados atualizados
 
 // ===================================================================================
 // COMPONENTES AUXILIARES & ESTILOS VISUAIS
@@ -487,13 +488,39 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
 // ===================================================================================
 // 4. RELATÓRIO DE FATURAMENTO (ATUALIZADO & CORRIGIDO)
 // ===================================================================================
-const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
+const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLogs de props
     const [selectedObraId, setSelectedObraId] = useState('');
+    const [localDailyLogs, setLocalDailyLogs] = useState([]);
+    const [loading, setLoading] = useState(false);
 
-    // Ordenação Alfabética das Obras (Memoizado para performance)
+    // Ordenação Alfabética das Obras
     const sortedObras = useMemo(() => {
         return [...obras].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
+
+    // Busca logs da obra ao selecionar
+    useEffect(() => {
+        if (!selectedObraId) {
+            setLocalDailyLogs([]);
+            return;
+        }
+
+        const fetchLogs = async () => {
+            setLoading(true);
+            try {
+                // Chama a API diretamente para pegar TODOS os logs desta obra
+                const logs = await apiClient.getDailyLogs(selectedObraId);
+                setLocalDailyLogs(logs || []);
+            } catch (error) {
+                console.error("Erro ao buscar logs para relatório:", error);
+                setLocalDailyLogs([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchLogs();
+    }, [selectedObraId]);
 
     const generatePDF = () => {
         const obra = obras.find(o => o.id === selectedObraId);
@@ -503,29 +530,14 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
         doc.setFontSize(16); doc.text(`Relatório de Faturamento: ${obra.nome}`, 14, 20);
         doc.setFontSize(10); doc.text(`Comparativo: Contratado vs. Realizado (Apontamentos)`, 14, 26);
 
-        // 1. Agrupar logs por tipo de veículo (Correção Robusta baseada em ObraProgressBI)
+        // 1. Agrupar logs por tipo de veículo
         const executedByType = {};
         
-        let safeLogs = [];
-        // Tratamento robusto para diferentes formatos de retorno da API
-        if (Array.isArray(dailyWorkLogs)) safeLogs = dailyWorkLogs;
-        else if (dailyWorkLogs && dailyWorkLogs.data && Array.isArray(dailyWorkLogs.data)) safeLogs = dailyWorkLogs.data;
-
-        // Normalização de IDs para filtro seguro
-        const targetObraId = String(selectedObraId).trim();
-        
-        const logs = safeLogs.filter(log => {
-            const logObraId = log.obraId || log.obra_id;
-            return logObraId && String(logObraId).trim() === targetObraId;
-        });
-
-        logs.forEach(log => {
+        localDailyLogs.forEach(log => {
             const vehicle = vehicles.find(v => v.id === log.vehicleId);
             const type = vehicle ? vehicle.tipo : 'Outros';
             
             if (!executedByType[type]) executedByType[type] = 0;
-            
-            // Tratamento robusto de propriedade totalHours
             const val = parseFloat(log.totalHours !== undefined ? log.totalHours : log.total_hours);
             executedByType[type] += (isNaN(val) ? 0 : val);
         });
@@ -534,15 +546,26 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
         const tableBody = [];
         const contracted = obra.horasContratadasPorTipo || {};
         
-        // Une todos os tipos que existem no contrato OU nos logs
+        // Une todos os tipos (contratados + executados)
         const allTypes = new Set([...Object.keys(contracted), ...Object.keys(executedByType)]);
         
-        allTypes.forEach(type => {
+        // Ordena para ficar bonito
+        const sortedTypes = Array.from(allTypes).sort();
+        
+        // Identifica linhas extras para pintar de outra cor
+        const extraRowsIndices = [];
+
+        sortedTypes.forEach((type, index) => {
             const cont = parseFloat(contracted[type] || 0);
             const exec = executedByType[type] || 0;
             const balance = cont - exec;
             const percent = cont > 0 ? ((exec / cont) * 100).toFixed(1) + '%' : '-';
             
+            // Se executou mas não estava contratado (cont == 0 e exec > 0)
+            if (cont === 0 && exec > 0) {
+                extraRowsIndices.push(index);
+            }
+
             tableBody.push([
                 type,
                 cont.toFixed(1),
@@ -558,17 +581,31 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
             body: tableBody,
             theme: 'striped',
             headStyles: { fillColor: [234, 179, 8], textColor: [0,0,0] },
-            columnStyles: { 3: { fontStyle: 'bold' } }
+            columnStyles: { 3: { fontStyle: 'bold' } },
+            didParseCell: function (data) {
+                // Pinta de vermelho claro se for equipamento extra
+                if (data.section === 'body' && extraRowsIndices.includes(data.row.index)) {
+                    data.cell.styles.fillColor = [255, 200, 200];
+                    data.cell.styles.textColor = [150, 0, 0];
+                }
+            }
         });
 
         // Totais
         const totalCont = Object.values(contracted).reduce((a,b) => a + parseFloat(b||0), 0);
+        // O total executado soma TODOS, inclusive os extras
         const totalExec = Object.values(executedByType).reduce((a,b) => a + b, 0);
         
         doc.setFontSize(12); doc.setFont('helvetica', 'bold');
         doc.text(`Total Faturado na Obra: ${totalExec.toFixed(1)} hrs`, 14, doc.lastAutoTable.finalY + 10);
         doc.setFontSize(10); doc.setFont('helvetica', 'normal');
         doc.text(`Total Contratado: ${totalCont.toFixed(1)} hrs`, 14, doc.lastAutoTable.finalY + 16);
+        
+        // Legenda
+        if (extraRowsIndices.length > 0) {
+            doc.setFontSize(8); doc.setTextColor(150, 0, 0);
+            doc.text("* Equipamentos em vermelho não constam no contrato original, mas possuem horas apontadas.", 14, doc.lastAutoTable.finalY + 22);
+        }
 
         doc.save(`Faturamento_${obra.nome}.pdf`);
     };
@@ -585,17 +622,18 @@ const BillingReportGenerator = ({ obras, dailyWorkLogs, vehicles }) => {
                         className="flex-1 input-field"
                     >
                         <option value="">-- Selecione --</option>
-                        {/* Uso de sortedObras para garantir a ordem alfabética */}
                         {sortedObras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                     </select>
                     <button 
                         onClick={generatePDF} 
-                        disabled={!selectedObraId}
-                        className="btn-primary bg-yellow-500 hover:bg-yellow-600 text-black border-none flex items-center gap-2"
+                        disabled={!selectedObraId || loading}
+                        className="btn-primary bg-yellow-500 hover:bg-yellow-600 text-black border-none flex items-center gap-2 disabled:bg-gray-300"
                     >
-                        <Printer size={18}/> Gerar Comparativo
+                        {loading ? <Loader className="animate-spin" size={18}/> : <Printer size={18}/>} 
+                        Gerar Comparativo
                     </button>
                 </div>
+                {localDailyLogs.length > 0 && <p className="text-xs text-green-600 mt-2 font-medium">✓ {localDailyLogs.length} registros encontrados para esta obra.</p>}
              </div>
         </div>
     );
@@ -1194,7 +1232,7 @@ const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesF
                             {reportType === 'vehicles' && <VehicleReportGenerator vehicles={vehicles} obras={obras} vehicleGroups={vehicleGroups} />}
                             {reportType === 'employees' && <EmployeeReportGenerator employees={employees} obras={obras} vehicles={vehicles} fines={fines} />}
                             {reportType === 'alerts' && <AlertsReportGenerator vehicles={vehicles} employees={employees} />}
-                            {reportType === 'billing' && <BillingReportGenerator obras={obras} dailyWorkLogs={dailyWorkLogs} vehicles={vehicles} />}
+                            {reportType === 'billing' && <BillingReportGenerator obras={obras} vehicles={vehicles} />}
                             {reportType === 'construction' && <ConstructionReportGenerator obras={obras} vehicles={vehicles} dailyWorkLogs={dailyWorkLogs} vehicleGroups={vehicleGroups} />}
                             {reportType === 'workplan' && <WorkPlanReportGenerator obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} expenses={expenses} equipmentTypesForHours={equipmentTypesForHours} />}
                         </ProtectedComponent>
