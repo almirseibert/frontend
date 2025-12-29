@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Bell, AlertTriangle, ShieldAlert, Wrench, FileText, Badge, Timer } from 'lucide-react';
+import { Bell, AlertTriangle, ShieldAlert, Wrench, FileText, Badge, Timer, CheckCircle } from 'lucide-react';
 // Importa a lógica unificada de restrições
 import { checkVehicleRestrictions } from '../../utils/vehicleRules';
 
@@ -41,12 +41,13 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         inactivityAlerts.forEach(alert => {
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
             
-            // Lógica robusta para Data e Dias
+            // CORREÇÃO: Verificar nomes de propriedades corretos (lastRefuelingDate vs lastRefuelDate)
+            const refuelDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
             let dateStr = 'Data desc.';
             let daysInactive = 0;
 
-            if (alert.lastRefuelDate) {
-                const refuelDate = new Date(alert.lastRefuelDate);
+            if (refuelDateRaw) {
+                const refuelDate = new Date(refuelDateRaw);
                 if (!isNaN(refuelDate.getTime())) {
                     dateStr = refuelDate.toLocaleDateString('pt-BR');
                     // Calcula dias baseado na diferença de tempo real se o backend falhar
@@ -55,26 +56,39 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                 }
             }
 
-            // Fallback se o backend enviar dias calculados mas a data falhar, ou vice-versa
-            if (daysInactive === 0 && alert.daysSinceLastRefuel) {
-                daysInactive = parseInt(alert.daysSinceLastRefuel);
+            // Fallback para dias se a data falhar ou se o cálculo der 0/NaN mas houver valor vindo do banco
+            if ((!daysInactive || isNaN(daysInactive)) && (alert.daysSinceLastRefuel || alert.daysSinceLastRefueling)) {
+                daysInactive = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling);
             }
 
-            // Lógica robusta para Nome da Obra
+            // CORREÇÃO: Resolução do Nome da Obra
             let obraNome = alert.obra?.nome || alert.obra_nome;
-            if (!obraNome && (alert.obraId || alert.obra_id)) {
-                // Tenta encontrar a obra na lista geral pelo ID
-                const targetId = String(alert.obraId || alert.obra_id);
-                const foundObra = obras.find(o => String(o.id) === targetId);
-                if (foundObra) obraNome = foundObra.nome;
+            if (!obraNome) {
+                // Tenta buscar pelo ID na lista de obras passada como prop
+                const targetId = alert.obraId || alert.obra_id;
+                if (targetId && obras.length > 0) {
+                    const foundObra = obras.find(o => String(o.id) === String(targetId));
+                    if (foundObra) obraNome = foundObra.nome;
+                }
             }
             if (!obraNome) obraNome = 'Obra Desconhecida';
+
+            // CORREÇÃO: Resolução do Veículo
+            let veiculoNome = alert.vehicle?.registroInterno;
+            if (!veiculoNome) {
+                 const targetVehId = alert.vehicleId || alert.vehicle_id;
+                 if (targetVehId && vehicles.length > 0) {
+                     const foundVeh = vehicles.find(v => String(v.id) === String(targetVehId));
+                     if (foundVeh) veiculoNome = foundVeh.registroInterno;
+                 }
+            }
+            if (!veiculoNome) veiculoNome = 'Veículo';
 
             list.push({
                 id: `inat-${alert.id}`,
                 category: 'inatividade', // Nova categoria exclusiva
                 type: 'danger', 
-                title: `${alert.vehicle?.registroInterno || 'Veículo'} - Inatividade`,
+                title: `${veiculoNome} - Inatividade`,
                 subtitle: obraNome,
                 message: `Parado há ${daysInactive || '?'} dias sem abastecer. Último: ${dateStr}`,
                 date: dateStr,
