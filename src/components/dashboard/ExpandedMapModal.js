@@ -41,7 +41,7 @@ const AllocationMap = ({ obras = [], vehicles = [], vehicleGroups = {}, isExpand
         );
     }, [obras]);
 
-    // Função para calcular o progresso da obra (Simplificada para o Mapa)
+    // Função para calcular o progresso da obra (Baseado em FATURAMENTO vs CONTRATADO)
     const getObraProgress = (obra) => {
         // 1. Contratado
         let contratado = 0;
@@ -60,38 +60,18 @@ const AllocationMap = ({ obras = [], vehicles = [], vehicleGroups = {}, isExpand
              contratado = sectorsList.reduce((acc, sec) => acc + (parseFloat(sec.totalArea) || 0), 0);
         }
 
-        if (contratado === 0) return { pct: 0, hasPlan: false };
+        if (contratado === 0) return { pct: 0, hasPlan: false, real: 0, meta: 0 };
 
-        // 2. Real (Estimativa baseada nos veículos alocados)
+        // 2. Real / Faturado
+        // MUDANÇA: Usar 'totalHorasRealizadas' (Faturado) em vez de soma de horímetros dos veículos
         let totalExecutado = 0;
         
-        // Se for Prancha, usamos o campo direto. Se for Hora, calculamos diff.
         if (type === 'prancha') {
+             // Para prancha, geralmente o input manual é o 'kmConcluidoPrancha'
              totalExecutado = parseFloat(obra.kmConcluidoPrancha) || 0;
         } else {
-             // Soma simples de execução para o mapa
-             (obra.historicoVeiculos || []).forEach(hist => {
-                if (!hist.dataSaida) {
-                    const vehicle = vehicles.find(v => v.id === hist.veiculoId);
-                    if (vehicle) {
-                        const isKm = vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
-                        // UNIFICAÇÃO: Usando apenas a coluna 'horimetro' ou 'odometro'
-                        const currentReading = isKm 
-                            ? parseFloat(vehicle.odometro || 0) 
-                            : parseFloat(vehicle.horimetro || 0); // Regra unificada
-                        
-                        const startReading = isKm 
-                            ? parseFloat(hist.details?.odometroEntrada || 0) 
-                            : parseFloat(hist.details?.horimetroEntrada || 0);
-                        
-                        if (currentReading > startReading) {
-                            totalExecutado += (currentReading - startReading);
-                        }
-                    }
-                }
-            });
-            // Adiciona horas manuais
-             totalExecutado += parseFloat(obra.horasAdicionaisCaminhao || 0);
+             // Para horas, usamos o valor oficial faturado/apontado na gestão da obra
+             totalExecutado = parseFloat(obra.totalHorasRealizadas) || 0;
         }
 
         const pct = (totalExecutado / contratado) * 100;
@@ -140,7 +120,7 @@ const AllocationMap = ({ obras = [], vehicles = [], vehicleGroups = {}, isExpand
                                 {progress.hasPlan ? (
                                     <div className="mb-2 bg-gray-50 p-1 rounded border">
                                         <div className="flex justify-between text-xs font-bold">
-                                            <span>Progresso:</span>
+                                            <span>Faturado vs Contrato:</span>
                                             <span className={progress.pct >= 100 ? 'text-red-600' : 'text-blue-600'}>
                                                 {progress.pct.toFixed(1)}%
                                             </span>
@@ -150,6 +130,10 @@ const AllocationMap = ({ obras = [], vehicles = [], vehicleGroups = {}, isExpand
                                                 className={`h-1.5 rounded-full ${progress.pct >= 100 ? 'bg-red-500' : progress.pct >= 70 ? 'bg-purple-500' : progress.pct >= 30 ? 'bg-yellow-500' : 'bg-green-500'}`}
                                                 style={{ width: `${Math.min(progress.pct, 100)}%`}}
                                             ></div>
+                                        </div>
+                                        <div className="text-[9px] text-gray-400 mt-1 flex justify-between">
+                                            <span>Fat: {progress.real.toFixed(0)}</span>
+                                            <span>Meta: {progress.meta.toFixed(0)}</span>
                                         </div>
                                     </div>
                                 ) : (

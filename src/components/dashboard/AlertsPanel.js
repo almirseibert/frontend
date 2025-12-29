@@ -39,54 +39,67 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         });
 
         // 2. Alertas de Inatividade (Operacional)
-        // Regra: Veículos alocados em obra e com mais de 7 dias sem abastecimento
-        // A lista inactivityAlerts já deve vir filtrada do backend/Dashboard.js, mas reforçamos aqui se necessário
+        // Garante que mostramos se o status não for explicitamente resolvido ou observado
         inactivityAlerts.forEach(alert => {
-            if (alert.status !== 'Ativo') return;
+            // Se já foi resolvido/observado, ignora. Caso contrário (Ativo, Pendente, ou null), mostra.
+            if (['Resolvido', 'Observado'].includes(alert.status)) return;
             
+            // Tenta calcular dias se não vier pronto do backend
             const daysInactive = alert.daysSinceLastRefuel || Math.floor((now - new Date(alert.lastRefuelDate)) / (1000 * 60 * 60 * 24));
             
             list.push({
                 id: `inat-${alert.id}`,
                 category: 'alertas', // Agrupado em Avisos
                 type: 'danger', // Vermelho (Inatividade é crítica)
-                title: `${alert.vehicle?.registroInterno} - Inatividade`,
+                title: `${alert.vehicle?.registroInterno || 'Veículo'} - Inatividade`,
                 subtitle: alert.obra?.nome || 'Obra Desconhecida',
                 message: `Veículo parado há ${daysInactive} dias sem abastecer.`,
-                date: new Date(alert.lastRefuelDate).toLocaleDateString('pt-BR'),
+                date: alert.lastRefuelDate ? new Date(alert.lastRefuelDate).toLocaleDateString('pt-BR') : 'N/A',
                 action: () => setSelectedInactivityAlert(alert)
             });
         });
 
         // 3. Alertas de Funcionários (CNH)
-        employees.forEach(emp => {
-            if (emp.validadeCNH) {
-                const validade = new Date(emp.validadeCNH);
-                if (validade < now) {
-                    list.push({
-                        id: `emp-${emp.id}`,
-                        category: 'documentos',
-                        type: 'danger',
-                        title: `CNH VENCIDA: ${emp.nome}`,
-                        subtitle: 'Documentos',
-                        message: `A CNH venceu em ${validade.toLocaleDateString('pt-BR')}.`,
-                        date: validade.toLocaleDateString('pt-BR'),
-                        action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
-                    });
-                } else if (validade < thirtyDays) {
-                    list.push({
-                        id: `emp-${emp.id}`,
-                        category: 'documentos',
-                        type: 'warning',
-                        title: `CNH a Vencer: ${emp.nome}`,
-                        subtitle: 'Documentos',
-                        message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
-                        date: validade.toLocaleDateString('pt-BR'),
-                        action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
-                    });
+        if (Array.isArray(employees)) {
+            employees.forEach(emp => {
+                if (emp.validadeCNH) {
+                    // Garante parse correto da data (aceita ISO ou YYYY-MM-DD)
+                    const validade = new Date(emp.validadeCNH);
+                    
+                    // Validação de data válida
+                    if (!isNaN(validade.getTime())) {
+                         // Ajusta para comparar apenas as datas (zera horas) para evitar falsos positivos no mesmo dia
+                        const validadeTime = new Date(validade.getFullYear(), validade.getMonth(), validade.getDate()).getTime();
+                        const nowTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                        const thirtyDaysTime = new Date(thirtyDays.getFullYear(), thirtyDays.getMonth(), thirtyDays.getDate()).getTime();
+
+                        if (validadeTime < nowTime) {
+                            list.push({
+                                id: `emp-${emp.id}`,
+                                category: 'documentos',
+                                type: 'danger',
+                                title: `CNH VENCIDA: ${emp.nome}`,
+                                subtitle: 'Documentos',
+                                message: `A CNH venceu em ${validade.toLocaleDateString('pt-BR')}.`,
+                                date: validade.toLocaleDateString('pt-BR'),
+                                action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
+                            });
+                        } else if (validadeTime < thirtyDaysTime) {
+                            list.push({
+                                id: `emp-${emp.id}`,
+                                category: 'documentos',
+                                type: 'warning',
+                                title: `CNH a Vencer: ${emp.nome}`,
+                                subtitle: 'Documentos',
+                                message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
+                                date: validade.toLocaleDateString('pt-BR'),
+                                action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
+                            });
+                        }
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Ordenação por criticidade (Danger primeiro)
         return list.sort((a, b) => {
