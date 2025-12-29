@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Bell, AlertTriangle, ShieldAlert, Clock, CheckCircle, FileText, Badge } from 'lucide-react';
+import { Bell, AlertTriangle, ShieldAlert, Wrench, FileText, Badge, Timer } from 'lucide-react';
 // Importa a lógica unificada de restrições
-import { checkVehicleRestrictions, getVehicleMainReading } from '../../utils/vehicleRules';
+import { checkVehicleRestrictions } from '../../utils/vehicleRules';
 
 const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [] }) => {
     const [activeTab, setActiveTab] = useState('todos');
@@ -13,16 +13,16 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         const thirtyDays = new Date();
         thirtyDays.setDate(now.getDate() + 30);
 
-        // 1. Alertas de Veículos (Revisão, Docs, Bloqueio)
+        // 1. Alertas de Veículos (Manutenção e Docs de Veículos)
         vehicles.forEach(v => {
-            // Busca revisões do veículo
             const vehicleRevisions = revisions.filter(r => r.vehicleId === v.id);
             const restrictions = checkVehicleRestrictions(v, vehicleRevisions);
 
             restrictions.forEach((issue, index) => {
                 let category = 'manutencao'; 
-                if (issue.category === 'documento') category = 'documentos';
-                if (issue.category === 'bloqueio') category = 'alertas';
+                // Mantém documentos do veículo separados da CNH
+                if (issue.category === 'documento') category = 'docs_veiculo';
+                if (issue.category === 'bloqueio') category = 'manutencao';
 
                 list.push({
                     id: `v-${v.id}-${index}`,
@@ -32,29 +32,52 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                     subtitle: issue.category.toUpperCase(),
                     message: issue.message,
                     date: 'Hoje',
-                    // Navegação inteligente: leva para a página e filtra pelo registro
                     action: () => navigate('/revisions', { state: { searchTerm: v.registroInterno } })
                 });
             });
         });
 
         // 2. Alertas de Inatividade (Operacional)
-        // Garante que mostramos se o status não for explicitamente resolvido ou observado
         inactivityAlerts.forEach(alert => {
-            // Se já foi resolvido/observado, ignora. Caso contrário (Ativo, Pendente, ou null), mostra.
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
             
-            // Tenta calcular dias se não vier pronto do backend
-            const daysInactive = alert.daysSinceLastRefuel || Math.floor((now - new Date(alert.lastRefuelDate)) / (1000 * 60 * 60 * 24));
-            
+            // Lógica robusta para Data e Dias
+            let dateStr = 'Data desc.';
+            let daysInactive = 0;
+
+            if (alert.lastRefuelDate) {
+                const refuelDate = new Date(alert.lastRefuelDate);
+                if (!isNaN(refuelDate.getTime())) {
+                    dateStr = refuelDate.toLocaleDateString('pt-BR');
+                    // Calcula dias baseado na diferença de tempo real se o backend falhar
+                    const diffTime = Math.abs(now - refuelDate);
+                    daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                }
+            }
+
+            // Fallback se o backend enviar dias calculados mas a data falhar, ou vice-versa
+            if (daysInactive === 0 && alert.daysSinceLastRefuel) {
+                daysInactive = parseInt(alert.daysSinceLastRefuel);
+            }
+
+            // Lógica robusta para Nome da Obra
+            let obraNome = alert.obra?.nome || alert.obra_nome;
+            if (!obraNome && (alert.obraId || alert.obra_id)) {
+                // Tenta encontrar a obra na lista geral pelo ID
+                const targetId = String(alert.obraId || alert.obra_id);
+                const foundObra = obras.find(o => String(o.id) === targetId);
+                if (foundObra) obraNome = foundObra.nome;
+            }
+            if (!obraNome) obraNome = 'Obra Desconhecida';
+
             list.push({
                 id: `inat-${alert.id}`,
-                category: 'alertas', // Agrupado em Avisos
-                type: 'danger', // Vermelho (Inatividade é crítica)
+                category: 'inatividade', // Nova categoria exclusiva
+                type: 'danger', 
                 title: `${alert.vehicle?.registroInterno || 'Veículo'} - Inatividade`,
-                subtitle: alert.obra?.nome || 'Obra Desconhecida',
-                message: `Veículo parado há ${daysInactive} dias sem abastecer.`,
-                date: alert.lastRefuelDate ? new Date(alert.lastRefuelDate).toLocaleDateString('pt-BR') : 'N/A',
+                subtitle: obraNome,
+                message: `Parado há ${daysInactive || '?'} dias sem abastecer. Último: ${dateStr}`,
+                date: dateStr,
                 action: () => setSelectedInactivityAlert(alert)
             });
         });
@@ -63,12 +86,9 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         if (Array.isArray(employees)) {
             employees.forEach(emp => {
                 if (emp.validadeCNH) {
-                    // Garante parse correto da data (aceita ISO ou YYYY-MM-DD)
                     const validade = new Date(emp.validadeCNH);
                     
-                    // Validação de data válida
                     if (!isNaN(validade.getTime())) {
-                         // Ajusta para comparar apenas as datas (zera horas) para evitar falsos positivos no mesmo dia
                         const validadeTime = new Date(validade.getFullYear(), validade.getMonth(), validade.getDate()).getTime();
                         const nowTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
                         const thirtyDaysTime = new Date(thirtyDays.getFullYear(), thirtyDays.getMonth(), thirtyDays.getDate()).getTime();
@@ -76,10 +96,10 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                         if (validadeTime < nowTime) {
                             list.push({
                                 id: `emp-${emp.id}`,
-                                category: 'documentos',
+                                category: 'cnh', // Nova categoria exclusiva
                                 type: 'danger',
                                 title: `CNH VENCIDA: ${emp.nome}`,
-                                subtitle: 'Documentos',
+                                subtitle: 'Habilitação',
                                 message: `A CNH venceu em ${validade.toLocaleDateString('pt-BR')}.`,
                                 date: validade.toLocaleDateString('pt-BR'),
                                 action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
@@ -87,10 +107,10 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                         } else if (validadeTime < thirtyDaysTime) {
                             list.push({
                                 id: `emp-${emp.id}`,
-                                category: 'documentos',
+                                category: 'cnh', // Nova categoria exclusiva
                                 type: 'warning',
                                 title: `CNH a Vencer: ${emp.nome}`,
-                                subtitle: 'Documentos',
+                                subtitle: 'Habilitação',
                                 message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
                                 date: validade.toLocaleDateString('pt-BR'),
                                 action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
@@ -101,28 +121,31 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             });
         }
 
-        // Ordenação por criticidade (Danger primeiro)
         return list.sort((a, b) => {
             if (a.type === 'danger' && b.type !== 'danger') return -1;
             if (a.type !== 'danger' && b.type === 'danger') return 1;
             return 0;
         });
-    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert]);
+    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert, obras]);
 
     const filteredAlerts = activeTab === 'todos' ? alerts : alerts.filter(a => a.category === activeTab);
 
+    // Contagem atualizada com novas categorias
     const counts = {
         todos: alerts.length,
         manutencao: alerts.filter(a => a.category === 'manutencao').length,
-        documentos: alerts.filter(a => a.category === 'documentos').length,
-        alertas: alerts.filter(a => a.category === 'alertas').length
+        docs_veiculo: alerts.filter(a => a.category === 'docs_veiculo').length,
+        cnh: alerts.filter(a => a.category === 'cnh').length,
+        inatividade: alerts.filter(a => a.category === 'inatividade').length
     };
 
+    // Abas atualizadas
     const tabs = [
         { id: 'todos', label: 'Todos', icon: <Bell size={14}/> },
-        { id: 'manutencao', label: 'Manutenção', icon: <Clock size={14}/> },
-        { id: 'documentos', label: 'Docs', icon: <FileText size={14}/> },
-        { id: 'alertas', label: 'Avisos', icon: <ShieldAlert size={14}/> },
+        { id: 'manutencao', label: 'Manutenção', icon: <Wrench size={14}/> },
+        { id: 'inatividade', label: 'Inatividade', icon: <Timer size={14}/> }, // Novo
+        { id: 'cnh', label: 'CNH', icon: <Badge size={14}/> }, // Novo
+        { id: 'docs_veiculo', label: 'Docs Veíc.', icon: <FileText size={14}/> },
     ];
 
     const colors = {
@@ -135,7 +158,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
     const icons = {
         danger: <AlertTriangle size={18} className="text-red-500" />,
         warning: <AlertTriangle size={18} className="text-yellow-500" />,
-        info: <Clock size={18} className="text-blue-500" />,
+        info: <ShieldAlert size={18} className="text-blue-500" />,
     };
 
     return (
