@@ -306,6 +306,7 @@ const RefuelingOrderModal = ({
             partnerName: partner?.razaoSocial,
         };
         
+        // Gera PDF em background
         onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
 
         const phone = partner?.whatsapp || partner?.telefone;
@@ -315,16 +316,42 @@ const RefuelingOrderModal = ({
             return;
         }
 
+        // Determina o tipo de leitura para a mensagem
+        const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
+        let readingMsg = '';
+        if (allowedReadings.includes('odometro')) {
+             readingMsg = `*Hodômetro:* ${finalData.odometro ? finalData.odometro + ' Km' : 'N/A'}`;
+        } else {
+             readingMsg = `*Horímetro:* ${finalData.horimetro ? finalData.horimetro + ' Hr' : 'N/A'}`;
+        }
+
+        // Formatação da data
+        const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
+
+        // Formatação de Arla
+        const arlaMsg = formData.needsArla 
+            ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
+            : '';
+
         const msg = 
 `*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*
-*Segue em anexo o arquivo PDF da autorização.*
+Esta é uma ordem de abastecimento enviada automaticamente pelo sistema, caso seja necessária a ordem em PDF favor solicitar.
 
-*Veículo:* ${vehicle?.placa || ''} (${vehicle?.registroInterno})
-*Motorista:* ${employees.find(e => e.id === formData.employeeId)?.nome || 'N/A'}
-*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : formData.fuelType.toUpperCase()}
-*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
 
-_Por favor, confirme o recebimento._`;
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''}
+*Placa/RE:* ${vehicle?.placa || 'N/A'} (${vehicle?.registroInterno || 'N/A'})
+${readingMsg}
+
+*Funcionário Autorizado:* ${employees.find(e => e.id === formData.employeeId)?.nome || 'N/A'}
+*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : (formData.fuelType === 'dieselS500' ? 'Diesel S500' : formData.fuelType.toUpperCase())}
+*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
+
+*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.
+*Estão autorizados somente os itens discriminados acima.
+*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.`;
 
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
