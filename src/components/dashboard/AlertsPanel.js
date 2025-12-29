@@ -10,7 +10,10 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
     const alerts = useMemo(() => {
         const list = [];
         const now = new Date();
-        const thirtyDays = new Date();
+        // Zera a hora atual para comparação justa de datas
+        now.setHours(0, 0, 0, 0);
+
+        const thirtyDays = new Date(now);
         thirtyDays.setDate(now.getDate() + 30);
 
         // 1. Alertas de Veículos (Manutenção e Docs de Veículos)
@@ -99,30 +102,53 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         // 3. Alertas de Funcionários (CNH)
         if (Array.isArray(employees)) {
             employees.forEach(emp => {
-                if (emp.validadeCNH) {
-                    const validade = new Date(emp.validadeCNH);
+                // CORREÇÃO CRÍTICA: Prioriza 'cnhVencimento' conforme estrutura do banco SQL
+                const cnhDateRaw = emp.cnhVencimento || emp.validadeCNH;
+
+                if (cnhDateRaw) {
+                    let validade;
+
+                    // Tratamento robusto para data YYYY-MM-DD para evitar problemas de fuso horário
+                    if (typeof cnhDateRaw === 'string' && cnhDateRaw.includes('-')) {
+                         // Separa ano, mês e dia e cria a data localmente (meio-dia para segurança)
+                         const parts = cnhDateRaw.split('T')[0].split('-');
+                         if (parts.length === 3) {
+                             validade = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+                         } else {
+                             validade = new Date(cnhDateRaw);
+                         }
+                    } else {
+                        validade = new Date(cnhDateRaw);
+                    }
                     
                     if (!isNaN(validade.getTime())) {
-                        const validadeTime = new Date(validade.getFullYear(), validade.getMonth(), validade.getDate()).getTime();
-                        const nowTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                        const thirtyDaysTime = new Date(thirtyDays.getFullYear(), thirtyDays.getMonth(), thirtyDays.getDate()).getTime();
+                        // Zera horas para comparação
+                        validade.setHours(0, 0, 0, 0);
+                        
+                        const validadeTime = validade.getTime();
+                        const nowTime = now.getTime();
+                        const thirtyDaysTime = thirtyDays.getTime();
+
+                        // Lógica:
+                        // Vermelho: Se a data de validade for MENOR que hoje (Já venceu)
+                        // Amarelo: Se a data for MAIOR/IGUAL a hoje E MENOR/IGUAL a daqui 30 dias
 
                         if (validadeTime < nowTime) {
                             list.push({
                                 id: `emp-${emp.id}`,
                                 category: 'cnh', // Nova categoria exclusiva
-                                type: 'danger',
+                                type: 'danger', // Vermelho
                                 title: `CNH VENCIDA: ${emp.nome}`,
                                 subtitle: 'Habilitação',
-                                message: `A CNH venceu em ${validade.toLocaleDateString('pt-BR')}.`,
+                                message: `Venceu em ${validade.toLocaleDateString('pt-BR')}.`,
                                 date: validade.toLocaleDateString('pt-BR'),
                                 action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
                             });
-                        } else if (validadeTime < thirtyDaysTime) {
+                        } else if (validadeTime <= thirtyDaysTime) {
                             list.push({
                                 id: `emp-${emp.id}`,
                                 category: 'cnh', // Nova categoria exclusiva
-                                type: 'warning',
+                                type: 'warning', // Amarelo
                                 title: `CNH a Vencer: ${emp.nome}`,
                                 subtitle: 'Habilitação',
                                 message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
