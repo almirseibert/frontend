@@ -13,7 +13,7 @@ import FuelEfficiencyRanking from '../components/dashboard/FuelEfficiencyRanking
 
 const Dashboard = ({
     navigate,
-    vehicles = [], obras = [], refuelings = [], employees = [], fines = [],
+    vehicles = [], obras = [], refuelings = [], employees = [], fines = [], revisions = [],
     vehicleGroups = {}, equipmentTypesForHours = [],
     dailyWorkLogs = [], // Recebe logs de faturamento
     apiClient,
@@ -30,8 +30,10 @@ const Dashboard = ({
     useEffect(() => {
         const fetchAlerts = async () => {
             try {
-                const data = await apiClient.getInactivityAlerts();
-                setInactivityAlerts(data || []);
+                if (apiClient && apiClient.getInactivityAlerts) {
+                    const data = await apiClient.getInactivityAlerts();
+                    setInactivityAlerts(data || []);
+                }
             } catch (error) { console.error("Erro alertas inatividade", error); } 
             finally { setLoadingAlerts(false); }
         };
@@ -86,11 +88,11 @@ const Dashboard = ({
             {/* Grid de Estatísticas (KPIs) */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                 <StatCard title="Total Frota" value={stats.total} icon={Truck} color="slate" onClick={() => navigate('vehicles')} />
-                <StatCard title="Obras Ativas" value={stats.obrasAtivas} icon={Building} color="indigo" onClick={() => navigate('obras', 'ativa')} />
-                <StatCard title="Em Obra" value={stats.emObra} icon={Truck} color="blue" onClick={() => navigate('vehicles', 'Em Obra')} />
-                <StatCard title="Em Operação" value={stats.operacao} icon={Users} color="cyan" onClick={() => navigate('vehicles', 'Em Operação')} />
-                <StatCard title="Disponíveis" value={stats.disponivel} icon={CheckCircle} color="green" onClick={() => navigate('vehicles', 'Disponível')} />
-                <StatCard title="Manutenção" value={stats.manutencao} icon={Wrench} color="red" onClick={() => navigate('vehicles', 'Em Manutenção')} />
+                <StatCard title="Obras Ativas" value={stats.obrasAtivas} icon={Building} color="indigo" onClick={() => navigate('obras', { state: { filter: 'ativa' } })} />
+                <StatCard title="Em Obra" value={stats.emObra} icon={Truck} color="blue" onClick={() => navigate('vehicles', { state: { status: 'Em Obra' } })} />
+                <StatCard title="Em Operação" value={stats.operacao} icon={Users} color="cyan" onClick={() => navigate('vehicles', { state: { status: 'Em Operação' } })} />
+                <StatCard title="Disponíveis" value={stats.disponivel} icon={CheckCircle} color="green" onClick={() => navigate('vehicles', { state: { status: 'Disponível' } })} />
+                <StatCard title="Manutenção" value={stats.manutencao} icon={Wrench} color="red" onClick={() => navigate('vehicles', { state: { status: 'Em Manutenção' } })} />
                 <StatCard title="Multas Pen." value={stats.multas} icon={ShieldAlert} color="orange" onClick={() => navigate('fines')} />
             </div>
 
@@ -106,7 +108,12 @@ const Dashboard = ({
                             <button onClick={() => setIsMapExpanded(true)} className="text-blue-600 hover:bg-blue-50 p-1 rounded transition-colors"><Maximize2 size={18}/></button>
                         </div>
                         <div className="flex-1 bg-gray-100 relative">
-                            <AllocationMap obras={obras} vehicles={vehicles} />
+                            {/* Passamos vehicleGroups para permitir o cálculo correto do progresso no mapa */}
+                            <AllocationMap 
+                                obras={obras} 
+                                vehicles={vehicles} 
+                                vehicleGroups={vehicleGroups}
+                            />
                         </div>
                     </section>
                 </div>
@@ -136,6 +143,7 @@ const Dashboard = ({
                     <AlertsPanel 
                         vehicles={vehicles} 
                         employees={employees} 
+                        revisions={revisions} // Passando revisões para o painel
                         inactivityAlerts={inactivityAlerts} 
                         obras={obras}
                         navigate={navigate}
@@ -155,7 +163,14 @@ const Dashboard = ({
                     setAlertMessage={setAlertMessage}
                 />
             )}
-            {isMapExpanded && <ExpandedMapModal obras={obras} vehicles={vehicles} onClose={() => setIsMapExpanded(false)} />}
+            {isMapExpanded && (
+                <ExpandedMapModal 
+                    obras={obras} 
+                    vehicles={vehicles} 
+                    vehicleGroups={vehicleGroups}
+                    onClose={() => setIsMapExpanded(false)} 
+                />
+            )}
         </div>
     );
 };

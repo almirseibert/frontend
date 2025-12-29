@@ -30,7 +30,7 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             
             let startReading = 0, endReading = 0;
             
-            // CORREÇÃO UNIFICADA
+            // CORREÇÃO UNIFICADA: Usa apenas 'odometro' ou 'horimetro'
             if (isKm) {
                 const first = history[0];
                 const last = history[history.length - 1];
@@ -39,9 +39,9 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             } else {
                 const first = history[0];
                 const last = history[history.length - 1];
-                // Prioriza horimetro unificado, fallback para legados
-                startReading = parseFloat(first.horimetro || first.horimetroDigital || 0);
-                endReading = parseFloat(last.horimetro || last.horimetroDigital || 0);
+                // Regra Unificada: usa apenas vehicle.horimetro no banco
+                startReading = parseFloat(first.horimetro || 0);
+                endReading = parseFloat(last.horimetro || 0);
             }
 
             const diff = endReading - startReading;

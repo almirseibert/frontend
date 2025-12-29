@@ -24,11 +24,11 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
                 if (vehicle) {
                     const isKm = vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
                     
-                    // CORREÇÃO UNIFICADA: Usa horimetro direto (ou fallback se legado)
-                    // Prioriza o campo 'horimetro' unificado. Se for 0/null, tenta os legados.
+                    // CORREÇÃO UNIFICADA: Usa apenas horimetro ou odometro. 
+                    // Regra #8: Caminhões/Pesados usam horimetro. Leves/Trecho usam odometro.
                     const currentReading = isKm 
                         ? parseFloat(vehicle.odometro || 0) 
-                        : parseFloat(vehicle.horimetro || vehicle.horimetroDigital || 0);
+                        : parseFloat(vehicle.horimetro || 0); // Unificado
                         
                     // Busca a leitura inicial registrada no histórico de alocação
                     const startReading = isKm 
@@ -51,7 +51,7 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             totalExecutadoHoras += parseFloat(obra.horasAdicionaisCaminhao || 0);
         }
 
-        // 2. CÁLCULO FATURADO
+        // 2. CÁLCULO FATURADO (Baseado nos logs diários de trabalho)
         let faturado = parseFloat(obra.totalHorasRealizadas) || 0;
 
         // Se o totalHorasRealizadas estiver zerado, tenta calcular somando os apontamentos diários
@@ -82,7 +82,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
 
         if (type === 'horas') {
             let horasObj = obra.horasContratadasPorTipo;
-            // Parse seguro do JSON de horas contratadas
             if (typeof horasObj === 'string') {
                 try { horasObj = JSON.parse(horasObj); } catch (e) { horasObj = {}; }
             } else if (!horasObj) { horasObj = {}; }
@@ -91,7 +90,6 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
             contratado = parseFloat(obra.kmContratadoPrancha || 0);
             unit = 'km';
         } else {
-            // Contrato por m² ou outro
             const sectorsList = typeof obra.sectors === 'string' ? JSON.parse(obra.sectors || '[]') : (obra.sectors || []);
             contratado = sectorsList.reduce((acc, sec) => acc + (parseFloat(sec.totalArea) || 0), 0);
             unit = 'm²';

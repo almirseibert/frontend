@@ -14,7 +14,6 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         thirtyDays.setDate(now.getDate() + 30);
 
         // 1. Alertas de Veículos (Revisão, Docs, Bloqueio)
-        // Utiliza a função unificada checkVehicleRestrictions que já verifica horímetro/odômetro corretamente
         vehicles.forEach(v => {
             // Busca revisões do veículo
             const vehicleRevisions = revisions.filter(r => r.vehicleId === v.id);
@@ -33,24 +32,27 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                     subtitle: issue.category.toUpperCase(),
                     message: issue.message,
                     date: 'Hoje',
-                    action: () => navigate('/vehicles') // Redireciona para veículos
+                    // Navegação inteligente: leva para a página e filtra pelo registro
+                    action: () => navigate('/revisions', { state: { searchTerm: v.registroInterno } })
                 });
             });
         });
 
         // 2. Alertas de Inatividade (Operacional)
+        // Regra: Veículos alocados em obra e com mais de 7 dias sem abastecimento
+        // A lista inactivityAlerts já deve vir filtrada do backend/Dashboard.js, mas reforçamos aqui se necessário
         inactivityAlerts.forEach(alert => {
             if (alert.status !== 'Ativo') return;
             
-            const daysInactive = Math.floor((now - new Date(alert.lastRefuelDate)) / (1000 * 60 * 60 * 24));
+            const daysInactive = alert.daysSinceLastRefuel || Math.floor((now - new Date(alert.lastRefuelDate)) / (1000 * 60 * 60 * 24));
             
             list.push({
                 id: `inat-${alert.id}`,
-                category: 'alertas',
-                type: 'info',
+                category: 'alertas', // Agrupado em Avisos
+                type: 'danger', // Vermelho (Inatividade é crítica)
                 title: `${alert.vehicle?.registroInterno} - Inatividade`,
                 subtitle: alert.obra?.nome || 'Obra Desconhecida',
-                message: `Veículo sem abastecer há ${daysInactive} dias na obra.`,
+                message: `Veículo parado há ${daysInactive} dias sem abastecer.`,
                 date: new Date(alert.lastRefuelDate).toLocaleDateString('pt-BR'),
                 action: () => setSelectedInactivityAlert(alert)
             });
@@ -69,7 +71,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                         subtitle: 'Documentos',
                         message: `A CNH venceu em ${validade.toLocaleDateString('pt-BR')}.`,
                         date: validade.toLocaleDateString('pt-BR'),
-                        action: () => navigate('/employees')
+                        action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
                     });
                 } else if (validade < thirtyDays) {
                     list.push({
@@ -80,13 +82,18 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                         subtitle: 'Documentos',
                         message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
                         date: validade.toLocaleDateString('pt-BR'),
-                        action: () => navigate('/employees')
+                        action: () => navigate('/employees', { state: { searchTerm: emp.nome } })
                     });
                 }
             }
         });
 
-        return list.sort((a, b) => (a.type === 'danger' ? -1 : 1));
+        // Ordenação por criticidade (Danger primeiro)
+        return list.sort((a, b) => {
+            if (a.type === 'danger' && b.type !== 'danger') return -1;
+            if (a.type !== 'danger' && b.type === 'danger') return 1;
+            return 0;
+        });
     }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert]);
 
     const filteredAlerts = activeTab === 'todos' ? alerts : alerts.filter(a => a.category === activeTab);
