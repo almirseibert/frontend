@@ -334,8 +334,8 @@ const RefuelingOrderModal = ({
             : '';
 
         const msg = 
-`*⛽ ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Esta é uma ordem de abastecimento enviada automaticamente pelo sistema, caso seja necessária a ordem em PDF favor solicitar.
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+Ordem de abastecimento gerada automaticamente, para versão oficial em PDF, por favor, solicite-nos.
 
 *Nº Ordem:* ${finalData.authNumber}
 *Data:* ${emissionDate}
@@ -350,8 +350,8 @@ ${readingMsg}
 *Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
 
 *A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.
-*Estão autorizados somente os itens discriminados acima.
-*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.`;
+*Proibida a inclusão de itens não listados nesta ordem.
+*Não aceitaremos faturamento de itens extras ou combustível diferente do autorizado.`;
 
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
