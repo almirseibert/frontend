@@ -1,66 +1,125 @@
-import React, { useState, useMemo } from 'react';
-import { X, Info, Clock, CheckCircle, Loader, AlertTriangle, ShieldCheck } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { X, Clock, CheckCircle, Loader, AlertTriangle, ShieldCheck, Fuel } from 'lucide-react';
 
-const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient, setAlertMessage, refuelings = [] }) => {
+const InactivityAlertModal = ({ 
+    alert, 
+    onClose, 
+    onObserve, 
+    onProlong, 
+    apiClient, 
+    setAlertMessage, 
+    refuelings = [], 
+    obras = [], 
+    vehicles = [] 
+}) => {
     const [prolongDays, setProlongDays] = useState(7);
     const [observation, setObservation] = useState(alert.observation || '');
     const [isSaving, setIsSaving] = useState(false);
 
-    const { obra, operator, vehicle } = alert;
+    // 1. RESOLUÇÃO DE NOMES (Lookup por ID se o objeto não vier preenchido)
+    const alertData = useMemo(() => {
+        // Tenta pegar do objeto aninhado OU busca nas listas globais pelo ID
+        let obraNome = alert.obra?.nome || alert.obra_nome;
+        if (!obraNome) {
+            const obraId = alert.obraId || alert.obra_id;
+            const foundObra = obras.find(o => String(o.id) === String(obraId));
+            if (foundObra) obraNome = foundObra.nome;
+        }
 
-    // LÓGICA DE CORREÇÃO EM TEMPO REAL
-    // Busca o último abastecimento REAL deste veículo na lista completa, 
-    // caso o alerta esteja desatualizado.
+        let veiculoNome = alert.vehicle?.registroInterno;
+        let veiculoModelo = alert.vehicle?.modelo;
+        let veiculoId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
+
+        if (!veiculoNome && veiculoId) {
+            const foundVehicle = vehicles.find(v => String(v.id) === String(veiculoId));
+            if (foundVehicle) {
+                veiculoNome = foundVehicle.registroInterno;
+                veiculoModelo = foundVehicle.modelo;
+            }
+        }
+
+        return {
+            id: alert.id,
+            vehicleId: veiculoId,
+            vehicleCode: veiculoNome || 'Veículo Desconhecido',
+            vehicleModel: veiculoModelo || '',
+            obraName: obraNome || 'Obra Desconhecida / Não Alocado',
+            operatorName: alert.operator?.nome || alert.operator_nome || 'Operador não identificado'
+        };
+    }, [alert, obras, vehicles]);
+
+    // 2. LÓGICA DE CORREÇÃO EM TEMPO REAL
     const realStatus = useMemo(() => {
-        if (!vehicle || !refuelings.length) return null;
+        if (!alertData.vehicleId || !refuelings.length) return null;
 
+        // Filtra abastecimentos deste veículo (Concluídos)
         const vehicleRefuels = refuelings
-            .filter(r => r.vehicleId === vehicle.id && r.status === 'Concluída')
+            .filter(r => String(r.vehicleId) === String(alertData.vehicleId) && r.status === 'Concluída')
             .sort((a,b) => new Date(b.date) - new Date(a.date));
 
-        if (vehicleRefuels.length === 0) return null;
+        const now = new Date();
+        
+        // Cenário A: Veículo nunca abasteceu no sistema
+        if (vehicleRefuels.length === 0) {
+            // Tenta usar a data do alerta como fallback
+            if (alert.lastRefuelingDate) {
+                const alertDate = new Date(alert.lastRefuelingDate);
+                const days = Math.floor(Math.abs(now - alertDate) / (1000 * 60 * 60 * 24));
+                return {
+                    date: alertDate,
+                    dateStr: alertDate.toLocaleDateString('pt-BR'),
+                    daysInactive: days,
+                    isFalsePositive: false // Se nunca abasteceu, é um alerta real
+                };
+            }
+            return null;
+        }
 
+        // Cenário B: Encontramos abastecimentos reais
         const latest = vehicleRefuels[0];
         const latestDate = new Date(latest.date);
-        const alertDate = alert.lastRefuelingDate ? new Date(alert.lastRefuelingDate) : null;
         
-        // Calcula dias inativo baseado no HOJE
-        const now = new Date();
+        // Calcula dias inativo baseado no HOJE vs Último Abastecimento Real
         const diffTime = Math.abs(now - latestDate);
         const daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-        // Verifica se é mais novo que o do alerta (margem de erro de 1 dia)
-        const isNewer = alertDate ? (latestDate > alertDate) : true;
-        const isFalsePositive = daysInactive < 7; // Se tem menos de 7 dias, o alerta é falso
+        // Regra de Falso Positivo: Se tem menos de 7 dias, o alerta não deveria existir (ou já foi resolvido)
+        const isFalsePositive = daysInactive < 7; 
 
         return {
             date: latestDate,
-            dateStr: latestDate.toLocaleDateString('pt-BR'),
+            dateStr: latestDate.toLocaleDateString('pt-BR') + ` às ${latestDate.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`,
             daysInactive,
-            isNewer,
-            isFalsePositive
+            isFalsePositive,
+            fuelStation: latest.posto || 'Posto Interno/Comboio'
         };
-    }, [vehicle, refuelings, alert]);
+    }, [alertData.vehicleId, refuelings, alert.lastRefuelingDate]);
 
+    // Define valores de exibição (Prioriza o Real, falha para o Alerta Estático)
     const displayDate = realStatus ? realStatus.dateStr : (alert.lastRefuelingDate ? new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR') : 'N/A');
     const displayDays = realStatus ? realStatus.daysInactive : (alert.daysSinceLastRefuel || '?');
 
-    const handleObserve = async () => {
+    // Efeito para preencher automaticamente a observação se for falso positivo
+    useEffect(() => {
+        if (realStatus?.isFalsePositive && !observation) {
+            setObservation(`Correção Automática: Veículo abastecido em ${realStatus.dateStr}. Alerta invalidado.`);
+        }
+    }, [realStatus, observation]);
+
+    const handleResolve = async () => {
+        // Se for falso positivo, permite salvar mesmo sem observação manual (já que preenchemos auto)
         if (!observation && !realStatus?.isFalsePositive) return setAlertMessage("Adicione uma observação.");
         
-        // Se for falso positivo, preenche automático
-        const finalObs = observation || (realStatus?.isFalsePositive ? `Corrigido: Abastecido em ${displayDate}` : '');
-
         setIsSaving(true);
         try {
             await apiClient.updateInactivityAlert(alert.id, {
-                status: 'Observado', // Ou 'Resolvido' se preferir limpar
-                observation: finalObs,
+                status: 'Resolvido', // Marca como resolvido/invalidado
+                observation: observation,
                 dismissedAt: new Date().toISOString(),
             });
-            onObserve();
+            onObserve(); // Fecha e recarrega
         } catch (error) {
-            setAlertMessage("Erro ao salvar.");
+            setAlertMessage("Erro ao resolver alerta.");
         } finally {
             setIsSaving(false);
         }
@@ -91,103 +150,129 @@ const InactivityAlertModal = ({ alert, onClose, onObserve, onProlong, apiClient,
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100">
-                <div className="p-4 border-b bg-blue-50 flex justify-between items-center">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100 border border-gray-200">
+                {/* Header */}
+                <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
                     <div>
-                        <h2 className="text-lg font-bold text-blue-900 flex items-center gap-2">
-                            <Clock className="text-blue-600" size={20}/>
-                            Alerta de Inatividade
+                        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <Clock className="text-orange-600" size={20}/>
+                            Detalhes de Inatividade
                         </h2>
-                        <p className="text-sm text-blue-700 font-medium">{vehicle?.registroInterno} - {vehicle?.modelo}</p>
+                        <p className="text-sm text-gray-600 font-medium">
+                            {alertData.vehicleCode} <span className="text-gray-400">|</span> {alertData.vehicleModel}
+                        </p>
                     </div>
-                    <button onClick={onClose} className="p-1 rounded-full hover:bg-blue-200 text-blue-800 transition-colors"><X size={20}/></button>
+                    <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-200 text-gray-500 transition-colors"><X size={20}/></button>
                 </div>
                 
-                <div className="p-6 space-y-4">
-                    {/* AVISO DE FALSO POSITIVO DETECTADO */}
-                    {realStatus && realStatus.isFalsePositive && (
-                        <div className="bg-green-50 border-l-4 border-green-500 p-3 rounded shadow-sm">
+                <div className="p-6 space-y-5">
+                    
+                    {/* CARD DE STATUS (Dinâmico) */}
+                    {realStatus?.isFalsePositive ? (
+                        <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded shadow-sm animate-pulse-slow">
                             <div className="flex items-start gap-3">
-                                <ShieldCheck className="text-green-600 shrink-0" size={20} />
+                                <ShieldCheck className="text-green-600 shrink-0 mt-0.5" size={24} />
                                 <div>
-                                    <h4 className="text-sm font-bold text-green-800">Situação Normalizada Detectada</h4>
-                                    <p className="text-xs text-green-700 mt-1">
-                                        Este veículo foi abastecido recentemente em <strong>{realStatus.dateStr}</strong>. 
-                                        Isso indica que o alerta é um falso positivo ou já foi resolvido operacionalmente.
+                                    <h4 className="text-sm font-bold text-green-800 uppercase tracking-wide">Situação Normalizada</h4>
+                                    <p className="text-sm text-green-700 mt-1 leading-relaxed">
+                                        Detectamos um abastecimento recente. Este alerta não é mais válido.
                                     </p>
+                                    <div className="mt-2 text-xs font-mono text-green-800 bg-green-100 inline-block px-2 py-1 rounded">
+                                        Último Abastecimento: {realStatus.dateStr}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    )}
-
-                    {!realStatus?.isFalsePositive && (
-                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 text-sm text-yellow-800 shadow-sm flex gap-2">
-                            <AlertTriangle className="shrink-0" size={18}/>
-                            <span>
-                                Veículo alocado na obra <strong>{obra?.nome || 'Obra Desconhecida'}</strong> sem abastecimento há mais de <strong>{displayDays} dias</strong>.
-                            </span>
+                    ) : (
+                        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm flex gap-3 items-start">
+                            <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={24}/>
+                            <div>
+                                <h4 className="text-sm font-bold text-red-800 uppercase tracking-wide">Inatividade Crítica</h4>
+                                <p className="text-sm text-red-700 mt-1">
+                                    Veículo parado há <strong>{displayDays} dias</strong> sem registro de abastecimento.
+                                </p>
+                                <p className="text-xs text-red-600 mt-1">
+                                    Local: <strong>{alertData.obraName}</strong>
+                                </p>
+                            </div>
                         </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 p-3 rounded border border-gray-100">
+                    {/* DETALHES TÉCNICOS */}
+                    <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg border border-gray-100">
                         <div>
-                            <span className="font-bold block text-gray-800 text-xs uppercase text-opacity-70 mb-0.5">Último Abastecimento</span>
-                            <span className={`font-mono font-medium ${realStatus?.isFalsePositive ? 'text-green-600' : 'text-gray-900'}`}>
-                                {displayDate}
+                            <span className="flex items-center gap-1 font-bold text-gray-500 text-[10px] uppercase mb-1">
+                                <Fuel size={10}/> Último Registro
+                            </span>
+                            <span className="font-medium text-gray-900 block">{displayDate}</span>
+                            {realStatus?.fuelStation && <span className="text-xs text-gray-500 truncate block">{realStatus.fuelStation}</span>}
+                        </div>
+                        <div>
+                            <span className="font-bold block text-gray-500 text-[10px] uppercase mb-1">Dias s/ Abastecer</span>
+                            <span className={`text-lg font-bold ${realStatus?.daysInactive > 7 ? 'text-red-600' : 'text-green-600'}`}>
+                                {displayDays}
                             </span>
                         </div>
-                        <div>
-                            <span className="font-bold block text-gray-800 text-xs uppercase text-opacity-70 mb-0.5">Operador Responsável</span> 
-                            <span className="text-gray-900">{operator?.nome || 'Não identificado'}</span>
-                        </div>
-                        <div>
-                             <span className="font-bold block text-gray-800 text-xs uppercase text-opacity-70 mb-0.5">Status Real</span>
-                             <span className={realStatus?.daysInactive > 7 ? "text-red-600 font-bold" : "text-green-600 font-bold"}>
-                                 {realStatus ? `${realStatus.daysInactive} dias parado` : 'Calculando...'}
-                             </span>
+                        <div className="col-span-2 border-t border-gray-200 pt-2 mt-1">
+                             <span className="font-bold block text-gray-500 text-[10px] uppercase mb-1">Operador / Responsável</span>
+                             <span className="text-gray-800">{alertData.operatorName}</span>
                         </div>
                     </div>
 
+                    {/* CAMPO DE OBSERVAÇÃO */}
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Observação / Justificativa {realStatus?.isFalsePositive ? '' : '*'}</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Ação / Observação {realStatus?.isFalsePositive ? '(Automático)' : '*'}
+                        </label>
                         <textarea
                             value={observation}
                             onChange={e => setObservation(e.target.value)}
-                            rows="3"
-                            className="w-full p-2 border rounded bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-shadow"
-                            placeholder={realStatus?.isFalsePositive ? "Opcional: O sistema detectou abastecimento recente." : "Ex: Veículo quebrado, Operador de férias, etc."}
+                            rows="2"
+                            className="w-full p-3 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-shadow"
+                            placeholder="Descreva o motivo (ex: Veículo em manutenção, Operador de férias...)"
                         />
                     </div>
 
-                    {/* Esconde prorrogação se for falso positivo, pois deve ser resolvido */}
+                    {/* AÇÕES (Prorrogar escondido se for falso positivo) */}
                     {!realStatus?.isFalsePositive && (
-                        <div className="flex items-end gap-3 pt-4 border-t">
-                            <div className="flex-1">
-                                <label className="block text-xs font-semibold text-gray-500 uppercase">Prorrogar Alerta (Dias)</label>
-                                <input
-                                    type="number"
-                                    value={prolongDays}
-                                    onChange={e => setProlongDays(e.target.value)}
-                                    min="1"
-                                    className="w-full p-2 border rounded mt-1 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                                />
+                        <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                            <div className="w-24">
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Prorrogar</label>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        value={prolongDays}
+                                        onChange={e => setProlongDays(e.target.value)}
+                                        min="1"
+                                        className="w-full pl-2 pr-8 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                                    />
+                                    <span className="absolute right-2 top-1.5 text-xs text-gray-400">dias</span>
+                                </div>
                             </div>
-                            <button onClick={handleProlong} disabled={isSaving || !prolongDays} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex gap-2 items-center text-sm shadow-sm transition-colors h-[38px]">
-                                {isSaving ? <Loader size={16} className="animate-spin"/> : <Clock size={16}/>} Prorrogar
+                            <button 
+                                onClick={handleProlong} 
+                                disabled={isSaving || !prolongDays} 
+                                className="mt-5 flex-1 py-1.5 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded text-sm font-medium transition-colors"
+                            >
+                                {isSaving ? <Loader size={14} className="animate-spin inline mr-1"/> : <Clock size={14} className="inline mr-1"/>} 
+                                Prorrogar Alerta
                             </button>
                         </div>
                     )}
                 </div>
 
+                {/* FOOTER */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-100 text-sm text-gray-700 transition-colors">Cancelar</button>
+                    <button onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-100 text-sm font-medium text-gray-700 transition-colors">
+                        Cancelar
+                    </button>
                     <button 
-                        onClick={handleObserve} 
+                        onClick={handleResolve} 
                         disabled={isSaving || (!observation && !realStatus?.isFalsePositive)} 
-                        className={`px-4 py-2 text-white rounded disabled:opacity-50 flex gap-2 items-center text-sm font-medium shadow-sm transition-colors ${realStatus?.isFalsePositive ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                        className={`px-5 py-2 text-white rounded shadow-sm disabled:opacity-50 flex gap-2 items-center text-sm font-bold transition-all transform active:scale-95 ${realStatus?.isFalsePositive ? 'bg-green-600 hover:bg-green-700 ring-2 ring-green-200' : 'bg-blue-600 hover:bg-blue-700'}`}
                     >
                         {isSaving ? <Loader size={16} className="animate-spin"/> : <CheckCircle size={16}/>} 
-                        {realStatus?.isFalsePositive ? 'Confirmar Resolução' : 'Registrar Observação'}
+                        {realStatus?.isFalsePositive ? 'Invalidar Alerta (Resolver)' : 'Registrar & Resolver'}
                     </button>
                 </div>
             </div>
