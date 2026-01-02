@@ -185,7 +185,7 @@ const RefuelingPage = ({
                 doc.setDrawColor(180, 180, 180);
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                doc.save(`Autorizacao_${order.authNumber}.pdf`);
+                doc.save(`Autorizacao_${order.authNumber}_${vehicle?.registroInterno}_${order.data.toDate().toISOString().split('T')[0]}.pdf`);
                 setIsGeneratingPdf(false);
             };
 
