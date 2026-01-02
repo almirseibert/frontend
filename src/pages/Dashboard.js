@@ -157,8 +157,9 @@ const Dashboard = ({
                 <InactivityAlertModal 
                     alert={selectedInactivityAlert} 
                     refuelings={refuelings} 
-                    obras={obras}     // <--- NOVA PROP
-                    vehicles={vehicles} // <--- NOVA PROP
+                    obras={obras}
+                    vehicles={vehicles}
+                    employees={employees} // <--- NOVA PROP: Passando funcionários
                     onClose={() => setSelectedInactivityAlert(null)}
                     onObserve={() => { setSelectedInactivityAlert(null); reloadData(); }}
                     onProlong={() => { setSelectedInactivityAlert(null); reloadData(); }}

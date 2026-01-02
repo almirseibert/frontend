@@ -10,15 +10,16 @@ const InactivityAlertModal = ({
     setAlertMessage, 
     refuelings = [], 
     obras = [], 
-    vehicles = [] 
+    vehicles = [],
+    employees = [] 
 }) => {
     const [prolongDays, setProlongDays] = useState(7);
     const [observation, setObservation] = useState(alert.observation || '');
     const [isSaving, setIsSaving] = useState(false);
 
-    // 1. RESOLUÇÃO DE NOMES (Lookup por ID se o objeto não vier preenchido)
+    // 1. RESOLUÇÃO DE NOMES (Lookup Robust)
     const alertData = useMemo(() => {
-        // Tenta pegar do objeto aninhado OU busca nas listas globais pelo ID
+        // --- Obra ---
         let obraNome = alert.obra?.nome || alert.obra_nome;
         if (!obraNome) {
             const obraId = alert.obraId || alert.obra_id;
@@ -26,6 +27,7 @@ const InactivityAlertModal = ({
             if (foundObra) obraNome = foundObra.nome;
         }
 
+        // --- Veículo ---
         let veiculoNome = alert.vehicle?.registroInterno;
         let veiculoModelo = alert.vehicle?.modelo;
         let veiculoId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
@@ -38,15 +40,32 @@ const InactivityAlertModal = ({
             }
         }
 
+        // --- Operador ---
+        let operadorNome = alert.operator?.nome || alert.operator_nome;
+        if (!operadorNome) {
+            // Tenta buscar no veículo (alguns sistemas vinculam motorista ao veículo)
+            const foundVehicle = vehicles.find(v => String(v.id) === String(veiculoId));
+            if (foundVehicle && foundVehicle.motoristaId) {
+                const foundEmp = employees.find(e => String(e.id) === String(foundVehicle.motoristaId));
+                if (foundEmp) operadorNome = foundEmp.nome;
+            }
+            // Tenta buscar no próprio alerta se tiver operatorId
+            if (!operadorNome && (alert.operatorId || alert.operator_id)) {
+                const opId = alert.operatorId || alert.operator_id;
+                const foundEmp = employees.find(e => String(e.id) === String(opId));
+                if (foundEmp) operadorNome = foundEmp.nome;
+            }
+        }
+
         return {
             id: alert.id,
             vehicleId: veiculoId,
             vehicleCode: veiculoNome || 'Veículo Desconhecido',
             vehicleModel: veiculoModelo || '',
             obraName: obraNome || 'Obra Desconhecida / Não Alocado',
-            operatorName: alert.operator?.nome || alert.operator_nome || 'Operador não identificado'
+            operatorName: operadorNome || 'Operador não identificado'
         };
-    }, [alert, obras, vehicles]);
+    }, [alert, obras, vehicles, employees]);
 
     // 2. LÓGICA DE CORREÇÃO EM TEMPO REAL
     const realStatus = useMemo(() => {
@@ -55,49 +74,70 @@ const InactivityAlertModal = ({
         // Filtra abastecimentos deste veículo (Concluídos)
         const vehicleRefuels = refuelings
             .filter(r => String(r.vehicleId) === String(alertData.vehicleId) && r.status === 'Concluída')
-            .sort((a,b) => new Date(b.date) - new Date(a.date));
+            .sort((a,b) => {
+                // Tratamento robusto de datas para ordenação
+                const dateA = new Date(a.date || a.created_at || a.data || 0);
+                const dateB = new Date(b.date || b.created_at || b.data || 0);
+                return dateB - dateA;
+            });
 
         const now = new Date();
         
         // Cenário A: Veículo nunca abasteceu no sistema
         if (vehicleRefuels.length === 0) {
-            // Tenta usar a data do alerta como fallback
+            // Fallback para a data do alerta, se existir e for válida
             if (alert.lastRefuelingDate) {
                 const alertDate = new Date(alert.lastRefuelingDate);
-                const days = Math.floor(Math.abs(now - alertDate) / (1000 * 60 * 60 * 24));
-                return {
-                    date: alertDate,
-                    dateStr: alertDate.toLocaleDateString('pt-BR'),
-                    daysInactive: days,
-                    isFalsePositive: false // Se nunca abasteceu, é um alerta real
-                };
+                if (!isNaN(alertDate.getTime())) {
+                    const days = Math.floor(Math.abs(now - alertDate) / (1000 * 60 * 60 * 24));
+                    return {
+                        dateStr: alertDate.toLocaleDateString('pt-BR'),
+                        daysInactive: days,
+                        isFalsePositive: false
+                    };
+                }
             }
-            return null;
+            return null; // Sem dados confiáveis
         }
 
         // Cenário B: Encontramos abastecimentos reais
         const latest = vehicleRefuels[0];
-        const latestDate = new Date(latest.date);
+        // Tenta encontrar o campo de data correto
+        const dateRaw = latest.date || latest.created_at || latest.data;
         
-        // Calcula dias inativo baseado no HOJE vs Último Abastecimento Real
+        if (!dateRaw) return null; // Abastecimento sem data
+
+        const latestDate = new Date(dateRaw);
+        if (isNaN(latestDate.getTime())) return null; // Data inválida
+
+        // Calcula dias inativo
         const diffTime = Math.abs(now - latestDate);
         const daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-        // Regra de Falso Positivo: Se tem menos de 7 dias, o alerta não deveria existir (ou já foi resolvido)
+        // Regra de Falso Positivo: Se tem menos de 7 dias
         const isFalsePositive = daysInactive < 7; 
 
         return {
             date: latestDate,
             dateStr: latestDate.toLocaleDateString('pt-BR') + ` às ${latestDate.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`,
-            daysInactive,
+            daysInactive: isNaN(daysInactive) ? 0 : daysInactive, // Prevenção extra contra NaN
             isFalsePositive,
             fuelStation: latest.posto || 'Posto Interno/Comboio'
         };
     }, [alertData.vehicleId, refuelings, alert.lastRefuelingDate]);
 
-    // Define valores de exibição (Prioriza o Real, falha para o Alerta Estático)
-    const displayDate = realStatus ? realStatus.dateStr : (alert.lastRefuelingDate ? new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR') : 'N/A');
-    const displayDays = realStatus ? realStatus.daysInactive : (alert.daysSinceLastRefuel || '?');
+    // Define valores de exibição
+    const displayDate = realStatus ? realStatus.dateStr : (
+        alert.lastRefuelingDate && !isNaN(new Date(alert.lastRefuelingDate).getTime()) 
+        ? new Date(alert.lastRefuelingDate).toLocaleDateString('pt-BR') 
+        : 'Sem registro'
+    );
+    
+    const displayDays = realStatus ? realStatus.daysInactive : (
+        (alert.daysSinceLastRefuel && !isNaN(parseInt(alert.daysSinceLastRefuel))) 
+        ? alert.daysSinceLastRefuel 
+        : '?'
+    );
 
     // Efeito para preencher automaticamente a observação se for falso positivo
     useEffect(() => {
@@ -107,17 +147,16 @@ const InactivityAlertModal = ({
     }, [realStatus, observation]);
 
     const handleResolve = async () => {
-        // Se for falso positivo, permite salvar mesmo sem observação manual (já que preenchemos auto)
         if (!observation && !realStatus?.isFalsePositive) return setAlertMessage("Adicione uma observação.");
         
         setIsSaving(true);
         try {
             await apiClient.updateInactivityAlert(alert.id, {
-                status: 'Resolvido', // Marca como resolvido/invalidado
+                status: 'Resolvido',
                 observation: observation,
                 dismissedAt: new Date().toISOString(),
             });
-            onObserve(); // Fecha e recarrega
+            onObserve(); 
         } catch (error) {
             setAlertMessage("Erro ao resolver alerta.");
         } finally {
@@ -209,7 +248,7 @@ const InactivityAlertModal = ({
                         </div>
                         <div>
                             <span className="font-bold block text-gray-500 text-[10px] uppercase mb-1">Dias s/ Abastecer</span>
-                            <span className={`text-lg font-bold ${realStatus?.daysInactive > 7 ? 'text-red-600' : 'text-green-600'}`}>
+                            <span className={`text-lg font-bold ${(!realStatus || realStatus.daysInactive > 7) ? 'text-red-600' : 'text-green-600'}`}>
                                 {displayDays}
                             </span>
                         </div>
@@ -229,11 +268,11 @@ const InactivityAlertModal = ({
                             onChange={e => setObservation(e.target.value)}
                             rows="2"
                             className="w-full p-3 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-shadow"
-                            placeholder="Descreva o motivo (ex: Veículo em manutenção, Operador de férias...)"
+                            placeholder={realStatus?.isFalsePositive ? "Opcional: O sistema detectou abastecimento recente." : "Descreva o motivo (ex: Veículo em manutenção, Operador de férias...)"}
                         />
                     </div>
 
-                    {/* AÇÕES (Prorrogar escondido se for falso positivo) */}
+                    {/* AÇÕES */}
                     {!realStatus?.isFalsePositive && (
                         <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
                             <div className="w-24">
