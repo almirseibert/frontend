@@ -382,9 +382,13 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                 if (text.includes('documento') || text.includes('aet') || text.includes('tacógrafo')) type = 'Documentação';
                 else if (text.includes('bloqueio')) type = 'Bloqueio';
 
+                const obraNome = obras.find(o => o.id === v.obraAtualId)?.nome || 'Local N/A';
+
                 list.push({
                     entity: `${v.registroInterno} - ${v.modelo}`,
                     type,
+                    location: obraNome,
+                    days: '-', // Não aplicável diretamente ou extrair do texto se possível
                     message: v.avisoTexto,
                     date: new Date().toLocaleDateString('pt-BR'),
                     isCritical: text.includes('vencid') || text.includes('bloqueio')
@@ -395,12 +399,10 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
         // 2. Alertas de Funcionários (CNH)
         employees.forEach(e => {
             if (e.cnhVencimento) {
-                // Tenta parsing robusto de data
                 let venc;
                 if (e.cnhVencimento.includes('T')) {
                     venc = new Date(e.cnhVencimento);
                 } else if (e.cnhVencimento.includes('-')) {
-                    // YYYY-MM-DD
                     const parts = e.cnhVencimento.split('-');
                     venc = new Date(parts[0], parts[1]-1, parts[2]);
                 } else {
@@ -409,26 +411,39 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
 
                 if (!isNaN(venc.getTime())) {
                     venc.setHours(0,0,0,0);
+                    // Calcula dias para vencer ou vencidos
+                    const diffTime = venc.getTime() - now.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    const daysLabel = diffDays < 0 ? `${Math.abs(diffDays)} dias vencido` : `${diffDays} dias para vencer`;
+
                     if (venc < now) {
-                        list.push({ entity: e.nome, type: 'CNH', message: `CNH Vencida em ${venc.toLocaleDateString('pt-BR')}`, date: venc.toLocaleDateString('pt-BR'), isCritical: true });
+                        list.push({ 
+                            entity: e.nome, 
+                            type: 'CNH', 
+                            location: 'RH / Pessoal',
+                            days: daysLabel,
+                            message: `CNH Vencida em ${venc.toLocaleDateString('pt-BR')}`, 
+                            date: venc.toLocaleDateString('pt-BR'), 
+                            isCritical: true 
+                        });
                     } else if (venc <= thirtyDays) {
-                        list.push({ entity: e.nome, type: 'CNH', message: `CNH Vence em ${venc.toLocaleDateString('pt-BR')}`, date: venc.toLocaleDateString('pt-BR'), isCritical: false });
+                        list.push({ 
+                            entity: e.nome, 
+                            type: 'CNH', 
+                            location: 'RH / Pessoal',
+                            days: daysLabel,
+                            message: `CNH Vence em ${venc.toLocaleDateString('pt-BR')}`, 
+                            date: venc.toLocaleDateString('pt-BR'), 
+                            isCritical: false 
+                        });
                     }
                 }
             }
         });
 
-        // 3. Alertas de Inatividade (NOVO)
+        // 3. Alertas de Inatividade (CORRIGIDO)
         inactivityAlerts.forEach(alert => {
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
-
-            const days = alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || '?';
-            const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
-            let dateStr = 'Data desc.';
-            if (alertDateRaw) {
-                const d = new Date(alertDateRaw);
-                if (!isNaN(d.getTime())) dateStr = d.toLocaleDateString('pt-BR');
-            }
 
             // Busca nome do veículo e obra se faltar
             let vehicleName = alert.vehicle?.registroInterno || 'Veículo';
@@ -437,17 +452,40 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                 if (v) vehicleName = v.registroInterno;
             }
 
-            let obraName = alert.obra?.nome || alert.obra_nome || 'Obra Desconhecida';
-            if (!alert.obra?.nome && alert.obraId) {
+            let obraName = alert.obra?.nome || alert.obra_nome;
+            if (!obraName && alert.obraId) {
                 const o = obras.find(ob => String(ob.id) === String(alert.obraId));
                 if (o) obraName = o.nome;
+            }
+            if (!obraName) obraName = 'Obra Desconhecida';
+
+            // CÁLCULO DE DIAS (Evita o "?")
+            let dateStr = 'Data desc.';
+            let daysDisplay = 0;
+            const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
+
+            if (alertDateRaw) {
+                const d = new Date(alertDateRaw);
+                if (!isNaN(d.getTime())) {
+                    dateStr = d.toLocaleDateString('pt-BR');
+                    // Força cálculo matemático
+                    const diffTime = Math.abs(now - d);
+                    daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                }
+            }
+            
+            // Fallback se o cálculo falhar
+            if (daysDisplay === 0 && (alert.daysSinceLastRefuel || alert.daysSinceLastRefueling)) {
+                daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling);
             }
 
             list.push({
                 entity: vehicleName,
                 type: 'Inatividade',
-                message: `Parado há ${days} dias na obra ${obraName}. Último abastecimento: ${dateStr}.`,
-                date: dateStr, // Data de referência do problema
+                location: obraName, // Coluna separada para Obra
+                days: `${daysDisplay} dias`, // Coluna separada para Dias
+                message: `Sem abastecer desde ${dateStr}.`,
+                date: dateStr, 
                 isCritical: true
             });
         });
@@ -458,22 +496,34 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
 
     const handleGeneratePDF = () => {
-        const doc = new jsPDF();
+        const doc = new jsPDF('landscape'); // Landscape para caber mais colunas
         doc.setFontSize(18); doc.setTextColor(220, 38, 38);
         doc.text(`Relatório de Alertas de Frota`, 14, 20);
         doc.setFontSize(10); doc.setTextColor(100);
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} | Filtro: ${filterType}`, 14, 26);
 
-        const body = filteredAlerts.map(a => [a.entity, a.type, a.message, a.date]);
+        // Novas Colunas
+        const body = filteredAlerts.map(a => [
+            a.entity, 
+            a.type, 
+            a.location, 
+            a.days, 
+            a.message, 
+            a.date
+        ]);
 
         autoTable(doc, {
             startY: 32,
-            head: [['Equipamento/Colaborador', 'Tipo', 'Detalhe do Alerta', 'Data Ref.']],
+            head: [['Equipamento/Colaborador', 'Tipo', 'Local / Obra', 'Status/Dias', 'Detalhe', 'Data Ref.']],
             body,
             theme: 'grid',
             headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255] },
             styles: { fontSize: 9 },
-            columnStyles: { 2: { cellWidth: 80 } }
+            columnStyles: { 
+                0: { cellWidth: 40 }, // Entidade
+                2: { cellWidth: 50 }, // Local
+                4: { cellWidth: 80 }  // Mensagem
+            }
         });
         doc.save(`Relatorio_Alertas_${filterType}.pdf`);
     };
@@ -512,7 +562,9 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                             <tr>
                                 <th className="p-3">Entidade</th>
                                 <th className="p-3">Tipo</th>
-                                <th className="p-3">Mensagem</th>
+                                <th className="p-3">Local / Obra</th>
+                                <th className="p-3">Status / Dias</th>
+                                <th className="p-3">Detalhe</th>
                                 <th className="p-3">Data Ref.</th>
                             </tr>
                         </thead>
@@ -528,11 +580,13 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                                             {a.type}
                                         </span>
                                     </td>
+                                    <td className="p-3 text-gray-700">{a.location}</td>
+                                    <td className="p-3 font-bold text-red-600">{a.days}</td>
                                     <td className={`p-3 ${a.isCritical ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>{a.message}</td>
                                     <td className="p-3 text-gray-500 text-xs">{a.date}</td>
                                 </tr>
                             ))}
-                            {filteredAlerts.length === 0 && <tr><td colSpan="4" className="p-6 text-center text-gray-400">Nenhum alerta encontrado.</td></tr>}
+                            {filteredAlerts.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-400">Nenhum alerta encontrado.</td></tr>}
                         </tbody>
                     </table>
                 </div>
