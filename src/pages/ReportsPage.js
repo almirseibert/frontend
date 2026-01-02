@@ -364,7 +364,7 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
 // ===================================================================================
 // 3. GERADOR DE RELATÓRIO DE ALERTAS (ATUALIZADO COM INATIVIDADE)
 // ===================================================================================
-const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obras = [] }) => {
+const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obras = [], refuelings = [] }) => {
     const [filterType, setFilterType] = useState('Todos');
 
     const alerts = useMemo(() => {
@@ -441,14 +441,16 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
             }
         });
 
-        // 3. Alertas de Inatividade (CORRIGIDO)
+        // 3. Alertas de Inatividade (CORRIGIDO COM VALIDAÇÃO REAL)
         inactivityAlerts.forEach(alert => {
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
 
-            // Busca nome do veículo e obra se faltar
+            // Identifica IDs e Nomes
+            const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
             let vehicleName = alert.vehicle?.registroInterno || 'Veículo';
-            if (!alert.vehicle?.registroInterno && alert.vehicleId) {
-                const v = vehicles.find(v => String(v.id) === String(alert.vehicleId));
+            
+            if (!alert.vehicle?.registroInterno && vehId) {
+                const v = vehicles.find(v => String(v.id) === String(vehId));
                 if (v) vehicleName = v.registroInterno;
             }
 
@@ -459,31 +461,60 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
             }
             if (!obraName) obraName = 'Obra Desconhecida';
 
-            // CÁLCULO DE DIAS (Evita o "?")
-            let dateStr = 'Data desc.';
-            let daysDisplay = 0;
-            const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
-
-            if (alertDateRaw) {
-                const d = new Date(alertDateRaw);
-                if (!isNaN(d.getTime())) {
-                    dateStr = d.toLocaleDateString('pt-BR');
-                    // Força cálculo matemático
-                    const diffTime = Math.abs(now - d);
-                    daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            // --- LÓGICA DE CORREÇÃO (IGNORE DADOS ESTÁTICOS) ---
+            let realRefuelDate = null;
+            
+            // 1. Tenta achar o abastecimento REAL mais recente na lista global
+            if (refuelings && refuelings.length > 0 && vehId) {
+                const vehRefuels = refuelings
+                    .filter(r => String(r.vehicleId) === String(vehId) && r.status === 'Concluída')
+                    .sort((a,b) => {
+                        const dA = new Date(a.date || a.created_at || 0);
+                        const dB = new Date(b.date || b.created_at || 0);
+                        return dB - dA; 
+                    });
+                
+                if (vehRefuels.length > 0) {
+                    const latest = vehRefuels[0];
+                    const dRaw = latest.date || latest.created_at;
+                    const dObj = new Date(dRaw);
+                    if (!isNaN(dObj.getTime())) {
+                        realRefuelDate = dObj;
+                    }
                 }
             }
-            
-            // Fallback se o cálculo falhar
-            if (daysDisplay === 0 && (alert.daysSinceLastRefuel || alert.daysSinceLastRefueling)) {
-                daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling);
+
+            // 2. Se não achou na lista global (ou lista vazia), tenta a data salva no alerta
+            if (!realRefuelDate) {
+                const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
+                if (alertDateRaw) {
+                    const d = new Date(alertDateRaw);
+                    if (!isNaN(d.getTime())) realRefuelDate = d;
+                }
             }
+
+            // 3. Calcula dias e formata para exibição
+            let dateStr = 'Data desc.';
+            let daysDisplay = 0;
+
+            if (realRefuelDate) {
+                dateStr = realRefuelDate.toLocaleDateString('pt-BR');
+                const diffTime = Math.abs(now - realRefuelDate);
+                daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            } else {
+                // Fallback se não tiver data nenhuma
+                daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || 0);
+            }
+
+            // 4. FILTRO DE FALSO POSITIVO
+            // Se calculamos dias reais e é menor que 7, o veículo já abasteceu. Não exibe no relatório.
+            if (daysDisplay < 7) return; 
 
             list.push({
                 entity: vehicleName,
                 type: 'Inatividade',
-                location: obraName, // Coluna separada para Obra
-                days: `${daysDisplay} dias`, // Coluna separada para Dias
+                location: obraName, 
+                days: `${daysDisplay} dias`, 
                 message: `Sem abastecer desde ${dateStr}.`,
                 date: dateStr, 
                 isCritical: true
@@ -491,7 +522,7 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
         });
 
         return list.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
-    }, [vehicles, employees, inactivityAlerts, obras]);
+    }, [vehicles, employees, inactivityAlerts, obras, refuelings]);
 
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
 
@@ -1283,24 +1314,35 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
 // ===================================================================================
 // PÁGINA PRINCIPAL (CONTROLLER)
 // ===================================================================================
-const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesForHours = [], employees = [], fines = [], vehicleGroups = {}, dailyWorkLogs = [] }) => {
+const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesForHours = [], employees = [], fines = [], vehicleGroups = {}, dailyWorkLogs = [], refuelings = [] }) => {
     const [reportType, setReportType] = useState(null);
     const [inactivityAlerts, setInactivityAlerts] = useState([]);
+    const [fetchedRefuelings, setFetchedRefuelings] = useState([]);
 
-    // Busca alertas de inatividade ao montar o componente
+    // Busca alertas de inatividade e abastecimentos ao montar o componente
     useEffect(() => {
-        const fetchInactivityAlerts = async () => {
+        const fetchData = async () => {
             try {
+                // Fetch Alertas
                 if (apiClient && apiClient.getInactivityAlerts) {
-                    const data = await apiClient.getInactivityAlerts();
-                    setInactivityAlerts(data || []);
+                    const alertsData = await apiClient.getInactivityAlerts();
+                    setInactivityAlerts(alertsData || []);
+                }
+                
+                // Fetch Abastecimentos (NOVO - Para validar datas reais)
+                // Se a prop 'refuelings' estiver vazia, tenta buscar da API
+                if (refuelings.length === 0 && apiClient && apiClient.getRefuelings) {
+                    const refuelsData = await apiClient.getRefuelings();
+                    setFetchedRefuelings(refuelsData || []);
                 }
             } catch (error) {
-                console.error("Erro ao buscar alertas de inatividade para relatório:", error);
+                console.error("Erro ao buscar dados para relatório:", error);
             }
         };
-        fetchInactivityAlerts();
-    }, []);
+        fetchData();
+    }, [refuelings]); // Re-executa se a prop mudar, mas a verificação de length impede loops desnecessários
+
+    const activeRefuelings = refuelings.length > 0 ? refuelings : fetchedRefuelings;
 
     const reportTypes = [
         { id: 'vehicles', label: 'Frota & Veículos', icon: Truck, desc: 'Listagem geral, status e localização.', color: 'bg-blue-600' },
@@ -1357,7 +1399,7 @@ const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesF
                         <ProtectedComponent requiredPermission="viewer">
                             {reportType === 'vehicles' && <VehicleReportGenerator vehicles={vehicles} obras={obras} vehicleGroups={vehicleGroups} />}
                             {reportType === 'employees' && <EmployeeReportGenerator employees={employees} obras={obras} vehicles={vehicles} fines={fines} />}
-                            {reportType === 'alerts' && <AlertsReportGenerator vehicles={vehicles} employees={employees} inactivityAlerts={inactivityAlerts} obras={obras} />}
+                            {reportType === 'alerts' && <AlertsReportGenerator vehicles={vehicles} employees={employees} inactivityAlerts={inactivityAlerts} obras={obras} refuelings={activeRefuelings} />}
                             {reportType === 'billing' && <BillingReportGenerator obras={obras} vehicles={vehicles} />}
                             {reportType === 'construction' && <ConstructionReportGenerator obras={obras} vehicles={vehicles} dailyWorkLogs={dailyWorkLogs} vehicleGroups={vehicleGroups} />}
                             {reportType === 'workplan' && <WorkPlanReportGenerator obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} expenses={expenses} equipmentTypesForHours={equipmentTypesForHours} />}
