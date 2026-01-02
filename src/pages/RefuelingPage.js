@@ -206,7 +206,21 @@ const RefuelingPage = ({
                 doc.setDrawColor(180, 180, 180);
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                doc.save(`Autorizacao_${order.authNumber}.pdf`);
+                // --- Formatar data para o nome do arquivo ---
+                let fileDate = 'DATA';
+                try {
+                    let dObj;
+                    if (dateToUse && typeof dateToUse.toDate === 'function') {
+                        dObj = dateToUse.toDate();
+                    } else {
+                        let ds = String(dateToUse);
+                        if(ds.includes(' ') && !ds.includes('T')) ds = ds.replace(' ', 'T');
+                        dObj = new Date(ds);
+                    }
+                    if(!isNaN(dObj.getTime())) fileDate = dObj.toISOString().split('T')[0];
+                } catch(e) {}
+
+                doc.save(`Autorizacao_${order.authNumber}_${vehicle?.registroInterno || 'VEIC'}_${fileDate}.pdf`);
                 setIsGeneratingPdf(false);
             };
 
