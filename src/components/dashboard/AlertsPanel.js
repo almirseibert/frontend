@@ -3,7 +3,7 @@ import { Bell, AlertTriangle, ShieldAlert, Wrench, FileText, Badge, Timer, Check
 // Importa a lógica unificada de restrições
 import { checkVehicleRestrictions } from '../../utils/vehicleRules';
 
-const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [] }) => {
+const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [], refuelings = [] }) => {
     const [activeTab, setActiveTab] = useState('todos');
 
     // Processamento centralizado de alertas (Unificado)
@@ -44,30 +44,60 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         inactivityAlerts.forEach(alert => {
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
             
-            // CORREÇÃO: Verificar nomes de propriedades corretos (lastRefuelingDate vs lastRefuelDate)
-            const refuelDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
-            let dateStr = 'Data desc.';
-            let daysInactive = 0;
+            // --- VALIDAÇÃO EM TEMPO REAL ---
+            // Verifica se existe um abastecimento REAL mais recente que invalida este alerta
+            let realRefuelDate = null;
+            let realDaysInactive = null;
 
-            if (refuelDateRaw) {
+            if (refuelings && refuelings.length > 0) {
+                 // Busca abastecimentos deste veículo
+                 const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
+                 if (vehId) {
+                     const vehRefuels = refuelings
+                        .filter(r => String(r.vehicleId) === String(vehId) && r.status === 'Concluída')
+                        .sort((a,b) => new Date(b.date || b.created_at || 0) - new Date(a.date || a.created_at || 0));
+                    
+                    if (vehRefuels.length > 0) {
+                        const latest = vehRefuels[0];
+                        const latestDate = new Date(latest.date || latest.created_at);
+                        if (!isNaN(latestDate.getTime())) {
+                             realRefuelDate = latestDate;
+                             const diffTime = Math.abs(now - latestDate);
+                             realDaysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                        }
+                    }
+                 }
+            }
+
+            // Se detectou abastecimento recente (< 7 dias), IGNORA este alerta (Falso Positivo)
+            if (realDaysInactive !== null && realDaysInactive < 7) {
+                return; // Não adiciona à lista
+            }
+
+            // Se não encontrou refuel recente, usa os dados do alerta (com fallback)
+            const refuelDateRaw = realRefuelDate || alert.lastRefuelingDate || alert.lastRefuelDate;
+            let dateStr = 'Data desc.';
+            let daysInactive = realDaysInactive !== null ? realDaysInactive : 0;
+
+            if (refuelDateRaw && !realRefuelDate) { // Se não calculou real, tenta calcular do alerta
                 const refuelDate = new Date(refuelDateRaw);
                 if (!isNaN(refuelDate.getTime())) {
                     dateStr = refuelDate.toLocaleDateString('pt-BR');
-                    // Calcula dias baseado na diferença de tempo real se o backend falhar
                     const diffTime = Math.abs(now - refuelDate);
                     daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
                 }
+            } else if (realRefuelDate) {
+                dateStr = realRefuelDate.toLocaleDateString('pt-BR');
             }
 
-            // Fallback para dias se a data falhar ou se o cálculo der 0/NaN mas houver valor vindo do banco
+            // Fallback final para dias
             if ((!daysInactive || isNaN(daysInactive)) && (alert.daysSinceLastRefuel || alert.daysSinceLastRefueling)) {
                 daysInactive = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling);
             }
 
-            // CORREÇÃO: Resolução do Nome da Obra
+            // Resolução do Nome da Obra
             let obraNome = alert.obra?.nome || alert.obra_nome;
             if (!obraNome) {
-                // Tenta buscar pelo ID na lista de obras passada como prop
                 const targetId = alert.obraId || alert.obra_id;
                 if (targetId && obras.length > 0) {
                     const foundObra = obras.find(o => String(o.id) === String(targetId));
@@ -76,7 +106,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             }
             if (!obraNome) obraNome = 'Obra Desconhecida';
 
-            // CORREÇÃO: Resolução do Veículo
+            // Resolução do Veículo
             let veiculoNome = alert.vehicle?.registroInterno;
             if (!veiculoNome) {
                  const targetVehId = alert.vehicleId || alert.vehicle_id;
@@ -89,7 +119,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
 
             list.push({
                 id: `inat-${alert.id}`,
-                category: 'inatividade', // Nova categoria exclusiva
+                category: 'inatividade', 
                 type: 'danger', 
                 title: `${veiculoNome} - Inatividade`,
                 subtitle: obraNome,
@@ -102,15 +132,11 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         // 3. Alertas de Funcionários (CNH)
         if (Array.isArray(employees)) {
             employees.forEach(emp => {
-                // CORREÇÃO CRÍTICA: Prioriza 'cnhVencimento' conforme estrutura do banco SQL
                 const cnhDateRaw = emp.cnhVencimento || emp.validadeCNH;
 
                 if (cnhDateRaw) {
                     let validade;
-
-                    // Tratamento robusto para data YYYY-MM-DD para evitar problemas de fuso horário
                     if (typeof cnhDateRaw === 'string' && cnhDateRaw.includes('-')) {
-                         // Separa ano, mês e dia e cria a data localmente (meio-dia para segurança)
                          const parts = cnhDateRaw.split('T')[0].split('-');
                          if (parts.length === 3) {
                              validade = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
@@ -122,22 +148,16 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                     }
                     
                     if (!isNaN(validade.getTime())) {
-                        // Zera horas para comparação
                         validade.setHours(0, 0, 0, 0);
-                        
                         const validadeTime = validade.getTime();
                         const nowTime = now.getTime();
                         const thirtyDaysTime = thirtyDays.getTime();
 
-                        // Lógica:
-                        // Vermelho: Se a data de validade for MENOR que hoje (Já venceu)
-                        // Amarelo: Se a data for MAIOR/IGUAL a hoje E MENOR/IGUAL a daqui 30 dias
-
                         if (validadeTime < nowTime) {
                             list.push({
                                 id: `emp-${emp.id}`,
-                                category: 'cnh', // Nova categoria exclusiva
-                                type: 'danger', // Vermelho
+                                category: 'cnh', 
+                                type: 'danger', 
                                 title: `CNH VENCIDA: ${emp.nome}`,
                                 subtitle: 'Habilitação',
                                 message: `Venceu em ${validade.toLocaleDateString('pt-BR')}.`,
@@ -147,8 +167,8 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                         } else if (validadeTime <= thirtyDaysTime) {
                             list.push({
                                 id: `emp-${emp.id}`,
-                                category: 'cnh', // Nova categoria exclusiva
-                                type: 'warning', // Amarelo
+                                category: 'cnh', 
+                                type: 'warning', 
                                 title: `CNH a Vencer: ${emp.nome}`,
                                 subtitle: 'Habilitação',
                                 message: `Vence em ${validade.toLocaleDateString('pt-BR')}.`,
@@ -166,11 +186,11 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             if (a.type !== 'danger' && b.type === 'danger') return 1;
             return 0;
         });
-    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert, obras]);
+    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert, obras, refuelings]);
 
     const filteredAlerts = activeTab === 'todos' ? alerts : alerts.filter(a => a.category === activeTab);
 
-    // Contagem atualizada com novas categorias
+    // Contagem atualizada
     const counts = {
         todos: alerts.length,
         manutencao: alerts.filter(a => a.category === 'manutencao').length,
@@ -179,12 +199,11 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         inatividade: alerts.filter(a => a.category === 'inatividade').length
     };
 
-    // Abas atualizadas
     const tabs = [
         { id: 'todos', label: 'Todos', icon: <Bell size={14}/> },
         { id: 'manutencao', label: 'Manutenção', icon: <Wrench size={14}/> },
-        { id: 'inatividade', label: 'Inatividade', icon: <Timer size={14}/> }, // Novo
-        { id: 'cnh', label: 'CNH', icon: <Badge size={14}/> }, // Novo
+        { id: 'inatividade', label: 'Inatividade', icon: <Timer size={14}/> },
+        { id: 'cnh', label: 'CNH', icon: <Badge size={14}/> },
         { id: 'docs_veiculo', label: 'Docs Veíc.', icon: <FileText size={14}/> },
     ];
 

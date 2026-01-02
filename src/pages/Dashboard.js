@@ -143,8 +143,9 @@ const Dashboard = ({
                     <AlertsPanel 
                         vehicles={vehicles} 
                         employees={employees} 
-                        revisions={revisions} // Passando revisões para o painel
-                        inactivityAlerts={inactivityAlerts} 
+                        revisions={revisions} 
+                        inactivityAlerts={inactivityAlerts}
+                        refuelings={refuelings} // <--- NOVO: Passando abastecimentos para validação em tempo real
                         obras={obras}
                         navigate={navigate}
                         setSelectedInactivityAlert={setSelectedInactivityAlert}
@@ -159,7 +160,7 @@ const Dashboard = ({
                     refuelings={refuelings} 
                     obras={obras}
                     vehicles={vehicles}
-                    employees={employees} // <--- NOVA PROP: Passando funcionários
+                    employees={employees} 
                     onClose={() => setSelectedInactivityAlert(null)}
                     onObserve={() => { setSelectedInactivityAlert(null); reloadData(); }}
                     onProlong={() => { setSelectedInactivityAlert(null); reloadData(); }}

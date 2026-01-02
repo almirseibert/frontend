@@ -75,7 +75,6 @@ const InactivityAlertModal = ({
         const vehicleRefuels = refuelings
             .filter(r => String(r.vehicleId) === String(alertData.vehicleId) && r.status === 'Concluída')
             .sort((a,b) => {
-                // Tratamento robusto de datas para ordenação
                 const dateA = new Date(a.date || a.created_at || a.data || 0);
                 const dateB = new Date(b.date || b.created_at || b.data || 0);
                 return dateB - dateA;
@@ -102,25 +101,24 @@ const InactivityAlertModal = ({
 
         // Cenário B: Encontramos abastecimentos reais
         const latest = vehicleRefuels[0];
-        // Tenta encontrar o campo de data correto
+        // Tenta encontrar o campo de data correto (priorizando date ou created_at)
         const dateRaw = latest.date || latest.created_at || latest.data;
         
-        if (!dateRaw) return null; // Abastecimento sem data
+        if (!dateRaw) return null; 
 
         const latestDate = new Date(dateRaw);
-        if (isNaN(latestDate.getTime())) return null; // Data inválida
+        if (isNaN(latestDate.getTime())) return null; 
 
         // Calcula dias inativo
         const diffTime = Math.abs(now - latestDate);
         const daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-        // Regra de Falso Positivo: Se tem menos de 7 dias
         const isFalsePositive = daysInactive < 7; 
 
         return {
             date: latestDate,
             dateStr: latestDate.toLocaleDateString('pt-BR') + ` às ${latestDate.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`,
-            daysInactive: isNaN(daysInactive) ? 0 : daysInactive, // Prevenção extra contra NaN
+            daysInactive: isNaN(daysInactive) ? 0 : daysInactive,
             isFalsePositive,
             fuelStation: latest.posto || 'Posto Interno/Comboio'
         };
@@ -139,7 +137,7 @@ const InactivityAlertModal = ({
         : '?'
     );
 
-    // Efeito para preencher automaticamente a observação se for falso positivo
+    // Efeito para preencher automaticamente a observação
     useEffect(() => {
         if (realStatus?.isFalsePositive && !observation) {
             setObservation(`Correção Automática: Veículo abastecido em ${realStatus.dateStr}. Alerta invalidado.`);
@@ -188,7 +186,8 @@ const InactivityAlertModal = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-fadeIn">
+        // Z-Index aumentado para 10000 para garantir que fique acima de tudo
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[10000] p-4 backdrop-blur-sm animate-fadeIn">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100 border border-gray-200">
                 {/* Header */}
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
@@ -272,7 +271,7 @@ const InactivityAlertModal = ({
                         />
                     </div>
 
-                    {/* AÇÕES */}
+                    {/* AÇÕES (Prorrogar escondido se for falso positivo) */}
                     {!realStatus?.isFalsePositive && (
                         <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
                             <div className="w-24">
