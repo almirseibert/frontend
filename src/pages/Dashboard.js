@@ -156,6 +156,7 @@ const Dashboard = ({
             {selectedInactivityAlert && (
                 <InactivityAlertModal 
                     alert={selectedInactivityAlert} 
+                    refuelings={refuelings} // <--- ADICIONADO: Passando lista atualizada
                     onClose={() => setSelectedInactivityAlert(null)}
                     onObserve={() => { setSelectedInactivityAlert(null); reloadData(); }}
                     onProlong={() => { setSelectedInactivityAlert(null); reloadData(); }}
