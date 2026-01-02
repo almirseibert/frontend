@@ -3,12 +3,12 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
     Download, Users, Truck, FileText, AlertTriangle, 
-    ClipboardCheck, Filter, Printer, HardHat, Loader 
+    ClipboardCheck, Filter, Printer, HardHat, Loader, Timer
 } from 'lucide-react';
 
 // Importa o componente de proteção
 import ProtectedComponent from '../components/ProtectedComponent';
-import apiClient from '../services/apiClient'; // Adicionado para buscar dados atualizados
+import apiClient from '../services/apiClient'; 
 
 // ===================================================================================
 // COMPONENTES AUXILIARES & ESTILOS VISUAIS
@@ -362,17 +362,19 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
 };
 
 // ===================================================================================
-// 3. GERADOR DE RELATÓRIO DE ALERTAS
+// 3. GERADOR DE RELATÓRIO DE ALERTAS (ATUALIZADO COM INATIVIDADE)
 // ===================================================================================
-const AlertsReportGenerator = ({ vehicles, employees }) => {
+const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obras = [] }) => {
     const [filterType, setFilterType] = useState('Todos');
 
     const alerts = useMemo(() => {
         const list = [];
         const now = new Date();
-        const thirtyDays = new Date();
+        now.setHours(0,0,0,0);
+        const thirtyDays = new Date(now);
         thirtyDays.setDate(now.getDate() + 30);
 
+        // 1. Alertas de Veículos
         vehicles.forEach(v => {
             if (v.possuiAviso) {
                 const text = (v.avisoTexto || '').toLowerCase();
@@ -390,10 +392,23 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
             }
         });
 
+        // 2. Alertas de Funcionários (CNH)
         employees.forEach(e => {
             if (e.cnhVencimento) {
-                let venc = e.cnhVencimento.includes('T') ? new Date(e.cnhVencimento) : new Date(e.cnhVencimento + 'T12:00:00Z');
+                // Tenta parsing robusto de data
+                let venc;
+                if (e.cnhVencimento.includes('T')) {
+                    venc = new Date(e.cnhVencimento);
+                } else if (e.cnhVencimento.includes('-')) {
+                    // YYYY-MM-DD
+                    const parts = e.cnhVencimento.split('-');
+                    venc = new Date(parts[0], parts[1]-1, parts[2]);
+                } else {
+                    venc = new Date(e.cnhVencimento);
+                }
+
                 if (!isNaN(venc.getTime())) {
+                    venc.setHours(0,0,0,0);
                     if (venc < now) {
                         list.push({ entity: e.nome, type: 'CNH', message: `CNH Vencida em ${venc.toLocaleDateString('pt-BR')}`, date: venc.toLocaleDateString('pt-BR'), isCritical: true });
                     } else if (venc <= thirtyDays) {
@@ -403,8 +418,42 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
             }
         });
 
+        // 3. Alertas de Inatividade (NOVO)
+        inactivityAlerts.forEach(alert => {
+            if (['Resolvido', 'Observado'].includes(alert.status)) return;
+
+            const days = alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || '?';
+            const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
+            let dateStr = 'Data desc.';
+            if (alertDateRaw) {
+                const d = new Date(alertDateRaw);
+                if (!isNaN(d.getTime())) dateStr = d.toLocaleDateString('pt-BR');
+            }
+
+            // Busca nome do veículo e obra se faltar
+            let vehicleName = alert.vehicle?.registroInterno || 'Veículo';
+            if (!alert.vehicle?.registroInterno && alert.vehicleId) {
+                const v = vehicles.find(v => String(v.id) === String(alert.vehicleId));
+                if (v) vehicleName = v.registroInterno;
+            }
+
+            let obraName = alert.obra?.nome || alert.obra_nome || 'Obra Desconhecida';
+            if (!alert.obra?.nome && alert.obraId) {
+                const o = obras.find(ob => String(ob.id) === String(alert.obraId));
+                if (o) obraName = o.nome;
+            }
+
+            list.push({
+                entity: vehicleName,
+                type: 'Inatividade',
+                message: `Parado há ${days} dias na obra ${obraName}. Último abastecimento: ${dateStr}.`,
+                date: dateStr, // Data de referência do problema
+                isCritical: true
+            });
+        });
+
         return list.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
-    }, [vehicles, employees]);
+    }, [vehicles, employees, inactivityAlerts, obras]);
 
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
 
@@ -431,13 +480,13 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
 
     return (
         <div className="animate-fade-in">
-            <SectionHeader icon={AlertTriangle} title="Relatório de Alertas e Pendências" description="Consolidado de vencimentos (CNH, Documentos, Revisões) e bloqueios." />
+            <SectionHeader icon={AlertTriangle} title="Relatório de Alertas e Pendências" description="Consolidado de vencimentos (CNH, Documentos, Revisões), bloqueios e inatividade." />
             
             <FilterSection>
-                <div className="col-span-full md:col-span-2">
+                <div className="col-span-full md:col-span-3">
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Filtrar por Categoria</label>
-                    <div className="flex gap-2">
-                        {['Todos', 'Manutenção', 'Documentação', 'CNH', 'Bloqueio'].map(type => (
+                    <div className="flex flex-wrap gap-2">
+                        {['Todos', 'Manutenção', 'Documentação', 'CNH', 'Bloqueio', 'Inatividade'].map(type => (
                             <button
                                 key={type}
                                 onClick={() => setFilterType(type)}
@@ -464,14 +513,21 @@ const AlertsReportGenerator = ({ vehicles, employees }) => {
                                 <th className="p-3">Entidade</th>
                                 <th className="p-3">Tipo</th>
                                 <th className="p-3">Mensagem</th>
-                                <th className="p-3">Data</th>
+                                <th className="p-3">Data Ref.</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
                             {filteredAlerts.map((a, idx) => (
                                 <tr key={idx} className="hover:bg-gray-50">
                                     <td className="p-3 font-medium">{a.entity}</td>
-                                    <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${a.type === 'CNH' ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>{a.type}</span></td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase 
+                                            ${a.type === 'CNH' ? 'bg-purple-100 text-purple-700' : 
+                                              a.type === 'Inatividade' ? 'bg-orange-100 text-orange-700' : 
+                                              'bg-red-100 text-red-700'}`}>
+                                            {a.type}
+                                        </span>
+                                    </td>
                                     <td className={`p-3 ${a.isCritical ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>{a.message}</td>
                                     <td className="p-3 text-gray-500 text-xs">{a.date}</td>
                                 </tr>
@@ -1175,11 +1231,27 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
 // ===================================================================================
 const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesForHours = [], employees = [], fines = [], vehicleGroups = {}, dailyWorkLogs = [] }) => {
     const [reportType, setReportType] = useState(null);
+    const [inactivityAlerts, setInactivityAlerts] = useState([]);
+
+    // Busca alertas de inatividade ao montar o componente
+    useEffect(() => {
+        const fetchInactivityAlerts = async () => {
+            try {
+                if (apiClient && apiClient.getInactivityAlerts) {
+                    const data = await apiClient.getInactivityAlerts();
+                    setInactivityAlerts(data || []);
+                }
+            } catch (error) {
+                console.error("Erro ao buscar alertas de inatividade para relatório:", error);
+            }
+        };
+        fetchInactivityAlerts();
+    }, []);
 
     const reportTypes = [
         { id: 'vehicles', label: 'Frota & Veículos', icon: Truck, desc: 'Listagem geral, status e localização.', color: 'bg-blue-600' },
         { id: 'employees', label: 'Funcionários', icon: Users, desc: 'Quadro, alocações e documentos.', color: 'bg-green-600' },
-        { id: 'alerts', label: 'Alertas & Pendências', icon: AlertTriangle, desc: 'Vencimentos, bloqueios e CNH.', color: 'bg-red-600' },
+        { id: 'alerts', label: 'Alertas & Pendências', icon: AlertTriangle, desc: 'Vencimentos, bloqueios e inatividade.', color: 'bg-red-600' },
         { id: 'billing', label: 'Relatório Faturamento', icon: ClipboardCheck, desc: 'Comparativo Contratado x Faturado.', color: 'bg-yellow-500' },
         { id: 'construction', label: 'Relatório de Obras', icon: HardHat, desc: 'Progresso Físico vs. Financeiro.', color: 'bg-orange-600' },
         { id: 'workplan', label: 'Plano de Trabalho', icon: FileText, desc: 'Histórico físico, progresso e despesas.', color: 'bg-gray-600' },
@@ -1231,7 +1303,7 @@ const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesF
                         <ProtectedComponent requiredPermission="viewer">
                             {reportType === 'vehicles' && <VehicleReportGenerator vehicles={vehicles} obras={obras} vehicleGroups={vehicleGroups} />}
                             {reportType === 'employees' && <EmployeeReportGenerator employees={employees} obras={obras} vehicles={vehicles} fines={fines} />}
-                            {reportType === 'alerts' && <AlertsReportGenerator vehicles={vehicles} employees={employees} />}
+                            {reportType === 'alerts' && <AlertsReportGenerator vehicles={vehicles} employees={employees} inactivityAlerts={inactivityAlerts} obras={obras} />}
                             {reportType === 'billing' && <BillingReportGenerator obras={obras} vehicles={vehicles} />}
                             {reportType === 'construction' && <ConstructionReportGenerator obras={obras} vehicles={vehicles} dailyWorkLogs={dailyWorkLogs} vehicleGroups={vehicleGroups} />}
                             {reportType === 'workplan' && <WorkPlanReportGenerator obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} expenses={expenses} equipmentTypesForHours={equipmentTypesForHours} />}
