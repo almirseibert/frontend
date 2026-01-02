@@ -7,13 +7,12 @@ import autoTable from 'jspdf-autotable';
 import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
-import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
 const RefuelingPage = ({
     user,
     vehicles = [],
     obras = [],
-    partners = [], 
+    partners = [], // Necessário para passar ao ConfirmRefuelingModal
     refuelings = [], 
     employees = [],
     expenses = [], 
@@ -45,15 +44,25 @@ const RefuelingPage = ({
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
+    // --- HELPER: Formatação de Data Segura ---
     const formatDateSafe = (dateInput) => {
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
-            let dateStr = String(dateInput);
-            if (dateStr.includes(' ') && !dateStr.includes('T')) {
-                dateStr = dateStr.replace(' ', 'T');
+            let date;
+            // Se for Timestamp do Firestore (tem método toDate)
+            if (dateInput && typeof dateInput.toDate === 'function') {
+                date = dateInput.toDate();
+            } else {
+                let dateStr = String(dateInput);
+                if (dateStr.includes(' ') && !dateStr.includes('T')) {
+                    dateStr = dateStr.replace(' ', 'T');
+                }
+                date = new Date(dateStr);
             }
-            const date = new Date(dateStr);
+            
             if (isNaN(date.getTime())) return 'Data Inválida';
+            // Ajuste para exibir a data correta no timezone local sem conversão UTC forçada se já vier ajustada
+            // Mas para consistência com o banco que salva UTC, usamos getUTC methods para exibir o dia salvo
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
@@ -89,7 +98,7 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Unificado) ---
+    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         setIsGeneratingPdf(true);
         try {
@@ -124,21 +133,33 @@ const RefuelingPage = ({
                 doc.setFontSize(12);
                 doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
 
-                // Lógica de Leitura Unificada para o PDF
                 let leituraLabel = 'Leitura';
                 let leituraValue = 'N/A';
-                
-                if (vehicle) {
-                    const allowed = getAllowedReadingTypes(vehicle.tipo);
-                    if (allowed.includes('odometro')) {
-                        leituraLabel = 'Odômetro';
-                        // Pega do pedido ou fallback
-                        leituraValue = order.odometro || 'N/A';
-                    } else {
-                        leituraLabel = 'Horímetro';
-                        // Pega do pedido, fallback para digital/analogico se for antigo
-                        leituraValue = order.horimetro || order.horimetroDigital || order.horimetroAnalogico || 'N/A';
-                    }
+                if (vehicle && groups && Object.keys(groups).length > 0) {
+                     const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
+                     if (group === 'Máquinas Pesadas') {
+                         leituraLabel = 'Horímetro';
+                         leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
+                     } else if (group === 'Caminhões') {
+                         if (order.horimetro != null && order.horimetro > 0) {
+                            leituraLabel = 'Horímetro';
+                            leituraValue = order.horimetro;
+                         } else {
+                            leituraLabel = 'Odômetro';
+                            leituraValue = order.odometro || 'N/A';
+                         }
+                     } else { 
+                         leituraLabel = 'Odômetro';
+                         leituraValue = order.odometro || 'N/A';
+                     }
+                } else { 
+                     if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
+                         leituraLabel = 'Horímetro';
+                         leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
+                     } else {
+                         leituraLabel = 'Odômetro';
+                         leituraValue = order.odometro || 'N/A';
+                     }
                 }
 
                 const body = [
@@ -185,7 +206,7 @@ const RefuelingPage = ({
                 doc.setDrawColor(180, 180, 180);
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                doc.save(`Autorizacao_${order.authNumber}_${vehicle?.registroInterno}_${order.data.toDate().toISOString().split('T')[0]}.pdf`);
+                doc.save(`Autorizacao_${order.authNumber}.pdf`);
                 setIsGeneratingPdf(false);
             };
 
@@ -420,14 +441,13 @@ const RefuelingPage = ({
                     order={orderToConfirm}
                     obras={obras}
                     expenses={expenses}
-                    vehicles={vehicles}
-                    partners={partners} // Passando Partners aqui
+                    vehicles={vehicles} // NOVA PROP
                     onClose={() => setIsConfirmModalOpen(false)}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
                     reloadData={reloadData}
                     refuelings={refuelings}
-                    PasswordConfirmationModal={PasswordConfirmationModal}
+                    PasswordConfirmationModal={PasswordConfirmationModal} // NOVA PROP
                 />
             )}
 
