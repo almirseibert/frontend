@@ -177,11 +177,19 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         }
     };
     
-    // Exportar CSV
+    // Exportar CSV - ATUALIZADO COM RASTREADOR
     const exportToCSV = () => {
-        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?'];
+        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?', 'Rastreador'];
         const rows = filteredVehicles.map(v => [
-            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO'
+            v.registroInterno, 
+            v.placa, 
+            v.marca, 
+            v.modelo, 
+            v.tipo, 
+            v.vehicleReading, 
+            v.computedStatus, 
+            v.isOutsourced ? 'SIM' : 'NÃO',
+            v.rastreador || 'Sem Rastreador' // Incluído
         ]);
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(","))].join("\n");
         const link = document.createElement("a");

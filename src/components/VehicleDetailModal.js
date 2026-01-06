@@ -1,7 +1,7 @@
 import React from 'react';
 import { ImageOff, X, MapPin } from 'lucide-react';
 
-// --- Modal de Detalhes do Veículo (V2.6 - Robust Data Loading) ---
+// --- Modal de Detalhes do Veículo (V2.7 - Rastreador Label) ---
 const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => {
     if (!vehicle) return null;
 
@@ -53,7 +53,6 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
         ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${apiBaseUrl}${vehicle.fotoURL}`)
         : 'https://placehold.co/600x400/e2e8f0/cbd5e0?text=S/Foto';
 
-    // Recuperação de dados robusta para exibição
     const anoFab = resolveValue(vehicle, ['ano_fabricacao', 'anoFabricacao', 'AnoFabricacao']);
     const anoMod = resolveValue(vehicle, ['ano_modelo', 'anoModelo', 'AnoModelo']);
     const cor = resolveValue(vehicle, ['cor', 'Cor']);
@@ -78,9 +77,11 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                             onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x400/e2e8f0/cbd5e0?text=Erro'; }}
                         />
                          {!vehicle.fotoURL && <ImageOff className="text-gray-400" size={48} />}
-                         {vehicle.hasRastreador && (
-                             <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow flex items-center gap-1">
-                                 <MapPin size={10} /> Rastreador
+                         
+                         {/* BADGE RASTREADOR DINÂMICO */}
+                         {vehicle.rastreador && vehicle.rastreador !== 'Sem Rastreador' && (
+                             <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow flex items-center gap-1 z-10">
+                                 <MapPin size={10} /> {vehicle.rastreador}
                              </div>
                          )}
                     </div>
@@ -102,7 +103,7 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                          {/* Separador */}
                         <div className="col-span-2 border-t my-2"></div>
 
-                        {/* Detalhes Adicionais com Carga Robusta */}
+                        {/* Detalhes Adicionais */}
                          {(anoFab || anoMod) && (<>
                             <div className="font-semibold text-gray-600">Ano Fab./Modelo:</div>
                             <div className="text-gray-800 font-medium">{anoFab || '-'} / {anoMod || '-'}</div>
@@ -136,7 +137,7 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                             </>
                         )}
 
-                         {/* Validades (Condicional para Caminhões) */}
+                         {/* Validades */}
                          {vehicleGroup === 'Caminhões' && (
                             <>
                                 <div className="col-span-2 border-t my-2"></div>
