@@ -103,10 +103,12 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO ERRO 500: Envia dados convertidos explicitamente
+            // CORREÇÃO CRÍTICA (Erro 400/500):
+            // Não usamos parseInt nos IDs pois podem ser UUIDs (strings alfanuméricas).
+            // Enviamos os dados crus e deixamos o backend (SQL) lidar.
             const payload = {
-                obraId: parseInt(obraId, 10), // Garante Int
-                employeeId: parseInt(employeeId, 10), // Garante Int
+                obraId: obraId, 
+                employeeId: employeeId,
                 employeeName,
                 dataEntrada,
                 readingType,
@@ -114,8 +116,9 @@ const ObraAllocationModal = ({
                 observacoes: observacoes || '',
                 
                 // Mapeamento específico para a tabela 'obras_historico_veiculos'
-                horimetroEntrada: readingType === 'horimetro' ? val : 0, // Envia 0 em vez de null
-                odometroEntrada: readingType === 'odometro' ? val : 0, // Envia 0 em vez de null
+                // Enviamos 0 para campos numéricos não usados (SQL strict mode)
+                horimetroEntrada: readingType === 'horimetro' ? val : 0, 
+                odometroEntrada: readingType === 'odometro' ? val : 0, 
                 
                 // Compatibilidade com lógica legada
                 horimetro: readingType === 'horimetro' ? val : 0,
@@ -170,7 +173,7 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO ERRO 500: Envia dados de Saída explicitamente e Inteiros
+            // CORREÇÃO CRÍTICA: IDs como string/original
             const payload = {
                 dataSaida,
                 readingType,
@@ -178,10 +181,10 @@ const ObraAllocationModal = ({
                 location: locationAfterDeallocate,
                 shouldFinalizeObra,
                 dataFimObra,
-                obraId: vehicle.obraAtualId ? parseInt(vehicle.obraAtualId, 10) : null,
+                obraId: vehicle.obraAtualId, // Envia original (pode ser UUID)
                 observacoes: observacoes || '',
                 
-                // Mapeamento específico para a tabela 'obras_historico_veiculos'
+                // Mapeamento específico
                 horimetroSaida: readingType === 'horimetro' ? val : 0,
                 odometroSaida: readingType === 'odometro' ? val : 0,
 

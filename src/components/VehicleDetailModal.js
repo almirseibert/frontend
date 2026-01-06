@@ -1,9 +1,20 @@
 import React from 'react';
 import { ImageOff, X, MapPin } from 'lucide-react';
 
-// --- Modal de Detalhes do Veículo ---
+// --- Modal de Detalhes do Veículo (V2.6 - Robust Data Loading) ---
 const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => {
     if (!vehicle) return null;
+
+    // --- Helper Robusto (Igual ao VehicleModal) ---
+    const resolveValue = (obj, keys) => {
+        if (!obj) return '';
+        for (const key of keys) {
+            if (obj[key] !== undefined && obj[key] !== null) {
+                return obj[key].toString();
+            }
+        }
+        return '';
+    };
 
     const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
     const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
@@ -41,6 +52,12 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
     const imageUrl = vehicle.fotoURL 
         ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${apiBaseUrl}${vehicle.fotoURL}`)
         : 'https://placehold.co/600x400/e2e8f0/cbd5e0?text=S/Foto';
+
+    // Recuperação de dados robusta para exibição
+    const anoFab = resolveValue(vehicle, ['ano_fabricacao', 'anoFabricacao', 'AnoFabricacao']);
+    const anoMod = resolveValue(vehicle, ['ano_modelo', 'anoModelo', 'AnoModelo']);
+    const cor = resolveValue(vehicle, ['cor', 'Cor']);
+    const chassi = resolveValue(vehicle, ['chassi', 'Chassi']);
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -85,20 +102,20 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                          {/* Separador */}
                         <div className="col-span-2 border-t my-2"></div>
 
-                        {/* Detalhes Adicionais */}
-                         {(vehicle.ano_fabricacao || vehicle.ano_modelo) && (<>
+                        {/* Detalhes Adicionais com Carga Robusta */}
+                         {(anoFab || anoMod) && (<>
                             <div className="font-semibold text-gray-600">Ano Fab./Modelo:</div>
-                            <div className="text-gray-800 font-medium">{vehicle.ano_fabricacao || '-'} / {vehicle.ano_modelo || '-'}</div>
+                            <div className="text-gray-800 font-medium">{anoFab || '-'} / {anoMod || '-'}</div>
                         </>)}
 
-                        {vehicle.cor && (<>
+                        {cor && (<>
                             <div className="font-semibold text-gray-600">Cor:</div>
-                            <div className="text-gray-800 font-medium">{vehicle.cor}</div>
+                            <div className="text-gray-800 font-medium">{cor}</div>
                         </>)}
 
-                        {vehicle.chassi && (<>
+                        {chassi && (<>
                             <div className="font-semibold text-gray-600">Chassi:</div>
-                            <div className="text-gray-800 font-medium break-all">{vehicle.chassi}</div>
+                            <div className="text-gray-800 font-medium break-all">{chassi}</div>
                         </>)}
 
                          {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Veículos Leves') && (<>
