@@ -130,7 +130,11 @@ const ObraAllocationModal = ({
             reloadData();
             onClose();
         } catch (error) {
-            setAlertMessage("Erro ao alocar: " + (error.response?.data?.message || error.message));
+            console.error("Erro detalhado da API:", error.response?.data);
+            const msg = error.response?.data?.sqlMessage 
+                        ? `Erro SQL: ${error.response.data.sqlMessage}` 
+                        : (error.response?.data?.error || error.message);
+            setAlertMessage("Erro ao alocar: " + msg);
         } finally {
             setIsSaving(false);
         }
@@ -198,7 +202,11 @@ const ObraAllocationModal = ({
             reloadData();
             onClose();
         } catch (error) {
-            setAlertMessage(error.response?.data?.message || "Erro ao desalocar.");
+            console.error("Erro detalhado da API:", error.response?.data);
+            const msg = error.response?.data?.sqlMessage 
+                        ? `Erro SQL: ${error.response.data.sqlMessage}` 
+                        : (error.response?.data?.error || error.message);
+            setAlertMessage("Erro ao desalocar: " + msg);
         } finally {
             setIsSaving(false);
         }
