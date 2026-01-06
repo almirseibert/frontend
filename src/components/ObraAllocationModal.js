@@ -65,7 +65,7 @@ const ObraAllocationModal = ({
         setRestrictionAlert(null);
         const staticIssues = checkVehicleRestrictions(vehicle, revisions);
         
-        // Passa readingType ('horimetro' ou 'odometro') para ativar as travas específicas
+        // Passa readingType para validação correta (50h vs 1000km)
         const consistencyIssue = checkReadingConsistency(vehicle, readingValue, readingType);
         if (consistencyIssue.status === 'bloqueio') {
             staticIssues.push({ type: 'bloqueio', message: consistencyIssue.message });
@@ -100,22 +100,30 @@ const ObraAllocationModal = ({
         setIsSaving(true);
         const selectedEmployee = employees.find(e => e.id.toString() === employeeId.toString());
         const employeeName = selectedEmployee ? selectedEmployee.nome : 'N/A';
+        const val = parseFloat(readingValue);
 
         try {
-            await apiClient.allocateVehicleToObra(vehicle.id, {
+            // CORREÇÃO ERRO 500: Envia campos explícitos 'horimetro'/'odometro' além do genérico
+            // Isso garante compatibilidade com backends que esperam colunas legadas
+            const payload = {
                 obraId,
                 employeeId,
                 employeeName,
                 dataEntrada,
                 readingType,
-                readingValue: parseFloat(readingValue),
-                observacoes
-            });
+                readingValue: val,
+                observacoes,
+                // Campos explícitos para evitar erro no backend
+                horimetro: readingType === 'horimetro' ? val : null,
+                odometro: readingType === 'odometro' ? val : null
+            };
+
+            await apiClient.allocateVehicleToObra(vehicle.id, payload);
             setAlertMessage("Veículo alocado com sucesso!");
             reloadData();
             onClose();
         } catch (error) {
-            setAlertMessage("Erro ao alocar: " + error.message);
+            setAlertMessage("Erro ao alocar: " + (error.response?.data?.message || error.message));
         } finally {
             setIsSaving(false);
         }
@@ -155,17 +163,25 @@ const ObraAllocationModal = ({
 
     const executeDeallocate = async (shouldFinalizeObra, dataFimObra) => {
         setIsSaving(true);
+        const val = parseFloat(readingValue);
+
         try {
-            await apiClient.deallocateVehicleFromObra(vehicle.id, {
+            // CORREÇÃO ERRO 500: Envia campos explícitos aqui também
+            const payload = {
                 dataSaida,
                 readingType,
-                readingValue: parseFloat(readingValue),
+                readingValue: val,
                 location: locationAfterDeallocate,
                 shouldFinalizeObra,
                 dataFimObra,
                 obraId: vehicle.obraAtualId,
-                observacoes
-            });
+                observacoes,
+                // Campos explícitos
+                horimetro: readingType === 'horimetro' ? val : null,
+                odometro: readingType === 'odometro' ? val : null
+            };
+
+            await apiClient.deallocateVehicleFromObra(vehicle.id, payload);
             setAlertMessage(`Desalocado com sucesso!`);
             reloadData();
             onClose();

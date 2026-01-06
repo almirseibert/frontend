@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin } from 'lucide-react';
 import { checkReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.1 - Campos Adicionais e Regras de Exibição) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.2 - Correção Chassi/Anos) ---
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     
     // Estado do Formulário
@@ -13,7 +13,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         tipo: vehicle?.tipo || (vehicleTypes.length > 0 ? vehicleTypes[0] : ''),
         marca: vehicle?.marca || '',
         modelo: vehicle?.modelo || '',
-        cor: vehicle?.cor || '', // Novo Campo
+        cor: vehicle?.cor || '',
         
         // Leituras (Unificadas)
         odometro: vehicle?.odometro?.toString() || '0',
@@ -22,10 +22,10 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         // Configurações
         isComboioVehicle: vehicle?.isComboioVehicle || false,
         isOutsourced: vehicle?.isOutsourced || false,
-        hasRastreador: vehicle?.hasRastreador || false, // Novo Campo
+        hasRastreador: vehicle?.hasRastreador || false,
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
         
-        // Detalhes
+        // Detalhes - Mapeamento direto das colunas do banco
         anoFabricacao: vehicle?.ano_fabricacao?.toString() || '',
         anoModelo: vehicle?.ano_modelo?.toString() || '',
         chassi: vehicle?.chassi || '',
@@ -67,46 +67,31 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
     }, [currentGroup]);
 
     // --- Regras de Negócio (Exibição Condicional) ---
-    
-    // Regra Comboio: NÃO mostrar se for Máquina Pesada, Automóvel, Moto, Pipa, Prancha, Cavalo ou Caçambas
     const canBeComboio = useMemo(() => {
         const type = formData.tipo;
         const group = currentGroup;
-
-        // Lista de exclusão explícita
         if (group === 'Máquinas Pesadas') return false;
-        
-        const forbiddenTypes = [
-            'Automóvel', 'Moto', 'Caminhão Pipa', 'Caminhão Prancha', 'Cavalo'
-        ];
-        
+        const forbiddenTypes = ['Automóvel', 'Moto', 'Caminhão Pipa', 'Caminhão Prancha', 'Cavalo'];
         if (forbiddenTypes.includes(type)) return false;
-        if (type.includes('Caçamba')) return false; // Exclui todas as caçambas
-
+        if (type.includes('Caçamba')) return false; 
         return true;
     }, [formData.tipo, currentGroup]);
 
-    // Regra Capacidade (M³): APENAS para Caçambas (todas), Pipa e Tanque
     const showCapacity = useMemo(() => {
         const type = formData.tipo;
         const allowedTypes = ['Caminhão Pipa', 'Caminhão Tanque'];
-        
         if (allowedTypes.includes(type)) return true;
-        if (type.includes('Caçamba')) return true; // Inclui Caçamba Toco, Truckado, Traçado, etc.
-
+        if (type.includes('Caçamba')) return true; 
         return false;
     }, [formData.tipo]);
-
 
     // --- Handlers ---
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-        
         if (name === 'naoPodeCircular') {
             setFormData(prev => ({ ...prev, canCirculate: !checked }));
             return;
         }
-
         setFormData(prev => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : value
@@ -139,7 +124,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
              return;
          }
 
-        // Validação de Duplicidade
         if (!isEditing || (vehicle && vehicle.registroInterno !== formData.registroInterno)) {
             const internalIdExists = vehicles.some(v => v.registroInterno === formData.registroInterno && v.id !== vehicle?.id);
             if (internalIdExists) { setError('Já existe um veículo com este registro interno.'); return; }
@@ -161,6 +145,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         if (showHorimetro) mediaCalculo = 'horimetro'; 
         if (showOdometro) mediaCalculo = 'odometro'; 
 
+        // Monta o payload garantindo os nomes das colunas
         const dataToSave = {
             ...formData,
             odometro: showOdometro ? (parseFloat(formData.odometro) || 0) : null,
@@ -170,23 +155,22 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             
             mediaCalculo: mediaCalculo,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
+            
+            // Campos Chave solicitados
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
-            capacidade: showCapacity ? (parseFloat(formData.capacidade) || null) : null, // Só salva capacidade se permitido
+            chassi: formData.chassi, // Garante envio explícito
+
+            capacidade: showCapacity ? (parseFloat(formData.capacidade) || null) : null,
             validadeTacografo: formData.validadeTacografo || null,
             validadeAET_DAER: formData.validadeAET_DAER || null,
             validadeAET_DNIT: formData.validadeAET_DNIT || null,
             
-            // Novos campos salvos explicitamente
             cor: formData.cor,
-            chassi: formData.chassi,
             hasRastreador: formData.hasRastreador
         };
         
-        // Se comboio foi desabilitado pela UI, garante false
-        if (!canBeComboio) {
-            dataToSave.isComboioVehicle = false;
-        }
+        if (!canBeComboio) dataToSave.isComboioVehicle = false;
 
         if (dataToSave.isComboioVehicle) {
             if (!vehicle?.isComboioVehicle || !vehicle?.fuelLevels) {
@@ -194,6 +178,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             }
         }
 
+        // Remove chaves temporárias do state que não são colunas diretas (embora a API costume ignorar)
         delete dataToSave.anoFabricacao;
         delete dataToSave.anoModelo;
 
@@ -302,11 +287,11 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                 {/* CAMPOS NOVOS (Ano, Cor) */}
                                 <div className="grid grid-cols-3 gap-2">
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Ano Fab.</label>
+                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">ANO FAB.</label>
                                         <input name="anoFabricacao" type="number" value={formData.anoFabricacao} onChange={handleChange} placeholder="2024" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Ano Mod.</label>
+                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">ANO MOD.</label>
                                         <input name="anoModelo" type="number" value={formData.anoModelo} onChange={handleChange} placeholder="2025" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                                     </div>
                                     <div>
