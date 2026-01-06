@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin } from 'lucide-react';
 import { checkReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.2 - Correção Chassi/Anos) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.3 - Correção Campos Chave) ---
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     
     // Estado do Formulário
@@ -26,8 +26,8 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
         
         // Detalhes - Mapeamento direto das colunas do banco
-        anoFabricacao: vehicle?.ano_fabricacao?.toString() || '',
-        anoModelo: vehicle?.ano_modelo?.toString() || '',
+        anoFabricacao: vehicle?.ano_fabricacao?.toString() || '', // Garante leitura correta
+        anoModelo: vehicle?.ano_modelo?.toString() || '', // Garante leitura correta
         chassi: vehicle?.chassi || '',
         
         // Validades
@@ -159,7 +159,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             // Campos Chave solicitados
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
-            chassi: formData.chassi, // Garante envio explícito
+            chassi: formData.chassi, 
 
             capacidade: showCapacity ? (parseFloat(formData.capacidade) || null) : null,
             validadeTacografo: formData.validadeTacografo || null,
@@ -178,7 +178,8 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             }
         }
 
-        // Remove chaves temporárias do state que não são colunas diretas (embora a API costume ignorar)
+        // Importante: NÃO deletar 'anoFabricacao' e 'anoModelo' aqui se o backend espera esses nomes ou se o mapeamento é feito lá.
+        // Mas como a solicitação é usar as colunas do banco, vamos converter para snake_case no payload acima e remover os camelCase.
         delete dataToSave.anoFabricacao;
         delete dataToSave.anoModelo;
 

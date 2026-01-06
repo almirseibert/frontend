@@ -65,7 +65,7 @@ const ObraAllocationModal = ({
         setRestrictionAlert(null);
         const staticIssues = checkVehicleRestrictions(vehicle, revisions);
         
-        // Passa readingType para validação correta (50h vs 1000km)
+        // Passa readingType ('horimetro' ou 'odometro') para ativar as travas específicas
         const consistencyIssue = checkReadingConsistency(vehicle, readingValue, readingType);
         if (consistencyIssue.status === 'bloqueio') {
             staticIssues.push({ type: 'bloqueio', message: consistencyIssue.message });
@@ -103,8 +103,7 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO ERRO 500: Envia campos explícitos 'horimetro'/'odometro' além do genérico
-            // Isso garante compatibilidade com backends que esperam colunas legadas
+            // CORREÇÃO ERRO 500: Garantir envio de dados robustos
             const payload = {
                 obraId,
                 employeeId,
@@ -112,10 +111,10 @@ const ObraAllocationModal = ({
                 dataEntrada,
                 readingType,
                 readingValue: val,
-                observacoes,
-                // Campos explícitos para evitar erro no backend
-                horimetro: readingType === 'horimetro' ? val : null,
-                odometro: readingType === 'odometro' ? val : null
+                observacoes: observacoes || '',
+                // Envia 0 se não for o tipo, pois alguns backends falham com null em colunas NOT NULL
+                horimetro: readingType === 'horimetro' ? val : 0,
+                odometro: readingType === 'odometro' ? val : 0
             };
 
             await apiClient.allocateVehicleToObra(vehicle.id, payload);
@@ -166,7 +165,7 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO ERRO 500: Envia campos explícitos aqui também
+            // CORREÇÃO ERRO 500: Mesma robustez para desalocação
             const payload = {
                 dataSaida,
                 readingType,
@@ -175,10 +174,10 @@ const ObraAllocationModal = ({
                 shouldFinalizeObra,
                 dataFimObra,
                 obraId: vehicle.obraAtualId,
-                observacoes,
-                // Campos explícitos
-                horimetro: readingType === 'horimetro' ? val : null,
-                odometro: readingType === 'odometro' ? val : null
+                observacoes: observacoes || '',
+                // Envia 0 se não for o tipo
+                horimetro: readingType === 'horimetro' ? val : 0,
+                odometro: readingType === 'odometro' ? val : 0
             };
 
             await apiClient.deallocateVehicleFromObra(vehicle.id, payload);
