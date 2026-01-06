@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge } from 'lucide-react';
+import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin } from 'lucide-react';
 import { checkReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.0 - UNIFIED HORIMETRO) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.1 - Campos Adicionais e Regras de Exibição) ---
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     
     // Estado do Formulário
@@ -13,14 +13,16 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         tipo: vehicle?.tipo || (vehicleTypes.length > 0 ? vehicleTypes[0] : ''),
         marca: vehicle?.marca || '',
         modelo: vehicle?.modelo || '',
+        cor: vehicle?.cor || '', // Novo Campo
         
         // Leituras (Unificadas)
         odometro: vehicle?.odometro?.toString() || '0',
-        horimetro: vehicle?.horimetro?.toString() || (vehicle?.horimetroDigital?.toString() || '0'), // Migra visualmente se antigo existir
+        horimetro: vehicle?.horimetro?.toString() || (vehicle?.horimetroDigital?.toString() || '0'),
         
         // Configurações
         isComboioVehicle: vehicle?.isComboioVehicle || false,
         isOutsourced: vehicle?.isOutsourced || false,
+        hasRastreador: vehicle?.hasRastreador || false, // Novo Campo
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
         
         // Detalhes
@@ -63,6 +65,38 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         if (currentGroup === 'Máquinas Pesadas' || currentGroup === 'Caminhões') return true;
         return false;
     }, [currentGroup]);
+
+    // --- Regras de Negócio (Exibição Condicional) ---
+    
+    // Regra Comboio: NÃO mostrar se for Máquina Pesada, Automóvel, Moto, Pipa, Prancha, Cavalo ou Caçambas
+    const canBeComboio = useMemo(() => {
+        const type = formData.tipo;
+        const group = currentGroup;
+
+        // Lista de exclusão explícita
+        if (group === 'Máquinas Pesadas') return false;
+        
+        const forbiddenTypes = [
+            'Automóvel', 'Moto', 'Caminhão Pipa', 'Caminhão Prancha', 'Cavalo'
+        ];
+        
+        if (forbiddenTypes.includes(type)) return false;
+        if (type.includes('Caçamba')) return false; // Exclui todas as caçambas
+
+        return true;
+    }, [formData.tipo, currentGroup]);
+
+    // Regra Capacidade (M³): APENAS para Caçambas (todas), Pipa e Tanque
+    const showCapacity = useMemo(() => {
+        const type = formData.tipo;
+        const allowedTypes = ['Caminhão Pipa', 'Caminhão Tanque'];
+        
+        if (allowedTypes.includes(type)) return true;
+        if (type.includes('Caçamba')) return true; // Inclui Caçamba Toco, Truckado, Traçado, etc.
+
+        return false;
+    }, [formData.tipo]);
+
 
     // --- Handlers ---
     const handleChange = (e) => {
@@ -111,32 +145,26 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             if (internalIdExists) { setError('Já existe um veículo com este registro interno.'); return; }
         }
 
-        // --- REGRAS 2 e 3: Validação de Consistência ---
         let consistencyIssues = [];
-        
         if (isEditing) {
             if (showOdometro) {
                 const check = checkReadingConsistency(vehicle, formData.odometro, 'odometro');
                 if (check.status === 'bloqueio') consistencyIssues.push(check.message);
             }
             if (showHorimetro) {
-                // Valida campo UNIFICADO 'horimetro'
                 const check = checkReadingConsistency(vehicle, formData.horimetro, 'horimetro');
                 if (check.status === 'bloqueio') consistencyIssues.push(check.message);
             }
         }
 
-        // Preparar objeto final
-        // Regra 7: Média
         let mediaCalculo = 'odometro';
-        if (showHorimetro) mediaCalculo = 'horimetro'; // L/Hr para pesados
-        if (showOdometro) mediaCalculo = 'odometro'; // Km/L para leves/trecho
+        if (showHorimetro) mediaCalculo = 'horimetro'; 
+        if (showOdometro) mediaCalculo = 'odometro'; 
 
         const dataToSave = {
             ...formData,
             odometro: showOdometro ? (parseFloat(formData.odometro) || 0) : null,
             horimetro: showHorimetro ? (parseFloat(formData.horimetro) || 0) : null,
-            // Zera legados para evitar confusão futura
             horimetroDigital: null,
             horimetroAnalogico: null,
             
@@ -144,14 +172,23 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
-            capacidade: parseFloat(formData.capacidade) || null,
+            capacidade: showCapacity ? (parseFloat(formData.capacidade) || null) : null, // Só salva capacidade se permitido
             validadeTacografo: formData.validadeTacografo || null,
             validadeAET_DAER: formData.validadeAET_DAER || null,
             validadeAET_DNIT: formData.validadeAET_DNIT || null,
+            
+            // Novos campos salvos explicitamente
+            cor: formData.cor,
+            chassi: formData.chassi,
+            hasRastreador: formData.hasRastreador
         };
         
-        // Inicializar Combustível se for Comboio novo
-        if (formData.isComboioVehicle) {
+        // Se comboio foi desabilitado pela UI, garante false
+        if (!canBeComboio) {
+            dataToSave.isComboioVehicle = false;
+        }
+
+        if (dataToSave.isComboioVehicle) {
             if (!vehicle?.isComboioVehicle || !vehicle?.fuelLevels) {
                 dataToSave.fuelLevels = { dieselS10: 0, dieselComum: 0 };
             }
@@ -261,6 +298,22 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                         <input name="modelo" value={formData.modelo} onChange={handleChange} placeholder="FH 540" required className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                                     </div>
                                 </div>
+
+                                {/* CAMPOS NOVOS (Ano, Cor) */}
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Ano Fab.</label>
+                                        <input name="anoFabricacao" type="number" value={formData.anoFabricacao} onChange={handleChange} placeholder="2024" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Ano Mod.</label>
+                                        <input name="anoModelo" type="number" value={formData.anoModelo} onChange={handleChange} placeholder="2025" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Cor</label>
+                                        <input name="cor" value={formData.cor} onChange={handleChange} placeholder="Branco" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                                    </div>
+                                </div>
                                 
                                 <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
                                     <label className="flex items-center space-x-3 cursor-pointer">
@@ -296,17 +349,29 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                     </div>
                                 )}
                                 
-                                <div className="flex items-center p-3 border rounded-lg hover:bg-gray-50 transition">
-                                    <input name="isComboioVehicle" id="isComboioVehicle" type="checkbox" checked={formData.isComboioVehicle} onChange={handleChange} className="h-5 w-5 rounded text-yellow-600 focus:ring-yellow-500"/>
-                                    <label htmlFor="isComboioVehicle" className="ml-3 text-sm font-bold text-gray-700 cursor-pointer w-full">É um veículo Comboio?</label>
+                                {/* Opção Comboio - Condicional */}
+                                {canBeComboio && (
+                                    <div className="flex items-center p-3 border rounded-lg hover:bg-gray-50 transition">
+                                        <input name="isComboioVehicle" id="isComboioVehicle" type="checkbox" checked={formData.isComboioVehicle} onChange={handleChange} className="h-5 w-5 rounded text-yellow-600 focus:ring-yellow-500"/>
+                                        <label htmlFor="isComboioVehicle" className="ml-3 text-sm font-bold text-gray-700 cursor-pointer w-full">É um veículo Comboio?</label>
+                                    </div>
+                                )}
+                                
+                                {/* Campo Chassi */}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Chassi</label>
+                                    <input name="chassi" value={formData.chassi} onChange={handleChange} placeholder="Identificação do chassi" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none uppercase" />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Capacidade (m³)</label>
-                                        <input name="capacidade" value={formData.capacidade} onChange={handleChange} type="number" step="any" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
-                                    </div>
-                                    <div>
+                                    {/* Campo Capacidade - Condicional */}
+                                    {showCapacity && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Capacidade (m³)</label>
+                                            <input name="capacidade" value={formData.capacidade} onChange={handleChange} type="number" step="any" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                                        </div>
+                                    )}
+                                    <div className={showCapacity ? "" : "col-span-2"}>
                                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Tanque (L)</label>
                                         <input name="fuelCapacity" value={formData.fuelCapacity} onChange={handleChange} type="number" step="any" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                                     </div>
@@ -351,6 +416,12 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
                                     </div>
                                 )}
                                 
+                                {/* Opção Rastreador */}
+                                <div className="flex items-center p-3 border rounded-lg bg-gray-50">
+                                    <input name="hasRastreador" id="hasRastreador" type="checkbox" checked={formData.hasRastreador} onChange={handleChange} className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"/>
+                                    <label htmlFor="hasRastreador" className="ml-3 text-sm font-bold text-gray-700 cursor-pointer w-full flex items-center gap-2"><MapPin size={16}/> Rastreador Instalado?</label>
+                                </div>
+
                                 <div className={`p-3 rounded-lg border ${!formData.canCirculate ? 'bg-red-100 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
                                     <label className="flex items-center space-x-3 cursor-pointer">
                                         <input type="checkbox" name="naoPodeCircular" checked={!formData.canCirculate} onChange={handleChange} className="h-5 w-5 text-red-600 rounded" />

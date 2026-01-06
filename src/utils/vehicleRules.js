@@ -9,7 +9,9 @@ export const vehicleGroups = {
 
 export const extraObraOptions = ['Administração', 'Oficina', 'Pátio', 'Rampa', 'Diversos'];
 export const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional', 'Supervisor'];
-export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator de Esteiras', 'Bitruck', 'Caçamba', 'Caminhão Pipa', 'Caminhão Tanque'];
+
+// Removido "Trator de Esteiras" duplicado/incorreto, mantido apenas o que bate com o grupo: "Trator Esteira"
+export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator Esteira', 'Bitruck', 'Caçamba', 'Caminhão Pipa', 'Caminhão Tanque'];
 
 /**
  * Regra 1: Define estritamente quais tipos de leitura são permitidos por grupo.
@@ -81,9 +83,7 @@ export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
     }
 
     // Regra: Bloquear valor ESTRITAMENTE INFERIOR (Regressão).
-    // ALTERAÇÃO SOLICITADA: Permitir valor IGUAL.
-    // Usamos uma pequena tolerância (0.1) apenas para erros de arredondamento de float.
-    // Se newValue for 350 e currentValue for 350, a condição (350 < 349.9) é falsa, então passa.
+    // Tolerância para float (permite valores iguais)
     if (newValue < currentValue - 0.1) {
         return {
             status: 'bloqueio',

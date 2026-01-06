@@ -1,48 +1,42 @@
 import React from 'react';
-import { ImageOff, X } from 'lucide-react';
+import { ImageOff, X, MapPin } from 'lucide-react';
 
 // --- Modal de Detalhes do Veículo ---
-// Extraído de VehiclePage.js
 const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => {
     if (!vehicle) return null;
 
-     // Garante que groups é um objeto
     const groups = vehicleGroups && typeof vehicleGroups === 'object' ? vehicleGroups : {};
     const vehicleGroup = Object.keys(groups).find(group => groups[group]?.includes(vehicle.tipo));
 
-    // Determina unidade e leitura principal (COM NOVAS REGRAS O/H)
     let readingLabel = 'Leitura';
     let readingValue = 'N/A';
-    let consumptionUnit = 'Unidade/L'; // Para o campo 'Cálculo de Média'
+    let consumptionUnit = 'Unidade/L';
 
     if (vehicleGroup === 'Máquinas Pesadas') {
          readingLabel = 'Horímetro';
          readingValue = `${vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 'N/A'} Hr`;
          consumptionUnit = 'L/Hr';
     } else if (vehicleGroup === 'Caminhões') {
-        readingLabel = 'Odômetro / Horímetro'; // Mostrar ambos
+        readingLabel = 'Odômetro / Horímetro';
         readingValue = `${vehicle.odometro ?? 'N/A'} Km / ${vehicle.horimetro ?? 'N/A'} Hr`;
         
-        // --- NOVA REGRA O/H ---
         if (vehicle.tipo === 'Caminhões Prancha') {
-            consumptionUnit = 'Km/L'; // Exceção
+            consumptionUnit = 'Km/L'; 
         } else {
-            consumptionUnit = vehicle.mediaCalculo === 'horimetro' ? 'L/Hr' : 'Km/L'; // Padrão
+            consumptionUnit = vehicle.mediaCalculo === 'horimetro' ? 'L/Hr' : 'Km/L'; 
         }
-    } else { // Veículos Leves ou outros
+    } else { 
         readingLabel = 'Odômetro';
         readingValue = `${vehicle.odometro ?? 'N/A'} Km`;
         consumptionUnit = 'Km/L';
     }
 
-    // Formata datas da API
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
-        try { return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' }); } // Usa UTC
+        try { return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' }); } 
         catch { return 'Inválida'; }
     };
 
-    // Constrói a URL da imagem (para preview e listagem)
     const apiBaseUrl = (process.env.REACT_APP_API_URL || 'http://localhost:3001/api').replace('/api', '');
     const imageUrl = vehicle.fotoURL 
         ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${apiBaseUrl}${vehicle.fotoURL}`)
@@ -59,15 +53,19 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                  {/* Conteúdo Rolável */}
                 <div className="p-4 sm:p-6 overflow-y-auto">
                     {/* Imagem */}
-                    <div className="mb-6 aspect-video bg-gray-100 rounded-lg flex items-center justify-center">
+                    <div className="mb-6 aspect-video bg-gray-100 rounded-lg flex items-center justify-center relative">
                         <img
-                            src={imageUrl} // <-- USA A NOVA URL
+                            src={imageUrl} 
                             alt={`Foto de ${vehicle.marca || ''} ${vehicle.modelo || ''}`}
-                            className="w-full h-full object-contain rounded-lg" // object-contain para não distorcer
+                            className="w-full h-full object-contain rounded-lg" 
                             onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x400/e2e8f0/cbd5e0?text=Erro'; }}
                         />
-                         {/* Ícone se a imagem falhar */}
                          {!vehicle.fotoURL && <ImageOff className="text-gray-400" size={48} />}
+                         {vehicle.hasRastreador && (
+                             <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow flex items-center gap-1">
+                                 <MapPin size={10} /> Rastreador
+                             </div>
+                         )}
                     </div>
 
                     {/* Detalhes em Grid */}
@@ -90,15 +88,19 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                         {/* Detalhes Adicionais */}
                          {(vehicle.ano_fabricacao || vehicle.ano_modelo) && (<>
                             <div className="font-semibold text-gray-600">Ano Fab./Modelo:</div>
-                            <div className="text-gray-800 font-medium">{vehicle.ano_fabricacao || 'N/A'} / {vehicle.ano_modelo || 'N/A'}</div>
+                            <div className="text-gray-800 font-medium">{vehicle.ano_fabricacao || '-'} / {vehicle.ano_modelo || '-'}</div>
+                        </>)}
+
+                        {vehicle.cor && (<>
+                            <div className="font-semibold text-gray-600">Cor:</div>
+                            <div className="text-gray-800 font-medium">{vehicle.cor}</div>
                         </>)}
 
                         {vehicle.chassi && (<>
                             <div className="font-semibold text-gray-600">Chassi:</div>
-                            <div className="text-gray-800 font-medium break-all">{vehicle.chassi}</div> {/* break-all para chassi longo */}
+                            <div className="text-gray-800 font-medium break-all">{vehicle.chassi}</div>
                         </>)}
 
-                         {/* Exibe Cálculo de Média (usa a var consumptionUnit) */}
                          {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Veículos Leves') && (<>
                             <div className="font-semibold text-gray-600">Cálculo de Média:</div>
                             <div className="text-gray-800 font-medium">{consumptionUnit}</div>
@@ -132,7 +134,6 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                             </>
                          )}
 
-
                         {/* Revisão */}
                         <div className="col-span-2 border-t my-2 pt-2">
                              <h3 className="font-semibold text-gray-700 mb-1">Próxima Revisão Agendada</h3>
@@ -140,9 +141,8 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                         <div className="font-semibold text-gray-600">Data:</div>
                         <div className="text-gray-800 font-medium">{formatDate(revision?.proximaRevisaoData)}</div>
 
-                        {/* O label aqui é 'Leitura (Km)' ou 'Leitura (Hr)' */}
-                        <div className="font-semibold text-gray-600">Leitura (Km/Hr):</div>
-                        <div className="text-gray-800 font-medium">{revision?.proximaRevisaoOdometro || 'N/A'}</div>
+                        <div className="font-semibold text-gray-600">Leitura Meta:</div>
+                        <div className="text-gray-800 font-medium">{revision?.proximaRevisaoOdometro || revision?.proximaRevisaoHorimetro || 'N/A'}</div>
 
                          <div className="font-semibold text-gray-600">Descrição:</div>
                          <div className="text-gray-800 font-medium col-span-2">{revision?.descricao || 'Nenhuma descrição'}</div>
