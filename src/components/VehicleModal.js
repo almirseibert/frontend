@@ -2,8 +2,19 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin } from 'lucide-react';
 import { checkReadingConsistency } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.5 - Correção Ano/Cor & Dados) ---
-const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.6 - Fix Data Loading & Sync) ---
+const VehicleModal = ({ 
+    user, 
+    vehicle, 
+    vehicles = [], 
+    vehicleTypes = [], 
+    vehicleGroups = {}, 
+    onClose, 
+    setAlertMessage, 
+    apiClient, 
+    reloadData, 
+    PasswordConfirmationModal 
+}) => {
     
     // --- Helper de Recuperação Robusta de Dados ---
     // Verifica snake_case, camelCase e PascalCase para garantir que o dado apareça
@@ -18,42 +29,56 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
     };
 
     // --- Estado do Formulário ---
-    // Inicializa com função lazy para garantir leitura correta na montagem
-    const [formData, setFormData] = useState(() => {
-        return {
-            placa: vehicle?.placa || '',
-            registroInterno: vehicle?.registroInterno || '',
-            capacidade: vehicle?.capacidade?.toString() || '',
-            tipo: vehicle?.tipo || (vehicleTypes.length > 0 ? vehicleTypes[0] : ''),
-            marca: vehicle?.marca || '',
-            modelo: vehicle?.modelo || '',
-            
-            // CORREÇÃO: Recuperação agressiva de dados (Ano/Cor)
-            anoFabricacao: resolveValue(vehicle, ['ano_fabricacao', 'anoFabricacao', 'AnoFabricacao']),
-            anoModelo: resolveValue(vehicle, ['ano_modelo', 'anoModelo', 'AnoModelo']),
-            cor: resolveValue(vehicle, ['cor', 'Cor']),
-            chassi: resolveValue(vehicle, ['chassi', 'Chassi']),
-            
-            // Leituras (Unificadas)
-            odometro: vehicle?.odometro?.toString() || '0',
-            horimetro: vehicle?.horimetro?.toString() || (vehicle?.horimetroDigital?.toString() || '0'),
-            
-            // Configurações
-            isComboioVehicle: vehicle?.isComboioVehicle || false,
-            isOutsourced: vehicle?.isOutsourced || false,
-            hasRastreador: vehicle?.hasRastreador || false,
-            fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
-            
-            // Validades
-            validadeTacografo: vehicle?.validadeTacografo ? new Date(vehicle.validadeTacografo).toISOString().split('T')[0] : '',
-            validadeAET_DAER: vehicle?.validadeAET_DAER ? new Date(vehicle.validadeAET_DAER).toISOString().split('T')[0] : '',
-            validadeAET_DNIT: vehicle?.validadeAET_DNIT ? new Date(vehicle.validadeAET_DNIT).toISOString().split('T')[0] : '',
-            
-            // Bloqueio
-            canCirculate: (vehicle?.canCirculate === false || vehicle?.canCirculate === 0) ? false : true,
-        };
-    });
+    const [formData, setFormData] = useState(() => ({
+        placa: vehicle?.placa || '',
+        registroInterno: vehicle?.registroInterno || '',
+        capacidade: vehicle?.capacidade?.toString() || '',
+        tipo: vehicle?.tipo || (vehicleTypes.length > 0 ? vehicleTypes[0] : ''),
+        marca: vehicle?.marca || '',
+        modelo: vehicle?.modelo || '',
+        
+        // Recuperação agressiva de dados (Ano/Cor)
+        anoFabricacao: resolveValue(vehicle, ['ano_fabricacao', 'anoFabricacao', 'AnoFabricacao']),
+        anoModelo: resolveValue(vehicle, ['ano_modelo', 'anoModelo', 'AnoModelo']),
+        cor: resolveValue(vehicle, ['cor', 'Cor']),
+        chassi: resolveValue(vehicle, ['chassi', 'Chassi']),
+        
+        // Leituras
+        odometro: vehicle?.odometro?.toString() || '0',
+        horimetro: vehicle?.horimetro?.toString() || (vehicle?.horimetroDigital?.toString() || '0'),
+        
+        // Configurações
+        isComboioVehicle: vehicle?.isComboioVehicle || false,
+        isOutsourced: vehicle?.isOutsourced || false,
+        hasRastreador: vehicle?.hasRastreador || false,
+        fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
+        
+        // Validades
+        validadeTacografo: vehicle?.validadeTacografo ? new Date(vehicle.validadeTacografo).toISOString().split('T')[0] : '',
+        validadeAET_DAER: vehicle?.validadeAET_DAER ? new Date(vehicle.validadeAET_DAER).toISOString().split('T')[0] : '',
+        validadeAET_DNIT: vehicle?.validadeAET_DNIT ? new Date(vehicle.validadeAET_DNIT).toISOString().split('T')[0] : '',
+        
+        // Bloqueio
+        canCirculate: (vehicle?.canCirculate === false || vehicle?.canCirculate === 0) ? false : true,
+    }));
     
+    // --- EFEITO DE SINCRONIA DE DADOS (CRÍTICO) ---
+    // Garante que se o objeto 'vehicle' mudar (ex: recarregamento da tabela),
+    // os dados do formulário sejam atualizados, especialmente Ano e Cor.
+    useEffect(() => {
+        if (vehicle) {
+            setFormData(prev => ({
+                ...prev,
+                anoFabricacao: resolveValue(vehicle, ['ano_fabricacao', 'anoFabricacao', 'AnoFabricacao']),
+                anoModelo: resolveValue(vehicle, ['ano_modelo', 'anoModelo', 'AnoModelo']),
+                cor: resolveValue(vehicle, ['cor', 'Cor']),
+                chassi: resolveValue(vehicle, ['chassi', 'Chassi']),
+                // Atualiza outros campos críticos apenas se necessário para evitar sobrescrever edições em curso
+                // (mas como o modal é montado/desmontado, isso age como um reset seguro)
+            }));
+        }
+    }, [vehicle]);
+
     const [fotoFile, setFotoFile] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
@@ -64,20 +89,12 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
     const [violationMessage, setViolationMessage] = useState('');
 
     // --- Helpers de Grupo e Tipo ---
-    const currentGroup = useMemo(() => {
-        const groups = vehicleGroups || {};
-        // Tenta encontrar o grupo onde o tipo do veículo está incluso
-        // vehicleGroups é importado indiretamente via props, se não vier, usa utils se disponível ou vazio
-        return Object.keys(groups).find(group => groups[group]?.includes(formData.tipo));
-    }, [formData.tipo, vehicle]); // vehicle dependence adicionada caso mude
+    const vehicleGroupsLocal = (vehicleGroups && Object.keys(vehicleGroups).length > 0) 
+        ? vehicleGroups 
+        : require('../utils/vehicleRules').vehicleGroups || {};
 
-    // Importar vehicleGroups do utils se não vier via props (fallback)
-    const vehicleGroupsLocal = vehicleGroups && Object.keys(vehicleGroups).length > 0 ? vehicleGroups : require('../utils/vehicleRules').vehicleGroups;
-
-    // Atualiza currentGroup com fallback
     const effectiveGroup = useMemo(() => {
-        const groups = vehicleGroupsLocal || {};
-        return Object.keys(groups).find(group => groups[group]?.includes(formData.tipo));
+        return Object.keys(vehicleGroupsLocal).find(group => vehicleGroupsLocal[group]?.includes(formData.tipo));
     }, [formData.tipo, vehicleGroupsLocal]);
 
     const showOdometro = useMemo(() => {
@@ -90,7 +107,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         return false;
     }, [effectiveGroup]);
 
-    // --- Regras de Negócio (Exibição Condicional) ---
+    // --- Regras de Negócio ---
     const canBeComboio = useMemo(() => {
         const type = formData.tipo;
         const group = effectiveGroup;
@@ -173,13 +190,13 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             ...formData,
             odometro: showOdometro ? (parseFloat(formData.odometro) || 0) : null,
             horimetro: showHorimetro ? (parseFloat(formData.horimetro) || 0) : null,
-            horimetroDigital: null, // Limpeza legado
-            horimetroAnalogico: null, // Limpeza legado
+            horimetroDigital: null,
+            horimetroAnalogico: null,
             
             mediaCalculo: mediaCalculo,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
             
-            // Campos Chave com conversão explícita (Garante envio snake_case para o banco)
+            // Campos Chave com conversão explícita (State -> DB Column)
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
             chassi: formData.chassi, 
@@ -193,9 +210,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             hasRastreador: formData.hasRastreador
         };
         
-        // Limpa chaves temporárias do frontend que não devem ir pro banco se o Controller for strict
-        // Mas o ideal é enviar e o controller filtrar ou aceitar.
-        // Enviamos 'ano_fabricacao' (snake) que é o padrão SQL. Removemos camelCase.
+        // Remove chaves do state que não são colunas do banco
         delete dataToSave.anoFabricacao;
         delete dataToSave.anoModelo;
 
