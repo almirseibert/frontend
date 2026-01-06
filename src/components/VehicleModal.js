@@ -2,9 +2,16 @@ import React, { useState, useMemo } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin } from 'lucide-react';
 import { checkReadingConsistency, vehicleGroups } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.3 - Correção Campos Chave) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.4 - Fix Preenchimento Anos) ---
 const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     
+    // Helper para extrair valor de forma robusta (suporta snake_case e camelCase)
+    const getVal = (obj, snake, camel) => {
+        if (!obj) return '';
+        const val = obj[snake] !== undefined && obj[snake] !== null ? obj[snake] : (obj[camel] !== undefined && obj[camel] !== null ? obj[camel] : '');
+        return val.toString();
+    };
+
     // Estado do Formulário
     const [formData, setFormData] = useState({
         placa: vehicle?.placa || '',
@@ -25,9 +32,9 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         hasRastreador: vehicle?.hasRastreador || false,
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
         
-        // Detalhes - Mapeamento direto das colunas do banco
-        anoFabricacao: vehicle?.ano_fabricacao?.toString() || '', // Garante leitura correta
-        anoModelo: vehicle?.ano_modelo?.toString() || '', // Garante leitura correta
+        // Detalhes - Recuperação robusta
+        anoFabricacao: getVal(vehicle, 'ano_fabricacao', 'anoFabricacao'),
+        anoModelo: getVal(vehicle, 'ano_modelo', 'anoModelo'),
         chassi: vehicle?.chassi || '',
         
         // Validades
@@ -54,13 +61,11 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         return Object.keys(groups).find(group => groups[group]?.includes(formData.tipo));
     }, [formData.tipo]);
 
-    // Regra 1: Show Odometro (Leves e Trecho)
     const showOdometro = useMemo(() => {
         if (currentGroup === 'Veículos Leves' || currentGroup === 'Caminhões de Trecho') return true;
         return false;
     }, [currentGroup]);
 
-    // Regra 1: Show Horimetro (Caminhões Pesados e Máquinas)
     const showHorimetro = useMemo(() => {
         if (currentGroup === 'Máquinas Pesadas' || currentGroup === 'Caminhões') return true;
         return false;
@@ -145,7 +150,6 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
         if (showHorimetro) mediaCalculo = 'horimetro'; 
         if (showOdometro) mediaCalculo = 'odometro'; 
 
-        // Monta o payload garantindo os nomes das colunas
         const dataToSave = {
             ...formData,
             odometro: showOdometro ? (parseFloat(formData.odometro) || 0) : null,
@@ -156,7 +160,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             mediaCalculo: mediaCalculo,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
             
-            // Campos Chave solicitados
+            // Campos Chave com conversão explícita
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
             chassi: formData.chassi, 
@@ -178,8 +182,7 @@ const VehicleModal = ({ user, vehicle, vehicles = [], vehicleTypes = [], onClose
             }
         }
 
-        // Importante: NÃO deletar 'anoFabricacao' e 'anoModelo' aqui se o backend espera esses nomes ou se o mapeamento é feito lá.
-        // Mas como a solicitação é usar as colunas do banco, vamos converter para snake_case no payload acima e remover os camelCase.
+        // Remove chaves do state que não são colunas
         delete dataToSave.anoFabricacao;
         delete dataToSave.anoModelo;
 

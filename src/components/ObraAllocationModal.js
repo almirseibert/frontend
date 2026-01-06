@@ -103,16 +103,23 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO ERRO 500: Garantir envio de dados robustos
+            // CORREÇÃO ERRO 500: 
+            // 1. Envia 'horimetroEntrada' e 'odometroEntrada' explicitamente
+            // 2. Converte IDs para Int (caso o backend exija tipos estritos)
             const payload = {
-                obraId,
-                employeeId,
+                obraId: parseInt(obraId, 10),
+                employeeId: parseInt(employeeId, 10),
                 employeeName,
                 dataEntrada,
                 readingType,
                 readingValue: val,
                 observacoes: observacoes || '',
-                // Envia 0 se não for o tipo, pois alguns backends falham com null em colunas NOT NULL
+                
+                // Mapeamento específico para a tabela 'obras_historico_veiculos'
+                horimetroEntrada: readingType === 'horimetro' ? val : null,
+                odometroEntrada: readingType === 'odometro' ? val : null,
+                
+                // Compatibilidade com lógica legada (se houver)
                 horimetro: readingType === 'horimetro' ? val : 0,
                 odometro: readingType === 'odometro' ? val : 0
             };
@@ -165,7 +172,7 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO ERRO 500: Mesma robustez para desalocação
+            // CORREÇÃO ERRO 500: Envia dados de Saída explicitamente
             const payload = {
                 dataSaida,
                 readingType,
@@ -173,9 +180,14 @@ const ObraAllocationModal = ({
                 location: locationAfterDeallocate,
                 shouldFinalizeObra,
                 dataFimObra,
-                obraId: vehicle.obraAtualId,
+                obraId: parseInt(vehicle.obraAtualId, 10), // Conversão para Int
                 observacoes: observacoes || '',
-                // Envia 0 se não for o tipo
+                
+                // Mapeamento específico para a tabela 'obras_historico_veiculos'
+                horimetroSaida: readingType === 'horimetro' ? val : null,
+                odometroSaida: readingType === 'odometro' ? val : null,
+
+                // Compatibilidade
                 horimetro: readingType === 'horimetro' ? val : 0,
                 odometro: readingType === 'odometro' ? val : 0
             };
