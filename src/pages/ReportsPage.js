@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
     Download, Users, Truck, FileText, AlertTriangle, 
-    ClipboardCheck, Filter, Printer, HardHat, Loader, Timer
+    ClipboardCheck, Filter, Printer, HardHat, Loader, Timer, Calendar
 } from 'lucide-react';
 
 // Importa o componente de proteção
@@ -207,28 +207,35 @@ const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} 
 };
 
 // ===================================================================================
-// 2. GERADOR DE RELATÓRIO DE FUNCIONÁRIOS
+// 2. GERADOR DE RELATÓRIO DE FUNCIONÁRIOS (REFATORADO)
 // ===================================================================================
 const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fines = [] }) => {
-    const [filters, setFilters] = useState({ cidade: '', funcao: '', status: 'ativo', obraId: '' });
+    // Novos estados de filtro para Situação (Alocado/Disponível)
+    const [filters, setFilters] = useState({ cidade: '', funcao: '', status: 'ativo', allocationStatus: 'todos', obraId: '' });
     const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
-    const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'cidade', 'contato', 'obraAtual']);
+    
+    // Adicionadas colunas novas: dataDesalocamento e diasDisponivel
+    const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'cidade', 'contato', 'obraAtual', 'dataDesalocamento', 'diasDisponivel']);
 
     const allColumns = useMemo(() => [
         { key: 'nome', label: 'Nome' },
         { key: 'vulgo', label: 'Apelido' },
         { key: 'funcao', label: 'Função' },
         { key: 'status', label: 'Status Cadastro' },
-        { key: 'allocationStatus', label: 'Status Alocação' },
+        { key: 'allocationStatus', label: 'Situação' },
         { key: 'cidade', label: 'Cidade' },
         { key: 'contato', label: 'Telefone' },
         { key: 'obraAtual', label: 'Obra Atual' },
         { key: 'veiculosAlocados', label: 'Veículos Alocados' },
         { key: 'cnhInfo', label: 'CNH (Cat/Venc)'},
         { key: 'multasPendentes', label: 'Multas Pendentes' },
+        // NOVAS COLUNAS
+        { key: 'dataDesalocamento', label: 'Última Saída' },
+        { key: 'diasDisponivel', label: 'Dias Disponível' },
     ], []);
 
+    // 1. Mapear Alocações Atuais
     const currentAllocations = useMemo(() => {
         const allocations = new Map();
         obras.forEach(obra => {
@@ -250,21 +257,86 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
         return allocations;
     }, [obras, vehicles]);
 
-    const filteredEmployees = useMemo(() => {
-        return employees
-            .map(e => ({
+    // 2. Processar Dados dos Funcionários (Incluindo cálculo de desalocação)
+    const processedEmployees = useMemo(() => {
+        const now = new Date();
+        now.setHours(0,0,0,0);
+
+        return employees.map(e => {
+            const alloc = currentAllocations.get(e.id);
+            const isAllocated = !!alloc;
+            let statusAlocacao = e.status === 'inativo' ? 'Inativo' : (isAllocated ? 'Alocado' : 'Disponível');
+            
+            // Lógica para encontrar última data de saída se estiver disponível
+            let dataDesalocamento = null;
+            let diasDisponivel = null;
+
+            if (statusAlocacao === 'Disponível') {
+                let lastExitDate = null;
+
+                // Varre todas as obras e históricos para achar a última data de saída deste funcionário
+                obras.forEach(obra => {
+                    const historico = obra.historicoVeiculos || [];
+                    historico.forEach(h => {
+                        if (h.employeeId === e.id && h.dataSaida) {
+                            const saida = new Date(h.dataSaida);
+                            if (!isNaN(saida.getTime())) {
+                                if (!lastExitDate || saida > lastExitDate) {
+                                    lastExitDate = saida;
+                                }
+                            }
+                        }
+                    });
+                });
+
+                if (lastExitDate) {
+                    dataDesalocamento = lastExitDate.toLocaleDateString('pt-BR');
+                    const diffTime = Math.abs(now - lastExitDate);
+                    diasDisponivel = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                } else {
+                    dataDesalocamento = '-';
+                    diasDisponivel = '-'; // Nunca foi alocado ou sem registro de saída
+                }
+            } else {
+                dataDesalocamento = 'Em Atividade';
+                diasDisponivel = 0;
+            }
+
+            return {
                 ...e,
-                allocationStatus: e.status === 'inativo' ? 'Inativo' : (currentAllocations.has(e.id) ? 'Alocado' : 'Disponível'),
-                obraAtual: currentAllocations.get(e.id)?.obraNome || 'N/A'
-            }))
-            .filter(e => (
-                (filters.cidade ? e.cidade === filters.cidade : true) &&
-                (filters.funcao ? e.funcao === filters.funcao : true) &&
-                (filters.status ? e.status === filters.status : true) &&
-                (filters.obraId ? (currentAllocations.get(e.id)?.obraId === filters.obraId || (filters.obraId === 'N/A' && !currentAllocations.has(e.id))) : true)
-            ))
+                allocationStatus: statusAlocacao,
+                obraAtual: alloc?.obraNome || 'N/A',
+                isAllocated,
+                dataDesalocamento,
+                diasDisponivel,
+                veiculosAlocados: alloc ? alloc.vehicleRegistros.join(', ') : ''
+            };
+        });
+    }, [employees, currentAllocations, obras]);
+
+    // 3. Filtragem Final
+    const filteredEmployees = useMemo(() => {
+        return processedEmployees
+            .filter(e => {
+                // Filtros básicos
+                const matchCidade = filters.cidade ? e.cidade === filters.cidade : true;
+                const matchFuncao = filters.funcao ? e.funcao === filters.funcao : true;
+                const matchStatusCadastro = filters.status ? e.status === filters.status : true;
+                
+                // Filtro de Obra
+                const matchObra = filters.obraId 
+                    ? (currentAllocations.get(e.id)?.obraId === filters.obraId || (filters.obraId === 'N/A' && !currentAllocations.has(e.id))) 
+                    : true;
+
+                // NOVO: Filtro de Status de Alocação (Disponível / Alocado)
+                let matchAllocStatus = true;
+                if (filters.allocationStatus === 'alocado') matchAllocStatus = e.isAllocated;
+                if (filters.allocationStatus === 'disponivel') matchAllocStatus = !e.isAllocated;
+
+                return matchCidade && matchFuncao && matchStatusCadastro && matchObra && matchAllocStatus;
+            })
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    }, [employees, filters, currentAllocations]);
+    }, [processedEmployees, filters, currentAllocations]);
 
     useEffect(() => {
         setSelectAll(filteredEmployees.length > 0 && selectedEmployeeIds.length === filteredEmployees.length);
@@ -276,12 +348,18 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
         
         const headers = selectedColumns.map(c => allColumns.find(col => col.key === c)?.label || c);
         const body = filteredEmployees.filter(e => selectedEmployeeIds.includes(e.id)).map(emp => {
-            const alloc = currentAllocations.get(emp.id);
-            const veiculosAlocados = alloc ? alloc.vehicleRegistros.join(', ') : '';
             const cnhVenc = emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
             const multas = fines.filter(f => f.employeeId === emp.id && f.status === 'Pendente').length;
             
-            const data = { ...emp, veiculosAlocados, cnhInfo: `${emp.cnhCategoria || ''} - ${cnhVenc}`, multasPendentes: multas };
+            // Prepara objeto de dados para o PDF
+            const data = { 
+                ...emp, 
+                cnhInfo: `${emp.cnhCategoria || ''} - ${cnhVenc}`, 
+                multasPendentes: multas,
+                // Garante que campos novos sejam string
+                dataDesalocamento: emp.dataDesalocamento,
+                diasDisponivel: emp.diasDisponivel !== '-' ? `${emp.diasDisponivel} dias` : '-'
+            };
             return selectedColumns.map(col => data[col] || '');
         });
 
@@ -298,6 +376,14 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                     <option value="">Todas as Funções</option>
                     {[...new Set(employees.map(e => e.funcao).filter(Boolean))].sort().map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
+                
+                {/* NOVO FILTRO DE SITUAÇÃO */}
+                <select value={filters.allocationStatus} onChange={e => setFilters({...filters, allocationStatus: e.target.value})} className="input-field bg-yellow-50 border-yellow-200 text-yellow-800 font-medium">
+                    <option value="todos">Situação: Todos</option>
+                    <option value="alocado">Apenas Alocados</option>
+                    <option value="disponivel">Apenas Disponíveis</option>
+                </select>
+
                 <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
                     <option value="">Todas as Obras (Alocação)</option>
                     <option value="N/A">Sem Alocação</option>
@@ -308,14 +394,15 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                     {[...new Set(employees.map(e => e.cidade).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="input-field">
-                    <option value="ativo">Ativos</option>
-                    <option value="inativo">Inativos</option>
+                    <option value="ativo">Cadastro: Ativos</option>
+                    <option value="inativo">Cadastro: Inativos</option>
+                    <option value="">Todos</option>
                 </select>
             </FilterSection>
 
             {/* Seleção de Colunas */}
             <div className="mb-4 bg-white p-3 rounded border">
-                <span className="text-xs font-bold text-gray-500 uppercase mb-2 block">Colunas</span>
+                <span className="text-xs font-bold text-gray-500 uppercase mb-2 block">Colunas Visíveis</span>
                 <div className="flex flex-wrap gap-2">
                     {allColumns.map(col => (
                         <button 
@@ -337,7 +424,8 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                             <th className="p-3">Nome</th>
                             <th className="p-3">Função</th>
                             <th className="p-3">Obra Atual</th>
-                            <th className="p-3">Status</th>
+                            <th className="p-3">Status / Dias</th>
+                            {selectedColumns.includes('dataDesalocamento') && <th className="p-3 text-gray-500">Saída</th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -347,7 +435,19 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                                 <td className="p-3 font-medium">{e.nome}</td>
                                 <td className="p-3">{e.funcao}</td>
                                 <td className="p-3 truncate max-w-[150px]">{e.obraAtual}</td>
-                                <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${e.allocationStatus === 'Alocado' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{e.allocationStatus}</span></td>
+                                <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold 
+                                        ${e.allocationStatus === 'Alocado' ? 'bg-blue-100 text-blue-700' : 
+                                          e.allocationStatus === 'Inativo' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                        {e.allocationStatus}
+                                    </span>
+                                    {e.allocationStatus === 'Disponível' && e.diasDisponivel !== '-' && (
+                                        <span className="ml-2 text-xs text-gray-500 font-semibold">
+                                            ({e.diasDisponivel}d)
+                                        </span>
+                                    )}
+                                </td>
+                                {selectedColumns.includes('dataDesalocamento') && <td className="p-3 text-gray-500">{e.dataDesalocamento}</td>}
                             </tr>
                         ))}
                     </tbody>
