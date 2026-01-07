@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
     Download, Users, Truck, FileText, AlertTriangle, 
-    ClipboardCheck, Filter, Printer, HardHat, Loader, Timer
+    ClipboardCheck, Filter, Printer, HardHat, Loader 
 } from 'lucide-react';
 
 // Importa o componente de proteção
@@ -68,7 +68,6 @@ const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} 
                 if (!v) return null;
                 const vehicleGroup = Object.keys(groups).find(key => groups[key]?.includes(v.tipo)) || 'Outros';
                 
-                // Formata leitura
                 let leituraPrincipal = '';
                 if (vehicleGroup === 'Máquinas Pesadas') leituraPrincipal = `${v.horimetro ?? 'N/A'} Hr`;
                 else if (vehicleGroup === 'Caminhões') leituraPrincipal = `${v.odometro ?? 'N/A'} Km / ${v.horimetro ?? 'N/A'} Hr`;
@@ -207,13 +206,15 @@ const VehicleReportGenerator = ({ vehicles = [], obras = [], vehicleGroups = {} 
 };
 
 // ===================================================================================
-// 2. GERADOR DE RELATÓRIO DE FUNCIONÁRIOS
+// 2. GERADOR DE RELATÓRIO DE FUNCIONÁRIOS (ATUALIZADO)
 // ===================================================================================
 const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fines = [] }) => {
-    const [filters, setFilters] = useState({ cidade: '', funcao: '', status: 'ativo', obraId: '' });
+    // Adicionado filtro de situação (Todos, Alocado, Disponível)
+    const [filters, setFilters] = useState({ cidade: '', funcao: '', status: 'ativo', situacao: 'todos' });
     const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
-    const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'cidade', 'contato', 'obraAtual']);
+    // Adicionado colunas novas como padrão
+    const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'dataDesalocamento', 'diasDisponivel', 'cidade', 'contato']);
 
     const allColumns = useMemo(() => [
         { key: 'nome', label: 'Nome' },
@@ -221,6 +222,8 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
         { key: 'funcao', label: 'Função' },
         { key: 'status', label: 'Status Cadastro' },
         { key: 'allocationStatus', label: 'Status Alocação' },
+        { key: 'dataDesalocamento', label: 'Data Desalocamento' }, // Nova Coluna
+        { key: 'diasDisponivel', label: 'Dias Disponível' },       // Nova Coluna
         { key: 'cidade', label: 'Cidade' },
         { key: 'contato', label: 'Telefone' },
         { key: 'obraAtual', label: 'Obra Atual' },
@@ -229,8 +232,30 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
         { key: 'multasPendentes', label: 'Multas Pendentes' },
     ], []);
 
+    // Lógica para encontrar a última saída de obra
+    const findLastAllocationEnd = (employeeId) => {
+        let lastDate = null;
+        
+        obras.forEach(obra => {
+            if (obra.historicoVeiculos) {
+                obra.historicoVeiculos.forEach(h => {
+                    if (h.employeeId === employeeId && h.dataSaida) {
+                        const date = new Date(h.dataSaida);
+                        // Pega a data mais recente de saída
+                        if (!lastDate || date > lastDate) {
+                            lastDate = date;
+                        }
+                    }
+                });
+            }
+        });
+        return lastDate;
+    };
+
     const currentAllocations = useMemo(() => {
         const allocations = new Map();
+        
+        // Mapeia alocações atuais
         obras.forEach(obra => {
             (Array.isArray(obra.historicoVeiculos) ? obra.historicoVeiculos : []).forEach(history => {
                 if (history.employeeId && !history.dataSaida) { 
@@ -252,19 +277,45 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
 
     const filteredEmployees = useMemo(() => {
         return employees
-            .map(e => ({
-                ...e,
-                allocationStatus: e.status === 'inativo' ? 'Inativo' : (currentAllocations.has(e.id) ? 'Alocado' : 'Disponível'),
-                obraAtual: currentAllocations.get(e.id)?.obraNome || 'N/A'
-            }))
+            .map(e => {
+                const isAllocated = currentAllocations.has(e.id);
+                const allocStatus = e.status === 'inativo' ? 'Inativo' : (isAllocated ? 'Alocado' : 'Disponível');
+                
+                // Cálculo de dias disponível (Apenas se status for Disponível)
+                let dataDesalocamento = '-';
+                let diasDisponivel = '-';
+
+                if (allocStatus === 'Disponível') {
+                    const lastEnd = findLastAllocationEnd(e.id);
+                    if (lastEnd) {
+                        dataDesalocamento = lastEnd.toLocaleDateString('pt-BR');
+                        const now = new Date();
+                        const diffTime = Math.abs(now - lastEnd);
+                        diasDisponivel = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                    } else {
+                        dataDesalocamento = 'Sem Histórico';
+                        diasDisponivel = 'N/A';
+                    }
+                }
+
+                return {
+                    ...e,
+                    allocationStatus: allocStatus,
+                    obraAtual: currentAllocations.get(e.id)?.obraNome || 'N/A',
+                    dataDesalocamento,
+                    diasDisponivel
+                };
+            })
             .filter(e => (
                 (filters.cidade ? e.cidade === filters.cidade : true) &&
                 (filters.funcao ? e.funcao === filters.funcao : true) &&
                 (filters.status ? e.status === filters.status : true) &&
-                (filters.obraId ? (currentAllocations.get(e.id)?.obraId === filters.obraId || (filters.obraId === 'N/A' && !currentAllocations.has(e.id))) : true)
+                (filters.situacao === 'todos' || 
+                 (filters.situacao === 'alocado' && e.allocationStatus === 'Alocado') ||
+                 (filters.situacao === 'disponivel' && e.allocationStatus === 'Disponível'))
             ))
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    }, [employees, filters, currentAllocations]);
+    }, [employees, filters, currentAllocations, obras]);
 
     useEffect(() => {
         setSelectAll(filteredEmployees.length > 0 && selectedEmployeeIds.length === filteredEmployees.length);
@@ -281,11 +332,23 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
             const cnhVenc = emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
             const multas = fines.filter(f => f.employeeId === emp.id && f.status === 'Pendente').length;
             
-            const data = { ...emp, veiculosAlocados, cnhInfo: `${emp.cnhCategoria || ''} - ${cnhVenc}`, multasPendentes: multas };
+            const data = { 
+                ...emp, 
+                veiculosAlocados, 
+                cnhInfo: `${emp.cnhCategoria || ''} - ${cnhVenc}`, 
+                multasPendentes: multas 
+            };
             return selectedColumns.map(col => data[col] || '');
         });
 
-        autoTable(doc, { startY: 30, head: [headers], body, theme: 'striped', headStyles: { fillColor: [34, 139, 34] }, styles: { fontSize: 8 } });
+        autoTable(doc, { 
+            startY: 30, 
+            head: [headers], 
+            body, 
+            theme: 'striped', 
+            headStyles: { fillColor: [34, 139, 34] }, 
+            styles: { fontSize: 8 } 
+        });
         doc.save('Relatorio_Funcionarios.pdf');
     };
 
@@ -298,11 +361,6 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                     <option value="">Todas as Funções</option>
                     {[...new Set(employees.map(e => e.funcao).filter(Boolean))].sort().map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
-                <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
-                    <option value="">Todas as Obras (Alocação)</option>
-                    <option value="N/A">Sem Alocação</option>
-                    {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                </select>
                 <select value={filters.cidade} onChange={e => setFilters({...filters, cidade: e.target.value})} className="input-field">
                     <option value="">Todas as Cidades</option>
                     {[...new Set(employees.map(e => e.cidade).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
@@ -310,6 +368,12 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="input-field">
                     <option value="ativo">Ativos</option>
                     <option value="inativo">Inativos</option>
+                </select>
+                {/* Novo Filtro de Situação */}
+                <select value={filters.situacao} onChange={e => setFilters({...filters, situacao: e.target.value})} className="input-field">
+                    <option value="todos">Situação: Todos</option>
+                    <option value="alocado">Apenas Alocados</option>
+                    <option value="disponivel">Apenas Disponíveis</option>
                 </select>
             </FilterSection>
 
@@ -336,8 +400,9 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                             <th className="p-3 w-10 text-center"><input type="checkbox" checked={selectAll} onChange={e => {setSelectAll(e.target.checked); setSelectedEmployeeIds(e.target.checked ? filteredEmployees.map(x=>x.id) : [])}} className="rounded text-green-600 focus:ring-green-500"/></th>
                             <th className="p-3">Nome</th>
                             <th className="p-3">Função</th>
-                            <th className="p-3">Obra Atual</th>
-                            <th className="p-3">Status</th>
+                            <th className="p-3">Situação</th>
+                            {selectedColumns.includes('dataDesalocamento') && <th className="p-3">Data Desaloc.</th>}
+                            {selectedColumns.includes('diasDisponivel') && <th className="p-3">Dias Disp.</th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -346,8 +411,23 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
                                 <td className="p-3 text-center"><input type="checkbox" checked={selectedEmployeeIds.includes(e.id)} onChange={() => setSelectedEmployeeIds(p => p.includes(e.id) ? p.filter(x=>x!==e.id) : [...p, e.id])} className="rounded text-green-600 focus:ring-green-500"/></td>
                                 <td className="p-3 font-medium">{e.nome}</td>
                                 <td className="p-3">{e.funcao}</td>
-                                <td className="p-3 truncate max-w-[150px]">{e.obraAtual}</td>
-                                <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${e.allocationStatus === 'Alocado' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{e.allocationStatus}</span></td>
+                                <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        e.allocationStatus === 'Alocado' ? 'bg-blue-100 text-blue-700' : 
+                                        e.allocationStatus === 'Disponível' ? 'bg-orange-100 text-orange-700' : 
+                                        'bg-gray-100 text-gray-600'
+                                    }`}>
+                                        {e.allocationStatus}
+                                    </span>
+                                </td>
+                                {selectedColumns.includes('dataDesalocamento') && (
+                                    <td className="p-3 text-gray-600">{e.dataDesalocamento}</td>
+                                )}
+                                {selectedColumns.includes('diasDisponivel') && (
+                                    <td className={`p-3 font-bold ${e.diasDisponivel !== '-' && e.diasDisponivel > 30 ? 'text-red-600' : 'text-gray-700'}`}>
+                                        {e.diasDisponivel}
+                                    </td>
+                                )}
                             </tr>
                         ))}
                     </tbody>
@@ -362,7 +442,7 @@ const EmployeeReportGenerator = ({ employees = [], obras = [], vehicles = [], fi
 };
 
 // ===================================================================================
-// 3. GERADOR DE RELATÓRIO DE ALERTAS (ATUALIZADO COM INATIVIDADE)
+// 3. GERADOR DE RELATÓRIO DE ALERTAS
 // ===================================================================================
 const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obras = [], refuelings = [] }) => {
     const [filterType, setFilterType] = useState('Todos');
@@ -374,7 +454,6 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
         const thirtyDays = new Date(now);
         thirtyDays.setDate(now.getDate() + 30);
 
-        // 1. Alertas de Veículos
         vehicles.forEach(v => {
             if (v.possuiAviso) {
                 const text = (v.avisoTexto || '').toLowerCase();
@@ -388,7 +467,7 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                     entity: `${v.registroInterno} - ${v.modelo}`,
                     type,
                     location: obraNome,
-                    days: '-', // Não aplicável diretamente ou extrair do texto se possível
+                    days: '-', 
                     message: v.avisoTexto,
                     date: new Date().toLocaleDateString('pt-BR'),
                     isCritical: text.includes('vencid') || text.includes('bloqueio')
@@ -396,7 +475,6 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
             }
         });
 
-        // 2. Alertas de Funcionários (CNH)
         employees.forEach(e => {
             if (e.cnhVencimento) {
                 let venc;
@@ -411,7 +489,6 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
 
                 if (!isNaN(venc.getTime())) {
                     venc.setHours(0,0,0,0);
-                    // Calcula dias para vencer ou vencidos
                     const diffTime = venc.getTime() - now.getTime();
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                     const daysLabel = diffDays < 0 ? `${Math.abs(diffDays)} dias vencido` : `${diffDays} dias para vencer`;
@@ -441,11 +518,9 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
             }
         });
 
-        // 3. Alertas de Inatividade (CORRIGIDO COM VALIDAÇÃO REAL)
         inactivityAlerts.forEach(alert => {
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
 
-            // Identifica IDs e Nomes
             const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
             let vehicleName = alert.vehicle?.registroInterno || 'Veículo';
             
@@ -461,10 +536,7 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
             }
             if (!obraName) obraName = 'Obra Desconhecida';
 
-            // --- LÓGICA DE CORREÇÃO (IGNORE DADOS ESTÁTICOS) ---
             let realRefuelDate = null;
-            
-            // 1. Tenta achar o abastecimento REAL mais recente na lista global
             if (refuelings && refuelings.length > 0 && vehId) {
                 const vehRefuels = refuelings
                     .filter(r => String(r.vehicleId) === String(vehId) && r.status === 'Concluída')
@@ -484,7 +556,6 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                 }
             }
 
-            // 2. Se não achou na lista global (ou lista vazia), tenta a data salva no alerta
             if (!realRefuelDate) {
                 const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
                 if (alertDateRaw) {
@@ -493,7 +564,6 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                 }
             }
 
-            // 3. Calcula dias e formata para exibição
             let dateStr = 'Data desc.';
             let daysDisplay = 0;
 
@@ -502,12 +572,9 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
                 const diffTime = Math.abs(now - realRefuelDate);
                 daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             } else {
-                // Fallback se não tiver data nenhuma
                 daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || 0);
             }
 
-            // 4. FILTRO DE FALSO POSITIVO
-            // Se calculamos dias reais e é menor que 7, o veículo já abasteceu. Não exibe no relatório.
             if (daysDisplay < 7) return; 
 
             list.push({
@@ -527,13 +594,12 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
 
     const handleGeneratePDF = () => {
-        const doc = new jsPDF('landscape'); // Landscape para caber mais colunas
+        const doc = new jsPDF('landscape'); 
         doc.setFontSize(18); doc.setTextColor(220, 38, 38);
         doc.text(`Relatório de Alertas de Frota`, 14, 20);
         doc.setFontSize(10); doc.setTextColor(100);
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} | Filtro: ${filterType}`, 14, 26);
 
-        // Novas Colunas
         const body = filteredAlerts.map(a => [
             a.entity, 
             a.type, 
@@ -551,9 +617,9 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
             headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255] },
             styles: { fontSize: 9 },
             columnStyles: { 
-                0: { cellWidth: 40 }, // Entidade
-                2: { cellWidth: 50 }, // Local
-                4: { cellWidth: 80 }  // Mensagem
+                0: { cellWidth: 40 },
+                2: { cellWidth: 50 },
+                4: { cellWidth: 80 }
             }
         });
         doc.save(`Relatorio_Alertas_${filterType}.pdf`);
@@ -627,19 +693,17 @@ const AlertsReportGenerator = ({ vehicles, employees, inactivityAlerts = [], obr
 };
 
 // ===================================================================================
-// 4. RELATÓRIO DE FATURAMENTO (ATUALIZADO & CORRIGIDO)
+// 4. RELATÓRIO DE FATURAMENTO
 // ===================================================================================
-const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLogs de props
+const BillingReportGenerator = ({ obras, vehicles }) => { 
     const [selectedObraId, setSelectedObraId] = useState('');
     const [localDailyLogs, setLocalDailyLogs] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Ordenação Alfabética das Obras
     const sortedObras = useMemo(() => {
         return [...obras].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
 
-    // Busca logs da obra ao selecionar
     useEffect(() => {
         if (!selectedObraId) {
             setLocalDailyLogs([]);
@@ -649,7 +713,6 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
         const fetchLogs = async () => {
             setLoading(true);
             try {
-                // Chama a API diretamente para pegar TODOS os logs desta obra
                 const logs = await apiClient.getDailyLogs(selectedObraId);
                 setLocalDailyLogs(logs || []);
             } catch (error) {
@@ -671,7 +734,6 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
         doc.setFontSize(16); doc.text(`Relatório de Faturamento: ${obra.nome}`, 14, 20);
         doc.setFontSize(10); doc.text(`Comparativo: Contratado vs. Realizado (Apontamentos)`, 14, 26);
 
-        // 1. Agrupar logs por tipo de veículo
         const executedByType = {};
         
         localDailyLogs.forEach(log => {
@@ -683,17 +745,10 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
             executedByType[type] += (isNaN(val) ? 0 : val);
         });
 
-        // 2. Prepara tabela comparativa
         const tableBody = [];
         const contracted = obra.horasContratadasPorTipo || {};
-        
-        // Une todos os tipos (contratados + executados)
         const allTypes = new Set([...Object.keys(contracted), ...Object.keys(executedByType)]);
-        
-        // Ordena para ficar bonito
         const sortedTypes = Array.from(allTypes).sort();
-        
-        // Identifica linhas extras para pintar de outra cor
         const extraRowsIndices = [];
 
         sortedTypes.forEach((type, index) => {
@@ -702,7 +757,6 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
             const balance = cont - exec;
             const percent = cont > 0 ? ((exec / cont) * 100).toFixed(1) + '%' : '-';
             
-            // Se executou mas não estava contratado (cont == 0 e exec > 0)
             if (cont === 0 && exec > 0) {
                 extraRowsIndices.push(index);
             }
@@ -724,7 +778,6 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
             headStyles: { fillColor: [234, 179, 8], textColor: [0,0,0] },
             columnStyles: { 3: { fontStyle: 'bold' } },
             didParseCell: function (data) {
-                // Pinta de vermelho claro se for equipamento extra
                 if (data.section === 'body' && extraRowsIndices.includes(data.row.index)) {
                     data.cell.styles.fillColor = [255, 200, 200];
                     data.cell.styles.textColor = [150, 0, 0];
@@ -732,9 +785,7 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
             }
         });
 
-        // Totais
         const totalCont = Object.values(contracted).reduce((a,b) => a + parseFloat(b||0), 0);
-        // O total executado soma TODOS, inclusive os extras
         const totalExec = Object.values(executedByType).reduce((a,b) => a + b, 0);
         
         doc.setFontSize(12); doc.setFont('helvetica', 'bold');
@@ -742,7 +793,6 @@ const BillingReportGenerator = ({ obras, vehicles }) => { // Remove dailyWorkLog
         doc.setFontSize(10); doc.setFont('helvetica', 'normal');
         doc.text(`Total Contratado: ${totalCont.toFixed(1)} hrs`, 14, doc.lastAutoTable.finalY + 16);
         
-        // Legenda
         if (extraRowsIndices.length > 0) {
             doc.setFontSize(8); doc.setTextColor(150, 0, 0);
             doc.text("* Equipamentos em vermelho não constam no contrato original, mas possuem horas apontadas.", 14, doc.lastAutoTable.finalY + 22);
@@ -789,23 +839,18 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
     const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
     const [selectAllVehicles, setSelectAllVehicles] = useState(false);
 
-    // 1. Filtrar Obras por Status e Ordenar
     const filteredObras = useMemo(() => {
         return obras
             .filter(o => statusFilter === 'todas' || o.status === statusFilter)
             .sort((a, b) => a.nome.localeCompare(b.nome));
     }, [obras, statusFilter]);
 
-    // 2. Filtrar Veículos que estão nas Obras selecionadas
     const filteredVehicles = useMemo(() => {
         if (selectedObraIds.length === 0) return [];
-        
-        // Pega todos os veículos atualmente alocados nestas obras
         return vehicles.filter(v => selectedObraIds.includes(v.obraAtualId))
                        .sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles, selectedObraIds]);
 
-    // Handle Select All Vehicles
     const handleSelectAllVehicles = (e) => {
         setSelectAllVehicles(e.target.checked);
         setSelectedVehicleIds(e.target.checked ? filteredVehicles.map(v => v.id) : []);
@@ -827,27 +872,20 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
             doc.setFontSize(10); 
             doc.text(`Status: ${obra.status.toUpperCase()} | Local: ${obra.localizacao || 'N/A'}`, 14, 26);
 
-            // --- SEÇÃO 1: PROGRESSO FÍSICO (Baseado em Leitura de Equipamentos) ---
             doc.setFontSize(12); doc.setFont('helvetica', 'bold');
             doc.text("1. Progresso Físico (Leituras de Horímetro/Odômetro)", 14, 35);
             
             const physicalBody = [];
             let totalHorasFisicas = 0;
 
-            // Filtra histórico desta obra
             const history = obra.historicoVeiculos || [];
             
-            // Itera sobre veículos selecionados (ou todos da obra se nenhum específico selecionado)
             const targetVehicles = selectedVehicleIds.length > 0 
                 ? vehicles.filter(v => selectedVehicleIds.includes(v.id) && v.obraAtualId === obraId)
                 : vehicles.filter(v => v.obraAtualId === obraId);
 
             targetVehicles.forEach(v => {
-                // Encontra a entrada mais recente deste veículo nesta obra
                 const entry = history.find(h => h.veiculoId === v.id && !h.dataSaida);
-                
-                // UNIFICAÇÃO HORÍMETRO: Usa apenas campos unificados se possível, ou fallback
-                // Regra: Máquinas e Caminhões usam horas para "trabalho". Caminhões de trecho usam Km.
                 const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(v.tipo));
                 const isKm = group === 'Veículos Leves' || group === 'Caminhões de Trecho';
                 
@@ -860,7 +898,6 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
                         start = parseFloat(entry.odometroEntrada || 0);
                         current = parseFloat(v.odometro || 0);
                     } else {
-                        // Unificação: Pega horímetro direto (sem distinção digital/analógico se backend já unificou)
                         start = parseFloat(entry.horimetroEntrada || entry.odometroEntrada || 0);
                         current = parseFloat(v.horimetro ?? v.horimetroDigital ?? v.horimetroAnalogico ?? 0);
                     }
@@ -891,12 +928,10 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
                 doc.text("Nenhum veículo alocado atualmente.", 14, 45);
             }
 
-            // --- SEÇÃO 2: PROGRESSO FINANCEIRO (Baseado em Faturamento / Daily Logs) ---
             let currentY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 15 : 60;
             doc.setFontSize(12); doc.setFont('helvetica', 'bold');
             doc.text("2. Progresso Financeiro (Apontamentos de Faturamento)", 14, currentY);
 
-            // Preparação robusta dos logs (mesma lógica do Faturamento)
             let safeLogs = [];
             if (Array.isArray(dailyWorkLogs)) safeLogs = dailyWorkLogs;
             else if (dailyWorkLogs && dailyWorkLogs.data && Array.isArray(dailyWorkLogs.data)) safeLogs = dailyWorkLogs.data;
@@ -958,7 +993,6 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
             
             <div className="bg-white p-6 rounded-lg border shadow-sm">
                 <div className="grid md:grid-cols-3 gap-6 mb-4">
-                    {/* Coluna 1: Status */}
                     <div>
                         <label className="label">Status da Obra</label>
                         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setSelectedObraIds([]); }} className="input-field">
@@ -968,7 +1002,6 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
                         </select>
                     </div>
 
-                    {/* Coluna 2: Obras */}
                     <div>
                         <label className="label">Selecionar Obras</label>
                         <select 
@@ -982,7 +1015,6 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
                         <p className="text-xs text-gray-500 mt-1">Use Ctrl+Click para selecionar várias.</p>
                     </div>
 
-                    {/* Coluna 3: Veículos (Filtrados pelas Obras) */}
                     <div>
                         <label className="label flex justify-between">
                             Selecionar Veículos
@@ -1015,11 +1047,9 @@ const ConstructionReportGenerator = ({ obras, vehicles, dailyWorkLogs, vehicleGr
 // 6. RELATÓRIO DE PLANO DE TRABALHO
 // ===================================================================================
 const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = [], equipmentTypesForHours = [] }) => {
-    // --- ESTADO LOCAL ---
     const [pdfWorkplanSelectedObras, setPdfWorkplanSelectedObras] = useState([]);
     const [pdfWorkplanFilterStatus, setPdfWorkplanFilterStatus] = useState('ativa');
 
-    // --- FILTRAGEM DE OBRAS ---
     const obrasToDisplay = useMemo(() => {
         if (!obras) return [];
         return obras
@@ -1031,7 +1061,6 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
         setPdfWorkplanSelectedObras([]);
     }, [pdfWorkplanFilterStatus]);
 
-    // --- FUNÇÃO DE EXPORTAÇÃO (LÓGICA ORIGINAL) ---
     const exportWorkplanToPDF = () => {
         const doc = new jsPDF();
         
@@ -1063,7 +1092,6 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
                 doc.text(`Fim: ${dataFimStr}`, startX, currentY);
                 currentY += 10;
                 
-                // Lógica de cálculo de progresso
                 const progressData = { contratado: {}, concluido: {}, totalContratado: 0, totalConcluido: 0 };
                 const uniqueEquipmentTypes = [...new Set(equipmentTypesForHours)];
                 const allEquipmentTypes = [...uniqueEquipmentTypes];
@@ -1078,7 +1106,6 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
                     progressData.concluido[type] = 0;
                 });
 
-                // Histórico de Veículos
                 (obra.historicoVeiculos || []).forEach(h => {
                     const vehicle = vehicles.find(v => v.id === h.veiculoId);
                     if (!vehicle) return;
@@ -1269,89 +1296,6 @@ const WorkPlanReportGenerator = ({ obras, vehicles, vehicleGroups, expenses = []
         
         doc.save(`Plano_de_Trabalho_MAK.pdf`);
     };
-
-    return (
-        <div className="animate-fade-in">
-            <SectionHeader icon={FileText} title="Relatório de Plano de Trabalho" description="Histórico físico, horas trabalhadas e despesas da obra." />
-            
-            <div className="p-4 sm:p-6 bg-white rounded-lg shadow-sm border">
-                <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                    <div className="w-full sm:w-1/3">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Filtrar por Status</label>
-                        <select 
-                            value={pdfWorkplanFilterStatus} 
-                            onChange={e => setPdfWorkplanFilterStatus(e.target.value)} 
-                            className="input-field"
-                        >
-                            <option value="ativa">Obras Ativas</option>
-                            <option value="finalizada">Obras Encerradas</option>
-                        </select>
-                    </div>
-                    <div className="flex-1">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Selecione as Obras (Ctrl+Click)</label>
-                        <select 
-                            multiple 
-                            value={pdfWorkplanSelectedObras} 
-                            onChange={e => setPdfWorkplanSelectedObras(Array.from(e.target.selectedOptions, option => option.value))} 
-                            className="w-full h-48 p-2 border rounded-lg bg-gray-50 focus:ring-yellow-500 focus:border-yellow-500 custom-scrollbar"
-                        >
-                            {obrasToDisplay.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <button 
-                    onClick={exportWorkplanToPDF} 
-                    className="btn-primary bg-red-600 hover:bg-red-700 text-white flex items-center justify-center gap-2 w-full sm:w-auto"
-                    disabled={pdfWorkplanSelectedObras.length === 0}
-                >
-                    <Download size={16}/>Gerar Plano de Trabalho ({pdfWorkplanSelectedObras.length})
-                </button>
-            </div>
-        </div>
-    );
-};
-
-// ===================================================================================
-// PÁGINA PRINCIPAL (CONTROLLER)
-// ===================================================================================
-const ReportsPage = ({ vehicles = [], obras = [], expenses = [], equipmentTypesForHours = [], employees = [], fines = [], vehicleGroups = {}, dailyWorkLogs = [], refuelings = [] }) => {
-    const [reportType, setReportType] = useState(null);
-    const [inactivityAlerts, setInactivityAlerts] = useState([]);
-    const [fetchedRefuelings, setFetchedRefuelings] = useState([]);
-
-    // Busca alertas de inatividade e abastecimentos ao montar o componente
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                // Fetch Alertas
-                if (apiClient && apiClient.getInactivityAlerts) {
-                    const alertsData = await apiClient.getInactivityAlerts();
-                    setInactivityAlerts(alertsData || []);
-                }
-                
-                // Fetch Abastecimentos (NOVO - Para validar datas reais)
-                // Se a prop 'refuelings' estiver vazia, tenta buscar da API
-                if (refuelings.length === 0 && apiClient && apiClient.getRefuelings) {
-                    const refuelsData = await apiClient.getRefuelings();
-                    setFetchedRefuelings(refuelsData || []);
-                }
-            } catch (error) {
-                console.error("Erro ao buscar dados para relatório:", error);
-            }
-        };
-        fetchData();
-    }, [refuelings]); // Re-executa se a prop mudar, mas a verificação de length impede loops desnecessários
-
-    const activeRefuelings = refuelings.length > 0 ? refuelings : fetchedRefuelings;
-
-    const reportTypes = [
-        { id: 'vehicles', label: 'Frota & Veículos', icon: Truck, desc: 'Listagem geral, status e localização.', color: 'bg-blue-600' },
-        { id: 'employees', label: 'Funcionários', icon: Users, desc: 'Quadro, alocações e documentos.', color: 'bg-green-600' },
-        { id: 'alerts', label: 'Alertas & Pendências', icon: AlertTriangle, desc: 'Vencimentos, bloqueios e inatividade.', color: 'bg-red-600' },
-        { id: 'billing', label: 'Relatório Faturamento', icon: ClipboardCheck, desc: 'Comparativo Contratado x Faturado.', color: 'bg-yellow-500' },
-        { id: 'construction', label: 'Relatório de Obras', icon: HardHat, desc: 'Progresso Físico vs. Financeiro.', color: 'bg-orange-600' },
-        { id: 'workplan', label: 'Plano de Trabalho', icon: FileText, desc: 'Histórico físico, progresso e despesas.', color: 'bg-gray-600' },
-    ];
 
     return (
         <div className="container mx-auto p-6 md:p-8 max-w-7xl min-h-screen flex flex-col">
