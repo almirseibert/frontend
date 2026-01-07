@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin } from 'lucide-react';
 import { checkReadingConsistency } from '../utils/vehicleRules';
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.6 - Fix Data Loading & Sync) ---
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE VEÍCULO (V2.7 - Rastreador Select) ---
 const VehicleModal = ({ 
     user, 
     vehicle, 
@@ -17,7 +17,6 @@ const VehicleModal = ({
 }) => {
     
     // --- Helper de Recuperação Robusta de Dados ---
-    // Verifica snake_case, camelCase e PascalCase para garantir que o dado apareça
     const resolveValue = (obj, keys) => {
         if (!obj) return '';
         for (const key of keys) {
@@ -50,7 +49,10 @@ const VehicleModal = ({
         // Configurações
         isComboioVehicle: vehicle?.isComboioVehicle || false,
         isOutsourced: vehicle?.isOutsourced || false,
-        hasRastreador: vehicle?.hasRastreador || false,
+        
+        // NOVO: Campo Rastreador (Select)
+        rastreador: vehicle?.rastreador || 'Sem Rastreador',
+        
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
         
         // Validades
@@ -62,9 +64,7 @@ const VehicleModal = ({
         canCirculate: (vehicle?.canCirculate === false || vehicle?.canCirculate === 0) ? false : true,
     }));
     
-    // --- EFEITO DE SINCRONIA DE DADOS (CRÍTICO) ---
-    // Garante que se o objeto 'vehicle' mudar (ex: recarregamento da tabela),
-    // os dados do formulário sejam atualizados, especialmente Ano e Cor.
+    // --- EFEITO DE SINCRONIA DE DADOS ---
     useEffect(() => {
         if (vehicle) {
             setFormData(prev => ({
@@ -73,8 +73,7 @@ const VehicleModal = ({
                 anoModelo: resolveValue(vehicle, ['ano_modelo', 'anoModelo', 'AnoModelo']),
                 cor: resolveValue(vehicle, ['cor', 'Cor']),
                 chassi: resolveValue(vehicle, ['chassi', 'Chassi']),
-                // Atualiza outros campos críticos apenas se necessário para evitar sobrescrever edições em curso
-                // (mas como o modal é montado/desmontado, isso age como um reset seguro)
+                rastreador: vehicle.rastreador || 'Sem Rastreador'
             }));
         }
     }, [vehicle]);
@@ -196,7 +195,7 @@ const VehicleModal = ({
             mediaCalculo: mediaCalculo,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
             
-            // Campos Chave com conversão explícita (State -> DB Column)
+            // Campos Chave com conversão explícita
             ano_fabricacao: parseInt(formData.anoFabricacao, 10) || null,
             ano_modelo: parseInt(formData.anoModelo, 10) || null,
             chassi: formData.chassi, 
@@ -207,12 +206,13 @@ const VehicleModal = ({
             validadeAET_DNIT: formData.validadeAET_DNIT || null,
             
             cor: formData.cor,
-            hasRastreador: formData.hasRastreador
+            rastreador: formData.rastreador // Campo novo mapeado
         };
         
-        // Remove chaves do state que não são colunas do banco
+        // Remove campos antigos e auxiliares
         delete dataToSave.anoFabricacao;
         delete dataToSave.anoModelo;
+        delete dataToSave.hasRastreador; // Garante que não enviamos o antigo checkbox
 
         if (!canBeComboio) dataToSave.isComboioVehicle = false;
 
@@ -324,7 +324,6 @@ const VehicleModal = ({
                                     </div>
                                 </div>
 
-                                {/* CAMPOS CORRIGIDOS (Ano, Cor) */}
                                 <div className="grid grid-cols-3 gap-2">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">ANO FAB.</label>
@@ -354,7 +353,6 @@ const VehicleModal = ({
                                     <Gauge size={18}/> Leituras e Capacidades
                                 </h3>
 
-                                {/* INPUT DINÂMICO BASEADO NO GRUPO */}
                                 {showHorimetro && (
                                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
                                         <label className="block text-sm font-bold text-blue-900 uppercase mb-1 flex justify-between">
@@ -374,7 +372,6 @@ const VehicleModal = ({
                                     </div>
                                 )}
                                 
-                                {/* Opção Comboio - Condicional */}
                                 {canBeComboio && (
                                     <div className="flex items-center p-3 border rounded-lg hover:bg-gray-50 transition">
                                         <input name="isComboioVehicle" id="isComboioVehicle" type="checkbox" checked={formData.isComboioVehicle} onChange={handleChange} className="h-5 w-5 rounded text-yellow-600 focus:ring-yellow-500"/>
@@ -382,14 +379,12 @@ const VehicleModal = ({
                                     </div>
                                 )}
                                 
-                                {/* Campo Chassi */}
                                 <div>
                                     <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Chassi</label>
                                     <input name="chassi" value={formData.chassi} onChange={handleChange} placeholder="Identificação do chassi" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none uppercase" />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    {/* Campo Capacidade - Condicional */}
                                     {showCapacity && (
                                         <div>
                                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Capacidade (m³)</label>
@@ -422,7 +417,6 @@ const VehicleModal = ({
                                     </label>
                                 </div>
 
-                                {/* Regra 4: Validades (Caminhões e Trecho) */}
                                 {(effectiveGroup === 'Caminhões' || effectiveGroup === 'Caminhões de Trecho') && (
                                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm space-y-3">
                                         <p className="font-bold text-blue-800 text-xs uppercase">Validades Obrigatórias</p>
@@ -441,10 +435,23 @@ const VehicleModal = ({
                                     </div>
                                 )}
                                 
-                                {/* Opção Rastreador */}
-                                <div className="flex items-center p-3 border rounded-lg bg-gray-50">
-                                    <input name="hasRastreador" id="hasRastreador" type="checkbox" checked={formData.hasRastreador} onChange={handleChange} className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"/>
-                                    <label htmlFor="hasRastreador" className="ml-3 text-sm font-bold text-gray-700 cursor-pointer w-full flex items-center gap-2"><MapPin size={16}/> Rastreador Instalado?</label>
+                                {/* Opção Rastreador - AGORA SELECT */}
+                                <div className="p-3 border rounded-lg bg-gray-50">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase mb-2 flex items-center gap-2">
+                                        <MapPin size={16} className="text-blue-600"/> Sistema de Rastreamento
+                                    </label>
+                                    <select 
+                                        name="rastreador" 
+                                        value={formData.rastreador} 
+                                        onChange={handleChange} 
+                                        className="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                    >
+                                        <option value="Sem Rastreador">Sem Rastreador</option>
+                                        <option value="Sigasul">Sigasul</option>
+                                        <option value="Fleet">Fleet</option>
+                                        <option value="Khronos">Khronos</option>
+                                        <option value="Sigasul+ID">Sigasul + ID</option>
+                                    </select>
                                 </div>
 
                                 <div className={`p-3 rounded-lg border ${!formData.canCirculate ? 'bg-red-100 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
