@@ -383,7 +383,15 @@ const BillingPage = ({
         doc.setFont('helvetica', 'normal');
         doc.text(operatorLabel, 40, 52);
 
-        const tableBody = reportData.map(log => {
+        // CORREÇÃO: Ordenar os dados por data (ascendente: menor -> maior)
+        // Isso garante que no PDF as datas apareçam em ordem cronológica correta
+        const sortedReportData = [...reportData].sort((a, b) => {
+            const dateA = new Date(a.date);
+            const dateB = new Date(b.date);
+            return dateA - dateB;
+        });
+
+        const tableBody = sortedReportData.map(log => {
             const morningHours = calculateTimeDiffDecimal(log.morningStart, log.morningEnd);
             const afternoonHours = calculateTimeDiffDecimal(log.afternoonStart, log.afternoonEnd);
             
