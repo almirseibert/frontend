@@ -5,6 +5,9 @@ import {
     User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus // <--- ADICIONADO AQUI
 } from 'lucide-react';
 
+// Importação do Socket.io Client
+import { io } from "socket.io-client";
+
 import { AuthProvider, useAuth } from './contexts/AuthContext'; 
 
 // Page Imports
@@ -388,6 +391,64 @@ const AppContent = () => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); 
     const [pendingRequestsCount, setPendingRequestsCount] = useState(0); // Novo Estado para Notificação Admin
+
+    // --- SOCKET.IO IMPLEMENTAÇÃO ---
+    useEffect(() => {
+        // Usa a URL da API definida no .env ou fallback
+        const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+        
+        // Remove '/api' do final se existir, pois o socket conecta na raiz
+        const cleanSocketUrl = SOCKET_URL.replace('/api', '');
+
+        const socket = io(cleanSocketUrl, {
+            transports: ['websocket', 'polling']
+        });
+
+        socket.on('connect', () => {
+            console.log("🟢 Conectado ao servidor Socket.io");
+        });
+
+        // Ouvinte Genérico de Sincronização
+        socket.on('server:sync', async ({ targets }) => {
+            console.log("🔄 Recebido pedido de sincronização para:", targets);
+            
+            if (!targets || !Array.isArray(targets)) return;
+
+            // Mapeamento de Targets -> Funções de Atualização
+            // Isso evita recarregar TUDO quando apenas uma tabela muda
+            const updateActions = {
+                'vehicles': () => apiClient.getVehicles().then(setVehicles),
+                'obras': () => apiClient.getObras().then(setObras),
+                'employees': () => apiClient.getEmployees().then(setEmployees),
+                'revisions': () => { if(user.user_type !== 'operador') apiClient.getRevisions().then(setRevisions) },
+                'partners': () => { if(user.user_type !== 'operador') apiClient.getPartners().then(setRawPartners) },
+                'refuelings': () => { if(user.podeAcessarAbastecimento || user.user_type === 'admin') apiClient.getRefuelings().then(setRefuelings) },
+                'comboio': () => { if(user.podeAcessarAbastecimento || user.user_type === 'admin') apiClient.getComboioTransactions().then(setRawComboioTransactions) },
+                'fines': () => { if(user.user_type !== 'operador') apiClient.getFines().then(setRawFines) },
+                'dailyWorkLogs': () => { if(user.user_type !== 'operador') apiClient.getDailyLogs('all').then(setDailyWorkLogs) },
+                'expenses': () => { if(user.user_type !== 'operador') apiClient.getExpenses().then(setExpenses) },
+            };
+
+            // Executa as atualizações necessárias
+            for (const target of targets) {
+                if (updateActions[target]) {
+                    try {
+                        await updateActions[target]();
+                    } catch (error) {
+                        console.error(`Erro ao atualizar ${target} via socket:`, error);
+                    }
+                }
+            }
+        });
+
+        socket.on('disconnect', () => {
+            console.log("🔴 Desconectado do servidor Socket.io");
+        });
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [user]);
 
     const partners = React.useMemo(() => [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [rawPartners]);
     const comboioTransactions = React.useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
