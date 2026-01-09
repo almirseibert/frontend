@@ -395,7 +395,7 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
     );
 };
 
-// --- Modal de Conclusão de Revisão (Mantido Compacto) ---
+// --- Modal de Conclusão de Revisão (Atualizado com Proxima Descricao) ---
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
     
@@ -410,6 +410,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
         realizadaEm: new Date().toISOString().split('T')[0],
         leituraRealizada: readingInfo.raw ? readingInfo.raw.toString() : '',
         descricao: vehicle.revision?.descricao || '', 
+        proximaDescricao: '', // NOVO CAMPO: Inicia vazio para o próximo agendamento
         custo: '',
         notaFiscal: '',
         proximaRevisaoData: '',
@@ -531,6 +532,20 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
                         <div className="text-[10px] font-bold text-gray-500 uppercase border-b border-gray-200 pb-1 mb-2 flex items-center gap-1">
                             <Clock size={12}/> Próxima Revisão (Meta)
                         </div>
+                        
+                        {/* NOVO CAMPO: DESCRIÇÃO DA PRÓXIMA REVISÃO */}
+                        <div className="mb-2">
+                            <label className="block text-[10px] font-medium text-gray-600 mb-1">Descrição do Próximo Agendamento</label>
+                            <input 
+                                type="text" 
+                                name="proximaDescricao" 
+                                value={formData.proximaDescricao} 
+                                onChange={handleChange} 
+                                className="w-full p-1.5 border border-gray-300 rounded text-xs focus:border-blue-500 outline-none" 
+                                placeholder="Ex: Troca de Correias (50k)"
+                            />
+                        </div>
+
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-[10px] font-medium text-gray-600 mb-1">Data Meta</label>
