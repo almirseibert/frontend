@@ -85,8 +85,21 @@ const RefuelingPage = ({
             });
         }
 
+        // CORREÇÃO DE ORDENAÇÃO:
+        // Prioriza a DATA (mais recente primeiro) para garantir que ordens novas apareçam no topo
+        // mesmo se o contador tiver sido reiniciado pós-migração.
         return list
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0))
+            .sort((a,b) => {
+                // 1. Data (Decrescente - Mais novo primeiro)
+                const dateA = new Date(a.data || a.date || 0).getTime();
+                const dateB = new Date(b.data || b.date || 0).getTime();
+                const diffDate = dateB - dateA;
+                
+                if (diffDate !== 0) return diffDate;
+
+                // 2. Desempate: Número da Ordem (Decrescente)
+                return (b.authNumber || 0) - (a.authNumber || 0);
+            })
             .slice(0, 20); 
     }, [refuelings, latestOrdersSearchTerm, vehicles]);
 
@@ -160,11 +173,11 @@ const RefuelingPage = ({
                      body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
                 }
 
-                // CORREÇÃO: Exibição do Emitido Por
+                // Exibição do Emitido Por
                 let issuer = 'N/A';
                 if (order.createdBy) {
                     if (typeof order.createdBy === 'string') {
-                        issuer = order.createdBy; // Se for email string direto
+                        issuer = order.createdBy; 
                     } else if (typeof order.createdBy === 'object') {
                         issuer = order.createdBy.nome || order.createdBy.name || order.createdBy.userEmail || order.createdBy.email || 'Usuário do Sistema';
                     }
@@ -288,7 +301,7 @@ const RefuelingPage = ({
                                     if(!openOrdersSearchTerm) return true;
                                     const term = openOrdersSearchTerm.toLowerCase();
                                     const v = vehicles.find(v => v.id === o.vehicleId);
-                                    // CORREÇÃO: Filtro por RE adicionado
+                                    // Filtro por RE adicionado
                                     return String(o.authNumber).includes(term) || 
                                            v?.placa?.toLowerCase().includes(term) || 
                                            v?.registroInterno?.toLowerCase().includes(term);
@@ -359,7 +372,7 @@ const RefuelingPage = ({
                                 <tbody className="divide-y">
                                     {latestRefuelings.map(order => {
                                         const vehicle = vehicles.find(v => v.id === order.vehicleId);
-                                        // CORREÇÃO: Exibição do nome do posto com fallback
+                                        // Exibição do nome do posto com fallback
                                         const displayPartner = order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || 'N/A';
                                         
                                         return (
