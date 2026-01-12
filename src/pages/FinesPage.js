@@ -130,13 +130,24 @@ const generateFinePDF = (fineData, employee, vehicle) => {
 };
 
 // ===================================================================================
-// FUNÇÃO WHATSAPP (NOTIFICAÇÃO)
+// FUNÇÃO WHATSAPP (NOTIFICAÇÃO) - CORRIGIDA
 // ===================================================================================
-const sendFineWhatsApp = (fineData, employee, vehicle) => {
-    if (!employee || (!employee.whatsapp && !employee.telefone)) return;
+const sendFineWhatsApp = (fineData, employee, vehicle, silent = false) => {
+    if (!employee) {
+        if (!silent) alert("Funcionário não identificado.");
+        return;
+    }
+
+    // Verifica se tem telefone ou whatsapp
+    const rawPhone = employee.whatsapp || employee.telefone;
+
+    if (!rawPhone) {
+        if (!silent) alert(`O funcionário ${employee.nome} não possui Telefone ou WhatsApp cadastrado no sistema.`);
+        return;
+    }
     
-    const phone = (employee.whatsapp || employee.telefone).replace(/\D/g, '');
-    const firstName = employee.nome.split(' ')[0];
+    const phone = rawPhone.replace(/\D/g, '');
+    const firstName = employee.nome ? employee.nome.split(' ')[0] : 'Colaborador';
     
     const msg = 
 `*NOTIFICAÇÃO DE INFRAÇÃO DE TRÂNSITO - FROTAS MAK*
@@ -155,11 +166,17 @@ Informamos que recebemos uma notificação de infração de trânsito vinculada 
 Esta multa será processada pelo RH conforme as políticas da empresa.
 Caso tenha dúvidas, divergências sobre a autoria ou não concorde com o desconto, favor entrar em contato com o setor de Frotas/RH *imediatamente*.
 
-${!fineData.alreadyInEmployeeName ? '⚠️ *IMPORTANTE:* Favor comparecer para assinar a indicação de condutor e evitar multas NIC (multa com dobro do valor da multa original).' : ''}
+${!fineData.alreadyInEmployeeName ? '⚠️ *IMPORTANTE:* Favor comparecer para assinar a indicação de condutor e evitar multas NIC (multa dobrada).' : ''}
 
 _Mensagem automática do Sistema Frotas MAK v2.0_`;
 
-    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    const url = `https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`;
+    
+    // Tenta abrir e avisa se bloqueado
+    const win = window.open(url, '_blank');
+    if (!win || win.closed || typeof win.closed === 'undefined') {
+        if (!silent) alert("O navegador bloqueou a abertura do WhatsApp. Por favor, habilite pop-ups para este site.");
+    }
 };
 
 
@@ -233,40 +250,40 @@ const FineModal = ({
         };
 
         try {
-            let savedFineId = fine?.id;
-
             if (isEditing) {
                 await apiClient.updateFine(fine.id, dataToSave);
                 setAlertMessage('Multa atualizada com sucesso!');
             } else {
-                const res = await apiClient.createFine(dataToSave);
-                savedFineId = res.id; // Assume que o create retorna o ID
+                await apiClient.createFine(dataToSave);
                 setAlertMessage('Multa registrada com sucesso!');
-            }
-
-            // Ações Pós-Salvar (PDF e WhatsApp)
-            // Se marcado para descontar ou transferir, sugere o PDF
-            if (formData.discountFromEmployee || !formData.alreadyInEmployeeName) {
-                const confirmPDF = window.confirm("Deseja gerar o Termo de Responsabilidade/Cobrança agora?");
-                if (confirmPDF) {
-                    generateFinePDF(dataToSave, employee, vehicle);
-                }
-            }
-
-            // Notificação WhatsApp sempre que criar ou editar (se houver funcionário)
-            if (employee.whatsapp || employee.telefone) {
-                const confirmZap = window.confirm(`Deseja notificar ${employee.nome} via WhatsApp sobre esta multa?`);
-                if (confirmZap) {
-                    sendFineWhatsApp(dataToSave, employee, vehicle);
-                }
             }
 
             reloadData();
             onClose();
+
+            // Ações Pós-Salvar (PDF e WhatsApp)
+            // Usa setTimeout para garantir que a UI atualize e o modal feche antes dos alertas
+            setTimeout(() => {
+                // 1. PDF de Desconto/Transferência
+                if (formData.discountFromEmployee || !formData.alreadyInEmployeeName) {
+                    const confirmPDF = window.confirm("Multa salva! Deseja gerar o Termo de Responsabilidade/Cobrança agora?");
+                    if (confirmPDF) {
+                        generateFinePDF(dataToSave, employee, vehicle);
+                    }
+                }
+
+                // 2. WhatsApp (Verifica se funcionário tem telefone antes de perguntar)
+                if (employee.whatsapp || employee.telefone) {
+                    const confirmZap = window.confirm(`Deseja notificar ${employee.nome} via WhatsApp sobre esta multa?`);
+                    if (confirmZap) {
+                        sendFineWhatsApp(dataToSave, employee, vehicle);
+                    }
+                }
+            }, 500);
+
         } catch (err) {
             console.error("Erro ao salvar multa via API:", err);
             setError(err.message || "Ocorreu um erro ao salvar a multa.");
-        } finally {
             setIsSaving(false);
         }
     };
