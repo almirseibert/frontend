@@ -172,6 +172,7 @@ const RefuelingOrderModal = ({
                     partnerId: autoPartnerId || prev.partnerId,
                     fuelType: autoFuelType || prev.fuelType,
                     litrosLiberados: autoLitros || prev.litrosLiberados,
+                    // Se já tiver horimetro/odometro salvos, usar eles, senão usar do veículo
                     odometro: prev.odometro || selectedVehicle.odometro?.toString() || '',
                     horimetro: prev.horimetro || selectedVehicle.horimetro?.toString() || ''
                 }));
@@ -202,7 +203,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / litros) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -301,13 +302,16 @@ const RefuelingOrderModal = ({
             authNumber: orderToEdit?.authNumber || 'NOVA',
         };
 
-        const pdfData = {
-            ...finalData,
-            partnerName: partner?.razaoSocial,
-        };
-        
-        // Gera PDF em background
-        onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
+        // Usa prop onGeneratePDF se disponível, ou ignora (mas backend já terá processado)
+        // Isso garante que o PDF seja gerado para download automático se desejado
+        if (onGeneratePDF) {
+             const pdfData = {
+                ...finalData,
+                partnerName: partner?.razaoSocial,
+                createdBy: user
+            };
+            onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
+        }
 
         const phone = partner?.whatsapp || partner?.telefone;
 
@@ -402,6 +406,10 @@ ${readingMsg}
             createdBy: user 
         };
 
+        // Adiciona nome do posto opcionalmente (backend já trata, mas ajuda se tiver cacheado)
+        const partner = partners.find(p => p.id === formData.partnerId);
+        if (partner) payload.partnerName = partner.razaoSocial;
+
         try {
             let res;
             if (isEditing && orderToEdit.id) {
@@ -419,6 +427,8 @@ ${readingMsg}
                     id: res.id || orderToEdit?.id,
                     authNumber: res.authNumber || orderToEdit?.authNumber,
                  };
+                 // Envia user completo para o PDF
+                 if (onGeneratePDF) onGeneratePDF({...fullOrderData, createdBy: user}, vehicles, partners, employees, vehicleGroups);
                  sendToWhatsApp(fullOrderData);
             }
             onClose();
@@ -487,7 +497,8 @@ ${readingMsg}
                             <label className="block font-bold text-gray-700 mb-0.5">Veículo *</label>
                             <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1 border border-gray-300 rounded focus:ring-1 focus:ring-yellow-400 outline-none" required>
                                 <option value="">Selecione...</option>
-                                {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
+                                {/* CORREÇÃO: Adicionado Tipo do Veículo */}
+                                {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.tipo})</option>)}
                             </select>
                         </div>
                         

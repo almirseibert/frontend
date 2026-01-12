@@ -61,7 +61,6 @@ const RefuelingHistory = ({
              if (vehicleGroups && Object.keys(vehicleGroups).length > 0) {
                  const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g]?.includes(vehicle.tipo));
                  if (group === 'Máquinas Pesadas' || group === 'Caminhões' || group === 'Caminhões Pesados') {
-                     // Verifica se é exceção (trecho/leve)
                      if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') isHourBased = false;
                      else isHourBased = true;
                  }
@@ -76,8 +75,10 @@ const RefuelingHistory = ({
             const previous = history[index + 1]; 
             let average = null;
             
-            // Leitura Unificada (fallback para legados)
+            // Leitura Unificada
             const getReading = (item) => {
+                // Prioriza horimetro se for unidade hora, senão odometro
+                // Mantem fallback para legado caso ainda exista
                 if (unit === 'L/Hr') return parseFloat(item.horimetro || item.horimetroDigital || item.horimetroAnalogico || 0);
                 return parseFloat(item.odometro || 0);
             };
@@ -94,7 +95,11 @@ const RefuelingHistory = ({
                     average = (unit === 'Km/L') ? (diff / liters) : (liters / diff);
                 }
             }
-            return { ...current, average, displayReading, readingLabel };
+            
+            // CORREÇÃO: Fallback para nome do posto
+            const displayPartner = current.partnerName || partners.find(p => p.id === current.partnerId)?.razaoSocial || 'N/A';
+
+            return { ...current, average, displayReading, readingLabel, displayPartner };
         });
 
         // 4. Média Geral
@@ -117,7 +122,7 @@ const RefuelingHistory = ({
         }
 
         return { historyWithAverages, overallAverage, unit, readingLabel };
-    }, [vehicleId, refuelings, vehicles, vehicleGroups]);
+    }, [vehicleId, refuelings, vehicles, vehicleGroups, partners]);
 
     // --- PDF ---
     const loadScript = (src) => {
@@ -151,7 +156,7 @@ const RefuelingHistory = ({
                 head: [['Data', 'Posto', processedHistory.readingLabel, 'Litros', `Média (${processedHistory.unit})`]],
                 body: processedHistory.historyWithAverages.map(h => [
                     formatDateSafe(h.data || h.date),
-                    h.partnerName,
+                    h.displayPartner,
                     h.displayReading,
                     (h.litrosAbastecidos || 0).toFixed(2),
                     h.average ? h.average.toFixed(2) : '-'
@@ -215,7 +220,7 @@ const RefuelingHistory = ({
                             {processedHistory.historyWithAverages.map(h => (
                                 <tr key={h.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="p-3">{formatDateSafe(h.data || h.date)}</td>
-                                    <td className="p-3 truncate max-w-[140px]">{h.partnerName}</td>
+                                    <td className="p-3 truncate max-w-[140px]">{h.displayPartner}</td>
                                     <td className="p-3 text-right font-mono text-gray-600">{h.displayReading}</td>
                                     <td className="p-3 text-right font-bold">{h.litrosAbastecidos?.toFixed(2)}</td>
                                     <td className={`p-3 text-right font-bold ${!h.average ? 'text-gray-300' : 'text-blue-600'}`}>

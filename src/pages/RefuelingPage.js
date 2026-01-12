@@ -12,7 +12,7 @@ const RefuelingPage = ({
     user,
     vehicles = [],
     obras = [],
-    partners = [], // Necessário para passar ao ConfirmRefuelingModal
+    partners = [], 
     refuelings = [], 
     employees = [],
     expenses = [], 
@@ -49,7 +49,6 @@ const RefuelingPage = ({
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
             let date;
-            // Se for Timestamp do Firestore (tem método toDate)
             if (dateInput && typeof dateInput.toDate === 'function') {
                 date = dateInput.toDate();
             } else {
@@ -59,10 +58,7 @@ const RefuelingPage = ({
                 }
                 date = new Date(dateStr);
             }
-            
             if (isNaN(date.getTime())) return 'Data Inválida';
-            // Ajuste para exibir a data correta no timezone local sem conversão UTC forçada se já vier ajustada
-            // Mas para consistência com o banco que salva UTC, usamos getUTC methods para exibir o dia salvo
             return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
         } catch { return 'Erro'; }
     };
@@ -98,7 +94,7 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (Síncrona - Padrão) ---
+    // --- GERAÇÃO DE PDF ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups) => {
         setIsGeneratingPdf(true);
         try {
@@ -119,10 +115,8 @@ const RefuelingPage = ({
                 }
 
                 if (logoDataUrl) {
-                    const imgWidth = 45;
-                    const imgHeight = 16.875;
                     try {
-                        doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
+                        doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875);
                     } catch (e) {
                         console.error("Erro ao adicionar logo ao PDF:", e);
                     }
@@ -135,31 +129,17 @@ const RefuelingPage = ({
 
                 let leituraLabel = 'Leitura';
                 let leituraValue = 'N/A';
-                if (vehicle && groups && Object.keys(groups).length > 0) {
-                     const group = Object.keys(groups).find(g => groups[g]?.includes(vehicle.tipo));
-                     if (group === 'Máquinas Pesadas') {
-                         leituraLabel = 'Horímetro';
-                         leituraValue = order.horimetroDigital || order.horimetroAnalogico || order.horimetro || 'N/A';
-                     } else if (group === 'Caminhões') {
-                         if (order.horimetro != null && order.horimetro > 0) {
-                            leituraLabel = 'Horímetro';
-                            leituraValue = order.horimetro;
-                         } else {
-                            leituraLabel = 'Odômetro';
-                            leituraValue = order.odometro || 'N/A';
-                         }
-                     } else { 
-                         leituraLabel = 'Odômetro';
-                         leituraValue = order.odometro || 'N/A';
-                     }
-                } else { 
-                     if (order.horimetro || order.horimetroDigital || order.horimetroAnalogico) {
-                         leituraLabel = 'Horímetro';
-                         leituraValue = order.horimetroDigital || order.horimetro || order.horimetroAnalogico;
-                     } else {
-                         leituraLabel = 'Odômetro';
-                         leituraValue = order.odometro || 'N/A';
-                     }
+                
+                // Lógica unificada para Horímetro
+                if (order.horimetro && order.horimetro > 0) {
+                    leituraLabel = 'Horímetro';
+                    leituraValue = order.horimetro;
+                } else if (order.odometro && order.odometro > 0) {
+                     leituraLabel = 'Odômetro';
+                     leituraValue = order.odometro;
+                } else if (order.horimetroDigital) {
+                     leituraLabel = 'Horímetro';
+                     leituraValue = order.horimetroDigital;
                 }
 
                 const body = [
@@ -180,8 +160,16 @@ const RefuelingPage = ({
                      body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
                 }
 
-                const createdByEmail = order.createdBy?.userEmail || order.createdByEmail || 'N/A';
-                body.push(['Emitido por', createdByEmail]);
+                // CORREÇÃO: Exibição do Emitido Por
+                let issuer = 'N/A';
+                if (order.createdBy) {
+                    if (typeof order.createdBy === 'string') {
+                        issuer = order.createdBy; // Se for email string direto
+                    } else if (typeof order.createdBy === 'object') {
+                        issuer = order.createdBy.nome || order.createdBy.name || order.createdBy.userEmail || order.createdBy.email || 'Usuário do Sistema';
+                    }
+                }
+                body.push(['Emitido por', issuer]);
 
                 autoTable(doc, {
                     startY: 35,
@@ -200,13 +188,11 @@ const RefuelingPage = ({
                 doc.setFont('helvetica', 'italic');
                 doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
                 doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
-                doc.text('*Itens adicionais ou combustíveis distintos não serão objeto de faturamento.', margin, footerStartY + 8);
 
                 doc.setLineDashPattern([1, 1], 0);
                 doc.setDrawColor(180, 180, 180);
                 doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                // --- Formatar data para o nome do arquivo ---
                 let fileDate = 'DATA';
                 try {
                     let dObj;
@@ -288,7 +274,7 @@ const RefuelingPage = ({
                         <div className="relative mb-3">
                             <input 
                                 type="text" 
-                                placeholder="Buscar ordem, placa..." 
+                                placeholder="Buscar: Ordem, Placa ou RE..." 
                                 value={openOrdersSearchTerm}
                                 onChange={e => setOpenOrdersSearchTerm(e.target.value)}
                                 className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
@@ -300,8 +286,12 @@ const RefuelingPage = ({
                             {openRefuelings
                                 .filter(o => {
                                     if(!openOrdersSearchTerm) return true;
+                                    const term = openOrdersSearchTerm.toLowerCase();
                                     const v = vehicles.find(v => v.id === o.vehicleId);
-                                    return String(o.authNumber).includes(openOrdersSearchTerm) || v?.placa?.toLowerCase().includes(openOrdersSearchTerm.toLowerCase());
+                                    // CORREÇÃO: Filtro por RE adicionado
+                                    return String(o.authNumber).includes(term) || 
+                                           v?.placa?.toLowerCase().includes(term) || 
+                                           v?.registroInterno?.toLowerCase().includes(term);
                                 })
                                 .map(order => {
                                 const vehicle = vehicles.find(v => v.id === order.vehicleId);
@@ -312,7 +302,7 @@ const RefuelingPage = ({
                                                 <div className="font-bold text-gray-900 text-lg">#{String(order.authNumber).padStart(6, '0')}</div>
                                                 <p className="text-sm font-bold text-gray-700">{vehicle?.registroInterno} - {vehicle?.placa}</p>
                                                 <p className="text-xs text-gray-600 mb-1">{formatDateSafe(order.data || order.date)}</p>
-                                                <p className="text-xs text-gray-500">{order.partnerName}</p>
+                                                <p className="text-xs text-gray-500">{order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || '...'}</p>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <ProtectedComponent requiredPermission="editor">
@@ -369,17 +359,20 @@ const RefuelingPage = ({
                                 <tbody className="divide-y">
                                     {latestRefuelings.map(order => {
                                         const vehicle = vehicles.find(v => v.id === order.vehicleId);
+                                        // CORREÇÃO: Exibição do nome do posto com fallback
+                                        const displayPartner = order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || 'N/A';
+                                        
                                         return (
                                             <tr key={order.id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
                                                 <td className="p-3">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                                                         {order.status}
                                                     </span>
                                                 </td>
                                                 <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
                                                 <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
-                                                <td className="p-3 truncate max-w-[150px]">{order.partnerName}</td>
+                                                <td className="p-3 truncate max-w-[150px]">{displayPartner}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
                                                     <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
                                                         {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
@@ -455,13 +448,14 @@ const RefuelingPage = ({
                     order={orderToConfirm}
                     obras={obras}
                     expenses={expenses}
-                    vehicles={vehicles} // NOVA PROP
+                    vehicles={vehicles}
                     onClose={() => setIsConfirmModalOpen(false)}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
                     reloadData={reloadData}
                     refuelings={refuelings}
-                    PasswordConfirmationModal={PasswordConfirmationModal} // NOVA PROP
+                    partners={partners} // Passar partners para o modal conseguir recuperar preço se necessario
+                    PasswordConfirmationModal={PasswordConfirmationModal}
                 />
             )}
 
