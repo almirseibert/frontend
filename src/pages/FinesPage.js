@@ -138,15 +138,23 @@ const sendFineWhatsApp = (fineData, employee, vehicle, silent = false) => {
         return;
     }
 
-    // Verifica se tem telefone ou whatsapp
-    const rawPhone = employee.whatsapp || employee.telefone;
+    // Busca o telefone prioritariamente na coluna 'contato'
+    const rawPhone = employee.contato || employee.whatsapp || employee.telefone;
 
     if (!rawPhone) {
-        if (!silent) alert(`O funcionário ${employee.nome} não possui Telefone ou WhatsApp cadastrado no sistema.`);
+        if (!silent) alert(`O funcionário ${employee.nome} não possui número de contato cadastrado.`);
         return;
     }
     
+    // Sanitização rigorosa: remove TUDO que não for número (espaços, (), -, etc)
     const phone = rawPhone.replace(/\D/g, '');
+
+    // Verificação simples se sobrou algo válido
+    if (phone.length < 10) {
+        if (!silent) alert(`O número de telefone encontrado (${rawPhone}) parece incompleto ou inválido.`);
+        return;
+    }
+
     const firstName = employee.nome ? employee.nome.split(' ')[0] : 'Colaborador';
     
     const msg = 
@@ -264,6 +272,8 @@ const FineModal = ({
             // Ações Pós-Salvar (PDF e WhatsApp)
             // Usa setTimeout para garantir que a UI atualize e o modal feche antes dos alertas
             setTimeout(() => {
+                const phoneField = employee.contato || employee.whatsapp || employee.telefone;
+                
                 // 1. PDF de Desconto/Transferência
                 if (formData.discountFromEmployee || !formData.alreadyInEmployeeName) {
                     const confirmPDF = window.confirm("Multa salva! Deseja gerar o Termo de Responsabilidade/Cobrança agora?");
@@ -273,7 +283,7 @@ const FineModal = ({
                 }
 
                 // 2. WhatsApp (Verifica se funcionário tem telefone antes de perguntar)
-                if (employee.whatsapp || employee.telefone) {
+                if (phoneField) {
                     const confirmZap = window.confirm(`Deseja notificar ${employee.nome} via WhatsApp sobre esta multa?`);
                     if (confirmZap) {
                         sendFineWhatsApp(dataToSave, employee, vehicle);
