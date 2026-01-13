@@ -4,14 +4,14 @@ export const vehicleGroups = {
     'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
     'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
     'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques'], 
-    'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Fresadora', 'Trator Esteira']
+    'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Escavadeira + Rompedor', 'Fresadora', 'Trator Esteira']
 };
 
 export const extraObraOptions = ['Administração', 'Oficina', 'Pátio', 'Rampa', 'Diversos'];
 export const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional', 'Supervisor'];
 
 // Removido "Trator de Esteiras" duplicado/incorreto, mantido apenas o que bate com o grupo: "Trator Esteira"
-export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator Esteira', 'Bitruck', 'Caçamba', 'Caminhão Pipa', 'Caminhão Tanque'];
+export const equipmentTypesForHours = ['Caminhão', 'Escavadeira', 'Escavadeira + Rompedor', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira', 'Motoniveladora', 'Trator', 'Trator Esteira', 'Bitruck', 'Caçamba', 'Caminhão Pipa', 'Caminhão Tanque'];
 
 /**
  * Regra 1: Define estritamente quais tipos de leitura são permitidos por grupo.
