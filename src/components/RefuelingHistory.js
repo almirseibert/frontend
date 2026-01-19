@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Printer, Droplet, Loader, Calendar, Filter, X } from 'lucide-react';
+import { Download, Printer, Droplet, Loader, Filter, X } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const RefuelingHistory = ({ 
     vehicleId, 
@@ -73,9 +75,8 @@ const RefuelingHistory = ({
             .sort((a,b) => getSafeDateObj(b.data || b.date).getTime() - getSafeDateObj(a.data || a.date).getTime());
 
         // 3. Calcula Médias Individuais no Histórico Completo
-        // Isso garante que mesmo se filtrarmos, o item saiba sua média olhando para o anterior (que pode estar fora do filtro)
         const fullHistoryCalculated = sortedFullHistory.map((current, index) => {
-            const previous = sortedFullHistory[index + 1]; // O anterior no tempo (pois a lista está decrescente)
+            const previous = sortedFullHistory[index + 1]; 
             
             let average = null;
             let diff = 0;
@@ -120,8 +121,6 @@ const RefuelingHistory = ({
         let totalPercorridoPeriodo = 0;
 
         if (filteredHistory.length > 0) {
-            // Soma os diferenciais (diff) calculados no passo 3.
-            // Isso representa exatamente o quanto foi andado/trabalhado DURANTE os abastecimentos listados.
             totalPercorridoPeriodo = filteredHistory.reduce((acc, curr) => acc + (curr.diff || 0), 0);
             totalLitrosPeriodo = filteredHistory.reduce((acc, curr) => acc + (parseFloat(curr.litrosAbastecidos) || 0), 0);
 
@@ -136,27 +135,17 @@ const RefuelingHistory = ({
     }, [vehicleId, refuelings, vehicles, vehicleGroups, partners, startDate, endDate]);
 
     // --- PDF ---
-    const loadScript = (src) => {
-        return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-            const script = document.createElement('script');
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
-    };
-
-    const generateHistoryPDF = async () => {
+    const generateHistoryPDF = () => {
         setIsGeneratingPdf(true);
         try {
-            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
-
             const vehicle = vehicles.find(v => v.id === vehicleId);
-            if (!vehicle || !window.jspdf) return;
+            if (!vehicle) {
+                alert("Veículo não identificado.");
+                setIsGeneratingPdf(false);
+                return;
+            }
 
-            const { jsPDF } = window.jspdf;
+            // Instancia jsPDF diretamente (sem loadScript)
             const doc = new jsPDF();
 
             // Cabeçalho
@@ -191,7 +180,7 @@ const RefuelingHistory = ({
             doc.text(`Média Geral: ${processedData.overallAverage ? processedData.overallAverage.toFixed(2) : '--'} ${processedData.unit}`, resumoX + (gap * 2), resumoY);
 
             // Tabela
-            doc.autoTable({
+            autoTable(doc, {
                 startY: 60,
                 head: [['Data', 'Posto', processedData.readingLabel, 'Litros', `Média (${processedData.unit})`]],
                 body: processedData.filteredHistory.map(h => [
@@ -208,7 +197,7 @@ const RefuelingHistory = ({
             doc.save(`Historico_${vehicle.registroInterno}_${startDate || 'Inicio'}_${endDate || 'Fim'}.pdf`);
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);
-            alert("Erro ao gerar PDF.");
+            alert("Erro ao gerar PDF: " + error.message);
         } finally {
             setIsGeneratingPdf(false);
         }
