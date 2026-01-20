@@ -517,6 +517,18 @@ ${readingMsg}
             createdBy: user 
         };
 
+        // --- ALTERAÇÃO SOLICITADA ---
+        // Se for edição de ordem já Concluída, replica os litros liberados para litros abastecidos
+        // Apenas se houver um valor numérico definido, para evitar zerar casos de tanque cheio sem valor definido
+        if (isEditing && orderToEdit?.status === 'Concluída') {
+             if (payload.litrosLiberados > 0) {
+                 payload.litrosAbastecidos = payload.litrosLiberados;
+             }
+             if (payload.litrosLiberadosArla > 0) {
+                 payload.litrosAbastecidosArla = payload.litrosLiberadosArla;
+             }
+        }
+
         // Adiciona nome do posto opcionalmente (backend já trata, mas ajuda se tiver cacheado)
         const partner = partners.find(p => p.id === formData.partnerId);
         if (partner) payload.partnerName = partner.razaoSocial;
