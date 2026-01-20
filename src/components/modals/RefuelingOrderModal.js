@@ -292,7 +292,7 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- FUNÇÃO DE ENVIO + UPLOAD + DOWNLOAD LOCAL (CORRIGIDO) ---
+    // --- FUNÇÃO DE ENVIO + UPLOAD + DOWNLOAD LOCAL ---
     const sendToWhatsApp = async (orderData) => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
@@ -321,11 +321,10 @@ const RefuelingOrderModal = ({
                 // 1. Gera o Blob (para upload e para download local)
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
-                // 2. DOWNLOAD LOCAL (Para o grupo da obra) - ESSENCIAL
+                // 2. DOWNLOAD LOCAL (Para o grupo da obra)
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
-                // Nome amigável para o arquivo baixado
                 const safeFileName = `Ordem_${finalData.authNumber}_${vehicle?.registroInterno || 'Veic'}.pdf`;
                 link.download = safeFileName;
                 document.body.appendChild(link);
@@ -334,45 +333,57 @@ const RefuelingOrderModal = ({
                 window.URL.revokeObjectURL(downloadUrl);
                 
                 // 3. UPLOAD (Para gerar o link público para o posto)
-                // CORREÇÃO: Tenta usar fetch direto para garantir que funcione mesmo sem o método específico no apiClient
+                // CORREÇÃO: Usando fetch direto com tratamento de token e URL
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
                 let uploadRes;
                 
-                // Verifica se apiClient tem método post (estilo axios) ou se é um objeto com métodos específicos
-                if (apiClient && typeof apiClient.post === 'function') {
-                     const res = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
-                     });
-                     uploadRes = res.data;
-                } else {
-                     // FALLBACK ROBUSTO: Tenta fazer fetch direto na URL da API
-                     // Tenta descobrir a base URL do apiClient se possível, ou usa relativa
-                     const baseUrl = apiClient?.baseURL || '/api'; // Ajuste conforme sua configuração de proxy/rota
-                     const token = localStorage.getItem('token'); // Tenta pegar token se usar localStorage
-                     
-                     const headers = {};
-                     if (token) headers['Authorization'] = `Bearer ${token}`;
-                     // Nota: Não setar Content-Type para multipart/form-data manualmente no fetch, o browser faz isso com o boundary correto ao usar FormData
+                // Tenta descobrir a base URL da API
+                // Se apiClient.defaults.baseURL existir (axios), usa ela. Se não, tenta construir.
+                let apiUrl = '/api'; 
+                if (apiClient && apiClient.defaults && apiClient.defaults.baseURL) {
+                    apiUrl = apiClient.defaults.baseURL;
+                } else if (typeof window !== 'undefined') {
+                    // Fallback comum se estiver no mesmo domínio
+                    apiUrl = `${window.location.origin}/api`;
+                }
 
-                     const response = await fetch(`${baseUrl}/refuelings/upload-pdf`, {
-                         method: 'POST',
-                         headers: headers,
-                         body: formDataUpload
-                     });
-                     
-                     if (response.ok) {
-                         uploadRes = await response.json();
-                     } else {
-                         console.warn("Upload fallback falhou:", response.status, response.statusText);
-                     }
+                // Tenta obter o token do localStorage (ajuste a chave conforme seu sistema: 'token', 'authToken', etc.)
+                const token = localStorage.getItem('token'); 
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                // Faz o fetch manual
+                // Importante: NÃO setar 'Content-Type': 'multipart/form-data' manualmente no fetch com FormData.
+                // O navegador faz isso automaticamente e adiciona o boundary correto.
+                const response = await fetch(`${apiUrl}/refuelings/upload-pdf`, {
+                    method: 'POST',
+                    headers: headers, 
+                    body: formDataUpload
+                });
+                
+                if (response.ok) {
+                    uploadRes = await response.json();
+                } else {
+                    console.error("Upload falhou:", response.status, response.statusText);
+                    // Tenta ler o erro do corpo se existir
+                    try {
+                        const errBody = await response.json();
+                        console.error("Detalhes do erro:", errBody);
+                    } catch(e) {}
                 }
 
                 if (uploadRes && uploadRes.url) {
-                    // Monta a URL completa. 'window.location.origin' pega 'https://seu-dominio.com'
-                    const appBaseUrl = window.location.origin;
-                    pdfLink = `${appBaseUrl}${uploadRes.url}`;
+                    // Se a URL retornada for relativa (começa com /), adiciona a origem
+                    if (uploadRes.url.startsWith('/')) {
+                        const appBaseUrl = window.location.origin;
+                        pdfLink = `${appBaseUrl}${uploadRes.url}`;
+                    } else {
+                        pdfLink = uploadRes.url;
+                    }
                 }
 
             } catch (err) {
