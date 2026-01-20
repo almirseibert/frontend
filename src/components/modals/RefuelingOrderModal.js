@@ -442,13 +442,16 @@ const RefuelingOrderModal = ({
             msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
 Segue link para a Autorização Oficial (PDF):
-📄 *${pdfLink}*
+${pdfLink}
 
 *Resumo:*
-Veículo: ${vehicle?.placa} (${vehicle?.registroInterno})
-Combustível: ${finalData.fuelType}
-Qtd: ${formData.isFillUp ? 'COMPLETAR' : formData.litrosLiberados + ' L'}
-Motorista: ${employee?.nome || 'N/A'}`;
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
+*Combustível:* ${finalData.fuelType}
+*Quantidade:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
+*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
             // Fallback Texto (caso o upload falhe)
             msg = 
