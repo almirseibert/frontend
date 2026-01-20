@@ -319,9 +319,10 @@ const RefuelingOrderModal = ({
         if (onGeneratePDF) {
             try {
                 // 1. Gera o Blob (para upload e para download local)
+                // IMPORTANTE: Aqui usamos 'await' para garantir que o PDF foi gerado antes de continuar
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
-                // 2. DOWNLOAD LOCAL (Para o grupo da obra)
+                // 2. DOWNLOAD LOCAL (Opcional, mas útil para o usuário ter cópia)
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
@@ -336,77 +337,57 @@ const RefuelingOrderModal = ({
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                let uploadRes;
+                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
+                let serverBaseUrl = '';
                 
-                try {
-                    // Tenta determinar a URL da API de forma robusta
-                    let baseUrl = 'http://localhost:3001'; // Fallback padrão
-                    
-                    // Prioridade 1: Variável de ambiente (comum em CRA)
-                    if (process.env.REACT_APP_API_URL) {
-                        baseUrl = process.env.REACT_APP_API_URL;
-                    } 
-                    // Prioridade 2: Defaults do axios se disponível
-                    else if (apiClient && apiClient.defaults && apiClient.defaults.baseURL) {
-                        baseUrl = apiClient.defaults.baseURL;
-                    }
-                    // Prioridade 3: Mesma origem se não for localhost (Produção)
-                    else if (window.location.hostname !== 'localhost') {
-                        baseUrl = window.location.origin;
-                    }
-
-                    // Limpeza: remove barras finais e sufixo '/api' para garantir construção correta
-                    // O objetivo é ter a raiz do servidor (ex: http://localhost:3001)
-                    let urlBaseClean = baseUrl;
-                    if (urlBaseClean.endsWith('/')) {
-                        urlBaseClean = urlBaseClean.slice(0, -1);
-                    }
-                    if (urlBaseClean.endsWith('/api')) {
-                        urlBaseClean = urlBaseClean.substring(0, urlBaseClean.length - 4);
-                    }
-
-                    // Reconstrói o endpoint completo
-                    const uploadEndpoint = `${urlBaseClean}/api/refuelings/upload-pdf`;
-
-                    const token = localStorage.getItem('token');
-                    const headers = {};
-                    if (token) headers['Authorization'] = `Bearer ${token}`;
-                    
-                    // Fetch nativo (não usa apiClient.post que pode não existir)
-                    const response = await fetch(uploadEndpoint, {
-                        method: 'POST',
-                        headers: headers,
-                        body: formDataUpload
-                    });
-                    
-                    if (response.ok) {
-                        uploadRes = await response.json();
-                    } else {
-                        console.error("Erro upload status:", response.status);
-                    }
-                } catch (apiErr) {
-                    console.error("Erro no upload via fetch:", apiErr);
+                // Prioridade 1: Variável de Ambiente (Comum em CRA/Vite)
+                if (process.env.REACT_APP_API_URL) {
+                    serverBaseUrl = process.env.REACT_APP_API_URL;
+                } 
+                // Prioridade 2: Configuração do Axios (apiClient)
+                else if (apiClient?.defaults?.baseURL) {
+                    serverBaseUrl = apiClient.defaults.baseURL;
+                }
+                // Prioridade 3: Origem atual (Window)
+                else {
+                    serverBaseUrl = window.location.origin;
                 }
 
-                if (uploadRes && uploadRes.url) {
-                    if (uploadRes.url.startsWith('http')) {
-                        pdfLink = uploadRes.url;
-                    } else if (uploadRes.url.startsWith('/')) {
-                        // Se o retorno for relativo (/uploads/...), concatena com a base do servidor
-                        let serverBase = 'http://localhost:3001';
-                        
-                        if (process.env.REACT_APP_API_URL) serverBase = process.env.REACT_APP_API_URL;
-                        else if (apiClient?.defaults?.baseURL) serverBase = apiClient.defaults.baseURL;
-                        else if (window.location.hostname !== 'localhost') serverBase = window.location.origin;
+                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
+                // Queremos apenas a raiz do servidor (ex: http://localhost:3001) pois a pasta 'uploads' fica na raiz
+                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
+                if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
+                // Limpeza dupla caso tenha barra (ex: /api/)
+                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                        // Limpa novamente para garantir que estamos concatenando na raiz (onde a pasta 'uploads' é servida)
-                        if (serverBase.endsWith('/')) serverBase = serverBase.slice(0, -1);
-                        if (serverBase.endsWith('/api')) serverBase = serverBase.substring(0, serverBase.length - 4);
+                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
+                
+                console.log("Iniciando Upload PDF para:", uploadEndpoint); // Debug no console
 
-                        pdfLink = `${serverBase}${uploadRes.url}`;
-                    } else {
-                        pdfLink = uploadRes.url;
+                const token = localStorage.getItem('token');
+                const headers = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const response = await fetch(uploadEndpoint, {
+                    method: 'POST',
+                    headers: headers,
+                    body: formDataUpload
+                });
+
+                if (response.ok) {
+                    const uploadRes = await response.json();
+                    console.log("Upload Sucesso. Resposta:", uploadRes); // Debug no console
+
+                    if (uploadRes && uploadRes.url) {
+                        // Se a URL retornada for relativa (começa com /), adiciona a base do servidor
+                        if (uploadRes.url.startsWith('/')) {
+                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
+                        } else {
+                            pdfLink = uploadRes.url;
+                        }
                     }
+                } else {
+                    console.error("Erro upload status:", response.status, await response.text());
                 }
 
             } catch (err) {
