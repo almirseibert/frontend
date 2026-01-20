@@ -364,7 +364,31 @@ const RefuelingOrderModal = ({
                 
                 console.log("Iniciando Upload PDF para:", uploadEndpoint); // Debug no console
 
-                const token = localStorage.getItem('token');
+                // --- BUSCA AGRESSIVA DE TOKEN ---
+                let token = localStorage.getItem('token');
+                if (!token) token = localStorage.getItem('authToken');
+                if (!token) token = localStorage.getItem('userToken');
+                
+                // Tenta buscar de um objeto 'user' no localStorage se for o caso
+                if (!token) {
+                    try {
+                        const userStored = localStorage.getItem('user');
+                        if (userStored) {
+                            const uObj = JSON.parse(userStored);
+                            if (uObj.token) token = uObj.token;
+                        }
+                    } catch(e) {}
+                }
+
+                // Remove aspas se o token estiver "sujo"
+                if (token && typeof token === 'string') {
+                    if (token.startsWith('"') && token.endsWith('"')) {
+                        token = token.slice(1, -1);
+                    }
+                }
+
+                console.log("Token para Upload:", token ? "Encontrado" : "NÃO ENCONTRADO");
+
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
 
