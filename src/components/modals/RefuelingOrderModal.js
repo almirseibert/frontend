@@ -338,40 +338,72 @@ const RefuelingOrderModal = ({
                 
                 let uploadRes;
                 
-                // CORREÇÃO: Usando apiClient diretamente para tratar autenticação e baseURL
                 try {
-                    const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
-                         headers: {
-                             'Content-Type': 'multipart/form-data'
-                         }
+                    // Tenta determinar a URL da API de forma robusta
+                    let baseUrl = 'http://localhost:3001'; // Fallback padrão
+                    
+                    // Prioridade 1: Variável de ambiente (comum em CRA)
+                    if (process.env.REACT_APP_API_URL) {
+                        baseUrl = process.env.REACT_APP_API_URL;
+                    } 
+                    // Prioridade 2: Defaults do axios se disponível
+                    else if (apiClient && apiClient.defaults && apiClient.defaults.baseURL) {
+                        baseUrl = apiClient.defaults.baseURL;
+                    }
+                    // Prioridade 3: Mesma origem se não for localhost (Produção)
+                    else if (window.location.hostname !== 'localhost') {
+                        baseUrl = window.location.origin;
+                    }
+
+                    // Limpeza: remove barras finais e sufixo '/api' para garantir construção correta
+                    // O objetivo é ter a raiz do servidor (ex: http://localhost:3001)
+                    let urlBaseClean = baseUrl;
+                    if (urlBaseClean.endsWith('/')) {
+                        urlBaseClean = urlBaseClean.slice(0, -1);
+                    }
+                    if (urlBaseClean.endsWith('/api')) {
+                        urlBaseClean = urlBaseClean.substring(0, urlBaseClean.length - 4);
+                    }
+
+                    // Reconstrói o endpoint completo
+                    const uploadEndpoint = `${urlBaseClean}/api/refuelings/upload-pdf`;
+
+                    const token = localStorage.getItem('token');
+                    const headers = {};
+                    if (token) headers['Authorization'] = `Bearer ${token}`;
+                    
+                    // Fetch nativo (não usa apiClient.post que pode não existir)
+                    const response = await fetch(uploadEndpoint, {
+                        method: 'POST',
+                        headers: headers,
+                        body: formDataUpload
                     });
-                    uploadRes = response.data;
+                    
+                    if (response.ok) {
+                        uploadRes = await response.json();
+                    } else {
+                        console.error("Erro upload status:", response.status);
+                    }
                 } catch (apiErr) {
-                    console.error("Erro no upload via API:", apiErr);
+                    console.error("Erro no upload via fetch:", apiErr);
                 }
 
                 if (uploadRes && uploadRes.url) {
-                    // Lógica para montar o link completo corretamente
                     if (uploadRes.url.startsWith('http')) {
-                        // Se o backend já retornar a URL absoluta (ex: S3, Storage externo)
                         pdfLink = uploadRes.url;
                     } else if (uploadRes.url.startsWith('/')) {
-                        // Se for caminho relativo, precisamos descobrir a origem do SERVIDOR (Backend)
-                        // apiClient.defaults.baseURL geralmente é algo como 'http://localhost:3001/api'
+                        // Se o retorno for relativo (/uploads/...), concatena com a base do servidor
+                        let serverBase = 'http://localhost:3001';
                         
-                        let serverBaseUrl = '';
-                        
-                        if (apiClient.defaults.baseURL && apiClient.defaults.baseURL.startsWith('http')) {
-                            // Extrai a origem (ex: http://localhost:3001) da URL da API
-                            const urlObj = new URL(apiClient.defaults.baseURL);
-                            serverBaseUrl = urlObj.origin;
-                        } else {
-                            // Fallback se a configuração da API for relativa (ex: '/api')
-                            // Nesse caso, assume-se que está no mesmo domínio (proxy ou produção unificada)
-                            serverBaseUrl = window.location.origin;
-                        }
-                        
-                        pdfLink = `${serverBaseUrl}${uploadRes.url}`;
+                        if (process.env.REACT_APP_API_URL) serverBase = process.env.REACT_APP_API_URL;
+                        else if (apiClient?.defaults?.baseURL) serverBase = apiClient.defaults.baseURL;
+                        else if (window.location.hostname !== 'localhost') serverBase = window.location.origin;
+
+                        // Limpa novamente para garantir que estamos concatenando na raiz (onde a pasta 'uploads' é servida)
+                        if (serverBase.endsWith('/')) serverBase = serverBase.slice(0, -1);
+                        if (serverBase.endsWith('/api')) serverBase = serverBase.substring(0, serverBase.length - 4);
+
+                        pdfLink = `${serverBase}${uploadRes.url}`;
                     } else {
                         pdfLink = uploadRes.url;
                     }
