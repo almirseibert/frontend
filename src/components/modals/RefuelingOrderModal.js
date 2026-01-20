@@ -292,7 +292,7 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- FUNÇÃO DE ENVIO + UPLOAD + DOWNLOAD LOCAL ---
+    // --- FUNÇÃO DE ENVIO + UPLOAD + DOWNLOAD LOCAL (CORRIGIDO) ---
     const sendToWhatsApp = async (orderData) => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
@@ -334,25 +334,45 @@ const RefuelingOrderModal = ({
                 window.URL.revokeObjectURL(downloadUrl);
                 
                 // 3. UPLOAD (Para gerar o link público para o posto)
+                // CORREÇÃO: Tenta usar fetch direto para garantir que funcione mesmo sem o método específico no apiClient
                 const formDataUpload = new FormData();
-                // Envia como 'file' para o multer pegar no backend
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
                 let uploadRes;
-                if (apiClient && apiClient.post) {
-                     // Tenta usar o cliente axios configurado (com headers de auth se existirem)
+                
+                // Verifica se apiClient tem método post (estilo axios) ou se é um objeto com métodos específicos
+                if (apiClient && typeof apiClient.post === 'function') {
                      const res = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
                         headers: { 'Content-Type': 'multipart/form-data' }
                      });
                      uploadRes = res.data;
                 } else {
-                     console.warn("ApiClient upload method not found or configured.");
+                     // FALLBACK ROBUSTO: Tenta fazer fetch direto na URL da API
+                     // Tenta descobrir a base URL do apiClient se possível, ou usa relativa
+                     const baseUrl = apiClient?.baseURL || '/api'; // Ajuste conforme sua configuração de proxy/rota
+                     const token = localStorage.getItem('token'); // Tenta pegar token se usar localStorage
+                     
+                     const headers = {};
+                     if (token) headers['Authorization'] = `Bearer ${token}`;
+                     // Nota: Não setar Content-Type para multipart/form-data manualmente no fetch, o browser faz isso com o boundary correto ao usar FormData
+
+                     const response = await fetch(`${baseUrl}/refuelings/upload-pdf`, {
+                         method: 'POST',
+                         headers: headers,
+                         body: formDataUpload
+                     });
+                     
+                     if (response.ok) {
+                         uploadRes = await response.json();
+                     } else {
+                         console.warn("Upload fallback falhou:", response.status, response.statusText);
+                     }
                 }
 
                 if (uploadRes && uploadRes.url) {
                     // Monta a URL completa. 'window.location.origin' pega 'https://seu-dominio.com'
-                    const baseUrl = window.location.origin;
-                    pdfLink = `${baseUrl}${uploadRes.url}`;
+                    const appBaseUrl = window.location.origin;
+                    pdfLink = `${appBaseUrl}${uploadRes.url}`;
                 }
 
             } catch (err) {
