@@ -203,7 +203,7 @@ const RefuelingOrderModal = ({
                 }
 
                 if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                    const avg = unit === 'Km/L' ? (diff / litros) : (liters / diff);
                     setLastAverage(`${avg.toFixed(2)} ${unit}`);
                 } else {
                     setLastAverage('Incalculável');
@@ -292,35 +292,76 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
+    // --- FUNÇÃO DE ENVIO + UPLOAD + DOWNLOAD LOCAL ---
     const sendToWhatsApp = async (orderData) => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
+        const employee = employees.find(e => e.id === formData.employeeId);
         
         const finalData = orderData || {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
             authNumber: orderToEdit?.authNumber || 'NOVA',
+            partnerName: partner?.razaoSocial
         };
 
-        // Usa prop onGeneratePDF se disponível, ou ignora (mas backend já terá processado)
-        // Isso garante que o PDF seja gerado para download automático se desejado
-        if (onGeneratePDF) {
-             const pdfData = {
-                ...finalData,
-                partnerName: partner?.razaoSocial,
-                createdBy: user
-            };
-            onGeneratePDF(pdfData, vehicles, partners, employees, vehicleGroups);
-        }
-
         const phone = partner?.whatsapp || partner?.telefone;
-
         if (!phone) {
-            setAlertMessage("Salvo! Posto sem WhatsApp cadastrado.");
+            setAlertMessage("Ordem salva! Posto sem WhatsApp (PDF baixado).");
+            // Se não tem whats, gera o PDF apenas para download local
+            if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
             return;
         }
 
-        // Determina o tipo de leitura para a mensagem
+        let pdfLink = '';
+        
+        // Se houver função de geração, processa o arquivo
+        if (onGeneratePDF) {
+            try {
+                // 1. Gera o Blob (para upload e para download local)
+                const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+                
+                // 2. DOWNLOAD LOCAL (Para o grupo da obra) - ESSENCIAL
+                const downloadUrl = window.URL.createObjectURL(pdfBlob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                // Nome amigável para o arquivo baixado
+                const safeFileName = `Ordem_${finalData.authNumber}_${vehicle?.registroInterno || 'Veic'}.pdf`;
+                link.download = safeFileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(downloadUrl);
+                
+                // 3. UPLOAD (Para gerar o link público para o posto)
+                const formDataUpload = new FormData();
+                // Envia como 'file' para o multer pegar no backend
+                formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
+                
+                let uploadRes;
+                if (apiClient && apiClient.post) {
+                     // Tenta usar o cliente axios configurado (com headers de auth se existirem)
+                     const res = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                     });
+                     uploadRes = res.data;
+                } else {
+                     console.warn("ApiClient upload method not found or configured.");
+                }
+
+                if (uploadRes && uploadRes.url) {
+                    // Monta a URL completa. 'window.location.origin' pega 'https://seu-dominio.com'
+                    const baseUrl = window.location.origin;
+                    pdfLink = `${baseUrl}${uploadRes.url}`;
+                }
+
+            } catch (err) {
+                console.error("Erro ao processar PDF (Upload/Download):", err);
+                setAlertMessage("Ordem salva. Erro ao gerar link/arquivo, enviando texto simples.");
+            }
+        }
+
+        // --- MONTAGEM DA MENSAGEM ---
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
         let readingMsg = '';
         if (allowedReadings.includes('odometro')) {
@@ -328,34 +369,42 @@ const RefuelingOrderModal = ({
         } else {
              readingMsg = `*Horímetro:* ${finalData.horimetro ? finalData.horimetro + ' Hr' : 'N/A'}`;
         }
-
-        // Formatação da data
+        
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-
-        // Formatação de Arla
+        
         const arlaMsg = formData.needsArla 
             ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
             : '';
 
-        const msg = 
+        // MENSAGEM COM LINK
+        let msg = '';
+        
+        if (pdfLink) {
+            msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Ordem de abastecimento gerada automaticamente, para versão oficial em PDF, por favor, solicite-nos.
+Segue link para a Autorização Oficial (PDF):
+📄 *${pdfLink}*
+
+*Resumo:*
+Veículo: ${vehicle?.placa} (${vehicle?.registroInterno})
+Combustível: ${finalData.fuelType}
+Qtd: ${formData.isFillUp ? 'COMPLETAR' : formData.litrosLiberados + ' L'}
+Motorista: ${employee?.nome || 'N/A'}`;
+        } else {
+            // Fallback Texto (caso o upload falhe)
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+(Link PDF indisponível, verifique sistema)
 
 *Nº Ordem:* ${finalData.authNumber}
 *Data:* ${emissionDate}
 *Posto:* ${partner?.razaoSocial || 'N/A'}
-
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''}
-*Placa/RE:* ${vehicle?.placa || 'N/A'} (${vehicle?.registroInterno || 'N/A'})
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
 ${readingMsg}
-
-*Funcionário Autorizado:* ${employees.find(e => e.id === formData.employeeId)?.nome || 'N/A'}
-*Combustível:* ${formData.fuelType === 'dieselS10' ? 'Diesel S10' : (formData.fuelType === 'dieselS500' ? 'Diesel S500' : formData.fuelType.toUpperCase())}
-*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
-
-*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.
-*Proibida a inclusão de itens não listados nesta ordem.
-*Não aceitaremos faturamento de itens extras ou combustível diferente do autorizado.`;
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${finalData.fuelType}
+*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}`;
+        }
 
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -426,10 +475,10 @@ ${readingMsg}
                     ...payload,
                     id: res.id || orderToEdit?.id,
                     authNumber: res.authNumber || orderToEdit?.authNumber,
+                    createdBy: user 
                  };
-                 // Envia user completo para o PDF
-                 if (onGeneratePDF) onGeneratePDF({...fullOrderData, createdBy: user}, vehicles, partners, employees, vehicleGroups);
-                 sendToWhatsApp(fullOrderData);
+                 // CHAMA O NOVO ENVIO (COM UPLOAD E DOWNLOAD)
+                 await sendToWhatsApp(fullOrderData);
             }
             onClose();
         } catch (error) {
