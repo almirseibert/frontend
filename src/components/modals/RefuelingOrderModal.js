@@ -448,7 +448,7 @@ ${pdfLink}
 *Nº Ordem:* ${finalData.authNumber}
 *Data:* ${emissionDate}
 *Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
 *Combustível:* ${finalData.fuelType}
 *Quantidade:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
 *Motorista:* ${employee?.nome || 'N/A'}`;
@@ -519,14 +519,12 @@ ${readingMsg}
 
         // --- ALTERAÇÃO SOLICITADA ---
         // Se for edição de ordem já Concluída, replica os litros liberados para litros abastecidos
-        // Apenas se houver um valor numérico definido, para evitar zerar casos de tanque cheio sem valor definido
-        if (isEditing && orderToEdit?.status === 'Concluída') {
-             if (payload.litrosLiberados > 0) {
-                 payload.litrosAbastecidos = payload.litrosLiberados;
-             }
-             if (payload.litrosLiberadosArla > 0) {
-                 payload.litrosAbastecidosArla = payload.litrosLiberadosArla;
-             }
+        // Normalização de status para evitar falhas por maiúsculas/acentos
+        const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+        
+        if (isEditing && (currentStatus === 'concluida' || currentStatus === 'confirmada')) {
+             payload.litrosAbastecidos = payload.litrosLiberados;
+             payload.litrosAbastecidosArla = payload.litrosLiberadosArla;
         }
 
         // Adiciona nome do posto opcionalmente (backend já trata, mas ajuda se tiver cacheado)
