@@ -11,79 +11,119 @@ import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
 import ProtectedComponent from '../components/ProtectedComponent';
 
-// --- FUNÇÃO DE GERAÇÃO DE PDF SIMPLIFICADA (Unificado) ---
+// --- FUNÇÃO DE GERAÇÃO DE PDF (Padronizada A4 - Igual Abastecimento) ---
 const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], employees = [], vehicleGroups = {}) => {
-    // Constrói o PDF usando jsPDF e autoTable
+    // --- HELPER: Validação de Data ---
+    const isValidDbDate = (dateString) => {
+        if (!dateString) return false;
+        const str = String(dateString);
+        return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
+    };
+
+    // --- HELPER: Formatação de Data Segura ---
+    const formatDateSafe = (dateInput) => {
+        if (!isValidDbDate(dateInput)) return 'N/A';
+        try {
+            let date;
+            if (dateInput && typeof dateInput.toDate === 'function') {
+                date = dateInput.toDate();
+            } else {
+                let dateStr = String(dateInput);
+                if (dateStr.includes(' ') && !dateStr.includes('T')) {
+                    dateStr = dateStr.replace(' ', 'T');
+                }
+                date = new Date(dateStr);
+            }
+            if (isNaN(date.getTime())) return 'Data Inválida';
+            return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toLocaleDateString('pt-BR');
+        } catch { return 'Erro'; }
+    };
+
     const buildPdf = (logoDataUrl) => {
-        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
+        // MUDANÇA: Formato A4 (antes era A5) para igualar ao Abastecimento
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = doc.internal.pageSize.getWidth();
+        const effectivePageHeight = 148.5; 
         const margin = 10;
 
-        const vehicle = vehicles.find(v => v.id === orderData.vehicleId); 
-        const partner = partners.find(p => p.id === orderData.partnerId); 
+        // Determina quem é o "Veículo" e "Parceiro" baseado no tipo de transação
+        let vehicleId, partnerId;
+        if (orderData.isEntrada || orderData.type === 'entrada') {
+            vehicleId = orderData.comboioVehicleId || orderData.vehicleId; // O comboio está sendo abastecido
+            partnerId = orderData.partnerId;
+        } else {
+            vehicleId = orderData.receivingVehicleId || orderData.vehicleId; // O veículo está recebendo do comboio
+            partnerId = null; // O parceiro é o comboio
+        }
+
+        const vehicle = vehicles.find(v => v.id === vehicleId); 
+        const partner = partners.find(p => p.id === partnerId); 
         const employee = employees.find(e => e.id === orderData.employeeId);
         
-        const transactionDate = orderData.date ? new Date(orderData.date) : new Date();
+        const dateToUse = orderData.data || orderData.date;
+        let emissionDateStr = formatDateSafe(dateToUse);
 
-        // Adiciona logo se disponível
+        // Logo
         if (logoDataUrl) {
-            const imgWidth = 45;
-            const imgHeight = 16.875; 
             try {
-                doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
+                doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875);
             } catch (e) {
-                 console.error("Erro ao adicionar logo ao PDF:", e);
+                console.error("Erro ao adicionar logo ao PDF:", e);
             }
         }
 
         doc.setFontSize(16);
-        const title = orderData.isEntrada ? 'Autorização de Abastecimento - Entrada' : 'Autorização de Abastecimento';
-        doc.text(title, pageWidth - margin, 15, { align: 'right' });
+        doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
         doc.setFontSize(12);
-        doc.text(`Nº: ${String(orderData.authNumber || 'N/A').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+        // Exibe o número da ordem que vem do backend (agora sincronizado com refuelingCounter)
+        doc.text(`Nº: ${String(orderData.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
 
-        // Determina a etiqueta e valor da leitura (Lógica Unificada)
-        let leituraRow = [];
-        if (!orderData.isEntrada) {
-            let leituraLabel = 'Leitura';
-            let leituraValue = 'N/A';
-            
-            if (vehicle) {
-                const allowed = getAllowedReadingTypes(vehicle.tipo);
-                if (allowed.includes('odometro')) {
-                    leituraLabel = 'Odômetro';
-                    leituraValue = orderData.odometro || orderData.odometroSaida || 'N/A';
-                } else {
-                    leituraLabel = 'Horímetro';
-                    // Pega o valor unificado, ou fallback para legado se existir no histórico
-                    leituraValue = orderData.horimetro || orderData.horimetroSaida || orderData.horimetroDigital || 'N/A';
-                }
+        let leituraLabel = 'Leitura';
+        let leituraValue = 'N/A';
+        
+        // Lógica de Leitura unificada
+        if (orderData.odometro && orderData.odometro > 0) {
+            leituraLabel = 'Odômetro';
+            leituraValue = orderData.odometro;
+        } else if (orderData.horimetro && orderData.horimetro > 0) {
+            leituraLabel = 'Horímetro';
+            leituraValue = orderData.horimetro;
+        } else if (vehicle) {
+            // Fallback se não tiver na ordem, tenta pegar do veículo (menos preciso, mas útil)
+            const allowed = getAllowedReadingTypes(vehicle.tipo);
+            if (allowed.includes('odometro')) {
+                leituraLabel = 'Odômetro';
+                leituraValue = vehicle.odometro || 'N/A';
+            } else {
+                leituraLabel = 'Horímetro';
+                leituraValue = vehicle.horimetro || vehicle.horimetroDigital || 'N/A';
             }
-            leituraRow = [leituraLabel, `${leituraValue}`];
         }
 
         const body = [
-            ['Data de Emissão', transactionDate.toLocaleString('pt-BR')],
-            ['Funcionário Responsável', employee?.nome || 'Não especificado'],
-            [orderData.isEntrada ? 'Veículo Comboio' : 'Veículo Abastecido', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+            ['Data de Emissão', emissionDateStr],
+            ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
+            ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
             ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
+            [leituraLabel, `${leituraValue}`],
+            ['Posto Autorizado', orderData.partnerName || partner?.razaoSocial || (orderData.type === 'saida' ? 'Comboio Interno' : 'N/A')],
+            ['Combustível Autorizado', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A'],
+            ['Litros Liberados', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`],
         ];
-
-        if (!orderData.isEntrada && leituraRow.length > 0) {
-            body.push(leituraRow);
-        }
-
-        body.push(['Origem do Combustível', orderData.partnerName || partner?.razaoSocial || 'N/A']);
-        body.push(['Combustível', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A']);
-        body.push(['Litros', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`]);
 
         if (orderData.invoiceNumber) {
             body.push(['Nota Fiscal (NF)', orderData.invoiceNumber]);
         }
 
-        if (orderData.createdBy?.userEmail) {
-            body.push(['Emitido por', orderData.createdBy.userEmail]);
+        let issuer = 'N/A';
+        if (orderData.createdBy) {
+            if (typeof orderData.createdBy === 'string') {
+                issuer = orderData.createdBy; 
+            } else if (typeof orderData.createdBy === 'object') {
+                issuer = orderData.createdBy.nome || orderData.createdBy.name || orderData.createdBy.userEmail || orderData.createdBy.email || 'Usuário do Sistema';
+            }
         }
+        body.push(['Emitido por', issuer]);
 
         autoTable(doc, {
             startY: 35,
@@ -92,11 +132,23 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
             styles: { fontSize: 9, cellPadding: 1.5 },
             headStyles: { fillColor: [24, 49, 83] },
             columnStyles: {
-                0: { cellWidth: 40, fontStyle: 'bold' },
+                0: { cellWidth: 40, fontStyle: 'bold' }
             }
         });
 
-        const fileName = `Autorizacao_${orderData.authNumber || 'TEMP'}_${vehicle?.registroInterno || 'VEIC'}_${transactionDate.toISOString().split('T')[0]}.pdf`;
+        let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
+        const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
+        doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
+
+        doc.setLineDashPattern([1, 1], 0);
+        doc.setDrawColor(180, 180, 180);
+        doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
+
+        // Gera nome do arquivo
+        const fileName = `Autorizacao_${orderData.authNumber || 'TEMP'}_${vehicle?.registroInterno || 'VEIC'}.pdf`;
         doc.save(fileName);
     };
 
@@ -338,11 +390,19 @@ const ComboioPage = ({
                                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
                                         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400"></span> {new Date(t.date).toLocaleString('pt-BR')}</span>
                                         <span className="flex items-center gap-1 font-medium text-gray-600 bg-gray-100 px-1.5 rounded">{t.fuelType === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'}</span>
+                                        {t.authNumber && <span className="flex items-center gap-1 font-bold text-gray-700 bg-gray-200 px-1.5 rounded">Nº {String(t.authNumber).padStart(6,'0')}</span>}
                                         {t.obraName && <span className="flex items-center gap-1"><MapPin size={10}/> {t.obraName}</span>}
                                         {t.invoiceNumber && <span className="flex items-center gap-1 bg-yellow-50 text-yellow-800 px-1 rounded border border-yellow-100">NF: {t.invoiceNumber}</span>}
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-1 ml-3 pl-3 border-l border-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                        onClick={() => generateAuthorizationPDF(t, vehicles, partners, employees, vehicleGroups)} 
+                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                                        title="PDF"
+                                    >
+                                        <ArrowDownCircle size={18} className="transform rotate-180"/> 
+                                    </button>
                                     <ProtectedComponent requiredPermission="editor">
                                         <button 
                                             onClick={() => handleEdit(t)} 
@@ -391,7 +451,7 @@ const ComboioPage = ({
                     generateAuthorizationPDF={generateAuthorizationPDF}
                     vehicleGroups={vehicleGroups}
                     reloadData={reloadData}
-                    comboioTransactions={comboioTransactions} // Passado para validação de NF
+                    comboioTransactions={comboioTransactions} 
                 />
             )}
 
