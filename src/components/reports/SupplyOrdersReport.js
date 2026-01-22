@@ -1,19 +1,22 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { FileText, Printer, Droplet } from 'lucide-react';
+import { FileText, Printer, Droplet, AlertCircle } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 
-// Componente ajustado para aceitar tanto 'refuelings' quanto 'supplyOrders' e 'partners'
 const SupplyOrdersReport = ({ 
-    supplyOrders = [], 
-    refuelings = [], // Adicionado para compatibilidade com o sistema existente
+    supplyOrders, 
+    refuelings, 
     vehicles = [], 
     obras = [], 
-    partners = [], 
-    gasStations = [], // Adicionado para compatibilidade
+    partners, 
+    gasStations, 
     employees = [] 
 }) => {
+    // --- 0. Tratamento Robusto de Props (Garante Arrays) ---
+    const rawOrders = Array.isArray(supplyOrders) && supplyOrders.length > 0 ? supplyOrders : (Array.isArray(refuelings) ? refuelings : []);
+    const rawPartners = Array.isArray(partners) ? partners : (Array.isArray(gasStations) ? gasStations : []);
+
     // Filtros
     const [filters, setFilters] = useState({ 
         vehicleId: '', 
@@ -26,51 +29,47 @@ const SupplyOrdersReport = ({
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
 
-    // --- 1. Unificação das Fontes de Dados ---
-    
-    // Usa supplyOrders se tiver dados, senão usa refuelings (padrão do sistema)
-    const ordersData = useMemo(() => {
-        return (supplyOrders && supplyOrders.length > 0) ? supplyOrders : (refuelings || []);
-    }, [supplyOrders, refuelings]);
-
-    // Usa partners se tiver dados, senão gasStations. Se ambos vazios, tenta extrair dos abastecimentos
-    const partnersData = useMemo(() => {
-        let list = (partners && partners.length > 0) ? partners : (gasStations || []);
+    // --- 1. Helpers de Data (Compatível com Firestore/Strings) ---
+    const getSafeDateObj = (dateInput) => {
+        if (!dateInput) return new Date(0);
         
-        // Fallback: Se não vier lista de parceiros, extrai dos abastecimentos existentes para não quebrar o filtro
-        if (list.length === 0 && ordersData.length > 0) {
+        // Suporte a Timestamp do Firestore
+        if (typeof dateInput.toDate === 'function') {
+            return dateInput.toDate();
+        }
+        
+        // Suporte a Strings e Objetos Date padrão
+        try {
+            const d = new Date(dateInput);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        } catch { 
+            return new Date(0); 
+        }
+    };
+
+    // --- 2. Unificação e Processamento de Dados ---
+    
+    // Lista de Parceiros (Usa a prop ou extrai das ordens se a prop vier vazia)
+    const partnersData = useMemo(() => {
+        let list = [...rawPartners];
+        
+        // Se não vier lista de parceiros, extrai das ordens para popular o filtro
+        if (list.length === 0 && rawOrders.length > 0) {
             const uniquePartners = new Map();
-            ordersData.forEach(o => {
+            rawOrders.forEach(o => {
                 if (o.partnerId && !uniquePartners.has(o.partnerId)) {
                     uniquePartners.set(o.partnerId, { 
                         id: o.partnerId, 
-                        razaoSocial: o.partnerName || 'Posto Desconhecido' 
+                        razaoSocial: o.partnerName || o.postoNome || 'Posto Desconhecido' 
                     });
                 }
             });
             list = Array.from(uniquePartners.values());
         }
         return list;
-    }, [partners, gasStations, ordersData]);
+    }, [rawPartners, rawOrders]);
 
-    // --- Helpers de Data ---
-    const isValidDbDate = (dateString) => {
-        if (!dateString) return false;
-        const str = String(dateString);
-        return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
-    };
-
-    const getSafeDateObj = (dateInput) => {
-        if (!isValidDbDate(dateInput)) return new Date(0);
-        try {
-            let dateStr = String(dateInput);
-            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
-            const d = new Date(dateStr);
-            return isNaN(d.getTime()) ? new Date(0) : d;
-        } catch { return new Date(0); }
-    };
-
-    // --- Ordenação de Listas para Filtros (Alfanumérica) ---
+    // Ordenação de Listas para Filtros
     const sortedVehicles = useMemo(() => {
         return [...vehicles].sort((a, b) => {
             const labelA = `${a.registroInterno || ''} ${a.placa || ''}`; 
@@ -93,7 +92,7 @@ const SupplyOrdersReport = ({
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [obras]);
 
-    // Colunas disponíveis para o relatório
+    // Colunas do PDF
     const allColumns = useMemo(() => [
         { key: 'formattedDate', label: 'Data Emissão' },
         { key: 'orderNumber', label: 'Nº Ordem' },
@@ -106,23 +105,20 @@ const SupplyOrdersReport = ({
         { key: 'status', label: 'Status' }
     ], []);
 
-    // 2. Processamento e Filtragem
+    // 3. Filtragem Principal
     const filteredOrders = useMemo(() => {
-        if (!Array.isArray(ordersData)) return [];
-
-        // Filtra ordens com status "Aberta" (Case Insensitive e variações)
-        const openOrders = ordersData.filter(o => {
-            const st = (o.status || '').toLowerCase();
-            return ['aberta', 'open', 'pendente', 'em aberto'].includes(st);
+        // Passo 1: Filtrar apenas Abertas/Pendentes
+        const openOrders = rawOrders.filter(o => {
+            const st = (o.status || 'aberta').toLowerCase().trim();
+            // Aceita variações comuns de status "aberto"
+            return ['aberta', 'open', 'pendente', 'em aberto', 'autorizada', 'emitida'].includes(st);
         });
 
-        // Filtros de Data
-        const start = filters.startDate ? new Date(filters.startDate) : null;
-        if (start) start.setHours(0,0,0,0);
-        
-        const end = filters.endDate ? new Date(filters.endDate) : null;
-        if (end) end.setHours(23, 59, 59);
+        // Passo 2: Preparar Datas do Filtro
+        const start = filters.startDate ? new Date(filters.startDate + 'T00:00:00') : null;
+        const end = filters.endDate ? new Date(filters.endDate + 'T23:59:59') : null;
 
+        // Passo 3: Map e Filtro Final
         return openOrders.map(order => {
             const vehicle = vehicles.find(v => v.id === order.vehicleId);
             const partner = partnersData.find(p => p.id === order.partnerId);
@@ -141,8 +137,9 @@ const SupplyOrdersReport = ({
 
             return {
                 ...order,
-                vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : 'N/A',
-                partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'N/A'),
+                id: order.id,
+                vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : (order.vehicleName || 'N/A'),
+                partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'Posto N/A'),
                 obraName: obra ? obra.nome : 'N/A',
                 driverName: employee ? employee.nome : (order.employeeName || 'N/A'),
                 formattedDate: dateObj.toLocaleDateString('pt-BR'),
@@ -155,23 +152,29 @@ const SupplyOrdersReport = ({
         }).filter(order => {
             const matchVeh = filters.vehicleId ? order.vehicleId === filters.vehicleId : true;
             const matchObra = filters.obraId ? order.obraId === filters.obraId : true;
-            
-            const matchPartner = filters.partnerId 
-                ? (order.partnerId === filters.partnerId) 
-                : true;
+            const matchPartner = filters.partnerId ? order.partnerId === filters.partnerId : true;
             
             let matchDate = true;
             if (start && end) {
                 matchDate = order.rawDate >= start && order.rawDate <= end;
+            } else if (start) {
+                matchDate = order.rawDate >= start;
+            } else if (end) {
+                matchDate = order.rawDate <= end;
             }
 
             return matchVeh && matchObra && matchPartner && matchDate;
         }).sort((a,b) => a.rawDate - b.rawDate); 
 
-    }, [ordersData, vehicles, obras, partnersData, employees, filters]);
+    }, [rawOrders, vehicles, obras, partnersData, employees, filters]);
 
+    // Atualiza seleção "Selecionar Todos"
     useEffect(() => {
-        setSelectAll(filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length);
+        if (filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length) {
+            setSelectAll(true);
+        } else {
+            setSelectAll(false);
+        }
     }, [selectedOrderIds, filteredOrders]);
 
     const handleGeneratePDF = () => {
@@ -213,8 +216,22 @@ const SupplyOrdersReport = ({
         doc.save('Relatorio_Ordens_Aberto.pdf');
     };
 
+    // Mensagem de Debug caso não venham dados
+    if (rawOrders.length === 0) {
+        return (
+            <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-yellow-800">
+                <AlertCircle className="mx-auto mb-2" size={32} />
+                <h3 className="font-bold">Nenhum dado recebido</h3>
+                <p className="text-sm">
+                    Verifique se os dados estão sendo passados corretamente para o componente. 
+                    (supplyOrders ou refuelings estão vazios).
+                </p>
+            </div>
+        );
+    }
+
     return (
-        <div className="animate-fade-in">
+        <div className="animate-fade-in space-y-4">
             <SectionHeader icon={Droplet} title="Ordens de Abastecimento (Em Aberto)" description="Controle de ordens emitidas ainda não conciliadas." />
             
             <FilterSection>
@@ -239,7 +256,7 @@ const SupplyOrdersReport = ({
                 </select>
 
                 <select value={filters.partnerId} onChange={e => setFilters({...filters, partnerId: e.target.value})} className="input-field">
-                    <option value="">Todos os Postos</option>
+                    <option value="">Todos os Postos ({sortedPartners.length})</option>
                     {sortedPartners.map(p => (
                         <option key={p.id} value={p.id}>
                             {p.razaoSocial || p.nome || 'Sem Nome'}
@@ -257,11 +274,22 @@ const SupplyOrdersReport = ({
                 </select>
             </FilterSection>
 
-            <div className="border rounded-lg max-h-80 overflow-y-auto mb-4 bg-white custom-scrollbar">
+            <div className="border rounded-lg max-h-[500px] overflow-y-auto bg-white custom-scrollbar shadow-sm">
                 <table className="w-full text-xs text-left">
-                    <thead className="bg-gray-100 sticky top-0 uppercase text-gray-600 font-bold z-10">
+                    <thead className="bg-gray-100 sticky top-0 uppercase text-gray-600 font-bold z-10 shadow-sm">
                         <tr>
-                            <th className="p-3 w-10 text-center"><input type="checkbox" checked={selectAll} onChange={e => {setSelectAll(e.target.checked); setSelectedOrderIds(e.target.checked ? filteredOrders.map(x=>x.id) : [])}} className="rounded text-red-600 focus:ring-red-500"/></th>
+                            <th className="p-3 w-10 text-center">
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectAll} 
+                                    onChange={e => {
+                                        setSelectAll(e.target.checked); 
+                                        setSelectedOrderIds(e.target.checked ? filteredOrders.map(x=>x.id) : [])
+                                    }} 
+                                    disabled={filteredOrders.length === 0}
+                                    className="rounded text-red-600 focus:ring-red-500"
+                                />
+                            </th>
                             <th className="p-3">Data</th>
                             <th className="p-3">Nº Ordem</th>
                             <th className="p-3">Veículo</th>
@@ -272,15 +300,22 @@ const SupplyOrdersReport = ({
                     </thead>
                     <tbody className="divide-y">
                         {filteredOrders.length === 0 ? (
-                            <tr><td colSpan="7" className="p-4 text-center text-gray-400">Nenhuma ordem em aberto encontrada.</td></tr>
+                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">Nenhuma ordem em aberto encontrada com os filtros atuais.</td></tr>
                         ) : (
                             filteredOrders.map(o => (
-                                <tr key={o.id} className={`hover:bg-red-50 ${selectedOrderIds.includes(o.id) ? 'bg-red-50' : ''}`}>
-                                    <td className="p-3 text-center"><input type="checkbox" checked={selectedOrderIds.includes(o.id)} onChange={() => setSelectedOrderIds(p => p.includes(o.id) ? p.filter(x=>x!==o.id) : [...p, o.id])} className="rounded text-red-600 focus:ring-red-500"/></td>
+                                <tr key={o.id} className={`hover:bg-red-50 transition-colors ${selectedOrderIds.includes(o.id) ? 'bg-red-50' : ''}`}>
+                                    <td className="p-3 text-center">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedOrderIds.includes(o.id)} 
+                                            onChange={() => setSelectedOrderIds(p => p.includes(o.id) ? p.filter(x=>x!==o.id) : [...p, o.id])} 
+                                            className="rounded text-red-600 focus:ring-red-500"
+                                        />
+                                    </td>
                                     <td className="p-3">{o.formattedDate}</td>
                                     <td className="p-3 font-bold text-gray-800">{o.orderNumber}</td>
                                     <td className="p-3 font-medium">{o.vehicleName}</td>
-                                    <td className="p-3 truncate max-w-[150px]">{o.partnerName}</td>
+                                    <td className="p-3 truncate max-w-[150px]" title={o.partnerName}>{o.partnerName}</td>
                                     <td className="p-3 font-bold">{o.quantity}</td>
                                     <td className="p-3"><span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-[10px] font-bold">{o.status}</span></td>
                                 </tr>
@@ -290,9 +325,11 @@ const SupplyOrdersReport = ({
                 </table>
             </div>
 
-            <button onClick={handleGeneratePDF} disabled={selectedOrderIds.length === 0} className="btn-primary w-full md:w-auto bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2">
-                <Printer size={18}/> Gerar PDF ({selectedOrderIds.length})
-            </button>
+            <div className="flex justify-end pt-2">
+                <button onClick={handleGeneratePDF} disabled={selectedOrderIds.length === 0} className="btn-primary w-full md:w-auto bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded text-white font-bold shadow">
+                    <Printer size={18}/> Gerar PDF ({selectedOrderIds.length})
+                </button>
+            </div>
         </div>
     );
 };
