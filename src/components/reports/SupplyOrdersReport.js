@@ -4,12 +4,13 @@ import autoTable from 'jspdf-autotable';
 import { FileText, Printer, Droplet } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 
-const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasStations = [], employees = [] }) => {
+// Alterado de gasStations para partners para alinhar com o Banco de Dados (frotasmak.sql)
+const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], partners = [], employees = [] }) => {
     // Filtros
     const [filters, setFilters] = useState({ 
         vehicleId: '', 
         obraId: '', 
-        stationId: '', // Posto (partnerId)
+        partnerId: '', // Alterado de stationId para partnerId
         startDate: '',
         endDate: ''
     });
@@ -37,19 +38,20 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
     // --- Ordenação de Listas para Filtros (Alfanumérica) ---
     const sortedVehicles = useMemo(() => {
         return [...vehicles].sort((a, b) => {
-            const labelA = `${a.registroInterno || ''} ${a.placa || ''}`; // RE + Placa para ordenação
+            const labelA = `${a.registroInterno || ''} ${a.placa || ''}`; 
             const labelB = `${b.registroInterno || ''} ${b.placa || ''}`;
             return labelA.localeCompare(labelB);
         });
     }, [vehicles]);
 
-    const sortedStations = useMemo(() => {
-        return [...gasStations].sort((a, b) => {
+    const sortedPartners = useMemo(() => {
+        // Alinhado com a tabela 'partners' do SQL (razaoSocial)
+        return [...partners].sort((a, b) => {
             const nomeA = a.razaoSocial || a.nome || '';
             const nomeB = b.razaoSocial || b.nome || '';
             return nomeA.localeCompare(nomeB);
         });
-    }, [gasStations]);
+    }, [partners]);
 
     const sortedObras = useMemo(() => {
         return [...obras]
@@ -63,7 +65,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
         { key: 'orderNumber', label: 'Nº Ordem' },
         { key: 'vehicleName', label: 'Veículo' },
         { key: 'driverName', label: 'Motorista' },
-        { key: 'stationName', label: 'Posto' },
+        { key: 'partnerName', label: 'Posto' }, // Alterado label interno para consistência
         { key: 'obraName', label: 'Obra' },
         { key: 'fuelType', label: 'Combustível' },
         { key: 'quantity', label: 'Qtd Autorizada' },
@@ -89,8 +91,8 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
 
         return openOrders.map(order => {
             const vehicle = vehicles.find(v => v.id === order.vehicleId);
-            // Procura o posto (gasStations é a lista de partners)
-            const station = gasStations.find(s => s.id === order.partnerId || s.id === order.stationId);
+            // Busca na lista de partners usando o partnerId da ordem
+            const partner = partners.find(p => p.id === order.partnerId);
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
 
@@ -108,7 +110,8 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
             return {
                 ...order,
                 vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : 'N/A',
-                stationName: station ? (station.razaoSocial || station.nome) : (order.partnerName || 'N/A'),
+                // Usa razaoSocial conforme SQL, com fallback para partnerName salvo na ordem
+                partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'N/A'),
                 obraName: obra ? obra.nome : 'N/A',
                 driverName: employee ? employee.nome : (order.employeeName || 'N/A'),
                 formattedDate: dateObj.toLocaleDateString('pt-BR'),
@@ -122,9 +125,9 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
             const matchVeh = filters.vehicleId ? order.vehicleId === filters.vehicleId : true;
             const matchObra = filters.obraId ? order.obraId === filters.obraId : true;
             
-            // CORREÇÃO FILTRO POSTO
-            const matchStation = filters.stationId 
-                ? (order.partnerId === filters.stationId || order.stationId === filters.stationId) 
+            // Filtro pelo partnerId
+            const matchPartner = filters.partnerId 
+                ? (order.partnerId === filters.partnerId) 
                 : true;
             
             let matchDate = true;
@@ -132,10 +135,10 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
                 matchDate = order.rawDate >= start && order.rawDate <= end;
             }
 
-            return matchVeh && matchObra && matchStation && matchDate;
+            return matchVeh && matchObra && matchPartner && matchDate;
         }).sort((a,b) => a.rawDate - b.rawDate); 
 
-    }, [supplyOrders, vehicles, obras, gasStations, employees, filters]);
+    }, [supplyOrders, vehicles, obras, partners, employees, filters]);
 
     useEffect(() => {
         setSelectAll(filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length);
@@ -157,7 +160,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
                 o.orderNumber,
                 o.vehicleName,
                 o.driverName,
-                o.stationName,
+                o.partnerName,
                 o.obraName,
                 o.fuelType,
                 o.quantity,
@@ -205,11 +208,11 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
                     ))}
                 </select>
 
-                <select value={filters.stationId} onChange={e => setFilters({...filters, stationId: e.target.value})} className="input-field">
+                <select value={filters.partnerId} onChange={e => setFilters({...filters, partnerId: e.target.value})} className="input-field">
                     <option value="">Todos os Postos</option>
-                    {sortedStations.map(s => (
-                        <option key={s.id} value={s.id}>
-                            {s.razaoSocial || s.nome || 'Sem Nome'}
+                    {sortedPartners.map(p => (
+                        <option key={p.id} value={p.id}>
+                            {p.razaoSocial || p.nome || 'Sem Nome'}
                         </option>
                     ))}
                 </select>
@@ -247,7 +250,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
                                     <td className="p-3">{o.formattedDate}</td>
                                     <td className="p-3 font-bold text-gray-800">{o.orderNumber}</td>
                                     <td className="p-3 font-medium">{o.vehicleName}</td>
-                                    <td className="p-3 truncate max-w-[150px]">{o.stationName}</td>
+                                    <td className="p-3 truncate max-w-[150px]">{o.partnerName}</td>
                                     <td className="p-3 font-bold">{o.quantity}</td>
                                     <td className="p-3"><span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-full text-[10px] font-bold">{o.status}</span></td>
                                 </tr>
