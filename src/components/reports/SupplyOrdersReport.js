@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { FileText, Printer, Droplet, AlertCircle, RefreshCw } from 'lucide-react';
+import { FileText, Printer, Droplet, AlertCircle, RefreshCw, Search } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 
 const SupplyOrdersReport = ({ 
@@ -14,8 +14,13 @@ const SupplyOrdersReport = ({
     employees = [] 
 }) => {
     // --- 0. Tratamento Robusto de Props (Garante Arrays) ---
-    // Prioriza 'refuelings' se 'supplyOrders' estiver vazio, adaptando-se à nomenclatura do seu banco SQL
-    const rawOrders = Array.isArray(supplyOrders) && supplyOrders.length > 0 ? supplyOrders : (Array.isArray(refuelings) ? refuelings : []);
+    // Prioriza 'refuelings' se 'supplyOrders' estiver vazio, adaptando-se à nomenclatura do seu banco SQL e Sistema
+    const rawOrders = useMemo(() => {
+        if (Array.isArray(supplyOrders) && supplyOrders.length > 0) return supplyOrders;
+        if (Array.isArray(refuelings) && refuelings.length > 0) return refuelings;
+        return [];
+    }, [supplyOrders, refuelings]);
+
     const rawPartners = Array.isArray(partners) ? partners : (Array.isArray(gasStations) ? gasStations : []);
 
     // Filtros
@@ -34,19 +39,16 @@ const SupplyOrdersReport = ({
     const getSafeDateObj = (dateInput) => {
         if (!dateInput) return new Date(0);
         
-        // Se já for um objeto Date nativo do JS (comum em drivers MySQL configurados)
+        // Se já for um objeto Date nativo do JS
         if (dateInput instanceof Date) return dateInput;
 
-        // Suporte legado a Timestamp do Firestore (caso tenha sobrado algum dado antigo)
+        // Suporte legado a Timestamp do Firestore
         if (typeof dateInput.toDate === 'function') {
             return dateInput.toDate();
         }
         
         // Tratamento de String SQL (YYYY-MM-DD HH:mm:ss) ou ISO
         const str = String(dateInput).trim();
-        
-        // Corrige formato MySQL '2025-09-18 15:00:00' para ISO '2025-09-18T15:00:00'
-        // Isso é crucial para funcionar no Safari e Firefox
         const isoStr = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
 
         try {
@@ -60,16 +62,15 @@ const SupplyOrdersReport = ({
     // --- 2. Unificação e Processamento de Dados ---
     
     // Lista de Parceiros (Usa a prop ou extrai das ordens se a prop vier vazia)
-    // Isso resolve o problema da "listagem de postos vazia"
     const partnersData = useMemo(() => {
         let list = [...rawPartners];
         
-        // Se a lista de parceiros veio vazia, varre as ordens para encontrar os postos únicos
+        // Fallback: Se não vier lista de parceiros, extrai dos abastecimentos existentes
         if (list.length === 0 && rawOrders.length > 0) {
             const uniquePartners = new Map();
             rawOrders.forEach(o => {
                 if (o.partnerId && !uniquePartners.has(o.partnerId)) {
-                    // Tenta pegar o nome do posto de várias propriedades possíveis no seu banco SQL
+                    // Tenta pegar o nome do posto de várias propriedades possíveis
                     const nomePosto = o.partnerName || o.postoNome || o.razaoSocial || 'Posto Desconhecido';
                     uniquePartners.set(o.partnerId, { 
                         id: o.partnerId, 
@@ -118,18 +119,16 @@ const SupplyOrdersReport = ({
         { key: 'status', label: 'Status' }
     ], []);
 
-    // 3. Filtragem Principal
+    // 3. Filtragem Principal (REPLICANDO LÓGICA DA REFUELINGPAGE)
     const filteredOrders = useMemo(() => {
         // Passo 1: Filtrar apenas Abertas/Pendentes
         const openOrders = rawOrders.filter(o => {
-            // Normaliza o status para comparação segura
-            const st = (o.status || 'aberta').toLowerCase().trim();
-            // Aceita variações comuns de status "aberto" no seu sistema
-            return ['aberta', 'open', 'pendente', 'em aberto', 'autorizada', 'emitida'].includes(st);
+            // Verifica status exato do banco ('Aberta') ou variações comuns
+            const st = (o.status || '').trim();
+            return st === 'Aberta' || st === 'aberta' || st === 'Pendente' || st === 'Autorizada';
         });
 
         // Passo 2: Preparar Datas do Filtro
-        // Ajusta fuso horário se necessário (adiciona T00:00:00 para garantir início do dia)
         const start = filters.startDate ? new Date(filters.startDate + 'T00:00:00') : null;
         const end = filters.endDate ? new Date(filters.endDate + 'T23:59:59') : null;
 
@@ -140,7 +139,6 @@ const SupplyOrdersReport = ({
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
 
-            // Data de Emissão (Prioriza data do abastecimento, depois createdAt)
             const dateObj = getSafeDateObj(order.data || order.date || order.createdAt);
             
             let qtdLabel = '0 L';
@@ -152,7 +150,7 @@ const SupplyOrdersReport = ({
 
             return {
                 ...order,
-                id: order.id, // Garante que o ID esteja presente para as keys do React
+                id: order.id, 
                 vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : (order.vehicleName || 'N/A'),
                 partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'Posto N/A'),
                 obraName: obra ? obra.nome : 'N/A',
@@ -160,6 +158,8 @@ const SupplyOrdersReport = ({
                 formattedDate: dateObj.toLocaleDateString('pt-BR'),
                 rawDate: dateObj,
                 orderNumber: order.authNumber ? `#${String(order.authNumber).padStart(6, '0')}` : 'N/A',
+                // Mantém authNumber numérico para ordenação
+                rawAuthNumber: Number(order.authNumber) || 0,
                 fuelType: order.fuelType || 'Diesel',
                 quantity: qtdLabel,
                 status: (order.status || 'Aberta').toUpperCase()
@@ -179,11 +179,12 @@ const SupplyOrdersReport = ({
             }
 
             return matchVeh && matchObra && matchPartner && matchDate;
-        }).sort((a,b) => a.rawDate - b.rawDate); 
+        })
+        // Ordenação Padrão: Mais recentes primeiro (por número da ordem), igual à RefuelingPage
+        .sort((a,b) => b.rawAuthNumber - a.rawAuthNumber); 
 
     }, [rawOrders, vehicles, obras, partnersData, employees, filters]);
 
-    // Atualiza seleção "Selecionar Todos"
     useEffect(() => {
         if (filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length) {
             setSelectAll(true);
@@ -231,20 +232,36 @@ const SupplyOrdersReport = ({
         doc.save('Relatorio_Ordens_Aberto.pdf');
     };
 
-    // Mensagem de Debug amigável se os dados realmente não estiverem chegando
+    // Mensagem de Debug / Diagnóstico
     if (rawOrders.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-gray-200 rounded-lg text-center animate-fade-in">
                 <AlertCircle className="text-yellow-500 mb-3" size={40} />
-                <h3 className="font-bold text-gray-700 text-lg">Nenhuma Ordem Localizada</h3>
-                <p className="text-sm text-gray-500 max-w-md">
-                    O sistema não encontrou ordens de abastecimento carregadas no momento.
+                <h3 className="font-bold text-gray-700 text-lg">Aguardando Dados...</h3>
+                <p className="text-sm text-gray-500 max-w-md mb-4">
+                    Nenhuma ordem carregada no momento. O componente foi renderizado, mas a lista de dados está vazia.
                 </p>
-                <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-left font-mono text-gray-600">
-                    <p><strong>Diagnóstico Técnico:</strong></p>
-                    <p>Ordens Recebidas (props): {rawOrders.length}</p>
-                    <p>Postos Recebidos (props): {rawPartners.length}</p>
-                    <p>Status: Verifique se a API retornou o array 'refuelings'.</p>
+                
+                {/* Diagnóstico para o Desenvolvedor */}
+                <div className="w-full max-w-md bg-white p-4 rounded border border-gray-300 text-left shadow-sm">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Diagnóstico de Props</h4>
+                    <div className="space-y-1 text-xs font-mono text-gray-600">
+                        <div className="flex justify-between">
+                            <span>refuelings (array):</span>
+                            <span className={Array.isArray(refuelings) ? "text-green-600" : "text-red-600"}>
+                                {Array.isArray(refuelings) ? `Sim (${refuelings.length} itens)` : `Não (${typeof refuelings})`}
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>supplyOrders (array):</span>
+                            <span className={Array.isArray(supplyOrders) ? "text-green-600" : "text-red-600"}>
+                                {Array.isArray(supplyOrders) ? `Sim (${supplyOrders.length} itens)` : `Não (${typeof supplyOrders})`}
+                            </span>
+                        </div>
+                        <div className="mt-2 text-gray-400 italic">
+                            Dica: Verifique se o componente pai está passando a prop <code className="bg-gray-100 px-1 rounded">refuelings</code> corretamente.
+                        </div>
+                    </div>
                 </div>
             </div>
         );
@@ -323,7 +340,7 @@ const SupplyOrdersReport = ({
                             <tr>
                                 <td colSpan="7" className="p-8 text-center text-gray-400">
                                     <div className="flex flex-col items-center">
-                                        <RefreshCw size={24} className="mb-2 opacity-20"/>
+                                        <Search size={24} className="mb-2 opacity-20"/>
                                         <p>Nenhuma ordem em aberto encontrada com os filtros atuais.</p>
                                         <p className="text-[10px] mt-1 text-gray-300">Total Bruto: {rawOrders.length} ordens carregadas.</p>
                                     </div>
