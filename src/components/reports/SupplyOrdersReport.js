@@ -5,19 +5,19 @@ import { FileText, Printer, Droplet, AlertCircle, RefreshCw, Search } from 'luci
 import { SectionHeader, FilterSection } from './ReportComponents';
 
 const SupplyOrdersReport = ({ 
-    supplyOrders, 
-    refuelings, 
+    supplyOrders = [], // Valor padrão []
+    refuelings = [],   // Valor padrão [] -> Corrige o erro "undefined"
     vehicles = [], 
     obras = [], 
-    partners, 
-    gasStations, 
+    partners = [], 
+    gasStations = [], 
     employees = [] 
 }) => {
-    // --- 0. Tratamento Robusto de Props (Garante Arrays) ---
-    // Prioriza 'refuelings' se 'supplyOrders' estiver vazio, adaptando-se à nomenclatura do seu banco SQL e Sistema
+    // --- 0. Tratamento Robusto de Props ---
+    // Unifica as fontes de dados, priorizando 'refuelings' se tiver dados
     const rawOrders = useMemo(() => {
-        if (Array.isArray(supplyOrders) && supplyOrders.length > 0) return supplyOrders;
         if (Array.isArray(refuelings) && refuelings.length > 0) return refuelings;
+        if (Array.isArray(supplyOrders) && supplyOrders.length > 0) return supplyOrders;
         return [];
     }, [supplyOrders, refuelings]);
 
@@ -35,46 +35,33 @@ const SupplyOrdersReport = ({
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
 
-    // --- 1. Helpers de Data (Adaptado para SQL/MySQL) ---
+    // --- 1. Helpers de Data (SQL/MySQL) ---
     const getSafeDateObj = (dateInput) => {
         if (!dateInput) return new Date(0);
-        
-        // Se já for um objeto Date nativo do JS
         if (dateInput instanceof Date) return dateInput;
-
-        // Suporte legado a Timestamp do Firestore
-        if (typeof dateInput.toDate === 'function') {
-            return dateInput.toDate();
-        }
+        // Suporte legado Firestore
+        if (typeof dateInput.toDate === 'function') return dateInput.toDate();
         
-        // Tratamento de String SQL (YYYY-MM-DD HH:mm:ss) ou ISO
+        // Tratamento SQL String
         const str = String(dateInput).trim();
         const isoStr = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
-
         try {
             const d = new Date(isoStr);
             return isNaN(d.getTime()) ? new Date(0) : d;
-        } catch { 
-            return new Date(0); 
-        }
+        } catch { return new Date(0); }
     };
 
-    // --- 2. Unificação e Processamento de Dados ---
-    
-    // Lista de Parceiros (Usa a prop ou extrai das ordens se a prop vier vazia)
+    // --- 2. Processamento de Parceiros (Fallback) ---
     const partnersData = useMemo(() => {
         let list = [...rawPartners];
-        
-        // Fallback: Se não vier lista de parceiros, extrai dos abastecimentos existentes
+        // Se a lista de parceiros estiver vazia, extrai das ordens (fallback)
         if (list.length === 0 && rawOrders.length > 0) {
             const uniquePartners = new Map();
             rawOrders.forEach(o => {
                 if (o.partnerId && !uniquePartners.has(o.partnerId)) {
-                    // Tenta pegar o nome do posto de várias propriedades possíveis
-                    const nomePosto = o.partnerName || o.postoNome || o.razaoSocial || 'Posto Desconhecido';
                     uniquePartners.set(o.partnerId, { 
                         id: o.partnerId, 
-                        razaoSocial: nomePosto 
+                        razaoSocial: o.partnerName || o.postoNome || 'Posto Desconhecido' 
                     });
                 }
             });
@@ -83,52 +70,17 @@ const SupplyOrdersReport = ({
         return list;
     }, [rawPartners, rawOrders]);
 
-    // Ordenação de Listas para Filtros
-    const sortedVehicles = useMemo(() => {
-        return [...vehicles].sort((a, b) => {
-            const labelA = `${a.registroInterno || ''} ${a.placa || ''}`; 
-            const labelB = `${b.registroInterno || ''} ${b.placa || ''}`;
-            return labelA.localeCompare(labelB);
-        });
-    }, [vehicles]);
+    // Ordenações para os Selects
+    const sortedVehicles = useMemo(() => [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
+    const sortedPartners = useMemo(() => [...partnersData].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partnersData]);
+    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
-    const sortedPartners = useMemo(() => {
-        return [...partnersData].sort((a, b) => {
-            const nomeA = a.razaoSocial || a.nome || '';
-            const nomeB = b.razaoSocial || b.nome || '';
-            return nomeA.localeCompare(nomeB);
-        });
-    }, [partnersData]);
-
-    const sortedObras = useMemo(() => {
-        return [...obras]
-            .filter(o => o.status === 'ativa')
-            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    }, [obras]);
-
-    // Colunas do PDF
-    const allColumns = useMemo(() => [
-        { key: 'formattedDate', label: 'Data Emissão' },
-        { key: 'orderNumber', label: 'Nº Ordem' },
-        { key: 'vehicleName', label: 'Veículo' },
-        { key: 'driverName', label: 'Motorista' },
-        { key: 'partnerName', label: 'Posto' },
-        { key: 'obraName', label: 'Obra' },
-        { key: 'fuelType', label: 'Combustível' },
-        { key: 'quantity', label: 'Qtd Autorizada' },
-        { key: 'status', label: 'Status' }
-    ], []);
-
-    // 3. Filtragem Principal (REPLICANDO LÓGICA DA REFUELINGPAGE)
+    // --- 3. Filtragem Principal (Replicando RefuelingPage) ---
     const filteredOrders = useMemo(() => {
-        // Passo 1: Filtrar apenas Abertas/Pendentes
-        const openOrders = rawOrders.filter(o => {
-            // Verifica status exato do banco ('Aberta') ou variações comuns
-            const st = (o.status || '').trim();
-            return st === 'Aberta' || st === 'aberta' || st === 'Pendente' || st === 'Autorizada';
-        });
+        // Passo 1: Filtrar apenas 'Aberta' (Exatamente como no RefuelingPage e Banco)
+        const openOrders = rawOrders.filter(o => o.status === 'Aberta');
 
-        // Passo 2: Preparar Datas do Filtro
+        // Passo 2: Datas
         const start = filters.startDate ? new Date(filters.startDate + 'T00:00:00') : null;
         const end = filters.endDate ? new Date(filters.endDate + 'T23:59:59') : null;
 
@@ -138,19 +90,11 @@ const SupplyOrdersReport = ({
             const partner = partnersData.find(p => p.id === order.partnerId);
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
-
-            const dateObj = getSafeDateObj(order.data || order.date || order.createdAt);
+            const dateObj = getSafeDateObj(order.data || order.date);
             
-            let qtdLabel = '0 L';
-            if (order.isFillUp) {
-                qtdLabel = 'Completo';
-            } else if (order.litrosLiberados) {
-                qtdLabel = `${order.litrosLiberados} L`;
-            }
-
             return {
                 ...order,
-                id: order.id, 
+                id: order.id,
                 vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : (order.vehicleName || 'N/A'),
                 partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'Posto N/A'),
                 obraName: obra ? obra.nome : 'N/A',
@@ -158,10 +102,8 @@ const SupplyOrdersReport = ({
                 formattedDate: dateObj.toLocaleDateString('pt-BR'),
                 rawDate: dateObj,
                 orderNumber: order.authNumber ? `#${String(order.authNumber).padStart(6, '0')}` : 'N/A',
-                // Mantém authNumber numérico para ordenação
-                rawAuthNumber: Number(order.authNumber) || 0,
-                fuelType: order.fuelType || 'Diesel',
-                quantity: qtdLabel,
+                rawAuthNumber: Number(order.authNumber) || 0, // Para ordenação
+                quantity: order.isFillUp ? 'Completo' : `${order.litrosLiberados || 0} L`,
                 status: (order.status || 'Aberta').toUpperCase()
             };
         }).filter(order => {
@@ -170,37 +112,29 @@ const SupplyOrdersReport = ({
             const matchPartner = filters.partnerId ? order.partnerId === filters.partnerId : true;
             
             let matchDate = true;
-            if (start && end) {
-                matchDate = order.rawDate >= start && order.rawDate <= end;
-            } else if (start) {
-                matchDate = order.rawDate >= start;
-            } else if (end) {
-                matchDate = order.rawDate <= end;
-            }
+            if (start && end) matchDate = order.rawDate >= start && order.rawDate <= end;
+            else if (start) matchDate = order.rawDate >= start;
+            else if (end) matchDate = order.rawDate <= end;
 
             return matchVeh && matchObra && matchPartner && matchDate;
         })
-        // Ordenação Padrão: Mais recentes primeiro (por número da ordem), igual à RefuelingPage
+        // Ordenação por Número da Ordem (Decrescente), igual RefuelingPage
         .sort((a,b) => b.rawAuthNumber - a.rawAuthNumber); 
 
     }, [rawOrders, vehicles, obras, partnersData, employees, filters]);
 
+    // Checkbox "Selecionar Todos"
     useEffect(() => {
-        if (filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length) {
-            setSelectAll(true);
-        } else {
-            setSelectAll(false);
-        }
+        setSelectAll(filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length);
     }, [selectedOrderIds, filteredOrders]);
 
+    // --- Geração de PDF ---
     const handleGeneratePDF = () => {
         const doc = new jsPDF();
         doc.setFontSize(18);
         doc.text('Relatório de Ordens de Abastecimento em Aberto', 14, 22);
         doc.setFontSize(10);
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, 14, 28);
-        
-        const headers = allColumns.map(c => c.label);
         
         const body = filteredOrders
             .filter(o => selectedOrderIds.includes(o.id))
@@ -218,50 +152,34 @@ const SupplyOrdersReport = ({
 
         autoTable(doc, {
             startY: 35,
-            head: [headers],
+            head: [['Data Emissão', 'Nº Ordem', 'Veículo', 'Motorista', 'Posto', 'Obra', 'Combustível', 'Qtd Autorizada', 'Status']],
             body,
             theme: 'striped',
             headStyles: { fillColor: [220, 38, 38] }, 
             styles: { fontSize: 7, cellPadding: 2 },
-            columnStyles: {
-                0: { cellWidth: 20 },
-                2: { cellWidth: 35 },
-                4: { cellWidth: 30 },
-            }
+            columnStyles: { 0: { cellWidth: 20 }, 2: { cellWidth: 35 }, 4: { cellWidth: 30 } }
         });
         doc.save('Relatorio_Ordens_Aberto.pdf');
     };
 
-    // Mensagem de Debug / Diagnóstico
+    // --- Tela de "Sem Dados" ou Erro ---
     if (rawOrders.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-gray-200 rounded-lg text-center animate-fade-in">
                 <AlertCircle className="text-yellow-500 mb-3" size={40} />
-                <h3 className="font-bold text-gray-700 text-lg">Aguardando Dados...</h3>
+                <h3 className="font-bold text-gray-700 text-lg">Nenhuma Ordem Localizada</h3>
                 <p className="text-sm text-gray-500 max-w-md mb-4">
-                    Nenhuma ordem carregada no momento. O componente foi renderizado, mas a lista de dados está vazia.
+                    Nenhuma ordem de abastecimento encontrada na lista.
                 </p>
-                
-                {/* Diagnóstico para o Desenvolvedor */}
-                <div className="w-full max-w-md bg-white p-4 rounded border border-gray-300 text-left shadow-sm">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Diagnóstico de Props</h4>
-                    <div className="space-y-1 text-xs font-mono text-gray-600">
-                        <div className="flex justify-between">
-                            <span>refuelings (array):</span>
-                            <span className={Array.isArray(refuelings) ? "text-green-600" : "text-red-600"}>
-                                {Array.isArray(refuelings) ? `Sim (${refuelings.length} itens)` : `Não (${typeof refuelings})`}
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>supplyOrders (array):</span>
-                            <span className={Array.isArray(supplyOrders) ? "text-green-600" : "text-red-600"}>
-                                {Array.isArray(supplyOrders) ? `Sim (${supplyOrders.length} itens)` : `Não (${typeof supplyOrders})`}
-                            </span>
-                        </div>
-                        <div className="mt-2 text-gray-400 italic">
-                            Dica: Verifique se o componente pai está passando a prop <code className="bg-gray-100 px-1 rounded">refuelings</code> corretamente.
-                        </div>
-                    </div>
+                <div className="w-full max-w-md bg-white p-3 rounded border border-gray-300 text-left shadow-sm">
+                    <h4 className="text-xs font-bold text-gray-600 uppercase border-b pb-1 mb-2">Diagnóstico Técnico</h4>
+                    <ul className="text-xs font-mono text-gray-600 space-y-1">
+                        <li>refuelings: {refuelings.length} itens</li>
+                        <li>supplyOrders: {supplyOrders.length} itens</li>
+                        <li className="text-red-600 mt-2 font-bold">
+                            Atenção: Se você tem ordens no sistema, verifique a chamada deste componente. É necessário passar a prop <code>refuelings={'{listaDeAbastecimentos}'}</code>.
+                        </li>
+                    </ul>
                 </div>
             </div>
         );
@@ -285,29 +203,17 @@ const SupplyOrdersReport = ({
 
                 <select value={filters.vehicleId} onChange={e => setFilters({...filters, vehicleId: e.target.value})} className="input-field">
                     <option value="">Todos os Veículos</option>
-                    {sortedVehicles.map(v => (
-                        <option key={v.id} value={v.id}>
-                            {v.registroInterno} - {v.modelo}
-                        </option>
-                    ))}
+                    {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
                 </select>
 
                 <select value={filters.partnerId} onChange={e => setFilters({...filters, partnerId: e.target.value})} className="input-field">
                     <option value="">Todos os Postos ({sortedPartners.length})</option>
-                    {sortedPartners.map(p => (
-                        <option key={p.id} value={p.id}>
-                            {p.razaoSocial || p.nome || 'Sem Nome'}
-                        </option>
-                    ))}
+                    {sortedPartners.map(p => <option key={p.id} value={p.id}>{p.razaoSocial || p.nome || 'Sem Nome'}</option>)}
                 </select>
 
                 <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
                     <option value="">Todas as Obras</option>
-                    {sortedObras.map(o => (
-                        <option key={o.id} value={o.id}>
-                            {o.nome}
-                        </option>
-                    ))}
+                    {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                 </select>
             </FilterSection>
 
@@ -316,16 +222,7 @@ const SupplyOrdersReport = ({
                     <thead className="bg-gray-100 sticky top-0 uppercase text-gray-600 font-bold z-10 shadow-sm">
                         <tr>
                             <th className="p-3 w-10 text-center">
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectAll} 
-                                    onChange={e => {
-                                        setSelectAll(e.target.checked); 
-                                        setSelectedOrderIds(e.target.checked ? filteredOrders.map(x=>x.id) : [])
-                                    }} 
-                                    disabled={filteredOrders.length === 0}
-                                    className="rounded text-red-600 focus:ring-red-500"
-                                />
+                                <input type="checkbox" checked={selectAll} onChange={e => {setSelectAll(e.target.checked); setSelectedOrderIds(e.target.checked ? filteredOrders.map(x=>x.id) : [])}} disabled={filteredOrders.length === 0} className="rounded text-red-600 focus:ring-red-500"/>
                             </th>
                             <th className="p-3">Data</th>
                             <th className="p-3">Nº Ordem</th>
@@ -337,25 +234,12 @@ const SupplyOrdersReport = ({
                     </thead>
                     <tbody className="divide-y">
                         {filteredOrders.length === 0 ? (
-                            <tr>
-                                <td colSpan="7" className="p-8 text-center text-gray-400">
-                                    <div className="flex flex-col items-center">
-                                        <Search size={24} className="mb-2 opacity-20"/>
-                                        <p>Nenhuma ordem em aberto encontrada com os filtros atuais.</p>
-                                        <p className="text-[10px] mt-1 text-gray-300">Total Bruto: {rawOrders.length} ordens carregadas.</p>
-                                    </div>
-                                </td>
-                            </tr>
+                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">Nenhuma ordem 'Aberta' encontrada com os filtros atuais.</td></tr>
                         ) : (
                             filteredOrders.map(o => (
                                 <tr key={o.id} className={`hover:bg-red-50 transition-colors ${selectedOrderIds.includes(o.id) ? 'bg-red-50' : ''}`}>
                                     <td className="p-3 text-center">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={selectedOrderIds.includes(o.id)} 
-                                            onChange={() => setSelectedOrderIds(p => p.includes(o.id) ? p.filter(x=>x!==o.id) : [...p, o.id])} 
-                                            className="rounded text-red-600 focus:ring-red-500"
-                                        />
+                                        <input type="checkbox" checked={selectedOrderIds.includes(o.id)} onChange={() => setSelectedOrderIds(p => p.includes(o.id) ? p.filter(x=>x!==o.id) : [...p, o.id])} className="rounded text-red-600 focus:ring-red-500"/>
                                     </td>
                                     <td className="p-3">{o.formattedDate}</td>
                                     <td className="p-3 font-bold text-gray-800">{o.orderNumber}</td>
