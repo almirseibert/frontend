@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { FileText, Printer, Droplet, AlertCircle } from 'lucide-react';
+import { FileText, Printer, Droplet, AlertCircle, RefreshCw } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 
 const SupplyOrdersReport = ({ 
@@ -14,6 +14,7 @@ const SupplyOrdersReport = ({
     employees = [] 
 }) => {
     // --- 0. Tratamento Robusto de Props (Garante Arrays) ---
+    // Prioriza 'refuelings' se 'supplyOrders' estiver vazio, adaptando-se à nomenclatura do seu banco SQL
     const rawOrders = Array.isArray(supplyOrders) && supplyOrders.length > 0 ? supplyOrders : (Array.isArray(refuelings) ? refuelings : []);
     const rawPartners = Array.isArray(partners) ? partners : (Array.isArray(gasStations) ? gasStations : []);
 
@@ -29,18 +30,27 @@ const SupplyOrdersReport = ({
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
 
-    // --- 1. Helpers de Data (Compatível com Firestore/Strings) ---
+    // --- 1. Helpers de Data (Adaptado para SQL/MySQL) ---
     const getSafeDateObj = (dateInput) => {
         if (!dateInput) return new Date(0);
         
-        // Suporte a Timestamp do Firestore
+        // Se já for um objeto Date nativo do JS (comum em drivers MySQL configurados)
+        if (dateInput instanceof Date) return dateInput;
+
+        // Suporte legado a Timestamp do Firestore (caso tenha sobrado algum dado antigo)
         if (typeof dateInput.toDate === 'function') {
             return dateInput.toDate();
         }
         
-        // Suporte a Strings e Objetos Date padrão
+        // Tratamento de String SQL (YYYY-MM-DD HH:mm:ss) ou ISO
+        const str = String(dateInput).trim();
+        
+        // Corrige formato MySQL '2025-09-18 15:00:00' para ISO '2025-09-18T15:00:00'
+        // Isso é crucial para funcionar no Safari e Firefox
+        const isoStr = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
+
         try {
-            const d = new Date(dateInput);
+            const d = new Date(isoStr);
             return isNaN(d.getTime()) ? new Date(0) : d;
         } catch { 
             return new Date(0); 
@@ -50,17 +60,20 @@ const SupplyOrdersReport = ({
     // --- 2. Unificação e Processamento de Dados ---
     
     // Lista de Parceiros (Usa a prop ou extrai das ordens se a prop vier vazia)
+    // Isso resolve o problema da "listagem de postos vazia"
     const partnersData = useMemo(() => {
         let list = [...rawPartners];
         
-        // Se não vier lista de parceiros, extrai das ordens para popular o filtro
+        // Se a lista de parceiros veio vazia, varre as ordens para encontrar os postos únicos
         if (list.length === 0 && rawOrders.length > 0) {
             const uniquePartners = new Map();
             rawOrders.forEach(o => {
                 if (o.partnerId && !uniquePartners.has(o.partnerId)) {
+                    // Tenta pegar o nome do posto de várias propriedades possíveis no seu banco SQL
+                    const nomePosto = o.partnerName || o.postoNome || o.razaoSocial || 'Posto Desconhecido';
                     uniquePartners.set(o.partnerId, { 
                         id: o.partnerId, 
-                        razaoSocial: o.partnerName || o.postoNome || 'Posto Desconhecido' 
+                        razaoSocial: nomePosto 
                     });
                 }
             });
@@ -109,12 +122,14 @@ const SupplyOrdersReport = ({
     const filteredOrders = useMemo(() => {
         // Passo 1: Filtrar apenas Abertas/Pendentes
         const openOrders = rawOrders.filter(o => {
+            // Normaliza o status para comparação segura
             const st = (o.status || 'aberta').toLowerCase().trim();
-            // Aceita variações comuns de status "aberto"
+            // Aceita variações comuns de status "aberto" no seu sistema
             return ['aberta', 'open', 'pendente', 'em aberto', 'autorizada', 'emitida'].includes(st);
         });
 
         // Passo 2: Preparar Datas do Filtro
+        // Ajusta fuso horário se necessário (adiciona T00:00:00 para garantir início do dia)
         const start = filters.startDate ? new Date(filters.startDate + 'T00:00:00') : null;
         const end = filters.endDate ? new Date(filters.endDate + 'T23:59:59') : null;
 
@@ -137,7 +152,7 @@ const SupplyOrdersReport = ({
 
             return {
                 ...order,
-                id: order.id,
+                id: order.id, // Garante que o ID esteja presente para as keys do React
                 vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : (order.vehicleName || 'N/A'),
                 partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'Posto N/A'),
                 obraName: obra ? obra.nome : 'N/A',
@@ -216,16 +231,21 @@ const SupplyOrdersReport = ({
         doc.save('Relatorio_Ordens_Aberto.pdf');
     };
 
-    // Mensagem de Debug caso não venham dados
+    // Mensagem de Debug amigável se os dados realmente não estiverem chegando
     if (rawOrders.length === 0) {
         return (
-            <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-yellow-800">
-                <AlertCircle className="mx-auto mb-2" size={32} />
-                <h3 className="font-bold">Nenhum dado recebido</h3>
-                <p className="text-sm">
-                    Verifique se os dados estão sendo passados corretamente para o componente. 
-                    (supplyOrders ou refuelings estão vazios).
+            <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-gray-200 rounded-lg text-center animate-fade-in">
+                <AlertCircle className="text-yellow-500 mb-3" size={40} />
+                <h3 className="font-bold text-gray-700 text-lg">Nenhuma Ordem Localizada</h3>
+                <p className="text-sm text-gray-500 max-w-md">
+                    O sistema não encontrou ordens de abastecimento carregadas no momento.
                 </p>
+                <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-left font-mono text-gray-600">
+                    <p><strong>Diagnóstico Técnico:</strong></p>
+                    <p>Ordens Recebidas (props): {rawOrders.length}</p>
+                    <p>Postos Recebidos (props): {rawPartners.length}</p>
+                    <p>Status: Verifique se a API retornou o array 'refuelings'.</p>
+                </div>
             </div>
         );
     }
@@ -300,7 +320,15 @@ const SupplyOrdersReport = ({
                     </thead>
                     <tbody className="divide-y">
                         {filteredOrders.length === 0 ? (
-                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">Nenhuma ordem em aberto encontrada com os filtros atuais.</td></tr>
+                            <tr>
+                                <td colSpan="7" className="p-8 text-center text-gray-400">
+                                    <div className="flex flex-col items-center">
+                                        <RefreshCw size={24} className="mb-2 opacity-20"/>
+                                        <p>Nenhuma ordem em aberto encontrada com os filtros atuais.</p>
+                                        <p className="text-[10px] mt-1 text-gray-300">Total Bruto: {rawOrders.length} ordens carregadas.</p>
+                                    </div>
+                                </td>
+                            </tr>
                         ) : (
                             filteredOrders.map(o => (
                                 <tr key={o.id} className={`hover:bg-red-50 transition-colors ${selectedOrderIds.includes(o.id) ? 'bg-red-50' : ''}`}>
