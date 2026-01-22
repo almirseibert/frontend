@@ -65,6 +65,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
         return openOrders.map(order => {
             const vehicle = vehicles.find(v => v.id === order.vehicleId);
             // Procura o posto (gasStations é a lista de partners)
+            // Tenta parear tanto pelo ID direto quanto se o ID estiver salvo como 'stationId'
             const station = gasStations.find(s => s.id === order.partnerId || s.id === order.stationId);
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
@@ -96,7 +97,11 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
         }).filter(order => {
             const matchVeh = filters.vehicleId ? order.vehicleId === filters.vehicleId : true;
             const matchObra = filters.obraId ? order.obraId === filters.obraId : true;
-            const matchStation = filters.stationId ? order.partnerId === filters.stationId : true;
+            
+            // CORREÇÃO FILTRO POSTO: Verifica partnerId ou stationId
+            const matchStation = filters.stationId 
+                ? (order.partnerId === filters.stationId || order.stationId === filters.stationId) 
+                : true;
             
             let matchDate = true;
             if (start && end) {
@@ -176,7 +181,12 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
 
                 <select value={filters.stationId} onChange={e => setFilters({...filters, stationId: e.target.value})} className="input-field">
                     <option value="">Todos os Postos</option>
-                    {gasStations.map(s => <option key={s.id} value={s.id}>{s.razaoSocial || s.nome}</option>)}
+                    {/* CORREÇÃO: Garante que usa gasStations e mapeia corretamente nome/razaoSocial */}
+                    {gasStations.map(s => (
+                        <option key={s.id} value={s.id}>
+                            {s.razaoSocial || s.nome || 'Sem Nome'}
+                        </option>
+                    ))}
                 </select>
 
                 <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
