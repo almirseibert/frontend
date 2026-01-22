@@ -4,19 +4,54 @@ import autoTable from 'jspdf-autotable';
 import { FileText, Printer, Droplet } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 
-// Alterado de gasStations para partners para alinhar com o Banco de Dados (frotasmak.sql)
-const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], partners = [], employees = [] }) => {
+// Componente ajustado para aceitar tanto 'refuelings' quanto 'supplyOrders' e 'partners'
+const SupplyOrdersReport = ({ 
+    supplyOrders = [], 
+    refuelings = [], // Adicionado para compatibilidade com o sistema existente
+    vehicles = [], 
+    obras = [], 
+    partners = [], 
+    gasStations = [], // Adicionado para compatibilidade
+    employees = [] 
+}) => {
     // Filtros
     const [filters, setFilters] = useState({ 
         vehicleId: '', 
         obraId: '', 
-        partnerId: '', // Alterado de stationId para partnerId
+        partnerId: '', 
         startDate: '',
         endDate: ''
     });
 
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
+
+    // --- 1. Unificação das Fontes de Dados ---
+    
+    // Usa supplyOrders se tiver dados, senão usa refuelings (padrão do sistema)
+    const ordersData = useMemo(() => {
+        return (supplyOrders && supplyOrders.length > 0) ? supplyOrders : (refuelings || []);
+    }, [supplyOrders, refuelings]);
+
+    // Usa partners se tiver dados, senão gasStations. Se ambos vazios, tenta extrair dos abastecimentos
+    const partnersData = useMemo(() => {
+        let list = (partners && partners.length > 0) ? partners : (gasStations || []);
+        
+        // Fallback: Se não vier lista de parceiros, extrai dos abastecimentos existentes para não quebrar o filtro
+        if (list.length === 0 && ordersData.length > 0) {
+            const uniquePartners = new Map();
+            ordersData.forEach(o => {
+                if (o.partnerId && !uniquePartners.has(o.partnerId)) {
+                    uniquePartners.set(o.partnerId, { 
+                        id: o.partnerId, 
+                        razaoSocial: o.partnerName || 'Posto Desconhecido' 
+                    });
+                }
+            });
+            list = Array.from(uniquePartners.values());
+        }
+        return list;
+    }, [partners, gasStations, ordersData]);
 
     // --- Helpers de Data ---
     const isValidDbDate = (dateString) => {
@@ -45,13 +80,12 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], part
     }, [vehicles]);
 
     const sortedPartners = useMemo(() => {
-        // Alinhado com a tabela 'partners' do SQL (razaoSocial)
-        return [...partners].sort((a, b) => {
+        return [...partnersData].sort((a, b) => {
             const nomeA = a.razaoSocial || a.nome || '';
             const nomeB = b.razaoSocial || b.nome || '';
             return nomeA.localeCompare(nomeB);
         });
-    }, [partners]);
+    }, [partnersData]);
 
     const sortedObras = useMemo(() => {
         return [...obras]
@@ -65,19 +99,19 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], part
         { key: 'orderNumber', label: 'Nº Ordem' },
         { key: 'vehicleName', label: 'Veículo' },
         { key: 'driverName', label: 'Motorista' },
-        { key: 'partnerName', label: 'Posto' }, // Alterado label interno para consistência
+        { key: 'partnerName', label: 'Posto' },
         { key: 'obraName', label: 'Obra' },
         { key: 'fuelType', label: 'Combustível' },
         { key: 'quantity', label: 'Qtd Autorizada' },
         { key: 'status', label: 'Status' }
     ], []);
 
-    // 1. Processamento e Filtragem
+    // 2. Processamento e Filtragem
     const filteredOrders = useMemo(() => {
-        if (!Array.isArray(supplyOrders)) return [];
+        if (!Array.isArray(ordersData)) return [];
 
         // Filtra ordens com status "Aberta" (Case Insensitive e variações)
-        const openOrders = supplyOrders.filter(o => {
+        const openOrders = ordersData.filter(o => {
             const st = (o.status || '').toLowerCase();
             return ['aberta', 'open', 'pendente', 'em aberto'].includes(st);
         });
@@ -91,15 +125,13 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], part
 
         return openOrders.map(order => {
             const vehicle = vehicles.find(v => v.id === order.vehicleId);
-            // Busca na lista de partners usando o partnerId da ordem
-            const partner = partners.find(p => p.id === order.partnerId);
+            const partner = partnersData.find(p => p.id === order.partnerId);
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
 
-            // Data de Emissão
+            // Data de Emissão (Prioriza data do abastecimento, depois createdAt)
             const dateObj = getSafeDateObj(order.data || order.date || order.createdAt);
             
-            // Quantidade (Tratamento para 'Completar Tanque')
             let qtdLabel = '0 L';
             if (order.isFillUp) {
                 qtdLabel = 'Completo';
@@ -110,7 +142,6 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], part
             return {
                 ...order,
                 vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : 'N/A',
-                // Usa razaoSocial conforme SQL, com fallback para partnerName salvo na ordem
                 partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'N/A'),
                 obraName: obra ? obra.nome : 'N/A',
                 driverName: employee ? employee.nome : (order.employeeName || 'N/A'),
@@ -125,7 +156,6 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], part
             const matchVeh = filters.vehicleId ? order.vehicleId === filters.vehicleId : true;
             const matchObra = filters.obraId ? order.obraId === filters.obraId : true;
             
-            // Filtro pelo partnerId
             const matchPartner = filters.partnerId 
                 ? (order.partnerId === filters.partnerId) 
                 : true;
@@ -138,7 +168,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], part
             return matchVeh && matchObra && matchPartner && matchDate;
         }).sort((a,b) => a.rawDate - b.rawDate); 
 
-    }, [supplyOrders, vehicles, obras, partners, employees, filters]);
+    }, [ordersData, vehicles, obras, partnersData, employees, filters]);
 
     useEffect(() => {
         setSelectAll(filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length);
