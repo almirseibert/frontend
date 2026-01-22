@@ -17,7 +17,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
 
-    // --- Helpers de Data (Igual ao RefuelingPage) ---
+    // --- Helpers de Data ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
@@ -34,6 +34,29 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
         } catch { return new Date(0); }
     };
 
+    // --- Ordenação de Listas para Filtros (Alfanumérica) ---
+    const sortedVehicles = useMemo(() => {
+        return [...vehicles].sort((a, b) => {
+            const labelA = `${a.registroInterno || ''} ${a.placa || ''}`; // RE + Placa para ordenação
+            const labelB = `${b.registroInterno || ''} ${b.placa || ''}`;
+            return labelA.localeCompare(labelB);
+        });
+    }, [vehicles]);
+
+    const sortedStations = useMemo(() => {
+        return [...gasStations].sort((a, b) => {
+            const nomeA = a.razaoSocial || a.nome || '';
+            const nomeB = b.razaoSocial || b.nome || '';
+            return nomeA.localeCompare(nomeB);
+        });
+    }, [gasStations]);
+
+    const sortedObras = useMemo(() => {
+        return [...obras]
+            .filter(o => o.status === 'ativa')
+            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [obras]);
+
     // Colunas disponíveis para o relatório
     const allColumns = useMemo(() => [
         { key: 'formattedDate', label: 'Data Emissão' },
@@ -49,6 +72,8 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
 
     // 1. Processamento e Filtragem
     const filteredOrders = useMemo(() => {
+        if (!Array.isArray(supplyOrders)) return [];
+
         // Filtra ordens com status "Aberta" (Case Insensitive e variações)
         const openOrders = supplyOrders.filter(o => {
             const st = (o.status || '').toLowerCase();
@@ -65,7 +90,6 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
         return openOrders.map(order => {
             const vehicle = vehicles.find(v => v.id === order.vehicleId);
             // Procura o posto (gasStations é a lista de partners)
-            // Tenta parear tanto pelo ID direto quanto se o ID estiver salvo como 'stationId'
             const station = gasStations.find(s => s.id === order.partnerId || s.id === order.stationId);
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
@@ -98,7 +122,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
             const matchVeh = filters.vehicleId ? order.vehicleId === filters.vehicleId : true;
             const matchObra = filters.obraId ? order.obraId === filters.obraId : true;
             
-            // CORREÇÃO FILTRO POSTO: Verifica partnerId ou stationId
+            // CORREÇÃO FILTRO POSTO
             const matchStation = filters.stationId 
                 ? (order.partnerId === filters.stationId || order.stationId === filters.stationId) 
                 : true;
@@ -109,7 +133,7 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
             }
 
             return matchVeh && matchObra && matchStation && matchDate;
-        }).sort((a,b) => a.rawDate - b.rawDate); // Ordena por data (mais antigas primeiro)
+        }).sort((a,b) => a.rawDate - b.rawDate); 
 
     }, [supplyOrders, vehicles, obras, gasStations, employees, filters]);
 
@@ -124,10 +148,8 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
         doc.setFontSize(10);
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, 14, 28);
         
-        // Cabeçalhos (extraídos da config)
         const headers = allColumns.map(c => c.label);
         
-        // Corpo da tabela
         const body = filteredOrders
             .filter(o => selectedOrderIds.includes(o.id))
             .map(o => [
@@ -147,12 +169,12 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
             head: [headers],
             body,
             theme: 'striped',
-            headStyles: { fillColor: [220, 38, 38] }, // Vermelho para indicar pendência
+            headStyles: { fillColor: [220, 38, 38] }, 
             styles: { fontSize: 7, cellPadding: 2 },
             columnStyles: {
-                0: { cellWidth: 20 }, // Data
-                2: { cellWidth: 35 }, // Veículo
-                4: { cellWidth: 30 }, // Posto
+                0: { cellWidth: 20 },
+                2: { cellWidth: 35 },
+                4: { cellWidth: 30 },
             }
         });
         doc.save('Relatorio_Ordens_Aberto.pdf');
@@ -176,13 +198,16 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
 
                 <select value={filters.vehicleId} onChange={e => setFilters({...filters, vehicleId: e.target.value})} className="input-field">
                     <option value="">Todos os Veículos</option>
-                    {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
+                    {sortedVehicles.map(v => (
+                        <option key={v.id} value={v.id}>
+                            {v.registroInterno} - {v.modelo}
+                        </option>
+                    ))}
                 </select>
 
                 <select value={filters.stationId} onChange={e => setFilters({...filters, stationId: e.target.value})} className="input-field">
                     <option value="">Todos os Postos</option>
-                    {/* CORREÇÃO: Garante que usa gasStations e mapeia corretamente nome/razaoSocial */}
-                    {gasStations.map(s => (
+                    {sortedStations.map(s => (
                         <option key={s.id} value={s.id}>
                             {s.razaoSocial || s.nome || 'Sem Nome'}
                         </option>
@@ -191,7 +216,11 @@ const SupplyOrdersReport = ({ supplyOrders = [], vehicles = [], obras = [], gasS
 
                 <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
                     <option value="">Todas as Obras</option>
-                    {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                    {sortedObras.map(o => (
+                        <option key={o.id} value={o.id}>
+                            {o.nome}
+                        </option>
+                    ))}
                 </select>
             </FilterSection>
 
