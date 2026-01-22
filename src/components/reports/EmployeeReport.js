@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Users, Printer, Calendar } from 'lucide-react';
+import { Users, Printer } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 
 const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] }) => {
-    // Filtros existentes + Intervalo de Datas para Histórico
+    // Filtros
     const [filters, setFilters] = useState({ 
         cidade: '', 
         funcao: '', 
@@ -19,16 +19,16 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
     const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
     
-    // Colunas
-    const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'cidade', 'contato', 'obraAtual', 'dataDesalocamento', 'diasDisponivel']);
+    // Configuração de Colunas - Adicionadas as novas colunas por padrão
+    const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'cidade', 'status', 'contato', 'obraAtual', 'historySummary']);
 
     const allColumns = useMemo(() => [
         { key: 'nome', label: 'Nome' },
         { key: 'vulgo', label: 'Apelido' },
         { key: 'funcao', label: 'Função' },
-        { key: 'status', label: 'Status Cadastro' },
+        { key: 'status', label: 'Status Cadastro' }, // Coluna para o PDF
         { key: 'allocationStatus', label: 'Situação Atual' },
-        { key: 'cidade', label: 'Cidade' },
+        { key: 'cidade', label: 'Cidade' }, // Coluna para o PDF
         { key: 'contato', label: 'Telefone' },
         { key: 'obraAtual', label: 'Obra Atual' },
         { key: 'veiculosAlocados', label: 'Veículos Alocados' },
@@ -36,10 +36,10 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
         { key: 'multasPendentes', label: 'Multas Pendentes' },
         { key: 'dataDesalocamento', label: 'Última Saída' },
         { key: 'diasDisponivel', label: 'Dias Disponível' },
-        { key: 'historySummary', label: 'Histórico no Período' } // Nova Coluna
+        { key: 'historySummary', label: 'Histórico no Período' } // Nova Coluna Complexa
     ], []);
 
-    // 1. Mapear Alocações ATUAIS
+    // 1. Mapear Alocações ATUAIS (para exibição rápida)
     const currentAllocations = useMemo(() => {
         const allocations = new Map();
         obras.forEach(obra => {
@@ -50,13 +50,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                     if (vehicle) allocations.get(history.employeeId).vehicleRegistros.push(vehicle.registroInterno || 'N/A');
                 }
             });
-        });
-        vehicles.forEach(vehicle => {
-            if (vehicle.operationalAssignment?.employeeId) {
-                const eId = vehicle.operationalAssignment.employeeId;
-                if (!allocations.has(eId)) allocations.set(eId, { obraId: null, obraNome: 'Operacional', vehicleRegistros: [] });
-                allocations.get(eId).vehicleRegistros.push(vehicle.registroInterno || 'N/A');
-            }
         });
         return allocations;
     }, [obras, vehicles]);
@@ -81,7 +74,7 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
             let diasDisponivel = null;
             let lastExitDate = null;
 
-            // Varre histórico global para achar última saída
+            // Varre histórico global para achar última saída (para calcular dias disponível)
             obras.forEach(obra => {
                 const historico = obra.historicoVeiculos || [];
                 historico.forEach(h => {
@@ -108,30 +101,36 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                 diasDisponivel = 0;
             }
 
-            // --- Lógica de Histórico por Período ---
-            let historySummary = '';
+            // --- Lógica de Histórico Detalhado por Período ---
+            // Requisito: Obra, Data Entrada/Saída e Registro do Veículo vinculado
+            let historyLogs = [];
             if (startFilter && endFilter) {
-                const logs = [];
                 obras.forEach(obra => {
                     const historico = obra.historicoVeiculos || [];
                     historico.forEach(h => {
                         if (h.employeeId === e.id) {
                             const hStart = new Date(h.dataEntrada);
-                            const hEnd = h.dataSaida ? new Date(h.dataSaida) : new Date(); // Considera presente se não tem saída
+                            const hEnd = h.dataSaida ? new Date(h.dataSaida) : new Date();
                             
-                            // Verifica interseção de datas
+                            // Verifica se há intersecção com o período do filtro
                             if (hStart <= endFilter && hEnd >= startFilter) {
+                                // Busca o veículo usado neste registro histórico
+                                const vehicleUsed = vehicles.find(v => v.id === h.veiculoId);
+                                const vehReg = vehicleUsed ? vehicleUsed.registroInterno : 'N/A';
+
                                 const startStr = hStart.toLocaleDateString('pt-BR');
-                                const endStr = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR') : 'Presente';
-                                logs.push(`${obra.nome} (${startStr} a ${endStr})`);
+                                const endStr = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR') : 'Atual';
+                                
+                                historyLogs.push(`Obra: ${obra.nome}\nVeic: ${vehReg}\nPeríodo: ${startStr} a ${endStr}`);
                             }
                         }
                     });
                 });
-                historySummary = logs.length > 0 ? logs.join('\n') : 'Sem registros no período';
-            } else {
-                historySummary = 'Selecione datas para ver histórico';
             }
+            
+            const historySummary = historyLogs.length > 0 
+                ? historyLogs.join('\n----------------\n') 
+                : (startFilter && endFilter ? 'Sem registros.' : 'Selecione datas.');
 
             return {
                 ...e,
@@ -141,22 +140,33 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                 dataDesalocamento,
                 diasDisponivel,
                 veiculosAlocados: alloc ? alloc.vehicleRegistros.join(', ') : '',
-                historySummary // Novo campo
+                historySummary // Campo formatado para o PDF/Tabela
             };
         });
-    }, [employees, currentAllocations, obras, filters.startDate, filters.endDate]);
+    }, [employees, currentAllocations, obras, filters.startDate, filters.endDate, vehicles]);
 
     // 3. Filtragem Final
     const filteredEmployees = useMemo(() => {
         return processedEmployees
             .filter(e => {
-                const matchCidade = filters.cidade ? e.cidade === filters.cidade : true;
+                // Filtro de Cidade
+                const matchCidade = filters.cidade ? (e.cidade || '').toLowerCase() === filters.cidade.toLowerCase() : true;
+                
+                // Filtro de Função
                 const matchFuncao = filters.funcao ? e.funcao === filters.funcao : true;
-                const matchStatusCadastro = filters.status ? e.status === filters.status : true;
+                
+                // Filtro de Status Cadastro (Ativo/Inativo)
+                // Se filtro for vazio, mostra todos. Se for "ativo" mostra ativos.
+                const matchStatusCadastro = filters.status 
+                    ? e.status === filters.status 
+                    : true;
+                
+                // Filtro de Obra
                 const matchObra = filters.obraId 
                     ? (currentAllocations.get(e.id)?.obraId === filters.obraId || (filters.obraId === 'N/A' && !currentAllocations.has(e.id))) 
                     : true;
 
+                // Filtro de Situação (Alocado/Disponível)
                 let matchAllocStatus = true;
                 if (filters.allocationStatus === 'alocado') matchAllocStatus = e.isAllocated;
                 if (filters.allocationStatus === 'disponivel') matchAllocStatus = !e.isAllocated;
@@ -178,8 +188,11 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
         
         let subTitle = `Gerado em: ${new Date().toLocaleDateString('pt-BR')}`;
         if (filters.startDate && filters.endDate) {
-            subTitle += ` | Período de Análise: ${new Date(filters.startDate).toLocaleDateString('pt-BR')} a ${new Date(filters.endDate).toLocaleDateString('pt-BR')}`;
+            subTitle += ` | Período: ${new Date(filters.startDate).toLocaleDateString('pt-BR')} a ${new Date(filters.endDate).toLocaleDateString('pt-BR')}`;
         }
+        if (filters.status) subTitle += ` | Status: ${filters.status.toUpperCase()}`;
+        if (filters.cidade) subTitle += ` | Cidade: ${filters.cidade}`;
+        
         doc.text(subTitle, 14, 28);
         
         const headers = selectedColumns.map(c => allColumns.find(col => col.key === c)?.label || c);
@@ -188,13 +201,16 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
             const cnhVenc = emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
             const multas = fines.filter(f => f.employeeId === emp.id && f.status === 'Pendente').length;
             
+            // Garantir que status e cidade apareçam no objeto de dados
             const data = { 
                 ...emp, 
                 cnhInfo: `${emp.cnhCategoria || ''} - ${cnhVenc}`, 
                 multasPendentes: multas,
                 dataDesalocamento: emp.dataDesalocamento,
                 diasDisponivel: emp.diasDisponivel !== '-' ? `${emp.diasDisponivel} dias` : '-',
-                historySummary: emp.historySummary
+                historySummary: emp.historySummary,
+                status: (emp.status || 'Ativo').toUpperCase(), // Formata status cadastro
+                cidade: emp.cidade || 'N/A'
             };
             return selectedColumns.map(col => data[col] || '');
         });
@@ -205,10 +221,10 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
             body, 
             theme: 'striped', 
             headStyles: { fillColor: [34, 139, 34] }, 
-            styles: { fontSize: 8, cellWidth: 'wrap' },
+            styles: { fontSize: 8, cellWidth: 'wrap', valign: 'middle' },
             columnStyles: {
-                // Ajusta largura da coluna histórico se ela estiver presente
-                [selectedColumns.indexOf('historySummary')]: { cellWidth: 60 } 
+                // Coluna Histórico mais larga
+                [selectedColumns.indexOf('historySummary')]: { cellWidth: 70, fontSize: 7 } 
             }
         });
         doc.save('Relatorio_Funcionarios.pdf');
@@ -216,19 +232,31 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
 
     return (
         <div className="animate-fade-in">
-            <SectionHeader icon={Users} title="Relatório de Funcionários" description="Gestão de quadro, alocações e histórico por período." />
+            <SectionHeader icon={Users} title="Relatório de Funcionários" description="Gestão de quadro, alocações e histórico detalhado." />
             
             <FilterSection>
-                <div className="col-span-1 md:col-span-2 flex gap-2">
+                {/* Filtro de Datas para Histórico */}
+                <div className="col-span-1 md:col-span-2 flex gap-2 border-r pr-4 border-gray-200">
                     <div className="flex-1">
-                        <label className="text-[10px] uppercase font-bold text-gray-500">De:</label>
+                        <label className="text-[10px] uppercase font-bold text-gray-500">Histórico De:</label>
                         <input type="date" value={filters.startDate} onChange={e => setFilters({...filters, startDate: e.target.value})} className="input-field" />
                     </div>
                     <div className="flex-1">
-                        <label className="text-[10px] uppercase font-bold text-gray-500">Até:</label>
+                        <label className="text-[10px] uppercase font-bold text-gray-500">Histórico Até:</label>
                         <input type="date" value={filters.endDate} onChange={e => setFilters({...filters, endDate: e.target.value})} className="input-field" />
                     </div>
                 </div>
+
+                <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="input-field">
+                    <option value="ativo">Cadastro: Ativos</option>
+                    <option value="inativo">Cadastro: Inativos</option>
+                    <option value="">Cadastro: Todos</option>
+                </select>
+
+                <select value={filters.cidade} onChange={e => setFilters({...filters, cidade: e.target.value})} className="input-field">
+                    <option value="">Todas as Cidades</option>
+                    {[...new Set(employees.map(e => e.cidade).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
 
                 <select value={filters.allocationStatus} onChange={e => setFilters({...filters, allocationStatus: e.target.value})} className="input-field bg-yellow-50 border-yellow-200 text-yellow-800 font-medium">
                     <option value="todos">Situação: Todos</option>
@@ -250,7 +278,7 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
 
             {/* Seleção de Colunas */}
             <div className="mb-4 bg-white p-3 rounded border">
-                <span className="text-xs font-bold text-gray-500 uppercase mb-2 block">Colunas Visíveis</span>
+                <span className="text-xs font-bold text-gray-500 uppercase mb-2 block">Colunas Visíveis (PDF)</span>
                 <div className="flex flex-wrap gap-2">
                     {allColumns.map(col => (
                         <button 
@@ -262,9 +290,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                         </button>
                     ))}
                 </div>
-                {(filters.startDate && filters.endDate && !selectedColumns.includes('historySummary')) && (
-                    <p className="text-xs text-red-500 mt-2">* Ative a coluna "Histórico no Período" para ver os detalhes das datas selecionadas.</p>
-                )}
             </div>
 
             <div className="border rounded-lg max-h-80 overflow-y-auto mb-4 bg-white custom-scrollbar">
@@ -275,7 +300,8 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                             <th className="p-3">Nome</th>
                             <th className="p-3">Função</th>
                             <th className="p-3">Obra Atual</th>
-                            <th className="p-3">Status / Dias</th>
+                            <th className="p-3">Cadastro</th>
+                            <th className="p-3">Cidade</th>
                             {selectedColumns.includes('historySummary') && <th className="p-3">Histórico</th>}
                         </tr>
                     </thead>
@@ -287,19 +313,13 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                                 <td className="p-3">{e.funcao}</td>
                                 <td className="p-3 truncate max-w-[150px]">{e.obraAtual}</td>
                                 <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold 
-                                        ${e.allocationStatus === 'Alocado' ? 'bg-blue-100 text-blue-700' : 
-                                          e.allocationStatus === 'Inativo' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                        {e.allocationStatus}
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${e.status === 'ativo' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}`}>
+                                        {e.status}
                                     </span>
-                                    {e.allocationStatus === 'Disponível' && e.diasDisponivel !== '-' && (
-                                        <span className="ml-2 text-xs text-gray-500 font-semibold">
-                                            ({e.diasDisponivel}d)
-                                        </span>
-                                    )}
                                 </td>
+                                <td className="p-3">{e.cidade}</td>
                                 {selectedColumns.includes('historySummary') && (
-                                    <td className="p-3 whitespace-pre-line text-gray-600 bg-gray-50 border-l">{e.historySummary}</td>
+                                    <td className="p-3 whitespace-pre-wrap text-gray-600 bg-gray-50 border-l text-[10px]">{e.historySummary}</td>
                                 )}
                             </tr>
                         ))}

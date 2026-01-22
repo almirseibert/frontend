@@ -125,7 +125,94 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                 
                 // Histórico e Despesas (simplificado para o exemplo, manter lógica original se necessário)
                 doc.setFontSize(16); doc.text('Histórico de Veículos na Obra', 14, finalY); finalY += 8;
-                // ... (Manter lógica de tabela de veículos aqui se desejar detalhar)
+                
+                const vehicleHistoryBody = (obra.historicoVeiculos || []).map(h => {
+                    const vehicle = vehicles.find(v => v.id === h.veiculoId);
+                    if (!vehicle) return ['ID não encontrado', '', '', '', '', '', '', ''];
+                    
+                    const vehicleGroup = Object.keys(vehicleGroups).find(group => vehicleGroups[group].includes(vehicle.tipo));
+                    
+                    let startReading = 0;
+                    let endReading = 0;
+                    let readingLabel = '';
+
+                    if (vehicleGroup === 'Máquinas Pesadas') {
+                        readingLabel = 'Horas';
+                        startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
+                        if (h.dataSaida) {
+                            endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
+                        } else {
+                            endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                        }
+                    } else if (vehicleGroup === 'Caminhões') {
+                        readingLabel = 'Horas';
+                        startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
+                        if (h.dataSaida) {
+                            endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
+                        } else {
+                            endReading = parseFloat(vehicle.horimetro ?? 0);
+                        }
+                    } else { // Veículos Leves
+                        readingLabel = 'Km';
+                        startReading = parseFloat(h.odometroEntrada || 0);
+                        if (h.dataSaida) {
+                            endReading = parseFloat(h.odometroSaida || 0);
+                        } else {
+                            endReading = parseFloat(vehicle.odometro || 0);
+                        }
+                    }
+
+                    const totalWorked = (endReading >= startReading) ? (endReading - startReading).toFixed(1) : 'Erro';
+                    
+                    return [ 
+                        h.registroInterno || vehicle?.registroInterno || 'N/A', 
+                        h.tipo || vehicle?.tipo || 'N/A', 
+                        h.employeeName || 'N/A', 
+                        h.dataEntrada ? new Date(h.dataEntrada).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', 
+                        h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Presente', 
+                        startReading.toFixed(1),
+                        (h.dataSaida ? endReading.toFixed(1) : `${endReading.toFixed(1)} (Atual)`),
+                        `${totalWorked} ${readingLabel}`
+                    ];
+                });
+
+                if (vehicleHistoryBody.length > 0) {
+                    autoTable(doc, { 
+                        startY: finalY, 
+                        head: [['Registro', 'Tipo', 'Funcionário', 'Entrada', 'Saída', 'Leitura Inicial', 'Leitura Final', 'Total Trab.']], 
+                        body: vehicleHistoryBody, 
+                        theme: 'striped', 
+                        headStyles: { fillColor: [60, 179, 113] } 
+                    });
+                    finalY = doc.lastAutoTable.finalY + 15;
+                } else {
+                    doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Nenhum veículo alocado nesta obra.', 14, finalY); finalY += 15;
+                }
+
+                // Despesas
+                const obraExpenses = (expenses || []).filter(e => e.obraId === obra.id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                const totalDespesas = obraExpenses.reduce((sum, exp) => sum + (parseFloat(exp.amount) || 0), 0);
+                
+                doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text('Despesas da Obra', 14, finalY); finalY += 8;
+
+                if (obraExpenses.length > 0) {
+                    autoTable(doc, { 
+                        startY: finalY, 
+                        head: [['Data', 'Descrição', 'Categoria', 'Valor (R$)']], 
+                        body: obraExpenses.map(e => [ 
+                            e.createdAt ? new Date(e.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', 
+                            e.description,
+                            e.category || 'Outros',
+                            (parseFloat(e.amount) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) 
+                        ]), 
+                        foot: [['Total', '', '', totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })]], 
+                        theme: 'striped', 
+                        headStyles: { fillColor: [220, 53, 69] }, 
+                        footStyles: { fontStyle: 'bold', fillColor: [105, 105, 105] } 
+                    });
+                } else {
+                    doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Nenhuma despesa registrada para esta obra.', 14, finalY);
+                }
             });
         
         doc.save(`Plano_de_Trabalho_MAK.pdf`);
