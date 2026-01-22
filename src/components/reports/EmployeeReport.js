@@ -121,7 +121,7 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                                 const startStr = hStart.toLocaleDateString('pt-BR');
                                 const endStr = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR') : 'Atual';
                                 
-                                historyLogs.push(`Obra: ${obra.nome}\nVeic: ${vehReg}\nPeríodo: ${startStr} a ${endStr}`);
+                                historyLogs.push(`Obra: ${obra.nome}\nPeríodo: ${startStr} a ${endStr}`);
                             }
                         }
                     });
