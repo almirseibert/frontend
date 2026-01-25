@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle, 
     Upload, Download, ChevronsUpDown, Info, AlertTriangle, Briefcase, Truck,
-    FileText, Ban // Ícones adicionados para os alertas
+    FileText, Ban, ClipboardCheck // Adicionado ClipboardCheck
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -13,6 +13,7 @@ import VehicleDetailModal from '../components/VehicleDetailModal';
 import OperationalAssignmentModal from '../components/OperationalAssignmentModal';
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
+import ChecklistModal from '../components/ChecklistModal'; // Novo Import
 
 import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
 
@@ -34,6 +35,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+    const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false); // Novo Estado
 
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos' });
@@ -177,19 +179,11 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         }
     };
     
-    // Exportar CSV - ATUALIZADO COM RASTREADOR
+    // Exportar CSV
     const exportToCSV = () => {
-        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?', 'Rastreador'];
+        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?'];
         const rows = filteredVehicles.map(v => [
-            v.registroInterno, 
-            v.placa, 
-            v.marca, 
-            v.modelo, 
-            v.tipo, 
-            v.vehicleReading, 
-            v.computedStatus, 
-            v.isOutsourced ? 'SIM' : 'NÃO',
-            v.rastreador || 'Sem Rastreador' // Incluído
+            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO'
         ]);
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(","))].join("\n");
         const link = document.createElement("a");
@@ -278,6 +272,13 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
                         const hasCritical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'vencido');
                         
+                        // Define cor do botão checklist (Cinza se 0, Roxo se > 0)
+                        // TODO: Backend deve retornar 'checklistCount' no futuro.
+                        const hasChecklists = vehicle.checklistCount > 0;
+                        const checklistBtnClass = hasChecklists
+                            ? "p-1.5 text-purple-600 hover:text-purple-800 hover:bg-purple-100 rounded-md transition"
+                            : "p-1.5 text-gray-300 hover:text-purple-600 hover:bg-gray-100 rounded-md transition";
+
                         return (
                             <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 transition-all ${getRowStyle(vehicle)}`}>
                                 {/* Info Veículo */}
@@ -329,6 +330,11 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
                                 {/* Botões de Ação */}
                                 <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
+                                    {/* Botão Checklist - NOVO */}
+                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsChecklistModalOpen(true); }} className={checklistBtnClass} title="Checklists">
+                                        <ClipboardCheck size={14}/>
+                                    </button>
+
                                     <button onClick={() => { setSelectedVehicle(vehicle); setIsFinesModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-md transition" title="Multas"><ShieldAlert size={14}/></button>
                                     <button onClick={() => { setSelectedVehicle(vehicle); setIsHistoryModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Histórico"><Clock size={14}/></button>
                                     
@@ -397,6 +403,10 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             )}
 
             {isHistoryModalOpen && <HistoryModal vehicle={selectedVehicle} onClose={() => setIsHistoryModalOpen(false)} obras={obras} apiClient={apiClient} employees={employees} />}
+            
+            {/* Modal de Checklist - NOVO */}
+            {isChecklistModalOpen && <ChecklistModal vehicle={selectedVehicle} onClose={() => setIsChecklistModalOpen(false)} apiClient={apiClient} />}
+
             {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} />}
             {isFinesModalOpen && <VehicleFinesModal vehicle={selectedVehicle} fines={fines} onClose={() => setIsFinesModalOpen(false)} />}
             {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={selectedVehicle} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData} />}
