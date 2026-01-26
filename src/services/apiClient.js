@@ -110,6 +110,10 @@ const apiClient = {
         }
     },
 
+    // --- Checklists (NOVO) ---
+    // Esta é a função que estava faltando e causava o erro "is not a function"
+    getVehicleChecklists: async (vehicleId) => apiFetch(`/checklists/vehicle/${vehicleId}`),
+
     // --- Obras ---
     getObras: async () => apiFetch('/obras'),
     getObraById: async (id) => apiFetch(`/obras/${id}`),
