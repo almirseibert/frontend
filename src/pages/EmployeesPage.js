@@ -15,14 +15,15 @@ import {
     MapPin,
     Phone,
     FileText,
-    Hash
+    Hash,
+    Truck
 } from 'lucide-react';
 
-// Imports dos Modais
-import EmployeeModal from '../components/modals/EmployeeModal';
-import EmployeeHistoryModal from '../components/modals/EmployeeHistoryModal';
-import EmployeeFinesModal from '../components/modals/EmployeeFinesModal';
-import StatusChangeModal from '../components/modals/StatusChangeModal';
+// Imports Locais
+import EmployeeModal from './EmployeeModal';
+import EmployeeHistoryModal from './EmployeeHistoryModal';
+import EmployeeFinesModal from './EmployeeFinesModal';
+import StatusChangeModal from './StatusChangeModal';
 
 // Componente Local de Proteção
 const ProtectedComponent = ({ requiredPermission, user, children }) => {
@@ -38,14 +39,14 @@ const EmployeesPage = ({
     user, 
     employees = [], 
     vehicles = [], 
-    fines = [], // Recebe todas as multas do sistema
+    fines = [], 
     apiClient, 
     setAlertMessage, 
     reloadData, 
     PasswordConfirmationModal 
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('ativos'); // 'ativos' | 'inativos'
+    const [activeTab, setActiveTab] = useState('ativos');
     const [sortConfig, setSortConfig] = useState({ key: 'nome', direction: 'ascending' });
     
     // Controle dos Modais
@@ -65,18 +66,25 @@ const EmployeesPage = ({
     const [isSyncing, setIsSyncing] = useState(false);
 
     // --- HELPER: Encontrar Veículo Atual (Alocado) ---
-    const getCurrentVehicleRE = (employeeId) => {
+    const getAllocationInfo = (employeeId) => {
+        // Verifica alocação operacional ou motorista fixo
         const vehicle = vehicles.find(v => 
             (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
             (v.driverId && String(v.driverId) === String(employeeId))
         );
-        return vehicle ? vehicle.registroInterno : null;
+        
+        if (vehicle) {
+            return {
+                status: 'alocado',
+                description: `${vehicle.modelo} (${vehicle.placa || vehicle.registroInterno})`
+            };
+        }
+        return { status: 'disponivel', description: 'Disponível' };
     };
 
     // --- LÓGICA DE DADOS ---
     const processedEmployees = useMemo(() => {
         return employees.filter(emp => {
-            // Filtro de Texto
             const searchLower = searchTerm.toLowerCase();
             const matchesSearch = 
                 (emp.nome && emp.nome.toLowerCase().includes(searchLower)) ||
@@ -87,7 +95,6 @@ const EmployeesPage = ({
 
             if (!matchesSearch) return false;
 
-            // Filtro de Aba (Status)
             const statusLower = emp.status ? emp.status.toLowerCase() : 'ativo';
             const isInactive = statusLower === 'inativo' || statusLower === 'desligado';
             
@@ -276,7 +283,7 @@ const EmployeesPage = ({
                         </thead>
                         <tbody className="divide-y divide-gray-100 text-sm">
                             {sortedEmployees.map(emp => {
-                                const currentVehicleRE = getCurrentVehicleRE(emp.id);
+                                const allocation = getAllocationInfo(emp.id);
                                 const isInactive = emp.status && (emp.status.toLowerCase() === 'inativo' || emp.status.toLowerCase() === 'desligado');
                                 
                                 return (
@@ -321,16 +328,27 @@ const EmployeesPage = ({
 
                                         {/* Status e Alocação */}
                                         <td className="p-4 align-top text-center">
-                                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${
-                                                isInactive ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                                            }`}>
-                                                {isInactive ? 'Inativo' : 'Ativo'}
-                                            </span>
-                                            
-                                            {/* Exibe Veículo Atual se Ativo e Alocado */}
-                                            {!isInactive && currentVehicleRE && (
-                                                <div className="mt-2 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 inline-block">
-                                                    Alocado em: {currentVehicleRE}
+                                            {isInactive ? (
+                                                 <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
+                                                    Inativo
+                                                 </span>
+                                            ) : (
+                                                <div className="flex flex-col items-center gap-1">
+                                                    {allocation.status === 'alocado' ? (
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                                                            <Truck size={12}/> Alocado
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-block px-2 py-0.5 rounded-md text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                                                            Disponível
+                                                        </span>
+                                                    )}
+                                                    
+                                                    {allocation.status === 'alocado' && (
+                                                        <span className="text-xs text-gray-600 font-medium max-w-[120px] truncate" title={allocation.description}>
+                                                            {allocation.description}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             )}
                                         </td>

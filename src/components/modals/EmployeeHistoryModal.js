@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, HardHat, Truck, Calendar, User, Briefcase } from 'lucide-react';
+import { X, Loader, HardHat, Truck, Briefcase, Info } from 'lucide-react';
 
 const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
-    // Agora esperamos um objeto com chaves: rh, obras, veiculos
-    const [history, setHistory] = useState({ rh: [], obras: [], veiculos: [] });
+    // Estado unificado para suportar diversas fontes de histórico
+    const [history, setHistory] = useState({ rh: [], obras: [], veiculos: [], outros: [] });
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('veiculos');
 
@@ -12,9 +12,9 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
             if (!employee) return;
             setLoading(true);
             try {
-                // O controller corrigido retorna { rh: [], obras: [], veiculos: [] }
+                // O controller agora retorna um objeto unificado
                 const res = await apiClient.get(`/employees/${employee.id}/history`);
-                setHistory(res.data || { rh: [], obras: [], veiculos: [] });
+                setHistory(res.data || { rh: [], obras: [], veiculos: [], outros: [] });
             } catch (error) {
                 console.error("Erro ao buscar histórico", error);
             } finally {
@@ -26,13 +26,15 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl h-[600px] flex flex-col">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl h-[600px] flex flex-col animate-fadeIn">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <div>
-                        <h2 className="text-lg font-bold text-gray-800">Histórico Completo</h2>
-                        <p className="text-xs text-gray-500">{employee?.nome}</p>
+                        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            Histórico Completo
+                        </h2>
+                        <p className="text-xs text-gray-500 font-medium">{employee?.nome}</p>
                     </div>
-                    <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-full"><X size={20}/></button>
+                    <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-full transition"><X size={20}/></button>
                 </div>
 
                 <div className="flex border-b bg-white">
@@ -52,7 +54,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                         onClick={() => setActiveTab('rh')}
                         className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition ${activeTab === 'rh' ? 'border-yellow-400 text-gray-900 bg-yellow-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
                     >
-                        <Briefcase size={16}/> RH / Contrato
+                        <Briefcase size={16}/> RH / Eventos
                     </button>
                 </div>
 
@@ -63,16 +65,29 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                         </div>
                     ) : (
                         <div className="space-y-3">
+                            {/* ALERTA DE ALOCAÇÃO LEGADA/MANUAL (Se existir) */}
+                            {history.outros && history.outros.length > 0 && (
+                                <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex items-start gap-3 mb-4">
+                                    <Info className="text-yellow-600 shrink-0 mt-0.5" size={18}/>
+                                    <div>
+                                        <p className="text-sm font-bold text-yellow-800">Registro de Alocação (Legado)</p>
+                                        {history.outros.map((o, i) => (
+                                            <p key={i} className="text-xs text-yellow-700">{o.description}</p>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* ABA VEÍCULOS */}
                             {activeTab === 'veiculos' && (
                                 history.veiculos && history.veiculos.length > 0 ? history.veiculos.map((h, i) => (
-                                    <div key={i} className="bg-white border p-4 rounded-lg shadow-sm flex justify-between items-center">
+                                    <div key={i} className="bg-white border p-4 rounded-lg shadow-sm flex justify-between items-center hover:shadow-md transition">
                                         <div>
                                             <p className="font-bold text-gray-800 text-sm">{h.modelo} - {h.placa}</p>
                                             <p className="text-xs text-gray-500">Reg: {h.registroInterno || 'N/A'} • {h.subGroup || 'Operacional'}</p>
                                         </div>
                                         <div className="text-right">
-                                            <p className="text-xs font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded">Desde: {new Date(h.assignedAt).toLocaleDateString()}</p>
+                                            <p className="text-xs font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded inline-block">Desde: {new Date(h.assignedAt).toLocaleDateString()}</p>
                                         </div>
                                     </div>
                                 )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum veículo alocado no histórico recente.</p>
@@ -81,7 +96,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                             {/* ABA OBRAS */}
                             {activeTab === 'obras' && (
                                 history.obras && history.obras.length > 0 ? history.obras.map((h, i) => (
-                                    <div key={i} className="bg-white border p-4 rounded-lg shadow-sm flex justify-between items-center">
+                                    <div key={i} className="bg-white border p-4 rounded-lg shadow-sm flex justify-between items-center hover:shadow-md transition">
                                         <div>
                                             <p className="font-bold text-gray-800 text-sm">{h.obraNome}</p>
                                             <p className="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded inline-block mt-1">{h.role}</p>
@@ -100,7 +115,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                             {/* ABA RH */}
                             {activeTab === 'rh' && (
                                 history.rh && history.rh.length > 0 ? history.rh.map((h, i) => (
-                                    <div key={i} className={`bg-white border-l-4 p-4 rounded-r-lg shadow-sm ${h.description.includes('Desligamento') ? 'border-red-500' : 'border-green-500'}`}>
+                                    <div key={i} className={`bg-white border-l-4 p-4 rounded-r-lg shadow-sm hover:shadow-md transition ${h.description.includes('Desligamento') ? 'border-red-500' : 'border-green-500'}`}>
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <p className="font-bold text-gray-800 text-sm">{h.description}</p>
@@ -109,7 +124,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                                             <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded">{new Date(h.date).toLocaleDateString()}</span>
                                         </div>
                                     </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum evento de RH registrado.</p>
+                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum evento de RH registrado (tabela employee_events_history).</p>
                             )}
                         </div>
                     )}
