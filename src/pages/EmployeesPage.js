@@ -19,11 +19,14 @@ import {
     Truck
 } from 'lucide-react';
 
-// Imports Locais
-import EmployeeModal from './EmployeeModal';
-import EmployeeHistoryModal from './EmployeeHistoryModal';
-import EmployeeFinesModal from './EmployeeFinesModal';
-import StatusChangeModal from './StatusChangeModal';
+// --- CORREÇÃO DE IMPORTS ---
+// Garante que o build encontre os arquivos na pasta correta
+import EmployeeModal from '../components/modals/EmployeeModal';
+import EmployeeHistoryModal from '../components/modals/EmployeeHistoryModal';
+import EmployeeFinesModal from '../components/modals/EmployeeFinesModal';
+import StatusChangeModal from '../components/modals/StatusChangeModal';
+
+import apiClient from '../services/apiClient';
 
 // Componente Local de Proteção
 const ProtectedComponent = ({ requiredPermission, user, children }) => {
@@ -66,8 +69,8 @@ const EmployeesPage = ({
     const [isSyncing, setIsSyncing] = useState(false);
 
     // --- HELPER: Encontrar Veículo Atual (Alocado) ---
+    // Verifica se o funcionário é motorista fixo ou tem alocação operacional
     const getAllocationInfo = (employeeId) => {
-        // Verifica alocação operacional ou motorista fixo
         const vehicle = vehicles.find(v => 
             (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
             (v.driverId && String(v.driverId) === String(employeeId))
@@ -326,7 +329,7 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* Status e Alocação */}
+                                        {/* Status e Alocação (Corrigido) */}
                                         <td className="p-4 align-top text-center">
                                             {isInactive ? (
                                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
@@ -335,18 +338,17 @@ const EmployeesPage = ({
                                             ) : (
                                                 <div className="flex flex-col items-center gap-1">
                                                     {allocation.status === 'alocado' ? (
-                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
-                                                            <Truck size={12}/> Alocado
-                                                        </span>
+                                                        <>
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                                                                <Truck size={12}/> Alocado
+                                                            </span>
+                                                            <span className="text-xs text-gray-600 font-medium max-w-[140px] truncate" title={allocation.description}>
+                                                                {allocation.description}
+                                                            </span>
+                                                        </>
                                                     ) : (
                                                         <span className="inline-block px-2 py-0.5 rounded-md text-xs font-bold bg-green-100 text-green-700 border border-green-200">
                                                             Disponível
-                                                        </span>
-                                                    )}
-                                                    
-                                                    {allocation.status === 'alocado' && (
-                                                        <span className="text-xs text-gray-600 font-medium max-w-[120px] truncate" title={allocation.description}>
-                                                            {allocation.description}
                                                         </span>
                                                     )}
                                                 </div>
