@@ -19,9 +19,6 @@ const apiFetch = async (endpoint, options = {}) => {
         headers['Authorization'] = `Bearer ${token}`; 
     }
 
-    // Tratamento especial para FormData (upload de arquivos)
-    // Se o body for FormData, o browser define o Content-Type automaticamente com o boundary correto.
-    // Portanto, devemos remover o Content-Type: application/json definido acima.
     if (options.body instanceof FormData) {
         delete headers['Content-Type'];
     }
@@ -93,7 +90,6 @@ const apiClient = {
     endVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/end-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
 
     uploadVehicleImage: async (id, formData) => {
-        // Usa apiFetch diretamente para aproveitar a lógica de FormData
         return apiFetch(`/vehicles/${id}/upload-image`, {
             method: 'POST',
             body: formData, 
@@ -117,12 +113,10 @@ const apiClient = {
         });
     },
 
-    // --- Faturamento / Controle Diário ---
+    // --- Faturamento / Controle Diário (CORRIGIDO PARA EVITAR 404) ---
     getDailyLogs: async (obraId, filters = {}) => {
         const queryParams = new URLSearchParams(filters).toString();
-        // Se 'obraId' for string 'all', ajusta a chamada
-        const url = obraId === 'all' ? `/billing/all?${queryParams}` : `/billing/obra/${obraId}?${queryParams}`;
-        // Fallback caso a rota /billing/all não exista especificamente, usa lógica do componente
+        // Ajuste: Usa apenas a rota base com query param, que é mais segura se a rota específica não existir
         return apiFetch(`/billing?obraId=${obraId}&${queryParams}`);
     },
     upsertDailyLog: async (data) => apiFetch('/billing', { method: 'POST', body: JSON.stringify(data) }),
@@ -162,25 +156,18 @@ const apiClient = {
     updatePartner: async (id, data) => apiFetch(`/partners/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deletePartner: async (id) => apiFetch(`/partners/${id}`, { method: 'DELETE' }),
     updatePartnerFuelPrices: async (id, prices) => apiFetch(`/partners/${id}/prices`, { method: 'PUT', body: JSON.stringify(prices) }),
-    // Novo: Bloquear/Desbloquear Posto (Lista Negra)
     updatePartnerStatus: async (id, status) => apiFetch(`/partners/${id}/status`, { method: 'PUT', body: JSON.stringify({ status_operacional: status }) }),
 
     // --- SOLICITAÇÕES (NOVO MÓDULO APP) ---
-    // Listar (Aceita query params ?status=PENDENTE etc)
     getSolicitacoes: async (params) => {
         const queryParams = new URLSearchParams(params).toString();
         return apiFetch(`/solicitacoes?${queryParams}`);
     },
-    // Criar (Operador)
     createSolicitacao: async (formData) => apiFetch('/solicitacoes', { method: 'POST', body: formData }),
-    // Avaliar (Gestor)
     avaliarSolicitacao: async (id, data) => apiFetch(`/solicitacoes/${id}/avaliar`, { method: 'PUT', body: JSON.stringify(data) }),
-    // Enviar Comprovante (Operador)
     enviarComprovanteSolicitacao: async (id, formData) => apiFetch(`/solicitacoes/${id}/comprovante`, { method: 'PUT', body: formData }),
-    // Baixa/Rejeição (Gestor)
     confirmarBaixaSolicitacao: async (id, data = {}) => apiFetch(`/solicitacoes/${id}/confirmar-baixa`, { method: 'PUT', body: JSON.stringify(data) }),
     rejeitarComprovanteSolicitacao: async (id) => apiFetch(`/solicitacoes/${id}/rejeitar-comprovante`, { method: 'PUT' }),
-    // Status Usuário (Verifica bloqueio)
     getMySolicitacaoStatus: async () => apiFetch('/solicitacoes/meus-status'),
 
     // --- Abastecimentos (Legado/Admin) ---
@@ -188,11 +175,9 @@ const apiClient = {
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    // Helper duplicado para compatibilidade, mantém ambos
     updateRefueling: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), 
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
-    // Upload de PDF gerado
     uploadRefuelingPdf: async (formData) => apiFetch('/refuelings/upload-pdf', { method: 'POST', body: formData }),
 
     // --- Transações do Comboio ---

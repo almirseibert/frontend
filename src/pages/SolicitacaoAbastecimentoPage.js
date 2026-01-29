@@ -16,7 +16,7 @@ const SolicitacaoAbastecimentoPage = ({
     const { user } = useAuth();
     
     // Estados de Controle
-    const [view, setView] = useState('list'); // 'list' | 'form' | 'details'
+    const [view, setView] = useState('list'); 
     const [loading, setLoading] = useState(false);
     const [userStatus, setUserStatus] = useState({ blocked: false, attempts: 0 });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -42,7 +42,7 @@ const SolicitacaoAbastecimentoPage = ({
     
     const [previewImage, setPreviewImage] = useState(null);
     const [rawImageFile, setRawImageFile] = useState(null);
-    const [cupomFile, setCupomFile] = useState(null); // Para envio de comprovante
+    const [cupomFile, setCupomFile] = useState(null);
 
     // Refs
     const fileInputRef = useRef(null);
@@ -71,9 +71,10 @@ const SolicitacaoAbastecimentoPage = ({
     const checkUserStatus = async () => {
         try {
             const res = await apiClient.get('/solicitacoes/meus-status');
+            // CORREÇÃO: Removido .data
             setUserStatus({
-                blocked: res.data.bloqueado_abastecimento === 1,
-                attempts: res.data.tentativas_falhas_abastecimento
+                blocked: res.bloqueado_abastecimento === 1,
+                attempts: res.tentativas_falhas_abastecimento
             });
         } catch (error) {
             console.error("Erro ao verificar status", error);
@@ -84,9 +85,9 @@ const SolicitacaoAbastecimentoPage = ({
         setLoading(true);
         try {
             const res = await apiClient.get('/solicitacoes');
-            setMyRequests(res.data);
+            // CORREÇÃO: Removido .data
+            setMyRequests(Array.isArray(res) ? res : []);
         } catch (error) {
-            // Se der erro de rede, tenta ler do cache local (Implementação futura de PWA completo)
             console.error("Erro ao buscar solicitações", error);
         } finally {
             setLoading(false);
@@ -191,14 +192,13 @@ const SolicitacaoAbastecimentoPage = ({
             setPreviewImage(null);
             setRawImageFile(null);
             
-            // Re-checa status para garantir que tentativas zeraram
             checkUserStatus();
 
         } catch (error) {
-            const msg = error.response?.data?.error || "Erro ao enviar solicitação.";
+            // CORREÇÃO: Tratamento de erro fetch (message direta)
+            const msg = error.message || "Erro ao enviar solicitação.";
             setAlertMessage(msg);
             
-            // Se erro foi de bloqueio, atualiza status
             if (msg.includes("BLOQUEADO") || msg.includes("Tentativa")) {
                 checkUserStatus();
             }
@@ -226,7 +226,7 @@ const SolicitacaoAbastecimentoPage = ({
             setSelectedRequest(null);
             fetchMyRequests();
         } catch (error) {
-            setAlertMessage("Erro ao enviar comprovante.");
+            setAlertMessage("Erro ao enviar comprovante: " + error.message);
         } finally {
             setLoading(false);
         }

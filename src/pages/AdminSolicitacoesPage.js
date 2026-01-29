@@ -9,9 +9,9 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
     const [solicitacoes, setSolicitacoes] = useState([]);
     const [filteredSolicitacoes, setFilteredSolicitacoes] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [modalData, setModalData] = useState(null); // Dados para o Modal de Aprovação/Baixa
+    const [modalData, setModalData] = useState(null); 
     const [rejectReason, setRejectReason] = useState('');
-    const [filterStatus, setFilterStatus] = useState('PENDENTE'); // PENDENTE, AGUARDANDO_BAIXA, TODOS
+    const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
     const [searchTerm, setSearchTerm] = useState('');
 
     // --- CARREGAMENTO INICIAL E POLLING ---
@@ -19,7 +19,8 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
         setLoading(true);
         try {
             const res = await apiClient.get('/solicitacoes');
-            setSolicitacoes(res.data);
+            // CORREÇÃO: apiClient (fetch) retorna os dados direto, sem .data
+            setSolicitacoes(Array.isArray(res) ? res : []);
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
             setAlertMessage("Erro ao carregar lista.");
@@ -31,8 +32,6 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
     useEffect(() => {
         fetchSolicitacoes();
         
-        // Setup Polling ou Socket (Se o App.js já tiver socket global, ele atualiza automaticamente via server:sync)
-        // Mas deixamos um intervalo de segurança de 30s
         const interval = setInterval(fetchSolicitacoes, 30000);
         return () => clearInterval(interval);
     }, []);
@@ -42,7 +41,6 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
         let list = [...solicitacoes];
         
         if (filterStatus !== 'TODOS') {
-            // Agrupar status similares se necessário
             if (filterStatus === 'PENDENTE') {
                 list = list.filter(s => s.status === 'PENDENTE');
             } else if (filterStatus === 'AGUARDANDO_BAIXA') {
@@ -75,7 +73,8 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
             setModalData(null);
             fetchSolicitacoes();
         } catch (error) {
-            setAlertMessage("Erro ao aprovar: " + (error.response?.data?.error || error.message));
+            // CORREÇÃO: Tratamento de erro para fetch (error.message)
+            setAlertMessage("Erro ao aprovar: " + error.message);
         }
     };
 
@@ -94,7 +93,7 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
             setRejectReason('');
             fetchSolicitacoes();
         } catch (error) {
-            setAlertMessage("Erro ao negar.");
+            setAlertMessage("Erro ao negar: " + error.message);
         }
     };
 
@@ -105,7 +104,7 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
             setModalData(null);
             fetchSolicitacoes();
         } catch (error) {
-            setAlertMessage("Erro ao confirmar baixa.");
+            setAlertMessage("Erro ao confirmar baixa: " + error.message);
         }
     };
 
@@ -117,19 +116,17 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
             setModalData(null);
             fetchSolicitacoes();
         } catch (error) {
-            setAlertMessage("Erro ao rejeitar comprovante.");
+            setAlertMessage("Erro ao rejeitar comprovante: " + error.message);
         }
     };
 
     // --- HELPERS VISUAIS ---
-    const getBaseURL = () => apiClient.defaults.baseURL.replace('/api', '');
-
-    const calculateDistance = (lat1, lon1, lat2, lon2) => {
-        // Implementação simples Haversine ou apenas diff para demo
-        // Idealmente, o backend já faz isso e retorna flags, mas aqui é visual
-        if (!lat1 || !lon1 || !lat2 || !lon2) return null;
-        // Retorna distância dummy ou real se implementado
-        return "Calculando..."; 
+    // Ajuste para pegar URL base corretamente do apiClient defaults
+    const getBaseURL = () => {
+        if (apiClient.defaults && apiClient.defaults.baseURL) {
+            return apiClient.defaults.baseURL.replace('/api', '');
+        }
+        return '';
     };
 
     // --- MODAL COMPONENTE ---
@@ -204,7 +201,6 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
                             </div>
 
                             {/* Alertas */}
-                            {/* Aqui entraria a lógica visual de GPS se tivéssemos coords do posto */}
                             {(!s.latitude && isApproval) && (
                                 <div className="flex items-center gap-2 text-yellow-700 bg-yellow-50 p-2 rounded text-xs">
                                     <AlertTriangle size={14}/> Sem localização GPS no check-in.
@@ -236,7 +232,7 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
                                             <Check size={20}/> Liberar
                                         </button>
                                         <button 
-                                            onClick={() => setRejectReason(' ')} // Habilita input
+                                            onClick={() => setRejectReason(' ')} 
                                             className="flex-1 py-3 bg-red-100 text-red-700 font-bold rounded-lg hover:bg-red-200 border border-red-300"
                                         >
                                             Negar
