@@ -6,14 +6,19 @@ import {
     UserCheck,
     Edit,
     Clock,
+    ShieldAlert, // Ícone de Multas restaurado
     Trash2,
     Users,
     Loader,
-    RefreshCw // Ícone para o botão de sincronização
+    RefreshCw,
+    Search,
+    Filter,
+    MapPin,
+    Phone,
+    FileText
 } from 'lucide-react';
 
 // Imports dos Modais
-// Certifique-se de que estes arquivos existem nestes caminhos
 import EmployeeModal from '../components/modals/EmployeeModal';
 import EmployeeHistoryModal from '../components/modals/EmployeeHistoryModal';
 import EmployeeFinesModal from '../components/modals/EmployeeFinesModal';
@@ -23,7 +28,6 @@ import apiClient from '../services/apiClient';
 
 // ===================================================================================
 // COMPONENTE LOCAL DE PROTEÇÃO
-// (Substitui a importação para garantir funcionamento sem erros de caminho)
 // ===================================================================================
 const ProtectedComponent = ({ requiredPermission, user, children }) => {
     if (!user || !user.user_type) return null;
@@ -31,11 +35,9 @@ const ProtectedComponent = ({ requiredPermission, user, children }) => {
     const userRole = user.user_type.toLowerCase();
     const requiredRole = requiredPermission.toLowerCase();
 
-    // Se requer admin e não é admin -> nulo
     if (requiredRole === 'admin' && userRole !== 'admin') {
         return null;
     }
-    // Se requer editor e não é admin nem editor -> nulo
     if (requiredRole === 'editor' && !['admin', 'editor'].includes(userRole)) {
         return null;
     }
@@ -46,13 +48,15 @@ const ProtectedComponent = ({ requiredPermission, user, children }) => {
 const EmployeesPage = ({ 
     user, 
     employees = [], 
-    fines = [], // Recebe multas via props (se disponível no App.js)
+    vehicles = [], // Recebe veículos para identificar alocação atual
+    fines = [], 
     apiClient, 
     setAlertMessage, 
     reloadData, 
     PasswordConfirmationModal 
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [activeTab, setActiveTab] = useState('ativos'); // 'ativos' | 'inativos'
     const [sortConfig, setSortConfig] = useState({ key: 'nome', direction: 'ascending' });
     
     // Controle dos Modais
@@ -62,43 +66,82 @@ const EmployeesPage = ({
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-    // Estados de Seleção (Qual funcionário está sendo manipulado)
+    // Estados de Seleção
     const [editingEmployee, setEditingEmployee] = useState(null);
     const [employeeForHistory, setEmployeeForHistory] = useState(null);
     const [employeeForFines, setEmployeeForFines] = useState(null);
     const [employeeForStatusChange, setEmployeeForStatusChange] = useState(null);
     const [employeeToDelete, setEmployeeToDelete] = useState(null);
 
-    // Estado de Carregamento para a Sincronização
+    // Estado de Sincronização
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // --- LÓGICA DE ORDENAÇÃO E FILTRO ---
-    
+    // --- LÓGICA DE DADOS ---
+
+    // 1. Filtragem Inicial (Busca + Abas)
+    const processedEmployees = useMemo(() => {
+        return employees.filter(emp => {
+            // Filtro de Texto (Nome, Função, Cidade/Endereço, Registro/CPF, Telefone)
+            const searchLower = searchTerm.toLowerCase();
+            const matchesSearch = 
+                (emp.nome && emp.nome.toLowerCase().includes(searchLower)) ||
+                (emp.funcao && emp.funcao.toLowerCase().includes(searchLower)) ||
+                (emp.endereco && emp.endereco.toLowerCase().includes(searchLower)) ||
+                (emp.cpf && emp.cpf.includes(searchLower)) ||
+                (emp.telefone && emp.telefone.includes(searchLower));
+
+            if (!matchesSearch) return false;
+
+            // Filtro de Aba (Status)
+            const statusLower = emp.status ? emp.status.toLowerCase() : 'ativo';
+            const isInactive = statusLower === 'inativo' || statusLower === 'desligado';
+            
+            if (activeTab === 'ativos') return !isInactive;
+            if (activeTab === 'inativos') return isInactive;
+            
+            return true;
+        });
+    }, [employees, searchTerm, activeTab]);
+
+    // 2. Ordenação
     const sortedEmployees = useMemo(() => {
-        let sortableItems = [...employees];
+        let sortableItems = [...processedEmployees];
         if (sortConfig.key !== null) {
             sortableItems.sort((a, b) => {
-                // Tratamento seguro para nulos
                 const valA = a[sortConfig.key] ? a[sortConfig.key].toString().toLowerCase() : '';
                 const valB = b[sortConfig.key] ? b[sortConfig.key].toString().toLowerCase() : '';
 
-                if (valA < valB) {
-                    return sortConfig.direction === 'ascending' ? -1 : 1;
-                }
-                if (valA > valB) {
-                    return sortConfig.direction === 'ascending' ? 1 : -1;
-                }
+                if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
             });
         }
         return sortableItems;
-    }, [employees, sortConfig]);
+    }, [processedEmployees, sortConfig]);
 
-    const filteredEmployees = sortedEmployees.filter(employee =>
-        (employee.nome && employee.nome.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (employee.cpf && employee.cpf.includes(searchTerm)) ||
-        (employee.funcao && employee.funcao.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    // Contagens para as abas
+    const counts = useMemo(() => {
+        const inativos = employees.filter(e => {
+            const s = e.status ? e.status.toLowerCase() : '';
+            return s === 'inativo' || s === 'desligado';
+        }).length;
+        return {
+            ativos: employees.length - inativos,
+            inativos: inativos
+        };
+    }, [employees]);
+
+    // Helper: Encontrar Veículo Atual (Alocado)
+    const getCurrentVehicle = (employeeId) => {
+        // Tenta encontrar um veículo onde este funcionário esteja marcado como motorista/operador atual
+        // Ajuste conforme a estrutura do seu objeto 'vehicle' (ex: driverId, employeeId, operadorId)
+        const vehicle = vehicles.find(v => 
+            v.driverId === employeeId || 
+            v.operatorId === employeeId || 
+            (v.currentDriver && v.currentDriver.id === employeeId)
+        );
+        return vehicle ? vehicle.registroInterno : null;
+    };
 
     const requestSort = (key) => {
         let direction = 'ascending';
@@ -108,7 +151,7 @@ const EmployeesPage = ({
         setSortConfig({ key, direction });
     };
 
-    // --- AÇÕES DO USUÁRIO ---
+    // --- AÇÕES ---
 
     const handleDelete = async () => {
         if (employeeToDelete) {
@@ -119,7 +162,7 @@ const EmployeesPage = ({
                 setEmployeeToDelete(null);
                 reloadData();
             } catch (error) {
-                setAlertMessage('Erro ao excluir funcionário: ' + (error.message || 'Erro desconhecido'));
+                setAlertMessage('Erro ao excluir: ' + (error.message || 'Erro desconhecido'));
             }
         }
     };
@@ -130,7 +173,6 @@ const EmployeesPage = ({
                 const currentStatus = employeeForStatusChange.status ? employeeForStatusChange.status.toLowerCase() : '';
                 const newStatus = (currentStatus === 'ativo') ? 'inativo' : 'ativo';
                 
-                // Chama a rota específica de alteração de status
                 await apiClient.put(`/employees/${employeeForStatusChange.id}/status`, {
                     status: newStatus,
                     date: date
@@ -141,25 +183,21 @@ const EmployeesPage = ({
                 setEmployeeForStatusChange(null);
                 reloadData();
             } catch (error) {
-                setAlertMessage('Erro ao alterar status: ' + (error.message || 'Erro desconhecido'));
+                setAlertMessage('Erro ao alterar status: ' + error.message);
             }
         }
     };
 
-    // --- NOVA FUNÇÃO: SINCRONIZAR (MIGRAR) USUÁRIOS ---
     const handleSyncUsers = async () => {
-        if (!window.confirm("Esta ação criará um login para todos os funcionários ativos que ainda não possuem acesso ao sistema.\n\nRegras:\n- Login (Email): CPF@frotamak.com\n- Senha: CPF (apenas números)\n\nDeseja continuar?")) {
+        if (!window.confirm("Esta ação criará logins para todos os funcionários ativos sem acesso.\nLogin: CPF@frotamak.com | Senha: CPF\n\nContinuar?")) {
             return;
         }
-        
         setIsSyncing(true);
         try {
-            // Chama a rota criada no backend: POST /employees/sync-users
             const response = await apiClient.post('/employees/sync-users', {});
             setAlertMessage(`Sincronização concluída! ${response.details || response.message}`);
         } catch (error) {
-            console.error("Erro na sincronização:", error);
-            setAlertMessage("Erro ao sincronizar usuários: " + (error.message || "Erro desconhecido"));
+            setAlertMessage("Erro ao sincronizar: " + (error.message || "Erro desconhecido"));
         } finally {
             setIsSyncing(false);
         }
@@ -168,131 +206,223 @@ const EmployeesPage = ({
     // --- RENDERIZAÇÃO ---
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fadeIn">
-            {/* Header com Botões de Ação */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
+        <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fadeIn space-y-6">
+            
+            {/* Cabeçalho */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                         <Users className="text-yellow-500" /> Gestão de Funcionários
                     </h1>
-                    <p className="text-gray-500 text-sm">Gerencie cadastros, documentos e alocações.</p>
+                    <p className="text-gray-500 text-sm">Gerencie cadastros, alocações e documentos.</p>
                 </div>
                 
-                <div className="flex gap-2 flex-wrap justify-center md:justify-end">
-                    
-                    {/* Botão de Sincronização (Visível apenas para Admin) */}
+                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
                     <ProtectedComponent requiredPermission="admin" user={user}>
                         <button 
                             onClick={handleSyncUsers}
                             disabled={isSyncing}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 transition disabled:opacity-50"
-                            title="Criar usuários de sistema para funcionários ativos automaticamente"
+                            className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 transition disabled:opacity-50 text-sm"
                         >
-                            {isSyncing ? <Loader className="animate-spin" size={20}/> : <RefreshCw size={20} />}
-                            <span className="hidden md:inline">Sincronizar Acessos</span>
+                            {isSyncing ? <Loader className="animate-spin" size={16}/> : <RefreshCw size={16} />}
+                            Sincronizar Acessos
                         </button>
                     </ProtectedComponent>
 
-                    {/* Botão Novo Funcionário (Visível para Editor/Admin) */}
                     <ProtectedComponent requiredPermission="editor" user={user}>
                         <button 
                             onClick={() => { setEditingEmployee(null); setIsModalOpen(true); }}
-                            className="flex items-center gap-2 px-6 py-3 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition active:scale-95"
+                            className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition active:scale-95 text-sm"
                         >
-                            <PlusCircle size={20} /> Novo Funcionário
+                            <PlusCircle size={18} /> Novo Funcionário
                         </button>
                     </ProtectedComponent>
                 </div>
             </div>
 
-            {/* Barra de Busca e Tabela */}
+            {/* Controles: Abas e Busca */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b bg-gray-50">
-                    <input 
-                        type="text" 
-                        placeholder="Buscar funcionário por nome, CPF ou função..." 
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                        className="w-full max-w-md p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
-                    />
+                <div className="flex flex-col md:flex-row border-b border-gray-100">
+                    {/* Abas */}
+                    <div className="flex w-full md:w-auto">
+                        <button
+                            onClick={() => setActiveTab('ativos')}
+                            className={`flex-1 md:flex-none px-6 py-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+                                activeTab === 'ativos' 
+                                ? 'border-yellow-400 text-gray-900 bg-yellow-50' 
+                                : 'border-transparent text-gray-500 hover:bg-gray-50'
+                            }`}
+                        >
+                            Ativos
+                            <span className="bg-gray-200 text-gray-600 text-xs py-0.5 px-2 rounded-full">{counts.ativos}</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('inativos')}
+                            className={`flex-1 md:flex-none px-6 py-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+                                activeTab === 'inativos' 
+                                ? 'border-red-400 text-red-900 bg-red-50' 
+                                : 'border-transparent text-gray-500 hover:bg-gray-50'
+                            }`}
+                        >
+                            Inativos
+                            <span className="bg-gray-200 text-gray-600 text-xs py-0.5 px-2 rounded-full">{counts.inativos}</span>
+                        </button>
+                    </div>
+
+                    {/* Barra de Busca */}
+                    <div className="flex-1 p-3 md:border-l border-gray-100 flex items-center">
+                        <div className="relative w-full max-w-md mx-auto md:mr-auto md:ml-4">
+                            <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                            <input 
+                                type="text" 
+                                placeholder="Buscar por nome, função, cidade ou registro..." 
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none text-sm transition-all"
+                            />
+                        </div>
+                    </div>
                 </div>
 
+                {/* Tabela */}
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
+                    <table className="w-full text-left border-collapse">
+                        <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-bold tracking-wider">
                             <tr>
-                                <th className="p-4 cursor-pointer" onClick={() => requestSort('nome')}>
-                                    Nome <ChevronsUpDown size={14} className="inline"/>
+                                <th className="p-4 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('nome')}>
+                                    Nome / Registro <ChevronsUpDown size={14} className="inline ml-1 text-gray-400"/>
                                 </th>
-                                <th className="p-4">Função</th>
-                                <th className="p-4">CPF / Contato</th>
-                                <th className="p-4 text-center">Status</th>
+                                <th className="p-4 cursor-pointer hover:bg-gray-100" onClick={() => requestSort('funcao')}>
+                                    Função <ChevronsUpDown size={14} className="inline ml-1 text-gray-400"/>
+                                </th>
+                                <th className="p-4">Cidade / Endereço</th>
+                                <th className="p-4">Contato</th>
+                                <th className="p-4 text-center">Status / Alocação</th>
                                 <th className="p-4 text-center">Ações</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 text-sm">
-                            {filteredEmployees.map(emp => {
-                                const statusLower = emp.status ? emp.status.toLowerCase() : '';
-                                const isInactive = statusLower === 'inativo';
+                            {sortedEmployees.map(emp => {
+                                const currentVehicle = getCurrentVehicle(emp.id);
+                                const isInactive = emp.status && (emp.status.toLowerCase() === 'inativo' || emp.status.toLowerCase() === 'desligado');
                                 
                                 return (
-                                    <tr key={emp.id} className={`hover:bg-gray-50 ${isInactive ? 'opacity-60 bg-gray-50' : ''}`}>
-                                        <td className="p-4 font-bold text-gray-800">{emp.nome}</td>
-                                        <td className="p-4 text-gray-600">{emp.funcao}</td>
-                                        <td className="p-4 text-gray-500">
-                                            <div>{emp.cpf}</div>
-                                            <div className="text-xs">{emp.telefone}</div>
+                                    <tr key={emp.id} className={`hover:bg-gray-50 transition-colors ${isInactive ? 'bg-gray-50/50' : ''}`}>
+                                        
+                                        {/* Coluna Nome e Registro */}
+                                        <td className="p-4 align-top">
+                                            <div className="font-bold text-gray-800 text-base">{emp.nome}</div>
+                                            <div className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-1" title="Registro / CPF">
+                                                <FileText size={10} />
+                                                {emp.cpf || 'S/ Registro'}
+                                            </div>
                                         </td>
-                                        <td className="p-4 text-center">
-                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${isInactive ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                                {isInactive ? 'INATIVO' : 'ATIVO'}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 flex justify-center gap-2">
-                                            <button 
-                                                onClick={() => { setEmployeeForHistory(emp); setIsHistoryModalOpen(true); }} 
-                                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" 
-                                                title="Histórico"
-                                            >
-                                                <Clock size={18}/>
-                                            </button>
-                                            
-                                            {/* Botão de Multas (Opcional, descomente se usar) */}
-                                            {/* <button onClick={() => { setEmployeeForFines(emp); setIsFinesModalOpen(true); }} className="p-1.5 text-orange-600 hover:bg-orange-50 rounded" title="Multas"><ShieldAlert size={18}/></button> */}
 
-                                            <ProtectedComponent requiredPermission="editor" user={user}>
-                                                <button 
-                                                    onClick={() => { setEditingEmployee(emp); setIsModalOpen(true); }} 
-                                                    className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded" 
-                                                    title="Editar"
-                                                >
-                                                    <Edit size={18}/>
-                                                </button>
-                                                <button 
-                                                    onClick={() => { setEmployeeForStatusChange(emp); setIsStatusModalOpen(true); }} 
-                                                    className="p-1.5 text-gray-600 hover:bg-gray-100 rounded" 
-                                                    title="Alterar Status"
-                                                >
-                                                    {isInactive ? <UserCheck size={18}/> : <UserX size={18}/>}
-                                                </button>
-                                            </ProtectedComponent>
+                                        {/* Coluna Função */}
+                                        <td className="p-4 align-top text-gray-700 font-medium">
+                                            {emp.funcao || '-'}
+                                        </td>
+
+                                        {/* Coluna Cidade (Extraída do Endereço) */}
+                                        <td className="p-4 align-top text-gray-600">
+                                            <div className="flex items-start gap-1.5">
+                                                <MapPin size={14} className="mt-0.5 text-gray-400 shrink-0"/>
+                                                <span className="line-clamp-2" title={emp.endereco}>
+                                                    {emp.endereco || '-'}
+                                                </span>
+                                            </div>
+                                        </td>
+
+                                        {/* Coluna Contato */}
+                                        <td className="p-4 align-top text-gray-600">
+                                            {emp.telefone ? (
+                                                <div className="flex items-center gap-1.5">
+                                                    <Phone size={14} className="text-gray-400"/>
+                                                    {emp.telefone}
+                                                </div>
+                                            ) : (
+                                                <span className="text-gray-400 italic text-xs">Sem contato</span>
+                                            )}
+                                        </td>
+
+                                        {/* Coluna Status e Alocação */}
+                                        <td className="p-4 align-top text-center">
+                                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${
+                                                isInactive 
+                                                ? 'bg-red-100 text-red-700' 
+                                                : 'bg-green-100 text-green-700'
+                                            }`}>
+                                                {isInactive ? 'Inativo' : 'Ativo'}
+                                            </span>
                                             
-                                            <ProtectedComponent requiredPermission="admin" user={user}>
+                                            {/* Exibe Veículo Atual se Ativo e Alocado */}
+                                            {!isInactive && currentVehicle && (
+                                                <div className="mt-2 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 inline-block">
+                                                    RE: {currentVehicle}
+                                                </div>
+                                            )}
+                                        </td>
+
+                                        {/* Coluna Ações */}
+                                        <td className="p-4 align-top">
+                                            <div className="flex justify-center gap-1">
                                                 <button 
-                                                    onClick={() => { setEmployeeToDelete(emp); setIsDeleteModalOpen(true); }} 
-                                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded" 
-                                                    title="Excluir"
+                                                    onClick={() => { setEmployeeForHistory(emp); setIsHistoryModalOpen(true); }} 
+                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" 
+                                                    title="Histórico Completo"
                                                 >
-                                                    <Trash2 size={18}/>
+                                                    <Clock size={18}/>
                                                 </button>
-                                            </ProtectedComponent>
+                                                
+                                                <button 
+                                                    onClick={() => { setEmployeeForFines(emp); setIsFinesModalOpen(true); }} 
+                                                    className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors" 
+                                                    title="Visualizar Multas"
+                                                >
+                                                    <ShieldAlert size={18}/>
+                                                </button>
+
+                                                <ProtectedComponent requiredPermission="editor" user={user}>
+                                                    <button 
+                                                        onClick={() => { setEditingEmployee(emp); setIsModalOpen(true); }} 
+                                                        className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors" 
+                                                        title="Editar Cadastro"
+                                                    >
+                                                        <Edit size={18}/>
+                                                    </button>
+                                                    
+                                                    <button 
+                                                        onClick={() => { setEmployeeForStatusChange(emp); setIsStatusModalOpen(true); }} 
+                                                        className={`p-2 rounded-lg transition-colors ${
+                                                            isInactive 
+                                                            ? 'text-green-600 hover:bg-green-50' 
+                                                            : 'text-gray-500 hover:bg-gray-100'
+                                                        }`}
+                                                        title={isInactive ? "Reativar Funcionário" : "Inativar Funcionário"}
+                                                    >
+                                                        {isInactive ? <UserCheck size={18}/> : <UserX size={18}/>}
+                                                    </button>
+                                                </ProtectedComponent>
+                                                
+                                                <ProtectedComponent requiredPermission="admin" user={user}>
+                                                    <button 
+                                                        onClick={() => { setEmployeeToDelete(emp); setIsDeleteModalOpen(true); }} 
+                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" 
+                                                        title="Excluir Definitivamente"
+                                                    >
+                                                        <Trash2 size={18}/>
+                                                    </button>
+                                                </ProtectedComponent>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
                             })}
-                            {filteredEmployees.length === 0 && (
+                            {sortedEmployees.length === 0 && (
                                 <tr>
-                                    <td colSpan="5" className="text-center p-6 text-gray-500">Nenhum funcionário encontrado.</td>
+                                    <td colSpan="6" className="text-center p-8 text-gray-400 italic">
+                                        Nenhum funcionário encontrado com os filtros atuais.
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
@@ -340,7 +470,7 @@ const EmployeesPage = ({
 
             {isDeleteModalOpen && PasswordConfirmationModal && (
                 <PasswordConfirmationModal 
-                    message="Confirme sua senha para EXCLUIR este funcionário e seu acesso ao sistema." 
+                    message="ATENÇÃO: Confirme sua senha para EXCLUIR este funcionário permanentemente." 
                     onConfirm={handleDelete} 
                     onClose={() => setIsDeleteModalOpen(false)} 
                     apiClient={apiClient} 
