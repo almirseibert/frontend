@@ -12,7 +12,9 @@ import {
     Printer,
     ChevronDown,
     ChevronUp,
-    Save
+    Save,
+    Ban, // Importado para Bloqueio
+    CheckCircle // Importado para Ativação
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
@@ -29,6 +31,7 @@ const PartnersPage = ({
     setAlertMessage,
     apiClient,
     reloadData,
+    ConfirmationModal // Recebe Modal de Confirmação Simples (se disponível no App.js, senão usamos lógica local ou PasswordModal)
 }) => {
     // Estados
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +44,9 @@ const PartnersPage = ({
     const [itemToDelete, setItemToDelete] = useState(null);
     const [partnerForReport, setPartnerForReport] = useState(null);
     const [partnerForPrices, setPartnerForPrices] = useState(null);
+    
+    // Novo Estado para Bloqueio/Desbloqueio
+    const [partnerToToggleStatus, setPartnerToToggleStatus] = useState(null);
 
     // Estados para filtro e ordenação
     const [filterText, setFilterText] = useState('');
@@ -68,6 +74,22 @@ const PartnersPage = ({
         }
     };
 
+    // Toggle Status (Bloquear/Desbloquear)
+    const handleToggleStatus = async () => {
+        if (!partnerToToggleStatus) return;
+        try {
+            // Se está BLOQUEADO, vira ATIVO. Se está null/ATIVO, vira BLOQUEADO.
+            const novoStatus = partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? 'ATIVO' : 'BLOQUEADO';
+            await apiClient.updatePartnerStatus(partnerToToggleStatus.id, novoStatus);
+            setAlertMessage(`Parceiro ${novoStatus === 'ATIVO' ? 'ativado' : 'bloqueado'} com sucesso!`);
+            reloadData();
+        } catch (error) {
+            setAlertMessage('Erro ao alterar status: ' + error.message);
+        } finally {
+            setPartnerToToggleStatus(null);
+        }
+    };
+
     // Lógica de Filtro e Ordenação
     const filteredAndSortedPartners = useMemo(() => {
         let filteredItems = [...(partners || [])];
@@ -76,7 +98,8 @@ const PartnersPage = ({
         if (filterText) {
             filteredItems = filteredItems.filter(partner =>
                 (partner.razaoSocial || '').toLowerCase().includes(filterText.toLowerCase()) ||
-                (partner.cidade || '').toLowerCase().includes(filterText.toLowerCase())
+                (partner.cidade || '').toLowerCase().includes(filterText.toLowerCase()) ||
+                (partner.cnpj || '').includes(filterText)
             );
         }
 
@@ -130,17 +153,17 @@ const PartnersPage = ({
             <div className="mb-4">
                 <input
                     type="text"
-                    placeholder="Filtrar por nome ou cidade..."
+                    placeholder="Filtrar por nome, CNPJ ou cidade..."
                     value={filterText}
                     onChange={(e) => setFilterText(e.target.value)}
-                    className="w-full p-2 border rounded-lg shadow-sm"
+                    className="w-full p-2 border rounded-lg shadow-sm focus:ring-2 focus:ring-yellow-400 outline-none"
                 />
             </div>
 
             {/* Lista de Postos */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
                 {/* Cabeçalho Tabela Desktop */}
-                <div className="hidden md:grid grid-cols-7 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
+                <div className="hidden md:grid grid-cols-8 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
                     <div className="col-span-2 cursor-pointer flex items-center" onClick={() => requestSort('razaoSocial')}>
                         Razão Social / Endereço {getSortIcon('razaoSocial')}
                     </div>
@@ -149,15 +172,17 @@ const PartnersPage = ({
                     </div>
                     <div>WhatsApp</div>
                     <div>Contato</div>
+                    <div className="text-center">Status</div>
                     <div className="col-span-2 text-center">Ações</div>
                 </div>
 
                 {/* Linhas */}
                 {filteredAndSortedPartners.map(partner => (
-                    <div key={partner.id} className="grid grid-cols-1 md:grid-cols-7 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm">
+                    <div key={partner.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${partner.status_operacional === 'BLOQUEADO' ? 'bg-red-50' : ''}`}>
                         <div className="md:col-span-2">
                             <p className="font-bold text-gray-900">{partner.razaoSocial}</p>
                             <p className="text-xs text-gray-500 mt-0.5">{partner.endereco}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">{partner.cnpj}</p>
                         </div>
                         <div>
                             <span className="font-medium text-gray-500 md:hidden">Cidade: </span>
@@ -173,10 +198,34 @@ const PartnersPage = ({
                                 {partner.contatoResponsavel} {partner.telefone && `(${partner.telefone})`}
                              </span>
                         </div>
+                        <div className="text-center">
+                            {partner.status_operacional === 'BLOQUEADO' ? (
+                                <span className="inline-flex items-center gap-1 text-red-600 font-bold text-xs px-2 py-1 bg-red-100 rounded-full">
+                                    <Ban size={12}/> BLOQUEADO
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center gap-1 text-green-600 font-bold text-xs px-2 py-1 bg-green-100 rounded-full">
+                                    <CheckCircle size={12}/> ATIVO
+                                </span>
+                            )}
+                        </div>
                         
                         <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center mt-2 md:mt-0">
                             <button onClick={() => openReportModal(partner)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition-colors" title="Relatório de Abastecimentos"><FileText size={14} /></button>
                             <ProtectedComponent requiredPermission="editor">
+                                {/* Botão de Bloqueio/Desbloqueio */}
+                                <button 
+                                    onClick={() => setPartnerToToggleStatus(partner)}
+                                    className={`p-1.5 rounded-full transition ${
+                                        partner.status_operacional === 'BLOQUEADO' 
+                                        ? 'text-green-600 hover:bg-green-100' 
+                                        : 'text-red-400 hover:text-red-600 hover:bg-red-100'
+                                    }`}
+                                    title={partner.status_operacional === 'BLOQUEADO' ? "Desbloquear (Ativar)" : "Bloquear (Lista Negra)"}
+                                >
+                                    {partner.status_operacional === 'BLOQUEADO' ? <CheckCircle size={14}/> : <Ban size={14}/>}
+                                </button>
+
                                 <button onClick={() => openPriceModal(partner)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full transition-colors" title="Valores Combustíveis"><Fuel size={14} /></button>
                                 <button onClick={() => openModal(partner)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition-colors" title="Editar"><Edit size={14} /></button>
                             </ProtectedComponent>
@@ -229,6 +278,30 @@ const PartnersPage = ({
                     message="Confirme sua senha para excluir este posto. Todas as ordens de abastecimento e transações de comboio associadas perderão a referência (mas não serão excluídas)."
                     onConfirm={handleDelete}
                     onClose={() => setIsDeleteModalOpen(false)}
+                    apiClient={apiClient}
+                />
+            )}
+
+            {/* Modal de Confirmação de Bloqueio/Desbloqueio (Se ConfirmationModal existir) */}
+            {partnerToToggleStatus && ConfirmationModal ? (
+                <ConfirmationModal 
+                    title={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "Ativar Posto" : "Bloquear Posto"}
+                    message={partnerToToggleStatus.status_operacional === 'BLOQUEADO' 
+                        ? "Deseja ativar este posto novamente para abastecimentos?" 
+                        : "Deseja adicionar este posto à Lista Negra? Os operadores não poderão selecioná-lo."}
+                    onConfirm={handleToggleStatus}
+                    onClose={() => setPartnerToToggleStatus(null)}
+                    confirmColor={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "bg-green-500 hover:bg-green-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}
+                    confirmText={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "Ativar" : "Bloquear"}
+                />
+            ) : partnerToToggleStatus && (
+                // Fallback caso ConfirmationModal não seja passado (usa PasswordModal por segurança ou alert simples)
+                <PasswordConfirmationModal
+                    message={partnerToToggleStatus.status_operacional === 'BLOQUEADO' 
+                        ? "Confirme para ATIVAR o posto." 
+                        : "Confirme para BLOQUEAR o posto (Lista Negra)."}
+                    onConfirm={handleToggleStatus}
+                    onClose={() => setPartnerToToggleStatus(null)}
                     apiClient={apiClient}
                 />
             )}

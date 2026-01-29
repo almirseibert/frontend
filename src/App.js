@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus // <--- ADICIONADO AQUI
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone
 } from 'lucide-react';
 
 // Importação do Socket.io Client
@@ -29,6 +29,10 @@ import OrdersPage from './pages/OrdersPage';
 import LoginScreen from './components/LoginScreen'; 
 import TiresPage from './pages/TiresPage'; 
 import BillingPage from './pages/BillingPage';
+
+// --- NOVAS PÁGINAS IMPORTADAS ---
+import SolicitacaoAbastecimentoPage from './pages/SolicitacaoAbastecimentoPage';
+import AdminSolicitacoesPage from './pages/AdminSolicitacoesPage';
 
 import apiClient from './services/apiClient'; 
 import { 
@@ -245,7 +249,7 @@ const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
 );
 
 // --- SIDEBAR (Otimizada e Compacta) ---
-const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }) => {
+const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     
     const navItems = [
@@ -258,6 +262,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
         { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
         { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
+        { id: 'admin_solicitacoes', label: 'Solicitações (App)', icon: <Smartphone size={16} />, badge: pendingSolicitacoesCount },
         { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
         { id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/>, dimmed: true },
         { id: 'expenses', label: 'Despesas', icon: <DollarSign size={16} /> },
@@ -292,7 +297,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }
                         const isAdmin = user.user_type === 'admin';
                         const canAccessRefuelingRelated = user.podeAcessarAbastecimento || isAdmin;
 
-                        if ((item.id === 'refueling' || item.id === 'comboio') && !canAccessRefuelingRelated) return null;
+                        if ((item.id === 'refueling' || item.id === 'comboio' || item.id === 'admin_solicitacoes') && !canAccessRefuelingRelated) return null;
                         
                         const isActive = currentPage === item.id;
                         const isDimmed = item.dimmed;
@@ -301,7 +306,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }
                             <li key={item.id}>
                                 <button 
                                     onClick={() => setCurrentPage(item.id)} 
-                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-all duration-200 group ${ 
+                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-all duration-200 group relative ${ 
                                         isActive 
                                         ? 'bg-yellow-500 text-slate-900 shadow-md' 
                                         : 'hover:bg-slate-800 hover:text-white' 
@@ -312,6 +317,13 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword }
                                         {item.icon}
                                     </span>
                                     {!isCollapsed && <span className="ml-3 text-xs font-bold truncate">{item.label}</span>}
+                                    
+                                    {/* BADGE DE NOTIFICAÇÃO */}
+                                    {item.badge > 0 && (
+                                        <span className={`absolute ${isCollapsed ? 'top-0 right-0' : 'right-2'} bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm animate-pulse`}>
+                                            {item.badge}
+                                        </span>
+                                    )}
                                 </button>
                             </li>
                         );
@@ -390,14 +402,14 @@ const AppContent = () => {
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); 
-    const [pendingRequestsCount, setPendingRequestsCount] = useState(0); // Novo Estado para Notificação Admin
+    const [pendingRequestsCount, setPendingRequestsCount] = useState(0); 
+    
+    // Novo Estado de Notificação de Solicitação de Abastecimento
+    const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
 
     // --- SOCKET.IO IMPLEMENTAÇÃO ---
     useEffect(() => {
-        // Usa a URL da API definida no .env ou fallback
         const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-        
-        // Remove '/api' do final se existir, pois o socket conecta na raiz
         const cleanSocketUrl = SOCKET_URL.replace('/api', '');
 
         const socket = io(cleanSocketUrl, {
@@ -408,28 +420,32 @@ const AppContent = () => {
             console.log("🟢 Conectado ao servidor Socket.io");
         });
 
-        // Ouvinte Genérico de Sincronização
         socket.on('server:sync', async ({ targets }) => {
             console.log("🔄 Recebido pedido de sincronização para:", targets);
             
             if (!targets || !Array.isArray(targets)) return;
 
-            // Mapeamento de Targets -> Funções de Atualização
-            // Isso evita recarregar TUDO quando apenas uma tabela muda
             const updateActions = {
                 'vehicles': () => apiClient.getVehicles().then(setVehicles),
                 'obras': () => apiClient.getObras().then(setObras),
                 'employees': () => apiClient.getEmployees().then(setEmployees),
                 'revisions': () => { if(user.user_type !== 'operador') apiClient.getRevisions().then(setRevisions) },
-                'partners': () => { if(user.user_type !== 'operador') apiClient.getPartners().then(setRawPartners) },
+                'partners': () => apiClient.getPartners().then(setRawPartners), // Operador agora precisa de Partners (Postos)
                 'refuelings': () => { if(user.podeAcessarAbastecimento || user.user_type === 'admin') apiClient.getRefuelings().then(setRefuelings) },
                 'comboio': () => { if(user.podeAcessarAbastecimento || user.user_type === 'admin') apiClient.getComboioTransactions().then(setRawComboioTransactions) },
                 'fines': () => { if(user.user_type !== 'operador') apiClient.getFines().then(setRawFines) },
                 'dailyWorkLogs': () => { if(user.user_type !== 'operador') apiClient.getDailyLogs('all').then(setDailyWorkLogs) },
                 'expenses': () => { if(user.user_type !== 'operador') apiClient.getExpenses().then(setExpenses) },
+                'solicitacoes': () => { 
+                    // Se for admin/gestor, pode querer atualizar contador de pendentes
+                    if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
+                         apiClient.get('/solicitacoes?status=PENDENTE') // Supondo endpoint de contagem ou filtro
+                            .then(res => setPendingSolicitacoesCount(res.data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length))
+                            .catch(console.error);
+                    }
+                }
             };
 
-            // Executa as atualizações necessárias
             for (const target of targets) {
                 if (updateActions[target]) {
                     try {
@@ -437,6 +453,22 @@ const AppContent = () => {
                     } catch (error) {
                         console.error(`Erro ao atualizar ${target} via socket:`, error);
                     }
+                }
+            }
+        });
+
+        // Ouvinte de Notificações Administrativas
+        socket.on('admin:notificacao', (data) => {
+            if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
+                if (data.tipo === 'nova_solicitacao' || data.tipo === 'baixa_pendente') {
+                    // Toca som de alerta
+                    try {
+                        const audio = new Audio('/beep.mp3'); // Certifique-se de ter este arquivo ou remove esta linha
+                        audio.play().catch(e => {}); 
+                    } catch(e) {}
+                    
+                    // Incrementa contador visual
+                    setPendingSolicitacoesCount(prev => prev + 1);
                 }
             }
         });
@@ -454,7 +486,6 @@ const AppContent = () => {
     const comboioTransactions = React.useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
     const fines = React.useMemo(() => [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime())), [rawFines]);
 
-    // --- Processamento de Alertas de Veículos (Centralizado) ---
     const processVehiclesWithAlerts = (vehiclesData, revisionsData, finesData) => {
         const now = new Date();
         const thirtyDaysFromNow = new Date();
@@ -484,11 +515,9 @@ const AppContent = () => {
                 const avisoAntecedencia = parseFloat(revision.avisoAntecedenciaKmHr || 0);
                 const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
                 
-                // Meta baseada no tipo de leitura
                 let metaLeitura = unit === 'Hr' ? proximoHorimetro : proximoOdometro;
-                if (!metaLeitura && unit === 'Hr' && proximoOdometro) metaLeitura = proximoOdometro; // Fallback
+                if (!metaLeitura && unit === 'Hr' && proximoOdometro) metaLeitura = proximoOdometro; 
 
-                // Lógica Data
                 if (proximaData && now >= proximaData) {
                     hasAlert = true;
                     alertText = 'Atenção: Revisão Vencida (Data)!';
@@ -501,7 +530,6 @@ const AppContent = () => {
                      }
                 }
 
-                // Lógica Leitura
                 if (!hasAlert && metaLeitura > 0) {
                      if (currentReading >= metaLeitura) {
                          hasAlert = true;
@@ -513,7 +541,6 @@ const AppContent = () => {
                 }
             }
 
-            // 3. Alerta de Documentos de Caminhão
             const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho'].includes(vehicle.tipo);
             if (isTruck && !hasAlert) {
                 const docs = [
@@ -525,7 +552,7 @@ const AppContent = () => {
                 for (const doc of docs) {
                     if (doc.date) {
                         const d = new Date(doc.date);
-                        const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()); // Zera horas
+                        const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()); 
                         if (now > compareDate) {
                             hasAlert = true;
                             alertText = `Atenção: ${doc.type} Vencido!`;
@@ -538,7 +565,6 @@ const AppContent = () => {
                 }
             }
             
-            // 4. Alerta de Multas Pendentes
             const hasPendingFine = finesData.some(fine => fine.vehicleId === vehicle.id && fine.paymentStatus === 'Pendente'); 
             if(hasPendingFine && !hasAlert) {
                 hasAlert = true;
@@ -581,7 +607,8 @@ const AppContent = () => {
         if (user.user_type === 'operador') { 
             delete dataEndpoints.revisions;
             delete dataEndpoints.expenses;
-            delete dataEndpoints.partners;
+            // ATENÇÃO: Operador AGORA PRECISA de partners (postos)
+            // delete dataEndpoints.partners; <-- REMOVIDO PARA PERMITIR CARREGAMENTO
             delete dataEndpoints.comboioTransactions;
             delete dataEndpoints.fines;
             delete dataEndpoints.dailyWorkLogs;
@@ -597,9 +624,7 @@ const AppContent = () => {
                 }
             });
 
-            // Lógica Específica para Administradores
             if (user.user_type === 'admin') {
-                // 1. Mensagem de Atualização
                 try {
                     const updateMsg = await apiClient.adminGetUpdateMessage();
                     if (updateMsg && updateMsg.showPopup) {
@@ -608,7 +633,6 @@ const AppContent = () => {
                     }
                 } catch (e) { console.warn("Erro msg update", e); }
 
-                // 2. Verificar Solicitações Pendentes (NOVO)
                 try {
                     const requests = await apiClient.adminGetRegistrationRequests();
                     if (requests && requests.length > 0) {
@@ -618,7 +642,6 @@ const AppContent = () => {
                     }
                 } catch (e) { console.warn("Erro requests check", e); }
             } else if (user.user_type !== 'operador') {
-                 // Usuários normais só veem updateMsg
                  try {
                     const updateMsg = await apiClient.adminGetUpdateMessage();
                     if (updateMsg && updateMsg.showPopup) {
@@ -626,6 +649,15 @@ const AppContent = () => {
                         setShowUpdateModal(true);
                     }
                 } catch (e) { console.warn("Erro msg update", e); }
+            }
+
+            // Atualizar contagem inicial de solicitações
+            if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
+                 try {
+                     const res = await apiClient.get('/solicitacoes');
+                     const pending = res.data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length;
+                     setPendingSolicitacoesCount(pending);
+                 } catch(e) {}
             }
 
         } catch (error) {
@@ -639,13 +671,19 @@ const AppContent = () => {
 
     useEffect(() => { loadAllData(); }, [loadAllData]);
 
+    // --- LÓGICA DE RENDERIZAÇÃO DO OPERADOR (NOVA) ---
     if (user && user.user_type === 'operador') { 
         if (loadingData) return <div className="flex justify-center items-center h-screen"><Loader className="animate-spin text-yellow-500" size={40} /></div>;
+        
+        // Operador agora acessa a página de Solicitação
         return (
-            <DiarioDeBordoPage 
-                apiClient={apiClient} user={user} employees={employees} 
-                vehicles={vehicles} obras={obras} setAlertMessage={setAlertMessage}
-                vehicleGroups={vehicleGroups} diarioDeBordoLogs={diarioDeBordoLogs}
+            <SolicitacaoAbastecimentoPage 
+                apiClient={apiClient} 
+                user={user} 
+                vehicles={vehicles} 
+                obras={obras} 
+                partners={partners}
+                setAlertMessage={setAlertMessage}
             />
         );
     }
@@ -671,6 +709,10 @@ const AppContent = () => {
             case 'revisions': return <RevisionsPage {...commonProps} />;
             case 'partners': return <PartnersPage {...commonProps} />;
             case 'refueling': return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <RefuelingPage {...commonProps} /> : <Denied />;
+            
+            // --- NOVA ROTA ---
+            case 'admin_solicitacoes': return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
+            
             case 'orders': return <OrdersPage {...commonProps} />; 
             case 'comboio': return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <ComboioPage {...commonProps} /> : <Denied />;
             case 'expenses': return <ExpensesPage {...commonProps} />;
@@ -687,7 +729,6 @@ const AppContent = () => {
         <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
             {showUpdateModal && updateMessage && <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />}
             
-            {/* Pop-up de Notificação para Admin */}
             {pendingRequestsCount > 0 && user.user_type === 'admin' && (
                 <AdminPendingRequestAlert 
                     pendingCount={pendingRequestsCount} 
@@ -701,7 +742,8 @@ const AppContent = () => {
                 setCurrentPage={setCurrentPage} 
                 user={user} 
                 logout={logout} 
-                onChangePassword={() => setShowChangePasswordModal(true)} // Trigger Modal
+                onChangePassword={() => setShowChangePasswordModal(true)} 
+                pendingSolicitacoesCount={pendingSolicitacoesCount} // Passa contagem para Badge
             /> 
             
             <ChangePasswordModal 

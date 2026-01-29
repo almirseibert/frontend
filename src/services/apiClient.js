@@ -19,6 +19,13 @@ const apiFetch = async (endpoint, options = {}) => {
         headers['Authorization'] = `Bearer ${token}`; 
     }
 
+    // Tratamento especial para FormData (upload de arquivos)
+    // Se o body for FormData, o browser define o Content-Type automaticamente com o boundary correto.
+    // Portanto, devemos remover o Content-Type: application/json definido acima.
+    if (options.body instanceof FormData) {
+        delete headers['Content-Type'];
+    }
+
     try {
         const response = await fetch(`${API_URL}${endpoint}`, {
             ...options,
@@ -59,16 +66,13 @@ const apiClient = {
             body: JSON.stringify({ password }),
         });
     },
-    // *** NOVA FUNÇÃO ADICIONADA: Troca de Senha ***
     changePassword: async (data) => {
         return apiFetch('/auth/change-password', {
             method: 'POST',
             body: JSON.stringify(data),
         });
     },
-    // Solicitações de Registro (Público)
     createRegistrationRequest: async (data) => {
-        // Aponta para auth/register que cria user inativo conforme sua regra
         return apiFetch('/auth/register', { 
             method: 'POST', 
             body: JSON.stringify(data) 
@@ -89,29 +93,14 @@ const apiClient = {
     endVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/end-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
 
     uploadVehicleImage: async (id, formData) => {
-        const token = getToken();
-        const headers = {}; 
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-    
-        try {
-            const response = await fetch(`${API_URL}/vehicles/${id}/upload-image`, {
-                method: 'POST',
-                headers,
-                body: formData, 
-            });
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || errorData.error || `Erro ${response.status}`);
-            }
-            return await response.json(); 
-        } catch (error) {
-            console.error(`Erro no upload:`, error);
-            throw error;
-        }
+        // Usa apiFetch diretamente para aproveitar a lógica de FormData
+        return apiFetch(`/vehicles/${id}/upload-image`, {
+            method: 'POST',
+            body: formData, 
+        });
     },
 
-    // --- Checklists (NOVO) ---
-    // Esta é a função que estava faltando e causava o erro "is not a function"
+    // --- Checklists ---
     getVehicleChecklists: async (vehicleId) => apiFetch(`/checklists/vehicle/${vehicleId}`),
 
     // --- Obras ---
@@ -131,7 +120,10 @@ const apiClient = {
     // --- Faturamento / Controle Diário ---
     getDailyLogs: async (obraId, filters = {}) => {
         const queryParams = new URLSearchParams(filters).toString();
-        return apiFetch(`/billing/obra/${obraId}?${queryParams}`);
+        // Se 'obraId' for string 'all', ajusta a chamada
+        const url = obraId === 'all' ? `/billing/all?${queryParams}` : `/billing/obra/${obraId}?${queryParams}`;
+        // Fallback caso a rota /billing/all não exista especificamente, usa lógica do componente
+        return apiFetch(`/billing?obraId=${obraId}&${queryParams}`);
     },
     upsertDailyLog: async (data) => apiFetch('/billing', { method: 'POST', body: JSON.stringify(data) }),
     deleteDailyLog: async (id) => apiFetch(`/billing/${id}`, { method: 'DELETE' }),
@@ -170,15 +162,38 @@ const apiClient = {
     updatePartner: async (id, data) => apiFetch(`/partners/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deletePartner: async (id) => apiFetch(`/partners/${id}`, { method: 'DELETE' }),
     updatePartnerFuelPrices: async (id, prices) => apiFetch(`/partners/${id}/prices`, { method: 'PUT', body: JSON.stringify(prices) }),
+    // Novo: Bloquear/Desbloquear Posto (Lista Negra)
+    updatePartnerStatus: async (id, status) => apiFetch(`/partners/${id}/status`, { method: 'PUT', body: JSON.stringify({ status_operacional: status }) }),
 
-    // --- Abastecimentos ---
+    // --- SOLICITAÇÕES (NOVO MÓDULO APP) ---
+    // Listar (Aceita query params ?status=PENDENTE etc)
+    getSolicitacoes: async (params) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return apiFetch(`/solicitacoes?${queryParams}`);
+    },
+    // Criar (Operador)
+    createSolicitacao: async (formData) => apiFetch('/solicitacoes', { method: 'POST', body: formData }),
+    // Avaliar (Gestor)
+    avaliarSolicitacao: async (id, data) => apiFetch(`/solicitacoes/${id}/avaliar`, { method: 'PUT', body: JSON.stringify(data) }),
+    // Enviar Comprovante (Operador)
+    enviarComprovanteSolicitacao: async (id, formData) => apiFetch(`/solicitacoes/${id}/comprovante`, { method: 'PUT', body: formData }),
+    // Baixa/Rejeição (Gestor)
+    confirmarBaixaSolicitacao: async (id, data = {}) => apiFetch(`/solicitacoes/${id}/confirmar-baixa`, { method: 'PUT', body: JSON.stringify(data) }),
+    rejeitarComprovanteSolicitacao: async (id) => apiFetch(`/solicitacoes/${id}/rejeitar-comprovante`, { method: 'PUT' }),
+    // Status Usuário (Verifica bloqueio)
+    getMySolicitacaoStatus: async () => apiFetch('/solicitacoes/meus-status'),
+
+    // --- Abastecimentos (Legado/Admin) ---
     getRefuelings: async () => apiFetch('/refuelings'),
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    // Helper duplicado para compatibilidade, mantém ambos
     updateRefueling: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), 
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
+    // Upload de PDF gerado
+    uploadRefuelingPdf: async (formData) => apiFetch('/refuelings/upload-pdf', { method: 'POST', body: formData }),
 
     // --- Transações do Comboio ---
     getComboioTransactions: async () => apiFetch('/comboioTransactions'),
@@ -246,6 +261,12 @@ const apiClient = {
     getTireHistory: async (id) => apiFetch(`/tires/${id}/history`),
     getVehicleTireHistory: async (vehicleId) => apiFetch(`/tires/vehicle/${vehicleId}/history`),
 
+    // --- Defaults & Auxiliares ---
+    defaults: { baseURL: API_URL },
+    get: (url, config) => apiFetch(url, { method: 'GET', ...config }),
+    post: (url, data, config) => apiFetch(url, { method: 'POST', body: data instanceof FormData ? data : JSON.stringify(data), ...config }),
+    put: (url, data, config) => apiFetch(url, { method: 'PUT', body: data instanceof FormData ? data : JSON.stringify(data), ...config }),
+    delete: (url, config) => apiFetch(url, { method: 'DELETE', ...config }),
 };
 
 export default apiClient;

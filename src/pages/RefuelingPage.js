@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader } from 'lucide-react';
+import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
 import autoTable from 'jspdf-autotable'; 
@@ -22,7 +22,8 @@ const RefuelingPage = ({
     extraObraOptions = [],
     vehicleGroups = {},
     apiClient, 
-    reloadData
+    reloadData,
+    navigate // IMPORTANTE: Recebe função de navegação do App.js
 }) => {
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -100,11 +101,9 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (REFATORADO PARA SUPORTAR BLOB) ---
+    // --- GERAÇÃO DE PDF (MANTIDO) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, returnBlob = false) => {
         setIsGeneratingPdf(true);
-        
-        // Retorna uma Promise para podermos esperar a geração quando formos enviar por WhatsApp
         return new Promise((resolve, reject) => {
             try {
                 const buildPdf = (logoDataUrl) => {
@@ -270,12 +269,22 @@ const RefuelingPage = ({
                     </h1>
                 </div>
                 <ProtectedComponent requiredPermission="editor">
-                    <button 
-                        onClick={() => { setEditingOrder(null); setIsOrderModalOpen(true); }} 
-                        className="flex items-center gap-2 px-6 py-3 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition active:scale-95 w-full md:w-auto justify-center"
-                    >
-                        <PlusCircle size={20} /> Emitir Nova Ordem
-                    </button>
+                    <div className="flex gap-2 w-full md:w-auto">
+                        {/* Botão para Gerir Solicitações do App */}
+                        <button 
+                            onClick={() => navigate('admin_solicitacoes')} 
+                            className="flex-1 md:flex-none flex items-center gap-2 px-4 py-3 bg-gray-900 text-white font-bold rounded-lg shadow hover:bg-gray-800 transition active:scale-95 justify-center"
+                        >
+                            <Smartphone size={20} /> Solicitações App
+                        </button>
+                        
+                        <button 
+                            onClick={() => { setEditingOrder(null); setIsOrderModalOpen(true); }} 
+                            className="flex-1 md:flex-none flex items-center gap-2 px-6 py-3 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow hover:bg-yellow-500 transition active:scale-95 justify-center"
+                        >
+                            <PlusCircle size={20} /> Emitir Nova Ordem
+                        </button>
+                    </div>
                 </ProtectedComponent>
             </div>
 
