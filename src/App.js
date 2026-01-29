@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus // <--- ADICIONADO AQUI
 } from 'lucide-react';
 
 // Importação do Socket.io Client
@@ -440,7 +440,13 @@ const AppContent = () => {
                     // Se for admin/gestor, pode querer atualizar contador de pendentes
                     if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
                          apiClient.get('/solicitacoes?status=PENDENTE') // Supondo endpoint de contagem ou filtro
-                            .then(res => setPendingSolicitacoesCount(res.data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length))
+                            .then(res => {
+                                // CORREÇÃO: Garante que res é array antes de filtrar
+                                const data = Array.isArray(res) ? res : (res.data || []);
+                                if (Array.isArray(data)) {
+                                    setPendingSolicitacoesCount(data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length);
+                                }
+                            })
                             .catch(console.error);
                     }
                 }
@@ -655,8 +661,12 @@ const AppContent = () => {
             if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
                  try {
                      const res = await apiClient.get('/solicitacoes');
-                     const pending = res.data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length;
-                     setPendingSolicitacoesCount(pending);
+                     // CORREÇÃO: Tratamento para evitar "undefined.filter"
+                     const data = Array.isArray(res) ? res : (res.data || []);
+                     if (Array.isArray(data)) {
+                         const pending = data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length;
+                         setPendingSolicitacoesCount(pending);
+                     }
                  } catch(e) {}
             }
 
