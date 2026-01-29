@@ -1,22 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, HardHat, Truck, Briefcase, Info } from 'lucide-react';
+import { X, Loader, HardHat, Truck, Briefcase, Info, AlertCircle } from 'lucide-react';
 
 const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
-    // Estado unificado para suportar diversas fontes de histórico
+    // Inicializa com estrutura completa para evitar erros de undefined
     const [history, setHistory] = useState({ rh: [], obras: [], veiculos: [], outros: [] });
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('veiculos');
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         const fetchHistory = async () => {
             if (!employee) return;
             setLoading(true);
+            setError(null);
             try {
-                // O controller agora retorna um objeto unificado
                 const res = await apiClient.get(`/employees/${employee.id}/history`);
-                setHistory(res.data || { rh: [], obras: [], veiculos: [], outros: [] });
-            } catch (error) {
-                console.error("Erro ao buscar histórico", error);
+                // Garante que o objeto retornado tenha todas as chaves
+                setHistory({
+                    rh: res.data.rh || [],
+                    obras: res.data.obras || [],
+                    veiculos: res.data.veiculos || [],
+                    outros: res.data.outros || []
+                });
+            } catch (err) {
+                console.error("Erro ao buscar histórico", err);
+                setError("Não foi possível carregar o histórico completo.");
             } finally {
                 setLoading(false);
             }
@@ -63,16 +71,21 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                         <div className="flex justify-center items-center h-full text-gray-400">
                             <Loader className="animate-spin mr-2"/> Carregando...
                         </div>
+                    ) : error ? (
+                        <div className="flex flex-col items-center justify-center h-full text-red-500 gap-2">
+                            <AlertCircle size={24} />
+                            <p>{error}</p>
+                        </div>
                     ) : (
                         <div className="space-y-3">
-                            {/* ALERTA DE ALOCAÇÃO LEGADA/MANUAL (Se existir) */}
+                            {/* ALERTA DE ALOCAÇÃO LEGADA/MANUAL (Se existir em 'outros') */}
                             {history.outros && history.outros.length > 0 && (
-                                <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex items-start gap-3 mb-4">
-                                    <Info className="text-yellow-600 shrink-0 mt-0.5" size={18}/>
+                                <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-start gap-3 mb-4">
+                                    <Info className="text-blue-600 shrink-0 mt-0.5" size={18}/>
                                     <div>
-                                        <p className="text-sm font-bold text-yellow-800">Registro de Alocação (Legado)</p>
+                                        <p className="text-sm font-bold text-blue-800">Registro de Alocação Atual/Manual</p>
                                         {history.outros.map((o, i) => (
-                                            <p key={i} className="text-xs text-yellow-700">{o.description}</p>
+                                            <p key={i} className="text-xs text-blue-700">{o.description}</p>
                                         ))}
                                     </div>
                                 </div>
@@ -109,10 +122,10 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                                             }
                                         </div>
                                     </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhuma obra no histórico.</p>
+                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhuma obra no histórico (obras_historico_veiculos).</p>
                             )}
 
-                            {/* ABA RH */}
+                            {/* ABA RH (employee_events_history) */}
                             {activeTab === 'rh' && (
                                 history.rh && history.rh.length > 0 ? history.rh.map((h, i) => (
                                     <div key={i} className={`bg-white border-l-4 p-4 rounded-r-lg shadow-sm hover:shadow-md transition ${h.description.includes('Desligamento') ? 'border-red-500' : 'border-green-500'}`}>
@@ -124,7 +137,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                                             <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded">{new Date(h.date).toLocaleDateString()}</span>
                                         </div>
                                     </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum evento de RH registrado (tabela employee_events_history).</p>
+                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum evento de RH registrado.</p>
                             )}
                         </div>
                     )}

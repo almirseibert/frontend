@@ -14,19 +14,15 @@ import {
     Search,
     MapPin,
     Phone,
-    FileText,
     Hash,
     Truck
 } from 'lucide-react';
 
-// --- CORREÇÃO DE IMPORTS ---
-// Garante que o build encontre os arquivos na pasta correta
+// Imports dos Modais
 import EmployeeModal from '../components/modals/EmployeeModal';
 import EmployeeHistoryModal from '../components/modals/EmployeeHistoryModal';
 import EmployeeFinesModal from '../components/modals/EmployeeFinesModal';
 import StatusChangeModal from '../components/modals/StatusChangeModal';
-
-import apiClient from '../services/apiClient';
 
 // Componente Local de Proteção
 const ProtectedComponent = ({ requiredPermission, user, children }) => {
@@ -69,8 +65,8 @@ const EmployeesPage = ({
     const [isSyncing, setIsSyncing] = useState(false);
 
     // --- HELPER: Encontrar Veículo Atual (Alocado) ---
-    // Verifica se o funcionário é motorista fixo ou tem alocação operacional
     const getAllocationInfo = (employeeId) => {
+        // Busca se o funcionário está alocado em algum veículo (Operational ou DriverId fixo)
         const vehicle = vehicles.find(v => 
             (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
             (v.driverId && String(v.driverId) === String(employeeId))
@@ -329,7 +325,7 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* Status e Alocação (Corrigido) */}
+                                        {/* Status e Alocação */}
                                         <td className="p-4 align-top text-center">
                                             {isInactive ? (
                                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
