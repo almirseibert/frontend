@@ -4,21 +4,16 @@ import { X, Loader, HardHat, Truck } from 'lucide-react';
 const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
     const [history, setHistory] = useState({ obras: [], veiculos: [] });
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('obras');
+    const [activeTab, setActiveTab] = useState('veiculos'); // Default para veículos
 
     useEffect(() => {
         const fetchHistory = async () => {
             if (!employee) return;
             setLoading(true);
             try {
-                // Chama a rota específica de histórico
                 const res = await apiClient.get(`/employees/${employee.id}/history`);
-                // O apiClient retorna os dados diretamente ou dentro de data, ajuste conforme seu client
-                const data = res.data || res; 
-                setHistory({
-                    obras: data.obras || [],
-                    veiculos: data.veiculos || []
-                });
+                // Assume que o endpoint retorna { obras: [], veiculos: [] }
+                setHistory(res.data || res);
             } catch (error) {
                 console.error("Erro ao buscar histórico", error);
             } finally {
@@ -41,16 +36,16 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
 
                 <div className="flex border-b">
                     <button 
-                        onClick={() => setActiveTab('obras')}
-                        className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 ${activeTab === 'obras' ? 'border-b-2 border-yellow-400 text-gray-900 bg-yellow-50' : 'text-gray-500'}`}
-                    >
-                        <HardHat size={16}/> Obras
-                    </button>
-                    <button 
                         onClick={() => setActiveTab('veiculos')}
                         className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 ${activeTab === 'veiculos' ? 'border-b-2 border-yellow-400 text-gray-900 bg-yellow-50' : 'text-gray-500'}`}
                     >
                         <Truck size={16}/> Veículos
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('obras')}
+                        className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 ${activeTab === 'obras' ? 'border-b-2 border-yellow-400 text-gray-900 bg-yellow-50' : 'text-gray-500'}`}
+                    >
+                        <HardHat size={16}/> Obras
                     </button>
                 </div>
 
@@ -61,39 +56,37 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                         </div>
                     ) : (
                         <>
-                            {activeTab === 'obras' && (
+                            {activeTab === 'veiculos' && (
                                 <div className="space-y-2">
-                                    {history.obras.length === 0 ? <p className="text-center text-gray-400 text-sm mt-10">Nenhum registro em obras.</p> :
-                                    history.obras.map((h, i) => (
+                                    {history.veiculos && history.veiculos.length > 0 ? history.veiculos.map((h, i) => (
                                         <div key={i} className="border p-3 rounded-lg flex justify-between items-center hover:bg-gray-50">
                                             <div>
-                                                <p className="font-bold text-gray-700 text-sm">{h.obraNome || 'Obra Desconhecida'}</p>
-                                                <p className="text-xs text-gray-500">Função: {h.role || employee.funcao}</p>
+                                                <p className="font-bold text-gray-700 text-sm">{h.modelo || 'Veículo'} - {h.placa || 'N/A'}</p>
+                                                <p className="text-xs text-gray-500">Operacional</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-xs font-mono text-green-600">IN: {new Date(h.startDate).toLocaleDateString()}</p>
-                                                {h.endDate && <p className="text-xs font-mono text-red-600">OUT: {new Date(h.endDate).toLocaleDateString()}</p>}
+                                                <p className="text-xs font-mono text-blue-600">IN: {new Date(h.assignedAt).toLocaleDateString()}</p>
+                                                {h.unassignedAt && <p className="text-xs text-gray-400">OUT: {new Date(h.unassignedAt).toLocaleDateString()}</p>}
                                             </div>
                                         </div>
-                                    ))}
+                                    )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum registro de veículo encontrado.</p>}
                                 </div>
                             )}
 
-                            {activeTab === 'veiculos' && (
+                            {activeTab === 'obras' && (
                                 <div className="space-y-2">
-                                    {history.veiculos.length === 0 ? <p className="text-center text-gray-400 text-sm mt-10">Nenhum registro de veículo.</p> :
-                                    history.veiculos.map((h, i) => (
+                                    {history.obras && history.obras.length > 0 ? history.obras.map((h, i) => (
                                         <div key={i} className="border p-3 rounded-lg flex justify-between items-center hover:bg-gray-50">
                                             <div>
-                                                <p className="font-bold text-gray-700 text-sm">{h.modelo} - {h.placa}</p>
-                                                <p className="text-xs text-gray-500">{h.category || 'Operacional'}</p>
+                                                <p className="font-bold text-gray-700 text-sm">{h.obraNome || 'Obra'}</p>
+                                                <p className="text-xs text-gray-500">{h.role || 'Colaborador'}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-xs font-mono text-blue-600">{new Date(h.assignedAt).toLocaleDateString()}</p>
-                                                {h.unassignedAt && <p className="text-xs text-gray-400">até {new Date(h.unassignedAt).toLocaleDateString()}</p>}
+                                                <p className="text-xs font-mono text-green-600">IN: {new Date(h.startDate).toLocaleDateString()}</p>
+                                                {h.endDate && <p className="text-xs font-mono text-gray-400">OUT: {new Date(h.endDate).toLocaleDateString()}</p>}
                                             </div>
                                         </div>
-                                    ))}
+                                    )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum registro de obra encontrado.</p>}
                                 </div>
                             )}
                         </>
