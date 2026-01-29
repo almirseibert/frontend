@@ -24,8 +24,6 @@ import EmployeeHistoryModal from '../components/modals/EmployeeHistoryModal';
 import EmployeeFinesModal from '../components/modals/EmployeeFinesModal';
 import StatusChangeModal from '../components/modals/StatusChangeModal';
 
-import apiClient from '../services/apiClient';
-
 // Componente Local de Proteção
 const ProtectedComponent = ({ requiredPermission, user, children }) => {
     if (!user || !user.user_type) return null;
@@ -39,8 +37,8 @@ const ProtectedComponent = ({ requiredPermission, user, children }) => {
 const EmployeesPage = ({ 
     user, 
     employees = [], 
-    vehicles = [], // Necessário para ver alocação atual
-    fines = [], 
+    vehicles = [], 
+    fines = [], // Recebe todas as multas do sistema
     apiClient, 
     setAlertMessage, 
     reloadData, 
@@ -68,10 +66,9 @@ const EmployeesPage = ({
 
     // --- HELPER: Encontrar Veículo Atual (Alocado) ---
     const getCurrentVehicleRE = (employeeId) => {
-        // Procura nos veículos se este funcionário é o motorista ou operador atual
         const vehicle = vehicles.find(v => 
-            (v.driverId && String(v.driverId) === String(employeeId)) || 
-            (v.operatorId && String(v.operatorId) === String(employeeId))
+            (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
+            (v.driverId && String(v.driverId) === String(employeeId))
         );
         return vehicle ? vehicle.registroInterno : null;
     };
@@ -79,16 +76,14 @@ const EmployeesPage = ({
     // --- LÓGICA DE DADOS ---
     const processedEmployees = useMemo(() => {
         return employees.filter(emp => {
-            // Filtro de Texto (Nome, Vulgo, Função, Cidade, Registro, Contato)
+            // Filtro de Texto
             const searchLower = searchTerm.toLowerCase();
             const matchesSearch = 
                 (emp.nome && emp.nome.toLowerCase().includes(searchLower)) ||
                 (emp.vulgo && emp.vulgo.toLowerCase().includes(searchLower)) ||
                 (emp.funcao && emp.funcao.toLowerCase().includes(searchLower)) ||
                 (emp.cidade && emp.cidade.toLowerCase().includes(searchLower)) ||
-                (emp.registroInterno && emp.registroInterno.toString().includes(searchLower)) ||
-                (emp.contato && emp.contato.includes(searchLower)) ||
-                (emp.telefone && emp.telefone.includes(searchLower)); // Fallback para campo antigo
+                (emp.registroInterno && emp.registroInterno.toString().includes(searchLower));
 
             if (!matchesSearch) return false;
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, FileText, Save } from 'lucide-react';
+import { X, Loader, FileText, Save, Stethoscope, Briefcase, User, Shield } from 'lucide-react';
 
 const EmployeeModal = ({ 
     user, 
@@ -16,47 +16,57 @@ const EmployeeModal = ({
     // Estado inicial
     const [formData, setFormData] = useState({
         nome: '',
-        vulgo: '',            // Novo
-        registroInterno: '',  // Novo
+        vulgo: '',
+        registroInterno: '',
         dataAdmissao: '',
         cpf: '',
         rg: '',
         dataNascimento: '',
         funcao: '',
         endereco: '',
-        cidade: '',           // Novo
-        contato: '',          // Renomeado/Padronizado de telefone
+        cidade: '',
+        contato: '',
         email: '',
         status: 'ativo',
+        // CNH: Mapeamos para um objeto para facilitar a UI
         cnh: { numero: '', categoria: '', validade: '', anexo: null },
-        aso: { dataEmissao: '', validade: '', anexo: null },
+        // ASO: Nova aba
+        aso: { dataEmissao: '', validade: '', anexo: null, observacao: '' },
         epi: { dataEntrega: '', anexo: null },
         certificados: [] 
     });
 
     useEffect(() => {
         if (employee) {
+            // Lógica para recuperar CNH de colunas planas OU JSON
+            const cnhData = employee.cnh || {};
+            const cnhNumero = cnhData.numero || employee.cnhNumero || '';
+            const cnhCategoria = cnhData.categoria || employee.cnhCategoria || '';
+            const cnhValidade = formatDateForInput(cnhData.validade || employee.cnhVencimento);
+
             setFormData({
                 nome: employee.nome || '',
                 vulgo: employee.vulgo || '',
                 registroInterno: employee.registroInterno || '',
                 dataAdmissao: formatDateForInput(employee.dataAdmissao || employee.dataContratacao),
                 cpf: employee.cpf || '',
-                rg: employee.rg || '', // RG não estava no INSERT SQL exemplo, mas mantive se existir no banco legado
+                rg: employee.rg || '',
                 dataNascimento: formatDateForInput(employee.dataNascimento),
                 funcao: employee.funcao || '',
                 endereco: employee.endereco || '',
                 cidade: employee.cidade || '',
                 contato: employee.contato || employee.telefone || '',
-                email: employee.email || '', // Email não estava no SQL, mas é útil
+                email: employee.email || '',
                 status: employee.status || 'ativo',
-                cnh: typeof employee.cnh === 'object' ? employee.cnh : { // Adapter caso venha flat do banco
-                    numero: employee.cnhNumero || '',
-                    categoria: employee.cnhCategoria || '',
-                    validade: formatDateForInput(employee.cnhVencimento),
-                    anexo: null
+                
+                cnh: { 
+                    numero: cnhNumero,
+                    categoria: cnhCategoria,
+                    validade: cnhValidade,
+                    anexo: cnhData.anexo || null
                 },
-                aso: parseJson(employee.aso, { dataEmissao: '', validade: '', anexo: null }),
+                
+                aso: parseJson(employee.aso, { dataEmissao: '', validade: '', anexo: null, observacao: '' }),
                 epi: parseJson(employee.epi, { dataEntrega: '', anexo: null }),
                 certificados: parseJson(employee.certificados, [])
             });
@@ -101,7 +111,7 @@ const EmployeeModal = ({
             }));
         } catch (error) {
             console.error("Erro upload", error);
-            setAlertMessage("Erro ao enviar arquivo.");
+            setAlertMessage("Erro ao enviar arquivo. Tente novamente.");
         } finally {
             setUploading(false);
         }
@@ -111,12 +121,14 @@ const EmployeeModal = ({
         e.preventDefault();
         setLoading(true);
         try {
-            // Adapter para enviar campos planos de CNH se o backend esperar assim
-            const payload = { ...formData };
-            // Se o backend espera campos planos para CNH (baseado no SQL create table):
-            payload.cnhNumero = formData.cnh.numero;
-            payload.cnhCategoria = formData.cnh.categoria;
-            payload.cnhVencimento = formData.cnh.validade;
+            // Prepara payload compatível com backend
+            const payload = { 
+                ...formData,
+                // Envia campos planos de CNH explicitamente para o backend salvar nas colunas do MySQL
+                cnhNumero: formData.cnh.numero,
+                cnhCategoria: formData.cnh.categoria,
+                cnhVencimento: formData.cnh.validade,
+            };
 
             if (employee) {
                 await apiClient.updateEmployee(employee.id, payload);
@@ -136,97 +148,126 @@ const EmployeeModal = ({
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-                <div className="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
-                    <h2 className="text-xl font-bold text-gray-800">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-fadeIn">
+                <div className="p-5 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        {employee ? <User size={20}/> : <PlusCircle size={20}/>}
                         {employee ? 'Editar Funcionário' : 'Novo Funcionário'}
                     </h2>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition"><X size={20}/></button>
                 </div>
 
-                <div className="flex border-b px-6 pt-2">
-                    {['dados', 'documentos', 'epi'].map(tab => (
+                <div className="flex border-b px-6 pt-2 bg-white sticky top-0 z-10">
+                    {[
+                        { id: 'dados', label: 'Dados Pessoais', icon: User },
+                        { id: 'cnh', label: 'CNH', icon: FileText },
+                        { id: 'aso', label: 'Atestado Médico (ASO)', icon: Stethoscope },
+                        { id: 'epi', label: 'EPIs', icon: Shield }
+                    ].map(tab => (
                         <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={`px-4 py-3 text-sm font-bold capitalize border-b-2 transition ${
-                                activeTab === tab ? 'border-yellow-400 text-gray-800' : 'border-transparent text-gray-500 hover:text-gray-700'
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`px-4 py-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
+                                activeTab === tab.id ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'
                             }`}
                         >
-                            {tab === 'epi' ? 'EPIs' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            <tab.icon size={16}/> {tab.label}
                         </button>
                     ))}
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 bg-white">
+                    {/* DADOS PESSOAIS */}
                     {activeTab === 'dados' && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Nome Completo *</label>
-                                <input required name="nome" value={formData.nome} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Completo *</label>
+                                <input required name="nome" value={formData.nome} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" placeholder="Nome do funcionário"/>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Vulgo (Apelido)</label>
-                                <input name="vulgo" value={formData.vulgo} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Vulgo (Apelido)</label>
+                                <input name="vulgo" value={formData.vulgo} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
                             
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">CPF *</label>
-                                <input required name="cpf" value={formData.cpf} onChange={handleChange} className="w-full p-2 border rounded" placeholder="000.000.000-00"/>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">CPF *</label>
+                                <input required name="cpf" value={formData.cpf} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" placeholder="000.000.000-00"/>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Registro Interno</label>
-                                <input name="registroInterno" value={formData.registroInterno} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">RG</label>
+                                <input name="rg" value={formData.rg} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Data Admissão</label>
-                                <input type="date" name="dataAdmissao" value={formData.dataAdmissao} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Registro Interno</label>
+                                <input name="registroInterno" value={formData.registroInterno} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Função / Cargo</label>
-                                <input name="funcao" value={formData.funcao} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data Admissão</label>
+                                <input type="date" name="dataAdmissao" value={formData.dataAdmissao} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
-                            <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Telefone / Contato</label>
-                                <input name="contato" value={formData.contato} onChange={handleChange} className="w-full p-2 border rounded" />
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data Nascimento</label>
+                                <input type="date" name="dataNascimento" value={formData.dataNascimento} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Função / Cargo</label>
+                                <select name="funcao" value={formData.funcao} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none bg-white">
+                                    <option value="">Selecione...</option>
+                                    <option value="Motorista">Motorista</option>
+                                    <option value="Operador de Máquina">Operador de Máquina</option>
+                                    <option value="Mecânico">Mecânico</option>
+                                    <option value="Administrativo">Administrativo</option>
+                                    <option value="Outro">Outro</option>
+                                </select>
                             </div>
 
                             <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Endereço</label>
-                                <input name="endereco" value={formData.endereco} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Endereço</label>
+                                <input name="endereco" value={formData.endereco} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Cidade</label>
-                                <input name="cidade" value={formData.cidade} onChange={handleChange} className="w-full p-2 border rounded" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cidade</label>
+                                <input name="cidade" value={formData.cidade} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                            </div>
+
+                            <div className="md:col-span-1">
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Telefone / Contato</label>
+                                <input name="contato" value={formData.contato} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
+                                <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
                         </div>
                     )}
 
-                    {activeTab === 'documentos' && (
-                        <div className="space-y-6">
-                            {/* CNH */}
-                            <div className="bg-gray-50 p-4 rounded-lg border">
-                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2"><FileText size={16}/> CNH</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* CNH */}
+                    {activeTab === 'cnh' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            <div className="bg-blue-50 p-5 rounded-lg border border-blue-100">
+                                <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><FileText size={18}/> Dados da CNH</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
-                                        <label className="text-xs text-gray-500">Número Registro</label>
-                                        <input value={formData.cnh?.numero || ''} onChange={e => handleNestedChange('cnh', 'numero', e.target.value)} className="w-full p-2 border rounded bg-white"/>
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Número Registro</label>
+                                        <input value={formData.cnh?.numero || ''} onChange={e => handleNestedChange('cnh', 'numero', e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white"/>
                                     </div>
                                     <div>
-                                        <label className="text-xs text-gray-500">Categoria</label>
-                                        <input value={formData.cnh?.categoria || ''} onChange={e => handleNestedChange('cnh', 'categoria', e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="Ex: AD"/>
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Categoria</label>
+                                        <input value={formData.cnh?.categoria || ''} onChange={e => handleNestedChange('cnh', 'categoria', e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white" placeholder="Ex: AE"/>
                                     </div>
                                     <div>
-                                        <label className="text-xs text-gray-500">Vencimento</label>
-                                        <input type="date" value={formData.cnh?.validade || ''} onChange={e => handleNestedChange('cnh', 'validade', e.target.value)} className="w-full p-2 border rounded bg-white"/>
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Vencimento</label>
+                                        <input type="date" value={formData.cnh?.validade || ''} onChange={e => handleNestedChange('cnh', 'validade', e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white"/>
                                     </div>
-                                    <div className="md:col-span-3">
-                                        <label className="text-xs text-gray-500">Anexo CNH (Opcional)</label>
-                                        <div className="flex gap-2 items-center">
+                                    <div className="md:col-span-3 mt-2">
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Anexo CNH Digitalizada</label>
+                                        <div className="flex gap-3 items-center bg-white p-3 rounded-lg border border-blue-200 border-dashed">
                                             <input type="file" onChange={e => handleFileUpload(e, 'cnh')} className="text-sm text-gray-500"/>
-                                            {uploading && <Loader className="animate-spin text-blue-500" size={16}/>}
-                                            {formData.cnh?.anexo && <span className="text-xs text-green-600 font-bold">Arquivo anexado</span>}
+                                            {uploading && <Loader className="animate-spin text-blue-600" size={20}/>}
+                                            {formData.cnh?.anexo ? (
+                                                <a href={formData.cnh.anexo} target="_blank" rel="noopener noreferrer" className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-bold hover:bg-green-200 transition">Ver Anexo Atual</a>
+                                            ) : <span className="text-xs text-gray-400 italic">Nenhum arquivo</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -234,32 +275,79 @@ const EmployeeModal = ({
                         </div>
                     )}
 
-                    {activeTab === 'epi' && (
-                        <div className="bg-gray-50 p-4 rounded-lg border">
-                            <h3 className="font-bold text-gray-700 mb-3">Ficha de EPI</h3>
-                            <div className="grid grid-cols-1 gap-4">
-                                <div>
-                                    <label className="text-xs text-gray-500">Data da Última Entrega</label>
-                                    <input type="date" value={formData.epi?.dataEntrega || ''} onChange={e => handleNestedChange('epi', 'dataEntrega', e.target.value)} className="w-full p-2 border rounded bg-white"/>
+                    {/* NOVA ABA: ASO */}
+                    {activeTab === 'aso' && (
+                        <div className="space-y-6 animate-fadeIn">
+                             <div className="bg-green-50 p-5 rounded-lg border border-green-100">
+                                <h3 className="font-bold text-green-800 mb-4 flex items-center gap-2"><Stethoscope size={18}/> Atestado de Saúde Ocupacional (ASO)</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-green-700 uppercase mb-1">Data de Emissão (Realização)</label>
+                                        <input type="date" value={formData.aso?.dataEmissao || ''} onChange={e => handleNestedChange('aso', 'dataEmissao', e.target.value)} className="w-full p-2.5 border border-green-200 rounded-lg bg-white"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-green-700 uppercase mb-1">Data de Validade (Vencimento)</label>
+                                        <input type="date" value={formData.aso?.validade || ''} onChange={e => handleNestedChange('aso', 'validade', e.target.value)} className="w-full p-2.5 border border-green-200 rounded-lg bg-white"/>
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <label className="text-xs font-bold text-green-700 uppercase mb-1">Observações / Tipo de Exame</label>
+                                        <input 
+                                            value={formData.aso?.observacao || ''} 
+                                            onChange={e => handleNestedChange('aso', 'observacao', e.target.value)} 
+                                            className="w-full p-2.5 border border-green-200 rounded-lg bg-white"
+                                            placeholder="Ex: Admissional, Periódico, Demissional..."
+                                        />
+                                    </div>
+                                    <div className="md:col-span-2 mt-2">
+                                        <label className="text-xs font-bold text-green-700 uppercase mb-1">Anexo ASO Digitalizado</label>
+                                        <div className="flex gap-3 items-center bg-white p-3 rounded-lg border border-green-200 border-dashed">
+                                            <input type="file" onChange={e => handleFileUpload(e, 'aso')} className="text-sm text-gray-500"/>
+                                            {uploading && <Loader className="animate-spin text-green-600" size={20}/>}
+                                            {formData.aso?.anexo ? (
+                                                <a href={formData.aso.anexo} target="_blank" rel="noopener noreferrer" className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-bold hover:bg-green-200 transition">Ver Anexo Atual</a>
+                                            ) : <span className="text-xs text-gray-400 italic">Nenhum arquivo</span>}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-xs text-gray-500">Ficha de Entrega Digitalizada</label>
-                                    <input type="file" onChange={e => handleFileUpload(e, 'epi')} className="mt-1 text-sm text-gray-500"/>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* EPIs */}
+                    {activeTab === 'epi' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            <div className="bg-orange-50 p-5 rounded-lg border border-orange-100">
+                                <h3 className="font-bold text-orange-800 mb-4 flex items-center gap-2"><Shield size={18}/> Ficha de EPI</h3>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-orange-700 uppercase mb-1">Data da Última Entrega</label>
+                                        <input type="date" value={formData.epi?.dataEntrega || ''} onChange={e => handleNestedChange('epi', 'dataEntrega', e.target.value)} className="w-full p-2.5 border border-orange-200 rounded-lg bg-white"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-orange-700 uppercase mb-1">Ficha de Entrega Digitalizada</label>
+                                        <div className="flex gap-3 items-center bg-white p-3 rounded-lg border border-orange-200 border-dashed">
+                                            <input type="file" onChange={e => handleFileUpload(e, 'epi')} className="text-sm text-gray-500"/>
+                                            {uploading && <Loader className="animate-spin text-orange-600" size={20}/>}
+                                            {formData.epi?.anexo ? (
+                                                <a href={formData.epi.anexo} target="_blank" rel="noopener noreferrer" className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded font-bold hover:bg-orange-200 transition">Ver Anexo Atual</a>
+                                            ) : <span className="text-xs text-gray-400 italic">Nenhum arquivo</span>}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     )}
                 </form>
 
-                <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-xl">
-                    <button onClick={onClose} className="px-4 py-2 text-gray-600 bg-gray-200 rounded-lg hover:bg-gray-300 font-bold text-sm">Cancelar</button>
+                <div className="p-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-xl">
+                    <button onClick={onClose} className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 font-bold text-sm transition shadow-sm">Cancelar</button>
                     <button 
                         onClick={handleSubmit} 
                         disabled={loading || uploading} 
-                        className="px-6 py-2 bg-yellow-400 text-gray-900 rounded-lg hover:bg-yellow-500 font-bold text-sm flex items-center gap-2 disabled:opacity-50"
+                        className="px-6 py-2.5 bg-yellow-400 text-gray-900 rounded-lg hover:bg-yellow-500 font-bold text-sm flex items-center gap-2 disabled:opacity-50 shadow-sm transition transform active:scale-95"
                     >
-                        {loading ? <Loader className="animate-spin" size={16}/> : <Save size={16}/>}
-                        Salvar
+                        {loading ? <Loader className="animate-spin" size={18}/> : <Save size={18}/>}
+                        {employee ? 'Salvar Alterações' : 'Cadastrar Funcionário'}
                     </button>
                 </div>
             </div>
