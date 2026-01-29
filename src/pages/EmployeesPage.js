@@ -15,7 +15,8 @@ import {
     MapPin,
     Phone,
     Hash,
-    Truck
+    Truck,
+    CalendarCheck
 } from 'lucide-react';
 
 // Imports dos Modais
@@ -24,7 +25,6 @@ import EmployeeHistoryModal from '../components/modals/EmployeeHistoryModal';
 import EmployeeFinesModal from '../components/modals/EmployeeFinesModal';
 import StatusChangeModal from '../components/modals/StatusChangeModal';
 
-// Componente Local de Proteção
 const ProtectedComponent = ({ requiredPermission, user, children }) => {
     if (!user || !user.user_type) return null;
     const userRole = user.user_type.toLowerCase();
@@ -64,7 +64,17 @@ const EmployeesPage = ({
 
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // --- FUNÇÃO DE ALOCAÇÃO RESTAURADA E ROBUSTA ---
+    // --- CÁLCULO DE DIAS DISPONÍVEIS ---
+    const calculateDaysAvailable = (lastDate) => {
+        if (!lastDate) return 0;
+        const end = new Date(lastDate);
+        const now = new Date();
+        const diffTime = Math.abs(now - end);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays;
+    };
+
+    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (MOSTRAR RE) ---
     const getAllocationInfo = (employeeId) => {
         // 1. Verifica alocação em veículos (Operational Assignment)
         const vehicleAssigned = vehicles.find(v => 
@@ -72,9 +82,10 @@ const EmployeesPage = ({
         );
         
         if (vehicleAssigned) {
+            // MOSTRA O RE (REGISTRO INTERNO) COMO SOLICITADO
             return {
                 status: 'alocado',
-                description: `${vehicleAssigned.modelo} (${vehicleAssigned.placa || vehicleAssigned.registroInterno})`
+                description: `RE: ${vehicleAssigned.registroInterno || 'N/A'} - ${vehicleAssigned.modelo}`
             };
         }
 
@@ -86,12 +97,11 @@ const EmployeesPage = ({
         if (vehicleDriver) {
              return {
                 status: 'alocado',
-                description: `Motorista: ${vehicleDriver.modelo} (${vehicleDriver.registroInterno})`
+                description: `Motorista RE: ${vehicleDriver.registroInterno || 'N/A'} - ${vehicleDriver.modelo}`
             };
         }
 
-        // 3. Fallback: Se não achou em veículos, verifica se o funcionário tem campo "alocadoEm" manual (ex: Obra manual)
-        // Isso é tratado no backend, mas aqui podemos checar se veio algo no objeto employee
+        // 3. Fallback: Se não achou em veículos, verifica se o funcionário tem campo "alocadoEm" manual
         const emp = employees.find(e => e.id === employeeId);
         if (emp && emp.alocadoEm) {
             let desc = '';
@@ -310,6 +320,11 @@ const EmployeesPage = ({
                                 const allocation = getAllocationInfo(emp.id);
                                 const isInactive = emp.status && (emp.status.toLowerCase() === 'inativo' || emp.status.toLowerCase() === 'desligado');
                                 
+                                // Cálculo de dias disponíveis
+                                const daysAvailable = allocation.status === 'disponivel' && emp.lastAllocationEnd 
+                                    ? calculateDaysAvailable(emp.lastAllocationEnd) 
+                                    : 0;
+
                                 return (
                                     <tr key={emp.id} className={`hover:bg-gray-50 transition-colors ${isInactive ? 'bg-gray-50/50' : ''}`}>
                                         
@@ -350,7 +365,7 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* Status e Alocação */}
+                                        {/* Status e Alocação (ATUALIZADO) */}
                                         <td className="p-4 align-top text-center">
                                             {isInactive ? (
                                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
@@ -368,9 +383,18 @@ const EmployeesPage = ({
                                                             </span>
                                                         </>
                                                     ) : (
-                                                        <span className="inline-block px-2 py-0.5 rounded-md text-xs font-bold bg-green-100 text-green-700 border border-green-200">
-                                                            Disponível
-                                                        </span>
+                                                        <>
+                                                            <span className="inline-block px-2 py-0.5 rounded-md text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                                                                Disponível
+                                                            </span>
+                                                            {daysAvailable > 0 ? (
+                                                                <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+                                                                    <CalendarCheck size={10}/> +{daysAvailable} dias
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[10px] text-gray-400 italic">Recém livre</span>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </div>
                                             )}
@@ -382,7 +406,7 @@ const EmployeesPage = ({
                                                 <button 
                                                     onClick={() => { setEmployeeForHistory(emp); setIsHistoryModalOpen(true); }} 
                                                     className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" 
-                                                    title="Histórico Completo"
+                                                    title="Histórico de Obras"
                                                 >
                                                     <Clock size={18}/>
                                                 </button>

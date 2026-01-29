@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, HardHat, Truck, Briefcase, Info, AlertCircle } from 'lucide-react';
+import { X, Loader, HardHat, AlertCircle } from 'lucide-react';
 
 const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
-    // Inicializa com estrutura completa para evitar erros de undefined
+    // Inicializa com estrutura completa
     const [history, setHistory] = useState({ rh: [], obras: [], veiculos: [], outros: [] });
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('veiculos');
     const [error, setError] = useState(null);
 
     useEffect(() => {
@@ -15,11 +14,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
             setError(null);
             try {
                 const res = await apiClient.get(`/employees/${employee.id}/history`);
-                
-                // CORREÇÃO: Verifica se 'res' já é o objeto de dados ou se está dentro de 'res.data'
-                // Isso resolve o erro "Cannot read properties of undefined (reading 'rh')"
                 const data = res.data || res;
-
                 setHistory({
                     rh: data.rh || [],
                     obras: data.obras || [],
@@ -42,34 +37,14 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <div>
                         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                            Histórico Completo
+                            <HardHat size={20} className="text-yellow-600"/> Histórico de Obras
                         </h2>
                         <p className="text-xs text-gray-500 font-medium">{employee?.nome}</p>
                     </div>
                     <button onClick={onClose} className="p-1.5 hover:bg-gray-200 rounded-full transition"><X size={20}/></button>
                 </div>
 
-                <div className="flex border-b bg-white">
-                    <button 
-                        onClick={() => setActiveTab('veiculos')}
-                        className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition ${activeTab === 'veiculos' ? 'border-yellow-400 text-gray-900 bg-yellow-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
-                    >
-                        <Truck size={16}/> Veículos
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('obras')}
-                        className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition ${activeTab === 'obras' ? 'border-yellow-400 text-gray-900 bg-yellow-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
-                    >
-                        <HardHat size={16}/> Obras
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('rh')}
-                        className={`flex-1 py-3 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition ${activeTab === 'rh' ? 'border-yellow-400 text-gray-900 bg-yellow-50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
-                    >
-                        <Briefcase size={16}/> RH / Eventos
-                    </button>
-                </div>
-
+                {/* SEM ABAS - APENAS LISTAGEM DIRETA */}
                 <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50">
                     {loading ? (
                         <div className="flex justify-center items-center h-full text-gray-400">
@@ -82,42 +57,13 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {/* ALERTA DE ALOCAÇÃO LEGADA/MANUAL (Se existir em 'outros') */}
-                            {history.outros && history.outros.length > 0 && (
-                                <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-start gap-3 mb-4">
-                                    <Info className="text-blue-600 shrink-0 mt-0.5" size={18}/>
-                                    <div>
-                                        <p className="text-sm font-bold text-blue-800">Registro de Alocação Atual/Manual</p>
-                                        {history.outros.map((o, i) => (
-                                            <p key={i} className="text-xs text-blue-700">{o.description}</p>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* ABA VEÍCULOS */}
-                            {activeTab === 'veiculos' && (
-                                history.veiculos && history.veiculos.length > 0 ? history.veiculos.map((h, i) => (
-                                    <div key={i} className="bg-white border p-4 rounded-lg shadow-sm flex justify-between items-center hover:shadow-md transition">
-                                        <div>
-                                            <p className="font-bold text-gray-800 text-sm">{h.modelo} - {h.placa}</p>
-                                            <p className="text-xs text-gray-500">Reg: {h.registroInterno || 'N/A'} • {h.subGroup || 'Operacional'}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-xs font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded inline-block">Desde: {new Date(h.assignedAt).toLocaleDateString()}</p>
-                                        </div>
-                                    </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum veículo alocado no histórico recente.</p>
-                            )}
-
-                            {/* ABA OBRAS */}
-                            {activeTab === 'obras' && (
-                                history.obras && history.obras.length > 0 ? history.obras.map((h, i) => (
+                            {history.obras && history.obras.length > 0 ? (
+                                history.obras.map((h, i) => (
                                     <div key={i} className="bg-white border p-4 rounded-lg shadow-sm flex justify-between items-center hover:shadow-md transition">
                                         <div>
                                             <p className="font-bold text-gray-800 text-sm">{h.obraNome}</p>
                                             <p className="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded inline-block mt-1">{h.role}</p>
-                                            {h.vehicleInfo && <p className="text-xs text-gray-400 mt-1">Veículo: {h.vehicleInfo}</p>}
+                                            {h.vehicleInfo && <p className="text-xs text-blue-600 font-bold mt-1">{h.vehicleInfo}</p>}
                                         </div>
                                         <div className="text-right flex flex-col items-end gap-1">
                                             <span className="text-xs font-mono text-green-700 bg-green-50 px-2 py-0.5 rounded">IN: {new Date(h.startDate).toLocaleDateString()}</span>
@@ -127,22 +73,12 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                                             }
                                         </div>
                                     </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhuma obra no histórico recente.</p>
-                            )}
-
-                            {/* ABA RH (employee_events_history) */}
-                            {activeTab === 'rh' && (
-                                history.rh && history.rh.length > 0 ? history.rh.map((h, i) => (
-                                    <div key={i} className={`bg-white border-l-4 p-4 rounded-r-lg shadow-sm hover:shadow-md transition ${h.description.includes('Desligamento') ? 'border-red-500' : 'border-green-500'}`}>
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <p className="font-bold text-gray-800 text-sm">{h.description}</p>
-                                                <p className="text-xs text-gray-500 mt-1">{h.notes || 'Sem observações'}</p>
-                                            </div>
-                                            <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded">{new Date(h.date).toLocaleDateString()}</span>
-                                        </div>
-                                    </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhum evento de RH registrado.</p>
+                                ))
+                            ) : (
+                                <p className="text-center text-gray-400 text-sm mt-10 flex flex-col items-center">
+                                    <HardHat size={32} className="mb-2 opacity-20"/>
+                                    Nenhum histórico de obras encontrado.
+                                </p>
                             )}
                         </div>
                     )}
