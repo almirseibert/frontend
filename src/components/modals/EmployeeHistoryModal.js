@@ -15,12 +15,16 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
             setError(null);
             try {
                 const res = await apiClient.get(`/employees/${employee.id}/history`);
-                // Garante que o objeto retornado tenha todas as chaves
+                
+                // CORREÇÃO: Verifica se 'res' já é o objeto de dados ou se está dentro de 'res.data'
+                // Isso resolve o erro "Cannot read properties of undefined (reading 'rh')"
+                const data = res.data || res;
+
                 setHistory({
-                    rh: res.data.rh || [],
-                    obras: res.data.obras || [],
-                    veiculos: res.data.veiculos || [],
-                    outros: res.data.outros || []
+                    rh: data.rh || [],
+                    obras: data.obras || [],
+                    veiculos: data.veiculos || [],
+                    outros: data.outros || []
                 });
             } catch (err) {
                 console.error("Erro ao buscar histórico", err);
