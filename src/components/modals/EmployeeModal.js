@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, FileText, Save, Stethoscope, Briefcase, User, Shield } from 'lucide-react';
+import { X, Loader, FileText, Save, Stethoscope, Briefcase, User, Shield, PlusCircle } from 'lucide-react';
 
 const EmployeeModal = ({ 
     user, 
