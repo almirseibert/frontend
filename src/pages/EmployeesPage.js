@@ -64,20 +64,45 @@ const EmployeesPage = ({
 
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // --- HELPER: Encontrar Veículo Atual (Alocado) ---
+    // --- FUNÇÃO DE ALOCAÇÃO RESTAURADA E ROBUSTA ---
     const getAllocationInfo = (employeeId) => {
-        // Busca se o funcionário está alocado em algum veículo (Operational ou DriverId fixo)
-        const vehicle = vehicles.find(v => 
-            (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
-            (v.driverId && String(v.driverId) === String(employeeId))
+        // 1. Verifica alocação em veículos (Operational Assignment)
+        const vehicleAssigned = vehicles.find(v => 
+            v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)
         );
         
-        if (vehicle) {
+        if (vehicleAssigned) {
             return {
                 status: 'alocado',
-                description: `${vehicle.modelo} (${vehicle.placa || vehicle.registroInterno})`
+                description: `${vehicleAssigned.modelo} (${vehicleAssigned.placa || vehicleAssigned.registroInterno})`
             };
         }
+
+        // 2. Verifica se é motorista fixo de algum veículo (driverId legado)
+        const vehicleDriver = vehicles.find(v => 
+            String(v.driverId) === String(employeeId)
+        );
+
+        if (vehicleDriver) {
+             return {
+                status: 'alocado',
+                description: `Motorista: ${vehicleDriver.modelo} (${vehicleDriver.registroInterno})`
+            };
+        }
+
+        // 3. Fallback: Se não achou em veículos, verifica se o funcionário tem campo "alocadoEm" manual (ex: Obra manual)
+        // Isso é tratado no backend, mas aqui podemos checar se veio algo no objeto employee
+        const emp = employees.find(e => e.id === employeeId);
+        if (emp && emp.alocadoEm) {
+            let desc = '';
+            if (typeof emp.alocadoEm === 'string') desc = emp.alocadoEm;
+            else if (typeof emp.alocadoEm === 'object') desc = emp.alocadoEm.description || 'Alocação Manual';
+            
+            if (desc) {
+                return { status: 'alocado', description: desc };
+            }
+        }
+
         return { status: 'disponivel', description: 'Disponível' };
     };
 

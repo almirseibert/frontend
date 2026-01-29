@@ -113,6 +113,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                                         <div>
                                             <p className="font-bold text-gray-800 text-sm">{h.obraNome}</p>
                                             <p className="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded inline-block mt-1">{h.role}</p>
+                                            {h.vehicleInfo && <p className="text-xs text-gray-400 mt-1">Veículo: {h.vehicleInfo}</p>}
                                         </div>
                                         <div className="text-right flex flex-col items-end gap-1">
                                             <span className="text-xs font-mono text-green-700 bg-green-50 px-2 py-0.5 rounded">IN: {new Date(h.startDate).toLocaleDateString()}</span>
@@ -122,7 +123,7 @@ const EmployeeHistoryModal = ({ employee, onClose, apiClient }) => {
                                             }
                                         </div>
                                     </div>
-                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhuma obra no histórico (obras_historico_veiculos).</p>
+                                )) : <p className="text-center text-gray-400 text-sm mt-10">Nenhuma obra no histórico recente.</p>
                             )}
 
                             {/* ABA RH (employee_events_history) */}
