@@ -74,35 +74,31 @@ const EmployeesPage = ({
         return diffDays;
     };
 
-    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (MOSTRAR RE) ---
+    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (MÚLTIPLOS VEÍCULOS) ---
     const getAllocationInfo = (employeeId) => {
-        // 1. Verifica alocação em veículos (Operational Assignment)
-        const vehicleAssigned = vehicles.find(v => 
-            v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)
+        // Encontra TODOS os veículos onde o funcionário está vinculado
+        // Verifica tanto alocação operacional quanto motorista fixo
+        const allocatedVehicles = vehicles.filter(v => 
+            (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
+            (String(v.driverId) === String(employeeId))
         );
         
-        if (vehicleAssigned) {
-            // MOSTRA O RE (REGISTRO INTERNO) - PRIORIDADE MÁXIMA
+        if (allocatedVehicles.length > 0) {
+            // Mapeia para os Registros Internos (RE) ou Modelo se não tiver RE
+            const vehicleNames = allocatedVehicles.map(v => 
+                v.registroInterno ? `RE: ${v.registroInterno}` : (v.modelo || 'Veículo')
+            );
+            
+            // Junta os nomes (ex: "RE: 1001, RE: 1005")
+            const description = vehicleNames.join(', ');
+            
             return {
                 status: 'alocado',
-                description: `RE: ${vehicleAssigned.registroInterno || 'N/A'} - ${vehicleAssigned.modelo}`
+                description: description
             };
         }
 
-        // 2. Verifica se é motorista fixo de algum veículo (driverId legado)
-        const vehicleDriver = vehicles.find(v => 
-            String(v.driverId) === String(employeeId)
-        );
-
-        if (vehicleDriver) {
-             return {
-                status: 'alocado',
-                description: `Motorista RE: ${vehicleDriver.registroInterno || 'N/A'} - ${vehicleDriver.modelo}`
-            };
-        }
-
-        // 3. Fallback: Se não achou em veículos, verifica se o funcionário tem campo "alocadoEm" manual
-        // Apenas se não houver alocação de veículo
+        // Fallback: Se não achou em veículos, verifica se o funcionário tem campo "alocadoEm" manual
         const emp = employees.find(e => e.id === employeeId);
         if (emp && emp.alocadoEm) {
             let desc = '';
@@ -379,6 +375,7 @@ const EmployeesPage = ({
                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
                                                                 <Truck size={12}/> Alocado
                                                             </span>
+                                                            {/* Exibe todos os veículos (truncado visualmente via CSS se for muito longo) */}
                                                             <span className="text-xs text-gray-600 font-bold max-w-[140px] truncate" title={allocation.description}>
                                                                 {allocation.description}
                                                             </span>
