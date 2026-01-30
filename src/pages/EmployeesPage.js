@@ -76,18 +76,38 @@ const EmployeesPage = ({
 
     // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (MÚLTIPLOS VEÍCULOS) ---
     const getAllocationInfo = (employeeId) => {
+        if (!vehicles || vehicles.length === 0) return { status: 'disponivel', description: 'Disponível' };
+
         // Encontra TODOS os veículos onde o funcionário está vinculado
-        // Verifica tanto alocação operacional quanto motorista fixo
-        const allocatedVehicles = vehicles.filter(v => 
-            (v.operationalAssignment && String(v.operationalAssignment.employeeId) === String(employeeId)) ||
-            (String(v.driverId) === String(employeeId))
-        );
+        const allocatedVehicles = vehicles.filter(v => {
+            // 1. Verifica alocação operacional
+            let isAssigned = false;
+            if (v.operationalAssignment) {
+                // Tenta parsear se for string (proteção contra dados sujos/legados)
+                let assignment = v.operationalAssignment;
+                if (typeof assignment === 'string') {
+                    try { assignment = JSON.parse(assignment); } catch(e) {}
+                }
+                
+                // Verifica ID de forma segura (String vs Number)
+                if (assignment && assignment.employeeId && String(assignment.employeeId) === String(employeeId)) {
+                    isAssigned = true;
+                }
+            }
+            
+            // 2. Verifica motorista fixo (driverId)
+            const isDriver = v.driverId && String(v.driverId) === String(employeeId);
+            
+            return isAssigned || isDriver;
+        });
         
         if (allocatedVehicles.length > 0) {
-            // Mapeia para os Registros Internos (RE) ou Modelo se não tiver RE
-            const vehicleNames = allocatedVehicles.map(v => 
-                v.registroInterno ? `RE: ${v.registroInterno}` : (v.modelo || 'Veículo')
-            );
+            // Mapeia para os Registros Internos (RE)
+            const vehicleNames = allocatedVehicles.map(v => {
+                if (v.registroInterno) return `RE: ${v.registroInterno}`;
+                if (v.placa) return `Placa: ${v.placa}`;
+                return v.modelo || 'Veículo';
+            });
             
             // Junta os nomes (ex: "RE: 1001, RE: 1005")
             const description = vehicleNames.join(', ');
@@ -375,8 +395,8 @@ const EmployeesPage = ({
                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
                                                                 <Truck size={12}/> Alocado
                                                             </span>
-                                                            {/* Exibe todos os veículos (truncado visualmente via CSS se for muito longo) */}
-                                                            <span className="text-xs text-gray-600 font-bold max-w-[140px] truncate" title={allocation.description}>
+                                                            {/* Exibe o RE sem cortar o texto */}
+                                                            <span className="text-xs text-gray-600 font-bold max-w-[160px] text-center" title={allocation.description}>
                                                                 {allocation.description}
                                                             </span>
                                                         </>
