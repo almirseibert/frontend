@@ -74,69 +74,52 @@ const EmployeesPage = ({
         return diffDays;
     };
 
-    // --- RECRIAÇÃO DA LÓGICA ANTIGA DE ALOCAÇÕES (Map) ---
-    // Cria um mapa onde a chave é o ID do funcionário e o valor é uma lista de veículos
-    const employeeAllocations = useMemo(() => {
-        const map = new Map();
-
-        if (!vehicles) return map;
-
-        vehicles.forEach(vehicle => {
-            const addVehicleToEmployee = (empId, v) => {
-                if (!empId) return;
-                const strId = String(empId);
-                
-                if (!map.has(strId)) {
-                    map.set(strId, []);
-                }
-                
-                // Evita duplicatas se o mesmo veículo estiver vinculado de formas diferentes
-                const list = map.get(strId);
-                if (!list.find(existing => existing.id === v.id)) {
-                    list.push(v);
-                }
+    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (LÊ DO BACKEND PRIMEIRO) ---
+    const getAllocationInfo = (employeeId) => {
+        const emp = employees.find(e => e.id === employeeId);
+        
+        // 1. Prioridade: Dados calculados pelo Backend (Obras + Operacional)
+        // Isso garante que o RE apareça mesmo se o veículo não estiver na lista local 'vehicles'
+        if (emp && emp.alocacaoAtual && emp.alocacaoAtual.isAllocated) {
+            return {
+                status: 'alocado',
+                description: emp.alocacaoAtual.description || 'Alocado'
             };
+        }
 
-            // 1. Verifica Motorista Fixo (driverId)
-            if (vehicle.driverId) {
-                addVehicleToEmployee(vehicle.driverId, vehicle);
-            }
-            // Suporte a campo legado
-            if (vehicle.motoristaId) {
-                addVehicleToEmployee(vehicle.motoristaId, vehicle);
-            }
+        // 2. Fallback: Verificação local (caso o backend não tenha enviado ou para dados recém-atualizados sem reload)
+        if (!vehicles || vehicles.length === 0) return { status: 'disponivel', description: 'Disponível' };
 
-            // 2. Verifica Alocação Operacional (operationalAssignment)
-            let assignment = vehicle.operationalAssignment;
-            
-            // Tratamento de segurança para JSON string
-            if (typeof assignment === 'string') {
-                try { assignment = JSON.parse(assignment); } catch(e) {}
-            }
-
-            if (assignment) {
-                // Se for um Array (alguns formatos de banco retornam histórico aqui)
-                if (Array.isArray(assignment)) {
-                    assignment.forEach(a => {
-                        // Considera alocado se tiver employeeId e NÃO tiver data de fim (endDate)
-                        if (a.employeeId && !a.endDate) {
-                            addVehicleToEmployee(a.employeeId, vehicle);
-                        }
-                    });
-                } 
-                // Se for Objeto Único (padrão atual)
-                else if (typeof assignment === 'object') {
-                    if (assignment.employeeId) {
-                        addVehicleToEmployee(assignment.employeeId, vehicle);
-                    }
+        const allocatedVehicles = vehicles.filter(v => {
+            let isAssigned = false;
+            // Verifica alocação operacional manual
+            if (v.operationalAssignment) {
+                let assignment = v.operationalAssignment;
+                if (typeof assignment === 'string') {
+                    try { assignment = JSON.parse(assignment); } catch(e) {}
+                }
+                if (assignment && assignment.employeeId && String(assignment.employeeId) === String(employeeId)) {
+                    isAssigned = true;
                 }
             }
+            // Verifica motorista fixo
+            const isDriver = v.driverId && String(v.driverId) === String(employeeId);
+            return isAssigned || isDriver;
         });
+        
+        if (allocatedVehicles.length > 0) {
+            const vehicleNames = allocatedVehicles.map(v => {
+                if (v.registroInterno) return `RE: ${v.registroInterno}`;
+                if (v.placa) return `Placa: ${v.placa}`;
+                return v.modelo || 'Veículo';
+            });
+            return { status: 'alocado', description: vehicleNames.join(', ') };
+        }
 
-        return map;
-    }, [vehicles]);
+        return { status: 'disponivel', description: 'Disponível' };
+    };
 
-    // --- LÓGICA DE DADOS (FILTRO E ORDENAÇÃO) ---
+    // --- LÓGICA DE DADOS ---
     const processedEmployees = useMemo(() => {
         return employees.filter(emp => {
             const searchLower = searchTerm.toLowerCase();
@@ -337,26 +320,11 @@ const EmployeesPage = ({
                         </thead>
                         <tbody className="divide-y divide-gray-100 text-sm">
                             {sortedEmployees.map(emp => {
-                                // --- RECUPERAR ALOCAÇÃO (Lógica restaurada) ---
-                                const allocatedVehicles = employeeAllocations.get(String(emp.id)) || [];
-                                const isAllocated = allocatedVehicles.length > 0;
+                                const allocation = getAllocationInfo(emp.id);
                                 const isInactive = emp.status && (emp.status.toLowerCase() === 'inativo' || emp.status.toLowerCase() === 'desligado');
-
-                                // Preparar string de descrição dos veículos
-                                let allocationDetails = '';
-                                if (isAllocated) {
-                                    const vehicleNames = allocatedVehicles.map(v => 
-                                        v.registroInterno ? `RE: ${v.registroInterno}` : (v.placa || v.modelo)
-                                    );
-                                    allocationDetails = vehicleNames.join(', ');
-                                } else if (emp.alocadoEm) {
-                                    // Fallback para alocação manual no cadastro
-                                    if (typeof emp.alocadoEm === 'string') allocationDetails = emp.alocadoEm;
-                                    else if (typeof emp.alocadoEm === 'object') allocationDetails = emp.alocadoEm.description;
-                                }
-
+                                
                                 // Cálculo de dias disponíveis
-                                const daysAvailable = !isAllocated && !isInactive && emp.lastAllocationEnd 
+                                const daysAvailable = allocation.status === 'disponivel' && emp.lastAllocationEnd 
                                     ? calculateDaysAvailable(emp.lastAllocationEnd) 
                                     : 0;
 
@@ -400,7 +368,7 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* Status e Alocação (ATUALIZADO CONFORME PEDIDO) */}
+                                        {/* Status e Alocação (ATUALIZADO) */}
                                         <td className="p-4 align-top text-center">
                                             {isInactive ? (
                                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
@@ -408,13 +376,14 @@ const EmployeesPage = ({
                                                  </span>
                                             ) : (
                                                 <div className="flex flex-col items-center gap-1">
-                                                    {(isAllocated || allocationDetails) ? (
+                                                    {allocation.status === 'alocado' ? (
                                                         <>
                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
                                                                 <Truck size={12}/> Alocado
                                                             </span>
-                                                            <span className="text-xs text-gray-600 font-bold max-w-[180px] text-center" title={allocationDetails}>
-                                                                {allocationDetails}
+                                                            {/* Exibe o RE sem cortar o texto */}
+                                                            <span className="text-xs text-gray-600 font-bold max-w-[160px] text-center" title={allocation.description}>
+                                                                {allocation.description}
                                                             </span>
                                                         </>
                                                     ) : (
