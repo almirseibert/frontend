@@ -109,7 +109,7 @@ const EmployeesPage = ({
         
         if (allocatedVehicles.length > 0) {
             const vehicleNames = allocatedVehicles.map(v => {
-                if (v.registroInterno) return `RE: ${v.registroInterno}`;
+                if (v.registroInterno) return `${v.registroInterno}`;
                 if (v.placa) return `Placa: ${v.placa}`;
                 return v.modelo || 'Veículo';
             });
@@ -396,7 +396,7 @@ const EmployeesPage = ({
                                                                     <CalendarCheck size={10}/> +{daysAvailable} dias
                                                                 </span>
                                                             ) : (
-                                                                <span className="text-[10px] text-gray-400 italic">Recém livre</span>
+                                                                <span className="text-[10px] text-gray-400 italic">Nunca Alocado</span>
                                                             )}
                                                         </>
                                                     )}
