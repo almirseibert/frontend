@@ -245,6 +245,7 @@ const BillingPage = ({
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
             
             const payload = {
+                id: existingLog ? existingLog.id : null, // GARANTIA EXTRA: Envia o ID se já soubermos que existe
                 obraId: selectedObraId,
                 vehicleId: controlVehicleId, 
                 date: dateKey,
@@ -384,7 +385,6 @@ const BillingPage = ({
         doc.text(operatorLabel, 40, 52);
 
         // CORREÇÃO: Ordenar os dados por data (ascendente: menor -> maior)
-        // Isso garante que no PDF as datas apareçam em ordem cronológica correta
         const sortedReportData = [...reportData].sort((a, b) => {
             const dateA = new Date(a.date);
             const dateB = new Date(b.date);
