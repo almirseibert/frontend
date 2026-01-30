@@ -82,7 +82,7 @@ const EmployeesPage = ({
         );
         
         if (vehicleAssigned) {
-            // MOSTRA O RE (REGISTRO INTERNO) COMO SOLICITADO
+            // MOSTRA O RE (REGISTRO INTERNO) - PRIORIDADE MÁXIMA
             return {
                 status: 'alocado',
                 description: `RE: ${vehicleAssigned.registroInterno || 'N/A'} - ${vehicleAssigned.modelo}`
@@ -102,6 +102,7 @@ const EmployeesPage = ({
         }
 
         // 3. Fallback: Se não achou em veículos, verifica se o funcionário tem campo "alocadoEm" manual
+        // Apenas se não houver alocação de veículo
         const emp = employees.find(e => e.id === employeeId);
         if (emp && emp.alocadoEm) {
             let desc = '';
@@ -378,7 +379,7 @@ const EmployeesPage = ({
                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
                                                                 <Truck size={12}/> Alocado
                                                             </span>
-                                                            <span className="text-xs text-gray-600 font-medium max-w-[140px] truncate" title={allocation.description}>
+                                                            <span className="text-xs text-gray-600 font-bold max-w-[140px] truncate" title={allocation.description}>
                                                                 {allocation.description}
                                                             </span>
                                                         </>
