@@ -1,19 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     Camera, MapPin, Send, AlertTriangle, CheckCircle, Clock, 
     XCircle, ChevronRight, Fuel, Image as ImageIcon, Loader, 
-    WifiOff, RefreshCw, Lock, LogOut 
+    WifiOff, RefreshCw, Lock, LogOut, Info, User
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 
 const SolicitacaoAbastecimentoPage = ({ 
     apiClient, 
     vehicles = [], 
     obras = [], 
     partners = [], 
-    setAlertMessage 
+    employees = [], // Recebendo lista de funcionários
+    setAlertMessage,
+    user,
+    onLogout
 }) => {
-    const { user, logout } = useAuth();
     
     // --- ESTADOS DE CONTROLE ---
     const [view, setView] = useState('list'); // 'list' | 'form'
@@ -24,17 +25,26 @@ const SolicitacaoAbastecimentoPage = ({
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
     const [selectedRequest, setSelectedRequest] = useState(null);
-    const [lastPostoId, setLastPostoId] = useState(''); // Sugestão inteligente
+    const [lastPostoId, setLastPostoId] = useState(''); 
     
     // --- FORMULÁRIO ---
     const [formData, setFormData] = useState({
         veiculoId: '',
         obraId: '',
         postoId: '',
+        funcionarioId: '', // Novo campo para selecionar outro funcionário
         tipoCombustivel: '',
         litragem: '',
         flagTanqueCheio: false,
         flagOutros: false,
+        descricaoOutros: '', // Novo campo de texto para outros
+        observacao: '', // Novo campo de observação
+        
+        // Arla
+        needsArla: false,
+        litragemArla: '',
+        flagTanqueCheioArla: false,
+
         horimetro: '',
         odometro: '',
         latitude: null,
@@ -42,7 +52,7 @@ const SolicitacaoAbastecimentoPage = ({
     });
     
     const [previewImage, setPreviewImage] = useState(null);
-    const [rawImageFile, setRawImageFile] = useState(null); // Arquivo comprimido pronto para upload
+    const [rawImageFile, setRawImageFile] = useState(null);
     const [cupomFile, setCupomFile] = useState(null);
     const [cupomPreview, setCupomPreview] = useState(null);
 
@@ -53,50 +63,129 @@ const SolicitacaoAbastecimentoPage = ({
     // --- EFEITOS E INICIALIZAÇÃO ---
 
     useEffect(() => {
-        checkUserStatus();
-        fetchMyRequests();
+        if (user) {
+            checkUserStatus();
+            fetchMyRequests();
+        }
 
-        // Listeners de Conectividade
         const handleOnline = () => setIsOffline(false);
         const handleOffline = () => setIsOffline(true);
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
-
-        // Geolocalização Inicial
         getLocation();
 
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
-    }, []);
+    }, [user]);
 
-    // Determinar Obra Automática ao selecionar Veículo
+    // --- LÓGICA DE FILTRAGEM DE OBRA E VEÍCULOS (CRÍTICO) ---
+    
+    // 1. Tenta identificar a obra atual do usuário logado
+    const userCurrentObraId = useMemo(() => {
+        if (!user || vehicles.length === 0) return '';
+        // Procura algum veículo onde o usuário seja o motorista atual ou esteja alocado
+        const veiculoDoUsuario = vehicles.find(v => v.motoristaId === user.id || v.employeeId === user.id); // Ajustar campo conforme seu DB real
+        // Se encontrar, retorna a obra desse veículo
+        return veiculoDoUsuario ? veiculoDoUsuario.obraAtualId : '';
+    }, [user, vehicles]);
+
+    // 2. Filtra Obras Disponíveis (Se ele já tem obra fixa, só mostra ela, senão todas)
+    const filteredObras = useMemo(() => {
+        if (userCurrentObraId) {
+            return obras.filter(o => o.id === userCurrentObraId);
+        }
+        return obras.filter(o => o.status === 'ativa');
+    }, [obras, userCurrentObraId]);
+
+    // 3. Auto-seleciona a obra se só houver uma
     useEffect(() => {
-        if (formData.veiculoId && vehicles.length > 0) {
-            const v = vehicles.find(veh => veh.id === formData.veiculoId);
-            if (v && v.obraAtualId) {
-                // Verifica se a obra ainda existe/está ativa na lista
-                const obraExiste = obras.find(o => o.id === v.obraAtualId);
-                if (obraExiste) {
-                    setFormData(prev => ({ ...prev, obraId: v.obraAtualId }));
+        if (filteredObras.length === 1 && !formData.obraId) {
+            setFormData(prev => ({ ...prev, obraId: filteredObras[0].id }));
+        }
+    }, [filteredObras]);
+
+    // 4. Filtra Veículos baseados na Obra Selecionada
+    const filteredVehicles = useMemo(() => {
+        if (!formData.obraId) return [];
+        return vehicles.filter(v => v.obraAtualId === formData.obraId);
+    }, [vehicles, formData.obraId]);
+
+    // 5. Filtra Funcionários baseados na Obra Selecionada (Para um pedir pelo outro)
+    const filteredEmployees = useMemo(() => {
+        if (!formData.obraId) return employees;
+        // Assume que 'employees' pode não ter obraId direto, então mostra todos ou tenta filtrar se tiver a info
+        // Se a estrutura de employees tiver obraId, use: return employees.filter(e => e.obraId === formData.obraId);
+        // Caso contrário, mostra todos para garantir usabilidade
+        return employees; 
+    }, [employees, formData.obraId]);
+
+    // 6. Configura o Funcionário Responsável padrão como o usuário logado
+    useEffect(() => {
+        if (user && !formData.funcionarioId) {
+            setFormData(prev => ({ ...prev, funcionarioId: user.id }));
+        }
+    }, [user]);
+
+    // --- LÓGICA DE ÚLTIMO POSTO E TIPO DE LEITURA ---
+
+    const veiculoSelecionado = useMemo(() => {
+        return vehicles.find(v => v.id === formData.veiculoId);
+    }, [formData.veiculoId, vehicles]);
+
+    useEffect(() => {
+        if (veiculoSelecionado) {
+            // Sugerir último posto (Lógica baseada no histórico local ou dados do veículo)
+            // Se o objeto veículo tiver lastPartnerId, usa ele. Senão tenta achar nos requests.
+            if (veiculoSelecionado.lastPartnerId) {
+                setFormData(prev => ({ ...prev, postoId: veiculoSelecionado.lastPartnerId }));
+            } else {
+                // Tenta achar no histórico de requisições recentes
+                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id);
+                if (lastReq && lastReq.posto_id) {
+                    setFormData(prev => ({ ...prev, postoId: lastReq.posto_id }));
                 }
             }
+
+            // Limpar leituras inválidas ao trocar veículo
+            setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
         }
-    }, [formData.veiculoId, vehicles, obras]);
+    }, [veiculoSelecionado, myRequests]);
+
+    // Determina qual input mostrar (Odo vs Horimetro)
+    const readingType = useMemo(() => {
+        if (!veiculoSelecionado) return 'ambos'; // Fallback
+        const tipo = veiculoSelecionado.tipo || '';
+        const nome = (veiculoSelecionado.registroInterno || '').toUpperCase();
+        const modelo = (veiculoSelecionado.modelo || '').toUpperCase();
+
+        // Regra: Caminhão Prancha e Leves -> Odometro
+        if (tipo === 'Veículo Leve' || tipo === 'Utilitário' || tipo === 'Passeio' || modelo.includes('PRANCHA')) {
+            return 'odometro';
+        }
+        // Regra: Caminhões e Máquinas -> Horimetro
+        if (tipo === 'Caminhão' || tipo === 'Máquina' || tipo === 'Equipamento' || tipo === 'Trator') {
+            return 'horimetro';
+        }
+        return 'ambos'; // Se não identificar, libera os dois (comportamento seguro)
+    }, [veiculoSelecionado]);
+
+    const isTruckGroup = useMemo(() => {
+        if (!veiculoSelecionado) return false;
+        return ['Caminhão', 'Carreta', 'Bi-Trem'].includes(veiculoSelecionado.tipo);
+    }, [veiculoSelecionado]);
 
     // --- FUNÇÕES AUXILIARES ---
 
     const checkUserStatus = async () => {
         try {
-            // Verifica status atualizado no backend (pós-login)
-            const res = await apiClient.get('/solicitacoes/meus-status'); // Endpoint criado no controller anterior
+            const res = await apiClient.get('/solicitacoes/meus-status'); 
             setUserStatus({
                 blocked: res.bloqueado_abastecimento === 1,
                 attempts: res.tentativas_falhas_abastecimento
             });
         } catch (error) {
-            // Se falhar (ex: offline), usa dados do contexto ou cache local se implementado
             if (user?.bloqueado_abastecimento) {
                 setUserStatus({
                     blocked: true,
@@ -110,16 +199,7 @@ const SolicitacaoAbastecimentoPage = ({
         setLoading(true);
         try {
             const res = await apiClient.get('/solicitacoes');
-            // apiClient retorna os dados diretamente
-            const lista = Array.isArray(res) ? res : [];
-            setMyRequests(lista);
-
-            // Sugestão de Posto: Pega o último posto utilizado nas solicitações
-            if (lista.length > 0) {
-                // Ordenado por data desc no backend
-                const last = lista.find(r => r.posto_id);
-                if (last) setLastPostoId(last.posto_id);
-            }
+            setMyRequests(Array.isArray(res) ? res : []);
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
         } finally {
@@ -139,14 +219,12 @@ const SolicitacaoAbastecimentoPage = ({
                 },
                 (error) => {
                     console.warn("Erro GPS:", error);
-                    // Não bloqueia, apenas segue sem lat/long
                 },
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
         }
     };
 
-    // --- COMPRESSÃO DE IMAGEM NO CLIENTE (CANVAS) ---
     const handleImageCompress = (file, callback) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -155,7 +233,6 @@ const SolicitacaoAbastecimentoPage = ({
             img.src = event.target.result;
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                // Reduzir para Max 1280px largura (HD 720p aprox) para leveza
                 const MAX_WIDTH = 1280;
                 let width = img.width;
                 let height = img.height;
@@ -170,7 +247,6 @@ const SolicitacaoAbastecimentoPage = ({
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                // Converter para WebP (ou Jpeg) com qualidade 0.7
                 canvas.toBlob((blob) => {
                     const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
                         type: 'image/jpeg',
@@ -186,7 +262,7 @@ const SolicitacaoAbastecimentoPage = ({
         const file = e.target.files[0];
         if (!file) return;
 
-        setLoading(true); // UI feedback durante compressão
+        setLoading(true);
         handleImageCompress(file, (compressedFile, previewUrl) => {
             if (type === 'painel') {
                 setRawImageFile(compressedFile);
@@ -203,7 +279,6 @@ const SolicitacaoAbastecimentoPage = ({
     const handleSubmit = async (e) => {
         e.preventDefault();
         
-        // Bloqueio Preventivo no Front
         if (userStatus.blocked) {
             setAlertMessage("VOCÊ ESTÁ BLOQUEADO. Contate o administrador.");
             return;
@@ -214,30 +289,51 @@ const SolicitacaoAbastecimentoPage = ({
             return;
         }
 
-        if (!formData.veiculoId || !formData.tipoCombustivel) {
-            setAlertMessage("Preencha Veículo e Combustível.");
+        if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId) {
+            setAlertMessage("Preencha todos os campos obrigatórios (Veículo, Obra, Posto, Combustível).");
             return;
         }
 
-        // Se não escolheu posto, tenta usar o sugerido (se usuário não alterou para "Selecione")
-        // Mas a UI força a seleção. Vamos garantir que postoId esteja preenchido se não for "Outro" visualmente
-        if (!formData.postoId && !lastPostoId && partners.length > 0) {
-            // Regra de negócio: Posto é obrigatório ou sugestão?
-            // Prompt: "opção de escolha de outro posto da lista". Vamos obrigar seleção.
-            setAlertMessage("Selecione o Posto de Abastecimento.");
+        // Validação Cruzada de Leitura
+        if (readingType === 'odometro' && !formData.odometro) {
+            setAlertMessage("Obrigatório preencher o Hodômetro para este veículo.");
+            return;
+        }
+        if (readingType === 'horimetro' && !formData.horimetro) {
+            setAlertMessage("Obrigatório preencher o Horímetro para este veículo.");
             return;
         }
 
         setLoading(true);
 
         const payload = new FormData();
-        // Append campos
-        Object.keys(formData).forEach(key => {
-            if (formData[key] !== null && formData[key] !== undefined) {
-                payload.append(key, formData[key]);
-            }
-        });
-        // Se postoId vazio mas tem sugestão e usuário não mexeu? (Assumindo que select controla isso)
+        
+        // Mapeia campos do form para o backend
+        payload.append('veiculoId', formData.veiculoId);
+        payload.append('obraId', formData.obraId);
+        payload.append('postoId', formData.postoId);
+        payload.append('funcionarioId', formData.funcionarioId); // Backend deve estar preparado para receber isso ou ignorar
+        payload.append('tipoCombustivel', formData.tipoCombustivel);
+        payload.append('litragem', formData.flagTanqueCheio ? '0' : formData.litragem);
+        payload.append('flagTanqueCheio', formData.flagTanqueCheio);
+        payload.append('flagOutros', formData.flagOutros);
+        
+        // Concatena descrições extras e Arla na observação ou campos específicos
+        // Como o banco tem 'descricao_outros', usamos ele para os produtos
+        payload.append('descricao_outros', formData.descricaoOutros);
+        
+        // Monta observação completa com Arla se necessário (já que o banco pode não ter colunas arla ainda)
+        let obsCompleta = formData.observacao;
+        if (formData.needsArla) {
+            const arlaInfo = ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
+            obsCompleta += arlaInfo;
+        }
+        payload.append('observacao', obsCompleta); // Backend precisa mapear isso ou salvar em 'outros'
+
+        if (formData.horimetro) payload.append('horimetro', formData.horimetro);
+        if (formData.odometro) payload.append('odometro', formData.odometro);
+        if (formData.latitude) payload.append('latitude', formData.latitude);
+        if (formData.longitude) payload.append('longitude', formData.longitude);
         
         payload.append('foto_painel', rawImageFile);
 
@@ -248,24 +344,27 @@ const SolicitacaoAbastecimentoPage = ({
             
             setAlertMessage("Solicitação enviada! Aguarde liberação.");
             
-            // Reset
+            // Reset Inteligente (Mantém Obra e Posto)
             setView('list');
             fetchMyRequests();
-            setFormData({
-                veiculoId: '', obraId: '', postoId: '', tipoCombustivel: '',
-                litragem: '', flagTanqueCheio: false, flagOutros: false,
-                horimetro: '', odometro: '', latitude: null, longitude: null
-            });
+            setFormData(prev => ({
+                ...prev,
+                veiculoId: '', 
+                tipoCombustivel: '',
+                litragem: '', flagTanqueCheio: false, 
+                flagOutros: false, descricaoOutros: '',
+                needsArla: false, litragemArla: '', flagTanqueCheioArla: false,
+                horimetro: '', odometro: '',
+                observacao: '',
+                // Mantém obraId, postoId, funcionarioId, lat/long
+            }));
             setPreviewImage(null);
             setRawImageFile(null);
-            
-            checkUserStatus(); // Atualiza contador de tentativas
+            checkUserStatus(); 
 
         } catch (error) {
-            const msg = error.message || "Erro ao enviar solicitação.";
-            setAlertMessage(msg); // Exibe erro claro (ex: Bloqueado, 20% orçamento)
-            
-            // Se o erro indicar bloqueio, atualiza status imediatamente
+            const msg = error.response?.data?.error || error.message || "Erro ao enviar solicitação.";
+            setAlertMessage(msg); 
             if (msg.includes("BLOQUEADO") || msg.includes("Tentativa")) {
                 checkUserStatus();
             }
@@ -279,7 +378,6 @@ const SolicitacaoAbastecimentoPage = ({
             setAlertMessage("Selecione a foto do cupom.");
             return;
         }
-
         setLoading(true);
         const payload = new FormData();
         payload.append('foto_cupom', cupomFile);
@@ -300,7 +398,7 @@ const SolicitacaoAbastecimentoPage = ({
         }
     };
 
-    // --- RENDERIZAÇÃO ---
+    if (!user) return <div className="flex justify-center items-center h-screen"><Loader className="animate-spin"/></div>;
 
     // TELA DE BLOQUEIO
     if (userStatus.blocked) {
@@ -320,18 +418,17 @@ const SolicitacaoAbastecimentoPage = ({
                 <button onClick={() => window.location.reload()} className="px-8 py-3 bg-gray-800 text-white rounded-xl shadow-lg hover:bg-gray-700 transition">
                     Tentar Novamente
                 </button>
-                <button onClick={logout} className="mt-4 text-gray-500 underline text-sm">Sair do Sistema</button>
+                {onLogout && (
+                    <button onClick={onLogout} className="mt-4 text-gray-500 underline text-sm">Sair do Sistema</button>
+                )}
             </div>
         );
     }
 
     // TELA DE FORMULÁRIO (Check-in)
     if (view === 'form') {
-        // Encontra veículo selecionado para validação visual
-        const veiculoSelecionado = vehicles.find(v => v.id === formData.veiculoId);
-
         return (
-            <div className="min-h-screen bg-gray-50 pb-20 animate-slide-up">
+            <div className="min-h-screen bg-gray-50 pb-32 animate-slide-up">
                 {/* Header App */}
                 <div className="bg-yellow-400 p-4 shadow-md sticky top-0 z-10 flex justify-between items-center">
                     <button onClick={() => setView('list')} className="p-2 bg-yellow-500 rounded-full text-white hover:bg-yellow-600 transition">
@@ -345,76 +442,122 @@ const SolicitacaoAbastecimentoPage = ({
                     
                     {isOffline && (
                         <div className="bg-orange-100 text-orange-900 p-3 rounded-lg flex items-center gap-2 text-sm border border-orange-200">
-                            <WifiOff size={16} /> 
-                            <strong>Modo Offline:</strong> Seus dados serão salvos localmente (implementação futura PWA).
+                            <WifiOff size={16} /> <strong>Modo Offline:</strong> Dados salvos localmente.
                         </div>
                     )}
 
-                    {/* Localização */}
-                    <div className={`flex items-center justify-between p-3 rounded-xl border ${formData.latitude ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-                        <div className="flex items-center gap-2">
-                            <MapPin size={20} className={formData.latitude ? "text-green-600" : "text-gray-400"} />
-                            <span className="text-sm font-medium text-gray-700">
-                                {formData.latitude ? "Localização Capturada" : "Aguardando GPS..."}
-                            </span>
+                    {/* Alertas Gerais do Veículo */}
+                    {veiculoSelecionado && (
+                        <div className="space-y-2">
+                            {veiculoSelecionado.status === 'manutencao' && (
+                                <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold flex items-center gap-2">
+                                    <AlertTriangle size={14}/> VEÍCULO EM MANUTENÇÃO
+                                </div>
+                            )}
+                            {/* Simulando alerta de 24h (necessitaria dados reais de lastRefuelDate no obj veiculo) */}
+                            {/* <div className="bg-yellow-100 text-yellow-800 p-2 rounded text-xs font-bold flex items-center gap-2">
+                                <Clock size={14}/> Abastecido há menos de 24h
+                            </div> */}
                         </div>
-                        {!formData.latitude && (
-                            <button type="button" onClick={getLocation} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">
-                                Tentar
-                            </button>
-                        )}
+                    )}
+
+                    {/* Seleção de Obra (Primeiro passo para filtrar o resto) */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Obra / Local de Trabalho</label>
+                        <select 
+                            className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
+                            value={formData.obraId}
+                            onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: ''})} // Reseta veículo ao trocar obra
+                        >
+                            <option value="">Selecione a Obra...</option>
+                            {filteredObras.map(o => (
+                                <option key={o.id} value={o.id}>{o.nome}</option>
+                            ))}
+                        </select>
                     </div>
 
-                    {/* Seleção de Veículo */}
+                    {/* Seleção de Veículo (Filtrado pela Obra) */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo / Equipamento</label>
                         <select 
-                            className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
+                            className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
                             value={formData.veiculoId}
                             onChange={e => setFormData({...formData, veiculoId: e.target.value})}
+                            disabled={!formData.obraId}
                         >
                             <option value="">Selecione o Veículo...</option>
-                            {vehicles.map(v => (
+                            {filteredVehicles.map(v => (
                                 <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.modelo})</option>
                             ))}
                         </select>
+                        {filteredVehicles.length === 0 && formData.obraId && (
+                            <p className="text-xs text-red-500 px-1">Nenhum veículo encontrado nesta obra.</p>
+                        )}
                         {veiculoSelecionado && (
                             <p className="text-xs text-gray-400 text-right px-1">
-                                Último Registro: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
+                                Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
                             </p>
                         )}
                     </div>
 
-                    {/* Leitura (Dinâmica baseada no tipo) */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Odômetro (Km)</label>
-                            <input 
-                                type="number" 
-                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
-                                placeholder="Ex: 15000"
-                                value={formData.odometro}
-                                onChange={e => setFormData({...formData, odometro: e.target.value})}
-                                disabled={veiculoSelecionado && veiculoSelecionado.tipo === 'Equipamento'} // Exemplo de regra visual
-                            />
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Horímetro (Hr)</label>
-                            <input 
-                                type="number" 
-                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
-                                placeholder="Ex: 1500.5"
-                                value={formData.horimetro}
-                                onChange={e => setFormData({...formData, horimetro: e.target.value})}
-                            />
-                        </div>
+                    {/* Seleção de Funcionário Responsável (Quem está pedindo/operando) */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
+                            <User size={12}/> Responsável / Motorista
+                        </label>
+                        <select 
+                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-base focus:ring-2 focus:ring-yellow-400 outline-none"
+                            value={formData.funcionarioId}
+                            onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
+                        >
+                            <option value={user.id}>Eu ({user.name})</option>
+                            {filteredEmployees.filter(e => e.id !== user.id).map(e => (
+                                <option key={e.id} value={e.id}>{e.nome} {e.cargo ? `(${e.cargo})` : ''}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Leitura (Condicional por tipo) */}
+                    <div className="grid grid-cols-1 gap-4">
+                        {/* Campo Hodômetro */}
+                        {(readingType === 'odometro' || readingType === 'ambos') && (
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Hodômetro (Km)</label>
+                                <input 
+                                    type="number" 
+                                    className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
+                                    placeholder="Ex: 15000"
+                                    value={formData.odometro}
+                                    onChange={e => setFormData({...formData, odometro: e.target.value, horimetro: ''})}
+                                    disabled={!veiculoSelecionado} 
+                                />
+                            </div>
+                        )}
+                        
+                        {/* Campo Horímetro */}
+                        {(readingType === 'horimetro' || readingType === 'ambos') && (
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
+                                    Horímetro (Hr)
+                                    {readingType === 'horimetro' && <span className="text-red-500 text-[10px] uppercase">Não use Km aqui!</span>}
+                                </label>
+                                <input 
+                                    type="number" 
+                                    className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
+                                    placeholder="Ex: 1500.5"
+                                    value={formData.horimetro}
+                                    onChange={e => setFormData({...formData, horimetro: e.target.value, odometro: ''})}
+                                    disabled={!veiculoSelecionado}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {/* Foto do Painel */}
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between flex-wrap">
                             <span>Foto do Painel (Obrigatório)</span>
-                            <span className="text-blue-600 font-normal">Tire foto nítida</span>
+                            <span className="text-red-600 font-bold bg-red-50 px-2 rounded">Foto ilegível anula o pedido</span>
                         </label>
                         <div 
                             onClick={() => fileInputRef.current.click()}
@@ -439,51 +582,35 @@ const SolicitacaoAbastecimentoPage = ({
                                 ref={fileInputRef} 
                                 className="hidden" 
                                 accept="image/*" 
-                                capture="environment" // Abre câmera traseira no mobile
+                                capture="environment"
                                 onChange={(e) => handleFileChange(e, 'painel')}
                             />
                         </div>
                     </div>
 
-                    {/* Obra e Posto */}
-                    <div className="space-y-4 pt-2 border-t border-gray-200">
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Obra / Alocação</label>
-                            <select 
-                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
-                                value={formData.obraId}
-                                onChange={e => setFormData({...formData, obraId: e.target.value})}
-                            >
-                                <option value="">Selecione a Obra...</option>
-                                {obras.filter(o => o.status === 'ativa').map(o => (
-                                    <option key={o.id} value={o.id}>{o.nome}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
-                                Posto de Abastecimento
-                                {lastPostoId && <span className="text-blue-600 font-normal cursor-pointer" onClick={() => setFormData(p => ({...p, postoId: lastPostoId}))}>Usar último</span>}
-                            </label>
-                            <select 
-                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
-                                value={formData.postoId}
-                                onChange={e => setFormData({...formData, postoId: e.target.value})}
-                            >
-                                <option value="">Selecione o Posto...</option>
-                                {lastPostoId && partners.find(p => p.id === lastPostoId) && (
-                                    <optgroup label="Sugestão">
-                                        <option value={lastPostoId}>{partners.find(p => p.id === lastPostoId)?.razaoSocial} (Último)</option>
-                                    </optgroup>
-                                )}
-                                <optgroup label="Todos">
-                                    {partners.map(p => (
-                                        <option key={p.id} value={p.id}>{p.razaoSocial}</option>
-                                    ))}
+                    {/* Posto */}
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
+                            Posto de Abastecimento
+                            {lastPostoId && <span className="text-blue-600 font-normal cursor-pointer" onClick={() => setFormData(p => ({...p, postoId: lastPostoId}))}>Usar último</span>}
+                        </label>
+                        <select 
+                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
+                            value={formData.postoId}
+                            onChange={e => setFormData({...formData, postoId: e.target.value})}
+                        >
+                            <option value="">Selecione o Posto...</option>
+                            {lastPostoId && partners.find(p => p.id === lastPostoId) && (
+                                <optgroup label="Sugestão (Último Utilizado)">
+                                    <option value={lastPostoId}>{partners.find(p => p.id === lastPostoId)?.razaoSocial}</option>
                                 </optgroup>
-                            </select>
-                        </div>
+                            )}
+                            <optgroup label="Todos os Postos">
+                                {partners.map(p => (
+                                    <option key={p.id} value={p.id}>{p.razaoSocial}</option>
+                                ))}
+                            </optgroup>
+                        </select>
                     </div>
 
                     {/* Combustível */}
@@ -497,11 +624,11 @@ const SolicitacaoAbastecimentoPage = ({
                             value={formData.tipoCombustivel}
                             onChange={e => setFormData({...formData, tipoCombustivel: e.target.value})}
                         >
-                            <option value="">Selecione o Tipo...</option>
+                            <option value="">Selecione o Combustível...</option>
                             <option value="DIESEL S10">Diesel S10</option>
                             <option value="DIESEL S500">Diesel S500</option>
                             <option value="GASOLINA COMUM">Gasolina Comum</option>
-                            <option value="ARLA">Arla 32</option>
+                            {/* ARLA foi removido daqui conforme solicitado */}
                         </select>
 
                         <div className="flex items-center justify-between gap-4">
@@ -526,16 +653,82 @@ const SolicitacaoAbastecimentoPage = ({
                                 <span className="text-sm font-bold">Tanque Cheio</span>
                             </label>
                         </div>
-                        
-                        <label className="flex items-center gap-2 mt-2 pt-2 border-t border-yellow-200">
+                    </div>
+
+                    {/* Seção Arla 32 (Apenas Caminhões) */}
+                    {isTruckGroup && (
+                        <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <label className="text-sm font-bold text-blue-900 flex items-center gap-2">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={formData.needsArla}
+                                        onChange={e => setFormData({...formData, needsArla: e.target.checked})}
+                                        className="w-5 h-5 accent-blue-600"
+                                    />
+                                    Adicionar Arla 32
+                                </label>
+                            </div>
+
+                            {formData.needsArla && (
+                                <div className="flex items-center justify-between gap-4 animate-fadeIn">
+                                    <div className="flex-1 relative">
+                                        <input 
+                                            type="number" 
+                                            placeholder="Litros Arla" 
+                                            className="w-full p-3 border border-blue-300 rounded-lg disabled:bg-gray-100"
+                                            disabled={formData.flagTanqueCheioArla}
+                                            value={formData.litragemArla}
+                                            onChange={e => setFormData({...formData, litragemArla: e.target.value})}
+                                        />
+                                        <span className="absolute right-3 top-3.5 text-gray-400 text-sm font-bold">L</span>
+                                    </div>
+                                    <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${formData.flagTanqueCheioArla ? 'bg-blue-400 border-blue-500 text-white' : 'bg-white border-blue-300 text-gray-600'}`}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={formData.flagTanqueCheioArla}
+                                            onChange={e => setFormData({...formData, flagTanqueCheioArla: e.target.checked})}
+                                            className="w-5 h-5 accent-white"
+                                        />
+                                        <span className="text-sm font-bold">Cheio</span>
+                                    </label>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Outros Produtos */}
+                    <div className="bg-white p-3 border rounded-xl space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
                             <input 
                                 type="checkbox" 
                                 checked={formData.flagOutros}
                                 onChange={e => setFormData({...formData, flagOutros: e.target.checked})}
-                                className="w-4 h-4 text-blue-500 rounded accent-blue-600"
+                                className="w-4 h-4 text-gray-500 rounded accent-gray-600"
                             />
-                            <span className="text-xs text-gray-700 font-medium">Incluir Outros Produtos/Serviços (Óleo, Filtro...)</span>
+                            <span className="text-sm text-gray-700 font-medium">Incluir Outros Produtos/Serviços (Óleo, Filtro...)</span>
                         </label>
+                        {formData.flagOutros && (
+                            <input 
+                                type="text"
+                                placeholder="Descreva os itens (Ex: 1L Óleo Motor)"
+                                className="w-full p-3 border border-gray-300 rounded-lg text-sm"
+                                value={formData.descricaoOutros}
+                                onChange={e => setFormData({...formData, descricaoOutros: e.target.value})}
+                            />
+                        )}
+                    </div>
+
+                    {/* Observações */}
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Observações Adicionais</label>
+                        <textarea 
+                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-sm"
+                            rows="2"
+                            placeholder="Informações adicionais..."
+                            value={formData.observacao}
+                            onChange={e => setFormData({...formData, observacao: e.target.value})}
+                        ></textarea>
                     </div>
 
                     <button 
@@ -545,7 +738,6 @@ const SolicitacaoAbastecimentoPage = ({
                     >
                         {loading ? <Loader className="animate-spin" /> : <><Send size={20} /> ENVIAR SOLICITAÇÃO</>}
                     </button>
-                    <div className="h-8"></div>
                 </form>
             </div>
         );
@@ -568,9 +760,11 @@ const SolicitacaoAbastecimentoPage = ({
                         <button onClick={fetchMyRequests} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition active:rotate-180">
                             <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
                         </button>
-                        <button onClick={logout} className="p-2 bg-red-900/50 rounded-full hover:bg-red-900 transition">
-                            <LogOut size={20} />
-                        </button>
+                        {onLogout && (
+                            <button onClick={onLogout} className="p-2 bg-red-900/50 rounded-full hover:bg-red-900 transition">
+                                <LogOut size={20} />
+                            </button>
+                        )}
                     </div>
                 </div>
                 
