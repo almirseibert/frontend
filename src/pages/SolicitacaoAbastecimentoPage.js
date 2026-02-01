@@ -365,11 +365,13 @@ const SolicitacaoAbastecimentoPage = ({
             return;
         }
 
+        // Validação de Campos Obrigatórios Básicos
         if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId || !formData.funcionarioId) {
             setAlertMessage("Preencha todos os campos obrigatórios (incluindo o condutor).");
             return;
         }
 
+        // Validação da Leitura (Odômetro vs Horímetro)
         if (readingType === 'odometro' && !formData.odometro) {
             setAlertMessage("É obrigatório informar o HODÔMETRO (Km).");
             return;
@@ -379,45 +381,56 @@ const SolicitacaoAbastecimentoPage = ({
             return;
         }
 
+        // Validação de Litragem (Se não for tanque cheio, tem que ter valor)
+        if (!formData.flagTanqueCheio && (!formData.litragem || parseFloat(formData.litragem.toString().replace(',', '.')) <= 0)) {
+            setAlertMessage("Informe a litragem ou marque Tanque Cheio.");
+            return;
+        }
+
         setLoading(true);
 
         const payload = new FormData();
 
-        // --- CORREÇÃO: Mapeamento Manual (CamelCase -> snake_case) ---
-        // Isso garante que o Backend receba os nomes de colunas corretos do banco de dados
+        // --- Mapeamento para Snake Case e Tratamento de Tipos ---
+        
         payload.append('veiculo_id', formData.veiculoId);
         payload.append('obra_id', formData.obraId);
         payload.append('posto_id', formData.postoId);
         payload.append('funcionario_id', formData.funcionarioId);
         payload.append('tipo_combustivel', formData.tipoCombustivel);
 
-        // Tratamento de Booleanos (Converter para '1' ou '0')
+        // Booleanos
         payload.append('flag_tanque_cheio', formData.flagTanqueCheio ? '1' : '0');
         payload.append('flag_outros', formData.flagOutros ? '1' : '0');
         payload.append('descricao_outros', formData.descricaoOutros || '');
 
-        // Litragem (Zerar se tanque cheio)
+        // Litragem: Garante que seja numérico
         if (formData.flagTanqueCheio) {
             payload.append('litragem', '0');
         } else {
-            payload.append('litragem', formData.litragem);
+            // Substitui vírgula por ponto para garantir formato numérico padrão
+            const litragemSanitized = formData.litragem ? formData.litragem.toString().replace(',', '.') : '0';
+            payload.append('litragem', litragemSanitized);
         }
 
-        // Leituras (Enviar vazio se não preenchido, mas backend deve ignorar o tipo errado)
-        payload.append('odometro', formData.odometro || '');
-        payload.append('horimetro', formData.horimetro || '');
+        // Leituras: Envia '0' se estiver vazio e substitui vírgula por ponto
+        const odometroVal = formData.odometro ? formData.odometro.toString().replace(',', '.') : '0';
+        const horimetroVal = formData.horimetro ? formData.horimetro.toString().replace(',', '.') : '0';
+        
+        payload.append('odometro', odometroVal);
+        payload.append('horimetro', horimetroVal);
 
-        // GPS (Garantir envio de '0' se falhou ou foi negado)
+        // GPS: Garante '0' se nulo
         payload.append('latitude', formData.latitude ? formData.latitude.toString() : '0');
         payload.append('longitude', formData.longitude ? formData.longitude.toString() : '0');
 
-        // Foto Obrigatória
+        // Foto
         payload.append('foto_painel', rawImageFile);
         
-        // Ajuste final observação com Arla
+        // Observação
         let obsFinal = formData.observacao || '';
         if (formData.needsArla) {
-            obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
+            obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : (formData.litragemArla || '0') + ' L'}]`;
         }
         payload.append('observacao', obsFinal);
 
