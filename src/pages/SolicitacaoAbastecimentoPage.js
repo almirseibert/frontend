@@ -14,7 +14,7 @@ const SolicitacaoAbastecimentoPage = ({
     vehicles = [], 
     obras = [], 
     partners = [], 
-    employees = [], // Pode vir vazio inicialmente
+    employees = [], 
     setAlertMessage,
     user,
     onLogout
@@ -27,8 +27,7 @@ const SolicitacaoAbastecimentoPage = ({
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [gpsError, setGpsError] = useState(false);
     
-    // Estado interno para garantir que funcionários existam mesmo que a prop falhe
-    // (Mantido caso precisemos reativar, mas a chamada API foi removida para evitar 404)
+    // Estado interno mantido para compatibilidade
     const [internalEmployees, setInternalEmployees] = useState([]);
     
     // --- DADOS ---
@@ -76,59 +75,50 @@ const SolicitacaoAbastecimentoPage = ({
         if (!str) return '';
         return str.toString()
             .toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
-            .replace(/\s+/g, ' ') // Remove espaços duplos
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
+            .replace(/\s+/g, ' ') 
             .trim();
     };
 
     // --- CARREGAMENTO DE DADOS ---
     useEffect(() => {
-        // Removido fetchMissingEmployees para evitar erro 404
-        // A lógica de extração via Obras já supre a necessidade
         if (user) {
             checkUserStatus();
             fetchMyRequests();
         }
     }, [user]); 
 
-    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO (CRÍTICA) ---
+    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
     const myEmployeeId = useMemo(() => {
         if (!user) return null;
         
-        // 1. Tenta pegar direto do objeto user (se o backend já tiver vinculado)
         if (user.employeeId) return user.employeeId;
         if (user.employee_id) return user.employee_id;
 
         const normalizedUserName = normalizeStr(user.name);
         const normalizedUserEmail = normalizeStr(user.email);
 
-        // 2. Procura na lista de funcionários (se estiver carregada)
         if (effectiveEmployees.length > 0) {
-            // Por Email
             if (normalizedUserEmail) {
                 const found = effectiveEmployees.find(e => normalizeStr(e.email) === normalizedUserEmail);
                 if (found) return found.id;
             }
-            // Por Nome
             if (normalizedUserName) {
                 const found = effectiveEmployees.find(e => normalizeStr(e.nome) === normalizedUserName);
                 if (found) return found.id;
             }
         }
 
-        // 3. SUPER FALLBACK: Procura diretamente no Histórico das Obras
-        // Isso resolve o problema "Funcionários na Lista: 0" se a obra já estiver carregada
         if (obras.length > 0 && normalizedUserName) {
             for (const obra of obras) {
                 if (obra.historicoVeiculos && Array.isArray(obra.historicoVeiculos)) {
-                    // Procura alguém com o MEU NOME alocado em algum carro
                     const match = obra.historicoVeiculos.find(h => 
-                        !h.dataSaida && // Ainda está na obra
+                        !h.dataSaida && 
                         (normalizeStr(h.employeeName || h.nome_funcionario) === normalizedUserName)
                     );
                     
                     if (match && match.employeeId) {
-                        return match.employeeId; // ACHAMOS O ID PERDIDO!
+                        return match.employeeId;
                     }
                 }
             }
@@ -137,24 +127,18 @@ const SolicitacaoAbastecimentoPage = ({
         return null;
     }, [user, effectiveEmployees, obras]);
 
-    // --- LÓGICA DE FILTRAGEM (OBRA -> VEÍCULOS -> FUNCIONÁRIOS) ---
-
-    // 1. Obras onde o usuário está ALOCADO
+    // --- LÓGICA DE FILTRAGEM ---
     const allowedObras = useMemo(() => {
         if (!myEmployeeId || !obras.length) return [];
 
         return obras.filter(obra => {
             if (!obra.historicoVeiculos || !Array.isArray(obra.historicoVeiculos)) return false;
-
-            // Verifica se existe algum registro histórico onde:
-            // employeeId == myEmployeeId E dataSaida é null
             return obra.historicoVeiculos.some(h => 
                 String(h.employeeId) === String(myEmployeeId) && !h.dataSaida
             );
         });
     }, [myEmployeeId, obras]);
 
-    // Lógica Unificada para filtrar Veículos e Funcionários da OBRA SELECIONADA
     const { filteredVehicles, filteredEmployees } = useMemo(() => {
         if (!formData.obraId) return { filteredVehicles: [], filteredEmployees: [] };
 
@@ -178,26 +162,19 @@ const SolicitacaoAbastecimentoPage = ({
             .filter(v => activeVehiclesIds.has(String(v.id)))
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
 
-        // --- CORREÇÃO PRINCIPAL: EXTRAÇÃO DE FUNCIONÁRIOS ---
-        // Se a lista oficial falhou, montamos a lista baseada no que está no histórico da obra
         let funcionariosDaObra = [];
 
-        // 1. Tenta filtrar da lista oficial
         if (effectiveEmployees.length > 0) {
             funcionariosDaObra = effectiveEmployees
                 .filter(e => activeEmployeesIds.has(String(e.id)))
-                .map(e => ({ id: e.id, nome: e.nome })); // Padroniza
+                .map(e => ({ id: e.id, nome: e.nome }));
         }
 
-        // 2. Se a lista oficial está vazia ou incompleta, extrai do histórico
-        // Isso garante que todos que estão na obra apareçam, mesmo sem API de funcionários
         if (funcionariosDaObra.length < activeEmployeesIds.size) {
             const existingIds = new Set(funcionariosDaObra.map(f => String(f.id)));
-            
             selectedObra.historicoVeiculos.forEach(h => {
                 const empId = String(h.employeeId);
-                const empName = h.employeeName || h.nome_funcionario; // Tenta pegar nome do histórico
-
+                const empName = h.employeeName || h.nome_funcionario;
                 if (!h.dataSaida && empId && !existingIds.has(empId) && empId !== 'null' && empId !== 'undefined') {
                     funcionariosDaObra.push({
                         id: empId,
@@ -208,13 +185,11 @@ const SolicitacaoAbastecimentoPage = ({
             });
         }
 
-        // Ordena alfabeticamente
         funcionariosDaObra.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 
         return { filteredVehicles: veiculosDaObra, filteredEmployees: funcionariosDaObra };
 
     }, [formData.obraId, obras, vehicles, effectiveEmployees]);
-
 
     // --- EFEITOS DE SISTEMA ---
     useEffect(() => {
@@ -230,18 +205,14 @@ const SolicitacaoAbastecimentoPage = ({
         };
     }, []);
 
-    // Auto-selecionar Obra se o usuário só tiver uma
     useEffect(() => {
         if (allowedObras.length === 1 && !formData.obraId) {
             setFormData(prev => ({ ...prev, obraId: allowedObras[0].id }));
         }
     }, [allowedObras]);
 
-    // Auto-selecionar Funcionário (ele mesmo)
     useEffect(() => {
         if (myEmployeeId && formData.obraId && !formData.funcionarioId) {
-            // Verifica se eu estou na lista filtrada da obra (para garantir consistência)
-            // Se a lista de funcionários estiver vazia (ainda carregando), podemos setar o ID mesmo assim se confiarmos na alocação
             const myself = filteredEmployees.some(e => String(e.id) === String(myEmployeeId));
             if (myself || filteredEmployees.length === 0) {
                 setFormData(prev => ({ ...prev, funcionarioId: myEmployeeId }));
@@ -249,31 +220,23 @@ const SolicitacaoAbastecimentoPage = ({
         }
     }, [myEmployeeId, filteredEmployees, formData.obraId]);
 
-    // --- LÓGICA DO VEÍCULO SELECIONADO ---
-
     const veiculoSelecionado = useMemo(() => {
         return vehicles.find(v => String(v.id) === String(formData.veiculoId));
     }, [formData.veiculoId, vehicles]);
 
-    // Ao selecionar veículo: Sugere Posto e Limpa Leituras
     useEffect(() => {
         if (veiculoSelecionado) {
             setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
-
             let lastPartnerId = null;
-            // 1. Tenta pegar da última solicitação
             const lastReq = myRequests.find(r => 
                 String(r.veiculo_id) === String(veiculoSelecionado.id) && 
                 (r.status === 'CONCLUIDO' || r.status === 'LIBERADO')
             );
-            
             if (lastReq && lastReq.posto_id) {
                 lastPartnerId = lastReq.posto_id;
             } else {
-                // 2. Fallback para cadastro
                 lastPartnerId = veiculoSelecionado.lastPartnerId;
             }
-
             if (lastPartnerId) {
                 setFormData(prev => ({ ...prev, postoId: lastPartnerId }));
             }
@@ -288,8 +251,7 @@ const SolicitacaoAbastecimentoPage = ({
         return diffHours < 24;
     }, [veiculoSelecionado]);
 
-
-    // --- FUNÇÕES AUXILIARES E API ---
+    // --- API & HELPERS ---
 
     const checkUserStatus = async () => {
         try {
@@ -329,7 +291,6 @@ const SolicitacaoAbastecimentoPage = ({
                     }));
                 },
                 (error) => {
-                    // Log silencioso para debug, sem warn para limpar console
                     console.log("GPS não obtido (permissão negada ou erro):", error.message);
                     setGpsError(true);
                 },
@@ -390,6 +351,7 @@ const SolicitacaoAbastecimentoPage = ({
         });
     };
 
+    // --- FUNÇÃO CORRIGIDA DE ENVIO ---
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -403,7 +365,6 @@ const SolicitacaoAbastecimentoPage = ({
             return;
         }
 
-        // Validação COMPLETA (incluindo funcionarioId para evitar erro 500)
         if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId || !formData.funcionarioId) {
             setAlertMessage("Preencha todos os campos obrigatórios (incluindo o condutor).");
             return;
@@ -421,29 +382,44 @@ const SolicitacaoAbastecimentoPage = ({
         setLoading(true);
 
         const payload = new FormData();
-        Object.keys(formData).forEach(key => {
-            if (formData[key] !== null && formData[key] !== undefined) {
-                // Tratamento especial para booleanos e campos condicionais
-                if (key === 'litragem' && formData.flagTanqueCheio) {
-                    payload.append(key, '0');
-                } else {
-                    payload.append(key, formData[key]);
-                }
-            }
-        });
-        
-        // Ajuste final observação com Arla
-        let obsFinal = formData.observacao;
-        if (formData.needsArla) {
-            obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
-            payload.set('observacao', obsFinal);
+
+        // --- CORREÇÃO: Mapeamento Manual (CamelCase -> snake_case) ---
+        // Isso garante que o Backend receba os nomes de colunas corretos do banco de dados
+        payload.append('veiculo_id', formData.veiculoId);
+        payload.append('obra_id', formData.obraId);
+        payload.append('posto_id', formData.postoId);
+        payload.append('funcionario_id', formData.funcionarioId);
+        payload.append('tipo_combustivel', formData.tipoCombustivel);
+
+        // Tratamento de Booleanos (Converter para '1' ou '0')
+        payload.append('flag_tanque_cheio', formData.flagTanqueCheio ? '1' : '0');
+        payload.append('flag_outros', formData.flagOutros ? '1' : '0');
+        payload.append('descricao_outros', formData.descricaoOutros || '');
+
+        // Litragem (Zerar se tanque cheio)
+        if (formData.flagTanqueCheio) {
+            payload.append('litragem', '0');
+        } else {
+            payload.append('litragem', formData.litragem);
         }
 
-        // Garante envio de lat/long zerados se o GPS falhou (evita erro no backend se obrigatório)
-        if (!formData.latitude) payload.append('latitude', '0');
-        if (!formData.longitude) payload.append('longitude', '0');
+        // Leituras (Enviar vazio se não preenchido, mas backend deve ignorar o tipo errado)
+        payload.append('odometro', formData.odometro || '');
+        payload.append('horimetro', formData.horimetro || '');
 
+        // GPS (Garantir envio de '0' se falhou ou foi negado)
+        payload.append('latitude', formData.latitude ? formData.latitude.toString() : '0');
+        payload.append('longitude', formData.longitude ? formData.longitude.toString() : '0');
+
+        // Foto Obrigatória
         payload.append('foto_painel', rawImageFile);
+        
+        // Ajuste final observação com Arla
+        let obsFinal = formData.observacao || '';
+        if (formData.needsArla) {
+            obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
+        }
+        payload.append('observacao', obsFinal);
 
         try {
             await apiClient.post('/solicitacoes', payload, {
@@ -470,6 +446,7 @@ const SolicitacaoAbastecimentoPage = ({
             checkUserStatus();
 
         } catch (error) {
+            console.error("Erro no envio:", error);
             const msg = error.response?.data?.error || error.message || "Erro ao enviar.";
             setAlertMessage(msg);
             if (msg.includes("BLOQUEADO")) checkUserStatus();
@@ -502,8 +479,6 @@ const SolicitacaoAbastecimentoPage = ({
             setLoading(false);
         }
     };
-
-    // --- RENDERIZAÇÃO ---
 
     if (!user) return <div className="flex justify-center items-center h-screen"><Loader className="animate-spin"/></div>;
 
@@ -547,7 +522,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     )}
 
-                    {/* Mensagem de Erro/Alerta se não houver obras */}
                     {allowedObras.length === 0 && (
                         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
                             <p className="font-bold flex items-center gap-2"><AlertTriangle size={18}/> Sem Obra Alocada</p>
@@ -558,7 +532,6 @@ const SolicitacaoAbastecimentoPage = ({
                                 <strong>Dica:</strong> Verifique se você está alocado em um veículo na obra ou peça para o gestor verificar sua alocação.
                             </p>
                             
-                            {/* Debug Avançado */}
                             <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
                                 <p><strong>User:</strong> {user.name} ({user.id})</p>
                                 <p><strong>EmpID Detectado:</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
@@ -568,7 +541,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     )}
 
-                    {/* Seleção de Obra (Filtrada) */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1">Sua Obra</label>
                         <select 
@@ -584,7 +556,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </select>
                     </div>
 
-                    {/* Seleção de Veículo (Filtrado por Obra) */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo (na Obra)</label>
                         <select 
@@ -599,7 +570,6 @@ const SolicitacaoAbastecimentoPage = ({
                             ))}
                         </select>
                         
-                        {/* ALERTAS DO VEÍCULO SELECIONADO */}
                         {veiculoSelecionado && (
                             <div className="space-y-2 mt-2 px-1">
                                 {veiculoSelecionado.status === 'manutencao' && (
@@ -624,7 +594,6 @@ const SolicitacaoAbastecimentoPage = ({
                         )}
                     </div>
 
-                    {/* Seleção de Funcionário Responsável (Colegas da Obra) */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1">Condutor/Responsável</label>
                         <select 
@@ -633,7 +602,6 @@ const SolicitacaoAbastecimentoPage = ({
                             onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
                             disabled={!formData.obraId}
                         >
-                            {/* Fallback visual caso a lista esteja vazia mas o ID esteja setado */}
                             {formData.funcionarioId && filteredEmployees.length === 0 && (
                                 <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
                             )}
@@ -644,7 +612,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </select>
                     </div>
 
-                    {/* LEITURA INTELIGENTE (KM vs HR) */}
                     <div className="grid grid-cols-1 gap-4">
                         {readingType === 'odometro' && (
                             <div className="animate-fadeIn">
@@ -685,7 +652,6 @@ const SolicitacaoAbastecimentoPage = ({
                         )}
                     </div>
 
-                    {/* Foto */}
                     <div className="space-y-2">
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between items-center">
                             <span>Foto do Painel</span>
@@ -713,7 +679,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     </div>
 
-                    {/* Posto */}
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
                             Posto
@@ -731,7 +696,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </select>
                     </div>
 
-                    {/* Combustível */}
                     <div className="bg-yellow-50 p-4 rounded-xl shadow-inner border border-yellow-200 space-y-3">
                         <label className="text-sm font-bold text-yellow-900 flex items-center gap-2">
                             <Fuel size={18}/> Detalhes do Combustível
@@ -772,7 +736,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     </div>
 
-                    {/* Seção Arla 32 (Condicional aos Grupos) */}
                     {showArlaSection && (
                         <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3 animate-fadeIn">
                             <label className="text-sm font-bold text-blue-900 flex items-center gap-2 cursor-pointer">
@@ -812,7 +775,6 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     )}
 
-                    {/* Outros e Observações */}
                     <div className="space-y-3">
                         <div className="bg-white p-3 border rounded-xl space-y-2">
                             <label className="flex items-center gap-2 cursor-pointer">
@@ -861,7 +823,6 @@ const SolicitacaoAbastecimentoPage = ({
         );
     }
 
-    // LIST VIEW
     return (
         <div className="min-h-screen bg-gray-100 pb-24 animate-fadeIn">
             <div className="bg-gray-900 text-white p-6 pb-12 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
@@ -894,7 +855,6 @@ const SolicitacaoAbastecimentoPage = ({
                 </button>
             </div>
 
-            {/* Lista Histórico */}
             <div className="px-4 mt-2">
                 <h2 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
                     <Clock size={14} /> Minhas Solicitações Recentes
@@ -938,7 +898,6 @@ const SolicitacaoAbastecimentoPage = ({
                 )}
             </div>
 
-            {/* Modal Detalhes */}
             {selectedRequest && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
                     <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
