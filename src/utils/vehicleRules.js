@@ -21,7 +21,7 @@ export const equipmentTypesForHours = [
     'Caçamba Traçado', 'Caçamba Truckado', 'Fresadora'
 ];
 
-// Grupos específicos para Arla 32 (Adicionado para Abastecimento)
+// Grupos específicos para Arla 32
 export const GRUPOS_ARLA = [
     'BITRUCK', 'CAMINHÃO', 'CAMINHÃO CARROCERIA', 'CAMINHÃO PIPA', 
     'CAMINHÃO PRANCHA', 'CAMINHÃO TANQUE', 'CAVALO', 'CAÇAMBA', 
@@ -30,17 +30,13 @@ export const GRUPOS_ARLA = [
 
 /**
  * Retorna o tipo de leitura ('KM' ou 'HR') baseado no grupo do veículo.
- * Regra 1: Somente Veículos Leves e Caminhões de Trecho usam KM.
- * Regra 8: Todos os demais (Caminhões Pesados e Máquinas) usam Horímetro.
  */
 export const getReadingType = (vehicle) => {
-    if (!vehicle) return 'HR'; // Fallback seguro
+    if (!vehicle) return 'HR';
     
-    // Normaliza os dados para garantir comparação correta
     const tipo = (vehicle.tipo || '').trim();
     const grupo = (vehicle.grupo || '').trim();
 
-    // Verifica se pertence aos grupos de Odômetro
     const isLeve = vehicleGroups['Veículos Leves'].some(t => tipo.includes(t)) || grupo === 'Veículos Leves';
     const isTrecho = vehicleGroups['Caminhões de Trecho'].some(t => tipo.includes(t)) || grupo === 'Caminhões de Trecho';
 
@@ -54,43 +50,24 @@ export const getReadingType = (vehicle) => {
 /**
  * ADAPTER: Função de compatibilidade para a página de Abastecimento.
  * Converte o retorno 'KM'/'HR' para 'odometro'/'horimetro' (formato do BD).
- * @param {Object} vehicle 
- * @returns {string} 'odometro' | 'horimetro'
  */
 export const getVehicleMainReading = (vehicle) => {
     const type = getReadingType(vehicle);
     return type === 'KM' ? 'odometro' : 'horimetro';
 };
 
-/**
- * COMPATIBILIDADE LEGADO
- * Mantida para evitar erro de build em outros componentes que esperam essa função.
- * Retorna array com o tipo de leitura permitido.
- */
 export const getAllowedReadingTypes = (vehicle) => {
     const main = getVehicleMainReading(vehicle);
     return [main];
 };
 
-/**
- * Determina se o veículo precisa de Arla 32
- * @param {Object} vehicle 
- * @returns {boolean}
- */
 export const needsArla = (vehicle) => {
     if (!vehicle) return false;
-    
     const tipo = (vehicle.tipo || '').toUpperCase();
     const modelo = (vehicle.modelo || '').toUpperCase();
-
-    // Verifica se o tipo ou modelo contém algum dos termos do grupo Arla
     return GRUPOS_ARLA.some(t => tipo === t || modelo.includes(t) || tipo.includes(t));
 };
 
-/**
- * Valida a consistência da leitura (Regras 2 e 3).
- * Bloqueia regressão e saltos absurdos.
- */
 export const validateReading = (currentReading, newReading, type) => {
     const current = parseFloat(currentReading) || 0;
     const input = parseFloat(newReading);
@@ -99,7 +76,6 @@ export const validateReading = (currentReading, newReading, type) => {
         return { valid: false, error: 'Valor inválido.', requiresPassword: false };
     }
 
-    // Regras 2 e 3: Bloqueio de Regressão (Valor menor ou igual ao anterior)
     if (input <= current) {
         return { 
             valid: false, 
@@ -108,10 +84,9 @@ export const validateReading = (currentReading, newReading, type) => {
         };
     }
 
-    // Regras 2 e 3: Trava de Segurança (Anti-Erro de Digitação / Saltos)
     const diff = input - current;
-    const LIMIT_KM = 1000; // Regra 2
-    const LIMIT_HR = 50;   // Regra 3
+    const LIMIT_KM = 2000; 
+    const LIMIT_HR = 100;
 
     if (type === 'KM' && diff > LIMIT_KM) {
         return { 
@@ -132,12 +107,7 @@ export const validateReading = (currentReading, newReading, type) => {
     return { valid: true, error: null, requiresPassword: false };
 };
 
-/**
- * COMPATIBILIDADE LEGADO
- * Alias para validateReading para satisfazer componentes antigos.
- */
 export const checkReadingConsistency = validateReading;
-
 
 /**
  * Verifica restrições do veículo (Regra 4 - Alertas).
@@ -146,7 +116,6 @@ export const checkReadingConsistency = validateReading;
 export const checkVehicleRestrictions = (vehicle) => {
     const issues = [];
     const now = new Date();
-    // Zera hora para comparar apenas datas
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     if (!vehicle) return issues;
@@ -155,27 +124,22 @@ export const checkVehicleRestrictions = (vehicle) => {
     if (vehicle.proximaRevisaoData) {
         const revDate = new Date(vehicle.proximaRevisaoData);
         const revDateCompare = new Date(revDate.getFullYear(), revDate.getMonth(), revDate.getDate());
-        
-        // Calcular diferença em dias
         const diffTime = revDateCompare - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 
         if (revDateCompare < today) {
-            issues.push({ category: 'manutencao', type: 'error', message: `MANUTENÇÃO VENCIDA (Data): ${revDate.toLocaleDateString()}.` });
-        } else if (diffDays <= 7) { // Aviso com 7 dias de antecedência
-            issues.push({ category: 'manutencao', type: 'warning', message: `Manutenção agendada para ${revDate.toLocaleDateString()} (em ${diffDays} dias).` });
+            issues.push({ category: 'manutencao', type: 'error', title: 'MANUTENÇÃO VENCIDA', message: `Data limite excedida: ${revDate.toLocaleDateString()}.` });
+        } else if (diffDays <= 7) {
+            issues.push({ category: 'manutencao', type: 'warning', title: 'MANUTENÇÃO PRÓXIMA', message: `Agendada para ${revDate.toLocaleDateString()} (em ${diffDays} dias).` });
         }
     }
 
-    // 2. Manutenção por Leitura (Km ou Horas)
-    // Usa a coluna 'horimetro' unificada conforme Regra 8
-    const currentReading = parseFloat(vehicle.horimetro || 0);
-    
-    // Determina qual campo de "Próxima Revisão" olhar
-    // Se for KM, olha proximaRevisaoKm. Se for HR, olha proximaRevisaoHoras.
+    // 2. Manutenção por Leitura
     const type = getReadingType(vehicle);
-    let proximaLeitura = 0;
+    const readingKey = type === 'KM' ? 'odometro' : 'horimetro'; // Ajuste para ler a propriedade correta se já estiver normalizada, ou usar vehicle.odometro
+    const currentReading = parseFloat(vehicle[readingKey] || vehicle.odometro || vehicle.horimetro || 0);
     
+    let proximaLeitura = 0;
     if (type === 'KM') {
         proximaLeitura = parseFloat(vehicle.proximaRevisaoKm || 0);
     } else {
@@ -183,49 +147,77 @@ export const checkVehicleRestrictions = (vehicle) => {
     }
 
     if (proximaLeitura > 0) {
-        const avisoAntecedencia = type === 'KM' ? 500 : 20; // Avisar 500km ou 20h antes
+        const avisoAntecedencia = type === 'KM' ? 500 : 20;
 
         if (currentReading >= proximaLeitura) {
-            issues.push({ category: 'manutencao', type: 'error', message: `MANUTENÇÃO VENCIDA (Leitura): ${currentReading}/${proximaLeitura} ${type}.` });
+            issues.push({ category: 'manutencao', type: 'error', title: 'MANUTENÇÃO VENCIDA', message: `Limite de leitura excedido: ${currentReading}/${proximaLeitura} ${type}.` });
         } else if ((proximaLeitura - currentReading) <= avisoAntecedencia) {
             const faltam = (proximaLeitura - currentReading).toFixed(1);
-            issues.push({ category: 'manutencao', type: 'warning', message: `Manutenção PRÓXIMA: Faltam ${faltam} ${type}.` });
+            issues.push({ category: 'manutencao', type: 'warning', title: 'MANUTENÇÃO PRÓXIMA', message: `Faltam apenas ${faltam} ${type}.` });
         }
     }
 
-    // 3. Documentos (CNH, Tacógrafo, AET, Licenciamento)
-    // Regra 4: Alertas com cores distintas
+    // 3. Documentos
     const docs = [
         { key: 'validadeTacografo', label: 'Tacógrafo' },
         { key: 'validadeAET_DAER', label: 'AET DAER' },
         { key: 'validadeAET_DNIT', label: 'AET DNIT' },
         { key: 'validadeLicenciamento', label: 'Licenciamento' },
-        // Adicione outros campos de data de documento se existirem no objeto vehicle
     ];
 
     docs.forEach(doc => {
         if (vehicle[doc.key]) {
             const docDate = new Date(vehicle[doc.key]);
             const docDateCompare = new Date(docDate.getFullYear(), docDate.getMonth(), docDate.getDate());
-            
-            // Diferença em dias
             const diffTime = docDateCompare - today;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
             if (docDateCompare < today) {
-                issues.push({ category: 'documento', type: 'error', message: `${doc.label} VENCIDO em ${docDate.toLocaleDateString()}.` });
-            } else if (diffDays <= 15) { // Aviso com 15 dias
-                issues.push({ category: 'documento', type: 'warning', message: `${doc.label} vence em ${diffDays} dias.` });
+                issues.push({ category: 'documento', type: 'error', title: 'DOCUMENTO VENCIDO', message: `${doc.label} venceu em ${docDate.toLocaleDateString()}.` });
+            } else if (diffDays <= 15) {
+                issues.push({ category: 'documento', type: 'warning', title: 'DOCUMENTO A VENCER', message: `${doc.label} vence em ${diffDays} dias.` });
             }
         }
     });
 
     // 4. Status de Bloqueio Manual
-    if (vehicle.status === 'MANUTENCAO' || vehicle.status === 'QUEBRADO') {
-        issues.push({ category: 'status', type: 'block', message: `Veículo marcado como ${vehicle.status}.` });
+    if (vehicle.status === 'manutencao' || vehicle.status === 'MANUTENCAO' || vehicle.status === 'quebrado' || vehicle.status === 'QUEBRADO') {
+        issues.push({ category: 'status', type: 'block', title: 'VEÍCULO EM OFICINA', message: `Veículo marcado como ${vehicle.status} no sistema.` });
+    }
+    
+    // 5. Documentação Irregular (Flag direta)
+    if (vehicle.naoPodeCircular) {
+        issues.push({ category: 'status', type: 'block', title: 'PROIBIDO CIRCULAR', message: 'Bloqueio administrativo (Docs/Multas).' });
     }
 
     return issues;
+};
+
+/**
+ * Verifica alertas de consumo (Queda de Média)
+ * Retorna objeto de alerta se houver problema
+ */
+export const checkConsumptionAlert = (vehicle, litragem, leituraAtual, leituraAnterior) => {
+    if (!vehicle || !vehicle.mediaConsumo || !litragem || !leituraAtual || !leituraAnterior) return null;
+    
+    const dist = leituraAtual - leituraAnterior;
+    if (dist <= 0) return null;
+
+    const mediaAtual = dist / litragem;
+    const mediaHistorica = parseFloat(vehicle.mediaConsumo);
+    
+    // Se a média for Zero no cadastro, ignora
+    if (mediaHistorica === 0) return null;
+
+    // Se o consumo piorou mais de 30% (ex: fazia 10km/l, agora faz 6.9km/l)
+    if (mediaAtual < (mediaHistorica * 0.70)) {
+        return {
+            title: 'ALERTA DE CONSUMO',
+            message: `Média atual (${mediaAtual.toFixed(2)}) muito abaixo do histórico (${mediaHistorica.toFixed(2)}).`,
+            type: 'warning'
+        };
+    }
+    return null;
 };
 
 export const formatReading = (value, type) => {
