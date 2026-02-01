@@ -832,7 +832,7 @@ const SolicitacaoAbastecimentoPage = ({
                             value={formData.dataAbastecimento}
                             onChange={e => setFormData({...formData, dataAbastecimento: e.target.value})}
                         />
-                         <p className="text-[10px] text-gray-500 px-1">Se for em outro dia altere aqui, se for hoje não altere.</p>
+                         <p className="text-[10px] text-gray-500 px-1">Selecione o dia em que vai ao posto.</p>
                     </div>
 
                     <div className="space-y-1">
@@ -846,7 +846,7 @@ const SolicitacaoAbastecimentoPage = ({
                             {formData.funcionarioId && filteredEmployees.length === 0 && (
                                 <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
                             )}
-                            <option value="">Selecione quem está abastecendo...</option>
+                            <option value="">Selecione quem está trabalhando na RE...</option>
                             {filteredEmployees.map(e => (
                                 <option key={e.id} value={e.id}>{e.nome}</option>
                             ))}
