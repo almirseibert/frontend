@@ -6,8 +6,123 @@ import {
     CalendarClock, Gauge, Calendar, AlertOctagon
 } from 'lucide-react';
 
-// Importação das Regras Centralizadas
-import { getVehicleMainReading, needsArla, checkVehicleRestrictions } from '../utils/vehicleRules';
+// --- INÍCIO DA INTEGRAÇÃO DAS REGRAS DE VEÍCULO (vehicleRules.js) ---
+// Integrado localmente para evitar erros de importação em ambiente single-file
+
+const vehicleGroups = {
+    'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto', 'Passeio', 'Veículo Leve'],
+    'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
+    'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques', 'Caminhão Toco'], 
+    'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Escavadeira + Rompedor', 'Fresadora', 'Trator Esteira']
+};
+
+const GRUPOS_ARLA = [
+    'BITRUCK', 'CAMINHÃO', 'CAMINHÃO CARROCERIA', 'CAMINHÃO PIPA', 
+    'CAMINHÃO PRANCHA', 'CAMINHÃO TANQUE', 'CAVALO', 'CAÇAMBA', 
+    'CAÇAMBA BITRUCK', 'CAÇAMBA TOCO', 'CAÇAMBA TRUCKADO', 'CAÇAMBA TRAÇADO'
+];
+
+const getReadingType = (vehicle) => {
+    if (!vehicle) return 'HR'; 
+    
+    const tipo = (vehicle.tipo || '').trim();
+    const grupo = (vehicle.grupo || '').trim();
+
+    const isLeve = vehicleGroups['Veículos Leves'].some(t => tipo.includes(t)) || grupo === 'Veículos Leves';
+    const isTrecho = vehicleGroups['Caminhões de Trecho'].some(t => tipo.includes(t)) || grupo === 'Caminhões de Trecho';
+
+    if (isLeve || isTrecho) {
+        return 'KM';
+    }
+    return 'HR';
+};
+
+const getVehicleMainReading = (vehicle) => {
+    const type = getReadingType(vehicle);
+    return type === 'KM' ? 'odometro' : 'horimetro';
+};
+
+const needsArla = (vehicle) => {
+    if (!vehicle) return false;
+    const tipo = (vehicle.tipo || '').toUpperCase();
+    const modelo = (vehicle.modelo || '').toUpperCase();
+    return GRUPOS_ARLA.some(t => tipo === t || modelo.includes(t) || tipo.includes(t));
+};
+
+const checkVehicleRestrictions = (vehicle) => {
+    const issues = [];
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (!vehicle) return issues;
+
+    // 1. Manutenção por Data
+    if (vehicle.proximaRevisaoData) {
+        const revDate = new Date(vehicle.proximaRevisaoData);
+        const revDateCompare = new Date(revDate.getFullYear(), revDate.getMonth(), revDate.getDate());
+        const diffTime = revDateCompare - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+        if (revDateCompare < today) {
+            issues.push({ category: 'manutencao', type: 'error', message: `MANUTENÇÃO VENCIDA (Data): ${revDate.toLocaleDateString()}.` });
+        } else if (diffDays <= 7) { 
+            issues.push({ category: 'manutencao', type: 'warning', message: `Manutenção agendada para ${revDate.toLocaleDateString()} (em ${diffDays} dias).` });
+        }
+    }
+
+    // 2. Manutenção por Leitura
+    const currentReading = parseFloat(vehicle.horimetro || 0);
+    const type = getReadingType(vehicle);
+    let proximaLeitura = 0;
+    
+    if (type === 'KM') {
+        proximaLeitura = parseFloat(vehicle.proximaRevisaoKm || 0);
+    } else {
+        proximaLeitura = parseFloat(vehicle.proximaRevisaoHoras || 0);
+    }
+
+    if (proximaLeitura > 0) {
+        const avisoAntecedencia = type === 'KM' ? 500 : 20; 
+
+        if (currentReading >= proximaLeitura) {
+            issues.push({ category: 'manutencao', type: 'error', message: `MANUTENÇÃO VENCIDA (Leitura): ${currentReading}/${proximaLeitura} ${type}.` });
+        } else if ((proximaLeitura - currentReading) <= avisoAntecedencia) {
+            const faltam = (proximaLeitura - currentReading).toFixed(1);
+            issues.push({ category: 'manutencao', type: 'warning', message: `Manutenção PRÓXIMA: Faltam ${faltam} ${type}.` });
+        }
+    }
+
+    // 3. Documentos
+    const docs = [
+        { key: 'validadeTacografo', label: 'Tacógrafo' },
+        { key: 'validadeAET_DAER', label: 'AET DAER' },
+        { key: 'validadeAET_DNIT', label: 'AET DNIT' },
+        { key: 'validadeLicenciamento', label: 'Licenciamento' },
+    ];
+
+    docs.forEach(doc => {
+        if (vehicle[doc.key]) {
+            const docDate = new Date(vehicle[doc.key]);
+            const docDateCompare = new Date(docDate.getFullYear(), docDate.getMonth(), docDate.getDate());
+            const diffTime = docDateCompare - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (docDateCompare < today) {
+                issues.push({ category: 'documento', type: 'error', message: `${doc.label} VENCIDO em ${docDate.toLocaleDateString()}.` });
+            } else if (diffDays <= 15) { 
+                issues.push({ category: 'documento', type: 'warning', message: `${doc.label} vence em ${diffDays} dias.` });
+            }
+        }
+    });
+
+    // 4. Status de Bloqueio Manual
+    if (vehicle.status === 'MANUTENCAO' || vehicle.status === 'QUEBRADO') {
+        issues.push({ category: 'status', type: 'block', message: `Veículo marcado como ${vehicle.status}.` });
+    }
+
+    return issues;
+};
+// --- FIM DA INTEGRAÇÃO DAS REGRAS ---
 
 const SolicitacaoAbastecimentoPage = ({ 
     apiClient, 
@@ -271,16 +386,16 @@ const SolicitacaoAbastecimentoPage = ({
 
     useEffect(() => {
         if (veiculoSelecionado) {
-            // Inicializa data atual formatada para input datetime-local
+            // Inicializa data atual formatada para input date (YYYY-MM-DD)
             const now = new Date();
             now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-            const defaultDate = now.toISOString().slice(0, 16);
+            const defaultDate = now.toISOString().slice(0, 10); // Alterado para 10 caracteres (YYYY-MM-DD)
 
             setFormData(prev => ({ 
                 ...prev, 
                 odometro: '', 
                 horimetro: '',
-                dataAbastecimento: defaultDate // Seta data padrão
+                dataAbastecimento: defaultDate // Seta data padrão sem hora
             }));
             
             let lastPartnerId = null;
@@ -428,7 +543,7 @@ const SolicitacaoAbastecimentoPage = ({
         }
 
         if (!formData.dataAbastecimento) {
-            setAlertMessage("Informe a data e hora do abastecimento.");
+            setAlertMessage("Informe a data do abastecimento.");
             return;
         }
 
@@ -702,18 +817,18 @@ const SolicitacaoAbastecimentoPage = ({
                         )}
                     </div>
 
-                    {/* --- CAMPO DE DATA DO ABASTECIMENTO --- */}
+                    {/* --- CAMPO DE DATA DO ABASTECIMENTO (ALTERADO) --- */}
                     <div className="space-y-1">
                          <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
-                            <Calendar size={14}/> Data e Hora do Abastecimento
+                            <Calendar size={14}/> Data do Abastecimento
                         </label>
                         <input 
-                            type="datetime-local" 
+                            type="date" 
                             className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg"
                             value={formData.dataAbastecimento}
                             onChange={e => setFormData({...formData, dataAbastecimento: e.target.value})}
                         />
-                         <p className="text-[10px] text-gray-500 px-1">Se foi em outro dia, altere aqui.</p>
+                         <p className="text-[10px] text-gray-500 px-1">Se for em outro dia altere aqui, se for hoje não altere.</p>
                     </div>
 
                     <div className="space-y-1">
@@ -727,7 +842,7 @@ const SolicitacaoAbastecimentoPage = ({
                             {formData.funcionarioId && filteredEmployees.length === 0 && (
                                 <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
                             )}
-                            <option value="">Selecione quem está abastecendo...</option>
+                            <option value="">Selecione quem está trabalhando na RE...</option>
                             {filteredEmployees.map(e => (
                                 <option key={e.id} value={e.id}>{e.nome}</option>
                             ))}
