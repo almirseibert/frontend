@@ -6,8 +6,8 @@ import {
     CalendarClock, Gauge
 } from 'lucide-react';
 
-// Importação das Regras Centralizadas para evitar erro de build
-// CORREÇÃO: Uso de '../utils' pois este arquivo está em 'src/pages'
+// Importação das Regras Centralizadas
+// Caminho corrigido para '../utils' (pois o arquivo está em 'src/pages')
 import { getVehicleMainReading, needsArla } from '../utils/vehicleRules';
 
 const SolicitacaoAbastecimentoPage = ({ 

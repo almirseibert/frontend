@@ -63,6 +63,16 @@ export const getVehicleMainReading = (vehicle) => {
 };
 
 /**
+ * COMPATIBILIDADE LEGADO
+ * Mantida para evitar erro de build em outros componentes que esperam essa função.
+ * Retorna array com o tipo de leitura permitido.
+ */
+export const getAllowedReadingTypes = (vehicle) => {
+    const main = getVehicleMainReading(vehicle);
+    return [main];
+};
+
+/**
  * Determina se o veículo precisa de Arla 32
  * @param {Object} vehicle 
  * @returns {boolean}
