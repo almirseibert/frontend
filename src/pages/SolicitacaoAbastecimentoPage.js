@@ -81,20 +81,24 @@ const SolicitacaoAbastecimentoPage = ({
     const userObrasIds = useMemo(() => {
         if (!user || !obras.length) return [];
         
-        // Se for Admin ou Gestor sem restrição, pode ver tudo (opcional, mantendo regra estrita do solicitante)
-        // Mas a regra diz: "filtrar a partir da tabela users coluna employeeId"
+        // ID do funcionário vinculado ao usuário (tabela users -> employeeId)
+        const myEmployeeId = user.employeeId; 
         
-        const myEmployeeId = user.employeeId; // ID do funcionário vinculado ao usuário
-        if (!myEmployeeId) return []; // Se usuário não tem vínculo com funcionário, não vê obras
+        // Se usuário não tem vínculo com funcionário, não vê obras (regra estrita)
+        if (!myEmployeeId) return []; 
 
         const activeObraIds = [];
         
         obras.forEach(obra => {
             if (obra.historicoVeiculos && Array.isArray(obra.historicoVeiculos)) {
-                // Procura se o funcionário está ativo nesta obra (dataSaida IS NULL)
-                const isUserInObra = obra.historicoVeiculos.some(h => 
-                    h.employeeId === myEmployeeId && !h.dataSaida
-                );
+                // Procura se o funcionário está ativo nesta obra (employeeId bate E dataSaida é NULL)
+                const isUserInObra = obra.historicoVeiculos.some(h => {
+                    // Comparação flexível (==) para cobrir string vs number
+                    const isSameEmployee = h.employeeId == myEmployeeId;
+                    const isActive = !h.dataSaida; // dataSaida deve ser null/falsy
+                    return isSameEmployee && isActive;
+                });
+
                 if (isUserInObra) {
                     activeObraIds.push(obra.id);
                 }
@@ -108,7 +112,10 @@ const SolicitacaoAbastecimentoPage = ({
     const filteredVehicles = useMemo(() => {
         if (!formData.obraId) return [];
         
-        const selectedObra = obras.find(o => o.id === formData.obraId);
+        // Encontrar a obra selecionada (comparação flexível de ID)
+        const selectedObra = obras.find(o => o.id == formData.obraId);
+        
+        // Se a obra não tiver histórico carregado, retorna vazio
         if (!selectedObra || !selectedObra.historicoVeiculos) return [];
 
         // Filtra veículos que estão ativos nesta obra (dataSaida NULL)
@@ -116,9 +123,9 @@ const SolicitacaoAbastecimentoPage = ({
             .filter(h => !h.dataSaida)
             .map(h => h.veiculoId);
         
-        // Retorna e ordena alfabeticamente
+        // Retorna os veículos cujos IDs estão na lista de ativos
         return vehicles
-            .filter(v => activeVehicleIds.includes(v.id))
+            .filter(v => activeVehicleIds.some(activeId => activeId == v.id))
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [formData.obraId, obras, vehicles]);
 
@@ -126,7 +133,7 @@ const SolicitacaoAbastecimentoPage = ({
     const filteredEmployees = useMemo(() => {
         if (!formData.obraId) return []; 
 
-        const selectedObra = obras.find(o => o.id === formData.obraId);
+        const selectedObra = obras.find(o => o.id == formData.obraId);
         if (!selectedObra || !selectedObra.historicoVeiculos) return [];
 
         // Pega IDs de funcionários ativos nesta obra (Colegas de trabalho)
@@ -136,7 +143,7 @@ const SolicitacaoAbastecimentoPage = ({
         
         // Filtra lista de funcionários e ordena
         return employees
-            .filter(e => activeEmployeeIds.includes(e.id))
+            .filter(e => activeEmployeeIds.some(activeId => activeId == e.id))
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     }, [formData.obraId, obras, employees]);
 
@@ -171,8 +178,8 @@ const SolicitacaoAbastecimentoPage = ({
     // Auto-selecionar o próprio usuário como funcionário responsável
     useEffect(() => {
         if (user && user.employeeId && !formData.funcionarioId) {
-            // Verifica se ele está na lista de filtrados (está na obra)
-            const isInList = filteredEmployees.some(e => e.id === user.employeeId);
+            // Verifica se ele está na lista de filtrados (está na obra selecionada)
+            const isInList = filteredEmployees.some(e => e.id == user.employeeId);
             if (isInList) {
                 setFormData(prev => ({ ...prev, funcionarioId: user.employeeId }));
             }
@@ -182,7 +189,7 @@ const SolicitacaoAbastecimentoPage = ({
     // --- LÓGICA DO VEÍCULO SELECIONADO ---
 
     const veiculoSelecionado = useMemo(() => {
-        return vehicles.find(v => v.id === formData.veiculoId);
+        return vehicles.find(v => v.id == formData.veiculoId);
     }, [formData.veiculoId, vehicles]);
 
     // Ao selecionar veículo: Sugere Posto e Limpa Leituras
@@ -197,7 +204,7 @@ const SolicitacaoAbastecimentoPage = ({
             // 2. Se não tiver no objeto, tenta achar na lista de requisições recentes
             if (!lastPartner) {
                 // Procura a última requisição aprovada deste veículo
-                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id && r.status === 'CONCLUIDO');
+                const lastReq = myRequests.find(r => r.veiculo_id == veiculoSelecionado.id && r.status === 'CONCLUIDO');
                 if (lastReq) lastPartner = lastReq.posto_id;
             }
 
