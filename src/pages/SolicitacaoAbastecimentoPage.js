@@ -14,7 +14,7 @@ const SolicitacaoAbastecimentoPage = ({
     vehicles = [], 
     obras = [], 
     partners = [], 
-    employees = [], 
+    employees = [], // Pode vir vazio inicialmente
     setAlertMessage,
     user,
     onLogout
@@ -26,6 +26,9 @@ const SolicitacaoAbastecimentoPage = ({
     const [userStatus, setUserStatus] = useState({ blocked: false, attempts: 0 });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [gpsError, setGpsError] = useState(false);
+    
+    // Estado interno para garantir que funcionários existam mesmo que a prop falhe
+    const [internalEmployees, setInternalEmployees] = useState([]);
     
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
@@ -64,8 +67,10 @@ const SolicitacaoAbastecimentoPage = ({
     const fileInputRef = useRef(null);
     const cupomInputRef = useRef(null);
 
+    // Usa a lista interna se a prop vier vazia
+    const effectiveEmployees = employees.length > 0 ? employees : internalEmployees;
+
     // --- HELPER: NORMALIZAÇÃO DE STRING ---
-    // Remove acentos, espaços extras e coloca em minúsculas para comparação segura
     const normalizeStr = (str) => {
         if (!str) return '';
         return str.toString()
@@ -75,37 +80,79 @@ const SolicitacaoAbastecimentoPage = ({
             .trim();
     };
 
-    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO (FALLBACKS ROBUSTOS) ---
+    // --- CARREGAMENTO DE DADOS DE FALLBACK ---
+    useEffect(() => {
+        // Se a lista de funcionários veio vazia, tenta buscar manualmente
+        const fetchMissingEmployees = async () => {
+            if (employees.length === 0 && internalEmployees.length === 0) {
+                try {
+                    // Tenta endpoints comuns. Ajuste conforme sua rota real.
+                    const res = await apiClient.get('/funcionarios?ativo=true');
+                    if (Array.isArray(res)) {
+                        setInternalEmployees(res);
+                    }
+                } catch (error) {
+                    console.warn("Não foi possível carregar funcionários (fallback):", error);
+                }
+            }
+        };
+
+        if (user) {
+            fetchMissingEmployees();
+            checkUserStatus();
+            fetchMyRequests();
+        }
+    }, [user, employees.length]); // Executa se user muda ou se employees continua vazio
+
+    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO (CRÍTICA) ---
     const myEmployeeId = useMemo(() => {
         if (!user) return null;
         
-        // 1. Tenta pegar direto do objeto user (se o backend enviar)
+        // 1. Tenta pegar direto do objeto user (se o backend já tiver vinculado)
         if (user.employeeId) return user.employeeId;
         if (user.employee_id) return user.employee_id;
 
-        // Se não temos a lista de funcionários, não dá para buscar
-        if (!Array.isArray(employees) || employees.length === 0) return null;
+        const normalizedUserName = normalizeStr(user.name);
+        const normalizedUserEmail = normalizeStr(user.email);
 
-        // 2. Fallback: Procura por E-mail (Normalizado)
-        if (user.email) {
-            const userEmail = normalizeStr(user.email);
-            const found = employees.find(e => normalizeStr(e.email) === userEmail);
-            if (found) return found.id;
+        // 2. Procura na lista de funcionários (se estiver carregada)
+        if (effectiveEmployees.length > 0) {
+            // Por Email
+            if (normalizedUserEmail) {
+                const found = effectiveEmployees.find(e => normalizeStr(e.email) === normalizedUserEmail);
+                if (found) return found.id;
+            }
+            // Por Nome
+            if (normalizedUserName) {
+                const found = effectiveEmployees.find(e => normalizeStr(e.nome) === normalizedUserName);
+                if (found) return found.id;
+            }
         }
 
-        // 3. Fallback CRÍTICO: Procura pelo NOME (Normalizado)
-        if (user.name) {
-            const userName = normalizeStr(user.name);
-            const found = employees.find(e => normalizeStr(e.nome) === userName);
-            if (found) return found.id;
+        // 3. SUPER FALLBACK: Procura diretamente no Histórico das Obras
+        // Isso resolve o problema "Funcionários na Lista: 0" se a obra já estiver carregada
+        if (obras.length > 0 && normalizedUserName) {
+            for (const obra of obras) {
+                if (obra.historicoVeiculos && Array.isArray(obra.historicoVeiculos)) {
+                    // Procura alguém com o MEU NOME alocado em algum carro
+                    const match = obra.historicoVeiculos.find(h => 
+                        !h.dataSaida && // Ainda está na obra
+                        (normalizeStr(h.employeeName || h.nome_funcionario) === normalizedUserName)
+                    );
+                    
+                    if (match && match.employeeId) {
+                        return match.employeeId; // ACHAMOS O ID PERDIDO!
+                    }
+                }
+            }
         }
 
         return null;
-    }, [user, employees]);
+    }, [user, effectiveEmployees, obras]);
 
     // --- LÓGICA DE FILTRAGEM (OBRA -> VEÍCULOS -> FUNCIONÁRIOS) ---
 
-    // 1. Identificar Obra(s) onde o Usuário Logado está ALOCADO ATUALMENTE
+    // 1. Obras onde o usuário está ALOCADO
     const allowedObras = useMemo(() => {
         if (!myEmployeeId || !obras.length) return [];
 
@@ -120,50 +167,42 @@ const SolicitacaoAbastecimentoPage = ({
         });
     }, [myEmployeeId, obras]);
 
-    // Lógica Unificada para filtrar Veículos e Funcionários baseados na OBRA SELECIONADA
+    // Lógica Unificada para filtrar Veículos e Funcionários da OBRA SELECIONADA
     const { filteredVehicles, filteredEmployees } = useMemo(() => {
         if (!formData.obraId) return { filteredVehicles: [], filteredEmployees: [] };
 
-        // 1. Encontra a Obra Selecionada
         const selectedObra = obras.find(o => String(o.id) === String(formData.obraId));
         
         if (!selectedObra || !selectedObra.historicoVeiculos) {
             return { filteredVehicles: [], filteredEmployees: [] };
         }
 
-        // 2. Coleta IDs de Veículos e Funcionários ATIVOS nesta Obra (dataSaida NULL)
         const activeVehiclesIds = new Set();
         const activeEmployeesIds = new Set();
 
         selectedObra.historicoVeiculos.forEach(h => {
-            if (!h.dataSaida) { // Apenas registros ativos
+            if (!h.dataSaida) { 
                 if (h.veiculoId) activeVehiclesIds.add(String(h.veiculoId));
                 if (h.employeeId) activeEmployeesIds.add(String(h.employeeId));
             }
         });
 
-        // 3. Filtra as listas principais usando os IDs coletados
         const veiculosDaObra = vehicles
             .filter(v => activeVehiclesIds.has(String(v.id)))
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
 
-        const funcionariosDaObra = employees
+        // Usa effectiveEmployees para garantir que temos a fonte de dados
+        const funcionariosDaObra = effectiveEmployees
             .filter(e => activeEmployeesIds.has(String(e.id)))
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 
         return { filteredVehicles: veiculosDaObra, filteredEmployees: funcionariosDaObra };
 
-    }, [formData.obraId, obras, vehicles, employees]);
+    }, [formData.obraId, obras, vehicles, effectiveEmployees]);
 
 
-    // --- EFEITOS DE INICIALIZAÇÃO ---
-
+    // --- EFEITOS DE SISTEMA ---
     useEffect(() => {
-        if (user) {
-            checkUserStatus();
-            fetchMyRequests();
-        }
-        
         const handleOnline = () => setIsOffline(false);
         const handleOffline = () => setIsOffline(true);
         window.addEventListener('online', handleOnline);
@@ -174,21 +213,22 @@ const SolicitacaoAbastecimentoPage = ({
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
-    }, [user]);
+    }, []);
 
-    // Auto-selecionar Obra se o usuário só tiver uma alocada
+    // Auto-selecionar Obra se o usuário só tiver uma
     useEffect(() => {
         if (allowedObras.length === 1 && !formData.obraId) {
             setFormData(prev => ({ ...prev, obraId: allowedObras[0].id }));
         }
     }, [allowedObras]);
 
-    // Auto-selecionar o próprio usuário como funcionário responsável
+    // Auto-selecionar Funcionário (ele mesmo)
     useEffect(() => {
         if (myEmployeeId && formData.obraId && !formData.funcionarioId) {
-            // Verifica se ele está na lista de funcionários da obra selecionada
-            const isInList = filteredEmployees.some(e => String(e.id) === String(myEmployeeId));
-            if (isInList) {
+            // Verifica se eu estou na lista filtrada da obra (para garantir consistência)
+            // Se a lista de funcionários estiver vazia (ainda carregando), podemos setar o ID mesmo assim se confiarmos na alocação
+            const myself = filteredEmployees.some(e => String(e.id) === String(myEmployeeId));
+            if (myself || filteredEmployees.length === 0) {
                 setFormData(prev => ({ ...prev, funcionarioId: myEmployeeId }));
             }
         }
@@ -205,45 +245,32 @@ const SolicitacaoAbastecimentoPage = ({
         if (veiculoSelecionado) {
             setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
 
-            // REGRA: Sempre selecionar o último posto que aquele veículo abasteceu
-            // 1. Tenta pegar direto do objeto veículo
-            let lastPartner = veiculoSelecionado.lastPartnerId;
+            let lastPartnerId = null;
+            // 1. Tenta pegar da última solicitação
+            const lastReq = myRequests.find(r => 
+                String(r.veiculo_id) === String(veiculoSelecionado.id) && 
+                (r.status === 'CONCLUIDO' || r.status === 'LIBERADO')
+            );
             
-            // 2. Se não tiver no objeto, tenta achar na lista de requisições recentes
-            if (!lastPartner) {
-                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id && r.status === 'CONCLUIDO');
-                if (lastReq) lastPartner = lastReq.posto_id;
+            if (lastReq && lastReq.posto_id) {
+                lastPartnerId = lastReq.posto_id;
+            } else {
+                // 2. Fallback para cadastro
+                lastPartnerId = veiculoSelecionado.lastPartnerId;
             }
 
-            if (lastPartner) {
-                setFormData(prev => ({ ...prev, postoId: lastPartner }));
+            if (lastPartnerId) {
+                setFormData(prev => ({ ...prev, postoId: lastPartnerId }));
             }
         }
     }, [veiculoSelecionado, myRequests]);
 
-    // Determina tipo de leitura (Km ou Horas) usando o UTILS
-    const readingType = useMemo(() => {
-        return getVehicleMainReading(veiculoSelecionado);
-    }, [veiculoSelecionado]);
-
-    // Determina se exibe Arla usando o UTILS
-    const showArlaSection = useMemo(() => {
-        return needsArla(veiculoSelecionado);
-    }, [veiculoSelecionado]);
-
-    // Alerta de Abastecimento Recente (< 24h)
+    const readingType = useMemo(() => getVehicleMainReading(veiculoSelecionado), [veiculoSelecionado]);
+    const showArlaSection = useMemo(() => needsArla(veiculoSelecionado), [veiculoSelecionado]);
     const recentRefuelAlert = useMemo(() => {
-        if (!veiculoSelecionado) return false;
-        
-        const lastDate = veiculoSelecionado.ultimaDataAbastecimento 
-            ? new Date(veiculoSelecionado.ultimaDataAbastecimento) 
-            : null;
-
-        if (lastDate) {
-            const diffHours = (new Date() - lastDate) / (1000 * 60 * 60);
-            if (diffHours < 24) return true;
-        }
-        return false;
+        if (!veiculoSelecionado || !veiculoSelecionado.ultimaDataAbastecimento) return false;
+        const diffHours = (new Date() - new Date(veiculoSelecionado.ultimaDataAbastecimento)) / (1000 * 60 * 60);
+        return diffHours < 24;
     }, [veiculoSelecionado]);
 
 
@@ -287,10 +314,10 @@ const SolicitacaoAbastecimentoPage = ({
                     }));
                 },
                 (error) => {
-                    console.warn("GPS não disponível:", error.message);
+                    console.warn("GPS Indisponível:", error);
                     setGpsError(true);
                 },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
             );
         } else {
             setGpsError(true);
@@ -365,42 +392,36 @@ const SolicitacaoAbastecimentoPage = ({
             return;
         }
 
-        // Validação Específica de Leitura
         if (readingType === 'odometro' && !formData.odometro) {
-            setAlertMessage("É obrigatório informar o HODÔMETRO (Km) para este veículo.");
+            setAlertMessage("É obrigatório informar o HODÔMETRO (Km).");
             return;
         }
         if (readingType === 'horimetro' && !formData.horimetro) {
-            setAlertMessage("É obrigatório informar o HORÍMETRO (Hr) para este equipamento.");
+            setAlertMessage("É obrigatório informar o HORÍMETRO (Hr).");
             return;
         }
 
         setLoading(true);
 
         const payload = new FormData();
+        Object.keys(formData).forEach(key => {
+            if (formData[key] !== null && formData[key] !== undefined) {
+                // Tratamento especial para booleanos e campos condicionais
+                if (key === 'litragem' && formData.flagTanqueCheio) {
+                    payload.append(key, '0');
+                } else {
+                    payload.append(key, formData[key]);
+                }
+            }
+        });
         
-        payload.append('veiculoId', formData.veiculoId);
-        payload.append('obraId', formData.obraId);
-        payload.append('postoId', formData.postoId);
-        payload.append('funcionarioId', formData.funcionarioId);
-        payload.append('tipoCombustivel', formData.tipoCombustivel);
-        payload.append('litragem', formData.flagTanqueCheio ? '0' : formData.litragem);
-        payload.append('flagTanqueCheio', formData.flagTanqueCheio);
-        payload.append('flagOutros', formData.flagOutros);
-        payload.append('descricao_outros', formData.descricaoOutros);
-        
-        // Monta observação incluindo Arla
+        // Ajuste final observação com Arla
         let obsFinal = formData.observacao;
         if (formData.needsArla) {
             obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
+            payload.set('observacao', obsFinal);
         }
-        payload.append('observacao', obsFinal);
 
-        if (formData.horimetro) payload.append('horimetro', formData.horimetro);
-        if (formData.odometro) payload.append('odometro', formData.odometro);
-        if (formData.latitude) payload.append('latitude', formData.latitude);
-        if (formData.longitude) payload.append('longitude', formData.longitude);
-        
         payload.append('foto_painel', rawImageFile);
 
         try {
@@ -520,8 +541,8 @@ const SolicitacaoAbastecimentoPage = ({
                             <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
                                 <p><strong>User:</strong> {user.name} ({user.id})</p>
                                 <p><strong>EmpID Detectado:</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
-                                <p><strong>Funcionários na Lista:</strong> {Array.isArray(employees) ? employees.length : 'Erro (não é array)'}</p>
-                                <p><strong>Obras Disponíveis Total:</strong> {obras.length}</p>
+                                <p><strong>Funcionários:</strong> {effectiveEmployees.length} (Carregados)</p>
+                                <p><strong>Obras Disponíveis:</strong> {obras.length}</p>
                             </div>
                         </div>
                     )}
@@ -591,6 +612,10 @@ const SolicitacaoAbastecimentoPage = ({
                             onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
                             disabled={!formData.obraId}
                         >
+                            {/* Fallback visual caso a lista esteja vazia mas o ID esteja setado */}
+                            {formData.funcionarioId && filteredEmployees.length === 0 && (
+                                <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
+                            )}
                             <option value="">Selecione quem está abastecendo...</option>
                             {filteredEmployees.map(e => (
                                 <option key={e.id} value={e.id}>{e.nome}</option>
