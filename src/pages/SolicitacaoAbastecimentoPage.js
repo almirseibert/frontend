@@ -413,11 +413,24 @@ const SolicitacaoAbastecimentoPage = ({
             payload.append('litragem', litragemSanitized);
         }
 
-        // Leituras: Envia '0' se estiver vazio e substitui vírgula por ponto
-        const odometroVal = formData.odometro ? formData.odometro.toString().replace(',', '.') : '0';
-        const horimetroVal = formData.horimetro ? formData.horimetro.toString().replace(',', '.') : '0';
+        // Leituras: Envia valor sanitizado APENAS para o tipo ativo. 
+        // Envia vazio ('') para o inativo para evitar validações incorretas de "valor zerado" no backend.
+        let odometroVal = '';
+        let horimetroVal = '';
+
+        if (readingType === 'odometro') {
+            odometroVal = formData.odometro ? formData.odometro.toString().replace(',', '.') : '';
+        } else if (readingType === 'horimetro') {
+            horimetroVal = formData.horimetro ? formData.horimetro.toString().replace(',', '.') : '';
+        }
         
-        payload.append('odometro', odometroVal);
+        // Fallback: Se por algum motivo nada foi capturado mas o usuário digitou algo
+        if (!odometroVal && !horimetroVal) {
+             if (formData.odometro) odometroVal = formData.odometro.toString().replace(',', '.');
+             if (formData.horimetro) horimetroVal = formData.horimetro.toString().replace(',', '.');
+        }
+        
+        payload.append('odometro', odometroVal); 
         payload.append('horimetro', horimetroVal);
 
         // GPS: Garante '0' se nulo
@@ -434,16 +447,20 @@ const SolicitacaoAbastecimentoPage = ({
         }
         payload.append('observacao', obsFinal);
 
-        // DEBUG: Verifique no console o que está sendo enviado
-        console.log("--- Payload Envio ---");
+        // DEBUG
+        console.log("--- Payload Envio (Corrigido) ---");
         for (let [key, value] of payload.entries()) {
              console.log(`${key}:`, value);
         }
 
         try {
-            // CORREÇÃO CRÍTICA: Remover cabeçalho manual Content-Type.
-            // O axios/browser deve definir isso automaticamente com o boundary correto ao usar FormData.
-            await apiClient.post('/solicitacoes', payload);
+            // CORREÇÃO CRÍTICA: Forçar Content-Type undefined remove headers padrões (ex: application/json)
+            // permitindo que o browser defina o multipart/form-data boundary corretamente.
+            await apiClient.post('/solicitacoes', payload, {
+                headers: {
+                    'Content-Type': undefined 
+                }
+            });
             
             setAlertMessage("Solicitação enviada com sucesso!");
             
@@ -484,8 +501,12 @@ const SolicitacaoAbastecimentoPage = ({
         payload.append('foto_cupom', cupomFile);
 
         try {
-            // CORREÇÃO: Remover cabeçalho manual
-            await apiClient.put(`/solicitacoes/${solicitacaoId}/comprovante`, payload);
+            // Aplicando a mesma correção de header aqui também
+            await apiClient.put(`/solicitacoes/${solicitacaoId}/comprovante`, payload, {
+                headers: {
+                    'Content-Type': undefined 
+                }
+            });
             setAlertMessage("Comprovante enviado!");
             setCupomFile(null);
             setCupomPreview(null);
