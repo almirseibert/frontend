@@ -86,10 +86,17 @@ const SolicitacaoAbastecimentoPage = ({
         if (user.employee_id) return user.employee_id;
 
         // 3. Fallback: Tenta encontrar funcionário pelo e-mail do usuário
-        if (user.email && employees.length > 0) {
+        if (user.email && Array.isArray(employees) && employees.length > 0) {
             // Normaliza para lowercase para evitar erros de digitação
             const userEmail = user.email.toLowerCase().trim();
             const found = employees.find(e => e.email && e.email.toLowerCase().trim() === userEmail);
+            if (found) return found.id;
+        }
+
+        // 4. Fallback CRÍTICO: Tenta encontrar pelo NOME (Caso e-mail falhe)
+        if (user.name && Array.isArray(employees) && employees.length > 0) {
+            const userName = user.name.toLowerCase().trim();
+            const found = employees.find(e => e.nome && e.nome.toLowerCase().trim() === userName);
             if (found) return found.id;
         }
 
@@ -544,9 +551,10 @@ const SolicitacaoAbastecimentoPage = ({
                             {/* Debug Avançado (Visível apenas se houver erro) */}
                             <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
                                 <p><strong>UserID:</strong> {user.id}</p>
-                                <p><strong>Email:</strong> {user.email || 'N/A'}</p>
+                                <p><strong>User Name:</strong> {user.name}</p>
                                 <p><strong>EmpID (User):</strong> {user.employeeId || user.employee_id || 'N/A'}</p>
                                 <p><strong>EmpID (Resolvido):</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
+                                <p><strong>Funcionários Carregados:</strong> {Array.isArray(employees) ? employees.length : 'Erro (não é array)'}</p>
                             </div>
                         </div>
                     )}
