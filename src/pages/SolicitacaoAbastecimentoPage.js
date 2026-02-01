@@ -92,7 +92,8 @@ const SolicitacaoAbastecimentoPage = ({
                         setInternalEmployees(res);
                     }
                 } catch (error) {
-                    console.warn("Não foi possível carregar funcionários (fallback):", error);
+                    // Silencioso: Se falhar (404), vamos usar a extração via Obras
+                    console.log("API Funcionários indisponível, usando dados das Obras.");
                 }
             }
         };
@@ -191,10 +192,38 @@ const SolicitacaoAbastecimentoPage = ({
             .filter(v => activeVehiclesIds.has(String(v.id)))
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
 
-        // Usa effectiveEmployees para garantir que temos a fonte de dados
-        const funcionariosDaObra = effectiveEmployees
-            .filter(e => activeEmployeesIds.has(String(e.id)))
-            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+        // --- CORREÇÃO PRINCIPAL: EXTRAÇÃO DE FUNCIONÁRIOS ---
+        // Se a lista oficial falhou, montamos a lista baseada no que está no histórico da obra
+        let funcionariosDaObra = [];
+
+        // 1. Tenta filtrar da lista oficial
+        if (effectiveEmployees.length > 0) {
+            funcionariosDaObra = effectiveEmployees
+                .filter(e => activeEmployeesIds.has(String(e.id)))
+                .map(e => ({ id: e.id, nome: e.nome })); // Padroniza
+        }
+
+        // 2. Se a lista oficial está vazia ou incompleta, extrai do histórico
+        // Isso garante que todos que estão na obra apareçam, mesmo sem API de funcionários
+        if (funcionariosDaObra.length < activeEmployeesIds.size) {
+            const existingIds = new Set(funcionariosDaObra.map(f => String(f.id)));
+            
+            selectedObra.historicoVeiculos.forEach(h => {
+                const empId = String(h.employeeId);
+                const empName = h.employeeName || h.nome_funcionario; // Tenta pegar nome do histórico
+
+                if (!h.dataSaida && empId && !existingIds.has(empId) && empId !== 'null' && empId !== 'undefined') {
+                    funcionariosDaObra.push({
+                        id: empId,
+                        nome: empName || 'Funcionário (Sem Nome)'
+                    });
+                    existingIds.add(empId);
+                }
+            });
+        }
+
+        // Ordena alfabeticamente
+        funcionariosDaObra.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 
         return { filteredVehicles: veiculosDaObra, filteredEmployees: funcionariosDaObra };
 
@@ -314,7 +343,7 @@ const SolicitacaoAbastecimentoPage = ({
                     }));
                 },
                 (error) => {
-                    console.warn("GPS Indisponível:", error);
+                    console.warn("GPS Indisponível:", error.message);
                     setGpsError(true);
                 },
                 { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -541,7 +570,7 @@ const SolicitacaoAbastecimentoPage = ({
                             <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
                                 <p><strong>User:</strong> {user.name} ({user.id})</p>
                                 <p><strong>EmpID Detectado:</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
-                                <p><strong>Funcionários:</strong> {effectiveEmployees.length} (Carregados)</p>
+                                <p><strong>Funcionários:</strong> {filteredEmployees.length} (Disponíveis)</p>
                                 <p><strong>Obras Disponíveis:</strong> {obras.length}</p>
                             </div>
                         </div>
