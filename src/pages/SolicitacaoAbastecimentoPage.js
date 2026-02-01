@@ -434,10 +434,16 @@ const SolicitacaoAbastecimentoPage = ({
         }
         payload.append('observacao', obsFinal);
 
+        // DEBUG: Verifique no console o que está sendo enviado
+        console.log("--- Payload Envio ---");
+        for (let [key, value] of payload.entries()) {
+             console.log(`${key}:`, value);
+        }
+
         try {
-            await apiClient.post('/solicitacoes', payload, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            // CORREÇÃO CRÍTICA: Remover cabeçalho manual Content-Type.
+            // O axios/browser deve definir isso automaticamente com o boundary correto ao usar FormData.
+            await apiClient.post('/solicitacoes', payload);
             
             setAlertMessage("Solicitação enviada com sucesso!");
             
@@ -478,9 +484,8 @@ const SolicitacaoAbastecimentoPage = ({
         payload.append('foto_cupom', cupomFile);
 
         try {
-            await apiClient.put(`/solicitacoes/${solicitacaoId}/comprovante`, payload, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            // CORREÇÃO: Remover cabeçalho manual
+            await apiClient.put(`/solicitacoes/${solicitacaoId}/comprovante`, payload);
             setAlertMessage("Comprovante enviado!");
             setCupomFile(null);
             setCupomPreview(null);
