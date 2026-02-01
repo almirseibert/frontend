@@ -413,22 +413,20 @@ const SolicitacaoAbastecimentoPage = ({
             payload.append('litragem', litragemSanitized);
         }
 
-        // Leituras: Envia valor sanitizado APENAS para o tipo ativo. 
-        // Envia vazio ('') para o inativo para evitar validações incorretas de "valor zerado" no backend.
-        let odometroVal = '';
-        let horimetroVal = '';
+        // Leituras: Envia valor sanitizado. 
+        // IMPORTANTE: Envia '0' em vez de string vazia '' para evitar erro de tipo DECIMAL no MySQL.
+        let odometroVal = '0';
+        let horimetroVal = '0';
 
         if (readingType === 'odometro') {
-            odometroVal = formData.odometro ? formData.odometro.toString().replace(',', '.') : '';
+            odometroVal = formData.odometro ? formData.odometro.toString().replace(',', '.') : '0';
         } else if (readingType === 'horimetro') {
-            horimetroVal = formData.horimetro ? formData.horimetro.toString().replace(',', '.') : '';
+            horimetroVal = formData.horimetro ? formData.horimetro.toString().replace(',', '.') : '0';
         }
         
-        // Fallback: Se por algum motivo nada foi capturado mas o usuário digitou algo
-        if (!odometroVal && !horimetroVal) {
-             if (formData.odometro) odometroVal = formData.odometro.toString().replace(',', '.');
-             if (formData.horimetro) horimetroVal = formData.horimetro.toString().replace(',', '.');
-        }
+        // Garantia final de que não estamos enviando vazio
+        if (!odometroVal) odometroVal = '0';
+        if (!horimetroVal) horimetroVal = '0';
         
         payload.append('odometro', odometroVal); 
         payload.append('horimetro', horimetroVal);
