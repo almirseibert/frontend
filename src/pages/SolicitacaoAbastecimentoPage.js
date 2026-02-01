@@ -22,6 +22,7 @@ const SolicitacaoAbastecimentoPage = ({
     const [loading, setLoading] = useState(false);
     const [userStatus, setUserStatus] = useState({ blocked: false, attempts: 0 });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [gpsError, setGpsError] = useState(false); // Novo estado para controle visual de GPS
     
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
@@ -73,21 +74,37 @@ const SolicitacaoAbastecimentoPage = ({
     const GRUPOS_ODOMETRO = [
         'VEÍCULO LEVE', 'UTILITÁRIO', 'PASSEIO', 'CAMINHÃO PRANCHA', 'CAMINHÃO TOCO'
     ];
-    // OBS: Caminhão Prancha pode estar em ambos (Arla e Km), o sistema tratará corretamente.
+
+    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO (FALLBACKS ROBUSTOS) ---
+    const myEmployeeId = useMemo(() => {
+        if (!user) return null;
+        
+        // 1. Tenta pegar direto do objeto user (camelCase)
+        if (user.employeeId) return user.employeeId;
+        
+        // 2. Tenta pegar snake_case (comum em retornos diretos de BD)
+        if (user.employee_id) return user.employee_id;
+
+        // 3. Fallback: Tenta encontrar funcionário pelo e-mail do usuário
+        if (user.email && employees.length > 0) {
+            // Normaliza para lowercase para evitar erros de digitação
+            const userEmail = user.email.toLowerCase().trim();
+            const found = employees.find(e => e.email && e.email.toLowerCase().trim() === userEmail);
+            if (found) return found.id;
+        }
+
+        return null;
+    }, [user, employees]);
 
     // --- LÓGICA DE FILTRAGEM (OBRA -> VEÍCULOS -> FUNCIONÁRIOS) ---
 
     // 1. Identificar Obra(s) onde o Usuário Logado está ALOCADO ATUALMENTE
     const userObrasIds = useMemo(() => {
-        if (!user || !obras.length) return [];
-        
-        // ID do funcionário vinculado ao usuário (tabela users -> employeeId)
-        // Se user.employeeId vier nulo, ele não verá obras.
-        const myEmployeeId = user.employeeId; 
-        
-        if (!myEmployeeId) {
-            console.warn("Usuário logado sem EmployeeID vinculado. Contate o suporte.");
-            return []; 
+        if (!myEmployeeId || !obras.length) {
+            if (user && !myEmployeeId) {
+                console.warn("AVISO: Usuário logado mas sem vínculo de funcionário identificado.");
+            }
+            return [];
         }
 
         const activeObraIds = [];
@@ -113,7 +130,7 @@ const SolicitacaoAbastecimentoPage = ({
         });
 
         return activeObraIds;
-    }, [user, obras]);
+    }, [myEmployeeId, obras, user]);
 
     // Lógica Unificada para filtrar Veículos e Funcionários baseados na OBRA SELECIONADA
     const { filteredVehicles, filteredEmployees } = useMemo(() => {
@@ -180,14 +197,14 @@ const SolicitacaoAbastecimentoPage = ({
 
     // Auto-selecionar o próprio usuário como funcionário responsável
     useEffect(() => {
-        if (user && user.employeeId && !formData.funcionarioId) {
+        if (myEmployeeId && !formData.funcionarioId) {
             // Verifica se ele está na lista de funcionários da obra selecionada
-            const isInList = filteredEmployees.some(e => String(e.id) === String(user.employeeId));
+            const isInList = filteredEmployees.some(e => String(e.id) === String(myEmployeeId));
             if (isInList) {
-                setFormData(prev => ({ ...prev, funcionarioId: user.employeeId }));
+                setFormData(prev => ({ ...prev, funcionarioId: myEmployeeId }));
             }
         }
-    }, [user, filteredEmployees]);
+    }, [myEmployeeId, filteredEmployees]);
 
     // --- LÓGICA DO VEÍCULO SELECIONADO ---
 
@@ -287,15 +304,21 @@ const SolicitacaoAbastecimentoPage = ({
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
+                    setGpsError(false);
                     setFormData(prev => ({
                         ...prev,
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude
                     }));
                 },
-                (error) => console.warn("Erro GPS:", error),
+                (error) => {
+                    console.warn("GPS não disponível:", error.message);
+                    setGpsError(true);
+                },
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
+        } else {
+            setGpsError(true);
         }
     };
 
@@ -499,14 +522,32 @@ const SolicitacaoAbastecimentoPage = ({
                             <WifiOff size={16} /> <strong>Offline:</strong> Salvo localmente.
                         </div>
                     )}
+                    
+                    {gpsError && (
+                        <div className="bg-gray-100 text-gray-600 p-2 rounded-lg flex items-center gap-2 text-xs border border-gray-200">
+                            <MapPin size={14} className="text-gray-400" /> 
+                            <span>Localização indisponível (Verifique permissões).</span>
+                        </div>
+                    )}
 
                     {/* Mensagem de Erro/Alerta se não houver obras */}
                     {userObrasIds.length === 0 && (
                         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
                             <p className="font-bold flex items-center gap-2"><AlertTriangle size={18}/> Sem Obra Alocada</p>
-                            <p className="text-sm mt-1">Seu usuário não está vinculado a nenhuma obra ativa. Contate o RH.</p>
-                            {/* Debug (Remover em produção se desejar) */}
-                            <p className="text-xs text-red-400 mt-2">Debug Info: UserID: {user.id}, EmpID: {user.employeeId || 'N/A'}</p>
+                            <p className="text-sm mt-1">
+                                Não encontramos veículos vinculados ao seu usuário.
+                            </p>
+                            <p className="text-xs mt-2 text-red-800">
+                                <strong>Dica:</strong> Verifique se seu cadastro de usuário está vinculado a um Funcionário no painel administrativo.
+                            </p>
+                            
+                            {/* Debug Avançado (Visível apenas se houver erro) */}
+                            <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
+                                <p><strong>UserID:</strong> {user.id}</p>
+                                <p><strong>Email:</strong> {user.email || 'N/A'}</p>
+                                <p><strong>EmpID (User):</strong> {user.employeeId || user.employee_id || 'N/A'}</p>
+                                <p><strong>EmpID (Resolvido):</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
+                            </div>
                         </div>
                     )}
 
