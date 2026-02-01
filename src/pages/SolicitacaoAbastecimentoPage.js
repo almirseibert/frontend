@@ -82,20 +82,27 @@ const SolicitacaoAbastecimentoPage = ({
         if (!user || !obras.length) return [];
         
         // ID do funcionário vinculado ao usuário (tabela users -> employeeId)
+        // Se user.employeeId vier nulo, ele não verá obras.
         const myEmployeeId = user.employeeId; 
         
-        // Se usuário não tem vínculo com funcionário, não vê obras (regra estrita)
-        if (!myEmployeeId) return []; 
+        if (!myEmployeeId) {
+            console.warn("Usuário logado sem EmployeeID vinculado. Contate o suporte.");
+            return []; 
+        }
 
         const activeObraIds = [];
         
         obras.forEach(obra => {
+            // Verifica se a obra tem histórico carregado
             if (obra.historicoVeiculos && Array.isArray(obra.historicoVeiculos)) {
-                // Procura se o funcionário está ativo nesta obra (employeeId bate E dataSaida é NULL)
+                // Procura se o funcionário está ativo nesta obra
                 const isUserInObra = obra.historicoVeiculos.some(h => {
-                    // Comparação flexível (==) para cobrir string vs number
-                    const isSameEmployee = h.employeeId == myEmployeeId;
-                    const isActive = !h.dataSaida; // dataSaida deve ser null/falsy
+                    // Comparação SEGURA de String para evitar erro de tipo (int vs string)
+                    const isSameEmployee = String(h.employeeId) === String(myEmployeeId);
+                    
+                    // Verifica se dataSaida é NULA ou VAZIA (Indica alocação ativa)
+                    const isActive = !h.dataSaida; 
+                    
                     return isSameEmployee && isActive;
                 });
 
@@ -108,44 +115,40 @@ const SolicitacaoAbastecimentoPage = ({
         return activeObraIds;
     }, [user, obras]);
 
-    // 2. Veículos Disponíveis (Filtrados pela Obra Selecionada)
-    const filteredVehicles = useMemo(() => {
-        if (!formData.obraId) return [];
-        
-        // Encontrar a obra selecionada (comparação flexível de ID)
-        const selectedObra = obras.find(o => o.id == formData.obraId);
-        
-        // Se a obra não tiver histórico carregado, retorna vazio
-        if (!selectedObra || !selectedObra.historicoVeiculos) return [];
+    // Lógica Unificada para filtrar Veículos e Funcionários baseados na OBRA SELECIONADA
+    const { filteredVehicles, filteredEmployees } = useMemo(() => {
+        if (!formData.obraId) return { filteredVehicles: [], filteredEmployees: [] };
 
-        // Filtra veículos que estão ativos nesta obra (dataSaida NULL)
-        const activeVehicleIds = selectedObra.historicoVeiculos
-            .filter(h => !h.dataSaida)
-            .map(h => h.veiculoId);
+        // 1. Encontra a Obra Selecionada
+        const selectedObra = obras.find(o => String(o.id) === String(formData.obraId));
         
-        // Retorna os veículos cujos IDs estão na lista de ativos
-        return vehicles
-            .filter(v => activeVehicleIds.some(activeId => activeId == v.id))
+        if (!selectedObra || !selectedObra.historicoVeiculos) {
+            return { filteredVehicles: [], filteredEmployees: [] };
+        }
+
+        // 2. Coleta IDs de Veículos e Funcionários ATIVOS nesta Obra (dataSaida NULL)
+        const activeVehiclesIds = new Set();
+        const activeEmployeesIds = new Set();
+
+        selectedObra.historicoVeiculos.forEach(h => {
+            if (!h.dataSaida) { // Apenas registros ativos
+                if (h.veiculoId) activeVehiclesIds.add(String(h.veiculoId));
+                if (h.employeeId) activeEmployeesIds.add(String(h.employeeId));
+            }
+        });
+
+        // 3. Filtra as listas principais usando os IDs coletados
+        const veiculosDaObra = vehicles
+            .filter(v => activeVehiclesIds.has(String(v.id)))
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
-    }, [formData.obraId, obras, vehicles]);
 
-    // 3. Funcionários Disponíveis (Todos que estão na mesma obra selecionada)
-    const filteredEmployees = useMemo(() => {
-        if (!formData.obraId) return []; 
-
-        const selectedObra = obras.find(o => o.id == formData.obraId);
-        if (!selectedObra || !selectedObra.historicoVeiculos) return [];
-
-        // Pega IDs de funcionários ativos nesta obra (Colegas de trabalho)
-        const activeEmployeeIds = selectedObra.historicoVeiculos
-            .filter(h => !h.dataSaida && h.employeeId)
-            .map(h => h.employeeId);
-        
-        // Filtra lista de funcionários e ordena
-        return employees
-            .filter(e => activeEmployeeIds.some(activeId => activeId == e.id))
+        const funcionariosDaObra = employees
+            .filter(e => activeEmployeesIds.has(String(e.id)))
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-    }, [formData.obraId, obras, employees]);
+
+        return { filteredVehicles: veiculosDaObra, filteredEmployees: funcionariosDaObra };
+
+    }, [formData.obraId, obras, vehicles, employees]);
 
 
     // --- EFEITOS DE INICIALIZAÇÃO ---
@@ -168,7 +171,7 @@ const SolicitacaoAbastecimentoPage = ({
         };
     }, [user]);
 
-    // Auto-selecionar Obra se o usuário só tiver uma
+    // Auto-selecionar Obra se o usuário só tiver uma alocada
     useEffect(() => {
         if (userObrasIds.length === 1 && !formData.obraId) {
             setFormData(prev => ({ ...prev, obraId: userObrasIds[0] }));
@@ -178,8 +181,8 @@ const SolicitacaoAbastecimentoPage = ({
     // Auto-selecionar o próprio usuário como funcionário responsável
     useEffect(() => {
         if (user && user.employeeId && !formData.funcionarioId) {
-            // Verifica se ele está na lista de filtrados (está na obra selecionada)
-            const isInList = filteredEmployees.some(e => e.id == user.employeeId);
+            // Verifica se ele está na lista de funcionários da obra selecionada
+            const isInList = filteredEmployees.some(e => String(e.id) === String(user.employeeId));
             if (isInList) {
                 setFormData(prev => ({ ...prev, funcionarioId: user.employeeId }));
             }
@@ -189,7 +192,7 @@ const SolicitacaoAbastecimentoPage = ({
     // --- LÓGICA DO VEÍCULO SELECIONADO ---
 
     const veiculoSelecionado = useMemo(() => {
-        return vehicles.find(v => v.id == formData.veiculoId);
+        return vehicles.find(v => String(v.id) === String(formData.veiculoId));
     }, [formData.veiculoId, vehicles]);
 
     // Ao selecionar veículo: Sugere Posto e Limpa Leituras
@@ -198,13 +201,12 @@ const SolicitacaoAbastecimentoPage = ({
             setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
 
             // REGRA: Sempre selecionar o último posto que aquele veículo abasteceu
-            // 1. Tenta pegar direto do objeto veículo (se o backend mandar 'lastPartnerId')
+            // 1. Tenta pegar direto do objeto veículo
             let lastPartner = veiculoSelecionado.lastPartnerId;
             
             // 2. Se não tiver no objeto, tenta achar na lista de requisições recentes
             if (!lastPartner) {
-                // Procura a última requisição aprovada deste veículo
-                const lastReq = myRequests.find(r => r.veiculo_id == veiculoSelecionado.id && r.status === 'CONCLUIDO');
+                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id && r.status === 'CONCLUIDO');
                 if (lastReq) lastPartner = lastReq.posto_id;
             }
 
@@ -502,7 +504,9 @@ const SolicitacaoAbastecimentoPage = ({
                     {userObrasIds.length === 0 && (
                         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
                             <p className="font-bold flex items-center gap-2"><AlertTriangle size={18}/> Sem Obra Alocada</p>
-                            <p className="text-sm mt-1">Seu usuário não está vinculado a nenhuma obra ativa no momento. Contate o RH ou Gestor.</p>
+                            <p className="text-sm mt-1">Seu usuário não está vinculado a nenhuma obra ativa. Contate o RH.</p>
+                            {/* Debug (Remover em produção se desejar) */}
+                            <p className="text-xs text-red-400 mt-2">Debug Info: UserID: {user.id}, EmpID: {user.employeeId || 'N/A'}</p>
                         </div>
                     )}
 
