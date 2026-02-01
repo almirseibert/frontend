@@ -3,7 +3,7 @@ import {
     Camera, MapPin, Send, AlertTriangle, CheckCircle, Clock, 
     XCircle, ChevronRight, Fuel, Image as ImageIcon, Loader, 
     WifiOff, RefreshCw, Lock, LogOut, User, FileText, Droplet, 
-    CalendarClock, Gauge, Calendar, AlertOctagon
+    CalendarClock, Gauge, Calendar, AlertOctagon, Trash2
 } from 'lucide-react';
 
 // --- INÍCIO DA INTEGRAÇÃO DAS REGRAS DE VEÍCULO (vehicleRules.js) ---
@@ -181,9 +181,13 @@ const SolicitacaoAbastecimentoPage = ({
     const [cupomFile, setCupomFile] = useState(null);
     const [cupomPreview, setCupomPreview] = useState(null);
 
-    // Refs
-    const fileInputRef = useRef(null);
-    const cupomInputRef = useRef(null);
+    // Refs para Painel
+    const cameraInputRef = useRef(null);
+    const galleryInputRef = useRef(null);
+
+    // Refs para Cupom
+    const cameraCupomRef = useRef(null);
+    const galleryCupomRef = useRef(null);
 
     // Usa a lista interna se a prop vier vazia
     const effectiveEmployees = employees.length > 0 ? employees : internalEmployees;
@@ -543,7 +547,7 @@ const SolicitacaoAbastecimentoPage = ({
         }
 
         if (!formData.dataAbastecimento) {
-            setAlertMessage("Informe a data do abastecimento.");
+            setAlertMessage("Informe a data e hora do abastecimento.");
             return;
         }
 
@@ -842,7 +846,7 @@ const SolicitacaoAbastecimentoPage = ({
                             {formData.funcionarioId && filteredEmployees.length === 0 && (
                                 <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
                             )}
-                            <option value="">Selecione quem está trabalhando na RE...</option>
+                            <option value="">Selecione quem está abastecendo...</option>
                             {filteredEmployees.map(e => (
                                 <option key={e.id} value={e.id}>{e.nome}</option>
                             ))}
@@ -894,25 +898,33 @@ const SolicitacaoAbastecimentoPage = ({
                             <span>Foto do Painel</span>
                             <span className="text-red-600 text-[10px] font-bold bg-red-50 px-2 py-1 rounded">Foto ilegível anula o pedido</span>
                         </label>
-                        <div 
-                            onClick={() => fileInputRef.current.click()}
-                            className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all cursor-pointer h-48 relative overflow-hidden ${previewImage ? 'border-green-500 bg-green-50' : 'border-gray-400 bg-gray-50 active:bg-gray-200'}`}
-                        >
+                        
+                        {/* --- NOVA ÁREA DE UPLOAD COM DUAS OPÇÕES --- */}
+                        <div className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all h-48 relative overflow-hidden ${previewImage ? 'border-green-500 bg-green-50' : 'border-gray-400 bg-gray-50'}`}>
                             {previewImage ? (
-                                <>
+                                <div onClick={() => setPreviewImage(null)} className="w-full h-full relative cursor-pointer">
                                     <img src={previewImage} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                                    <div className="absolute bottom-2 bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 flex items-center gap-1">
-                                        <CheckCircle size={12}/> Foto Carregada
+                                    <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
+                                         <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
+                                            <CheckCircle size={12}/> Foto Carregada <span className="text-gray-400 font-normal">|</span> <Trash2 size={10} className="text-red-500"/> Alterar
+                                        </span>
                                     </div>
-                                </>
+                                </div>
                             ) : (
-                                <>
-                                    <Camera size={48} className="text-gray-400 mb-2" />
-                                    <span className="text-base text-gray-600 font-bold">Tocar para abrir Câmera</span>
-                                    <span className="text-xs text-gray-400 mt-1">Tire foto nítida</span>
-                                </>
+                                <div className="flex flex-row gap-4 w-full h-full items-center justify-center">
+                                     <div onClick={() => cameraInputRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg cursor-pointer hover:bg-yellow-50 active:bg-yellow-100 transition border border-gray-200 shadow-sm">
+                                        <Camera size={32} className="text-gray-700 mb-2" />
+                                        <span className="text-sm font-bold text-gray-800">Câmera</span>
+                                     </div>
+                                     <div onClick={() => galleryInputRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg cursor-pointer hover:bg-blue-50 active:bg-blue-100 transition border border-gray-200 shadow-sm">
+                                        <ImageIcon size={32} className="text-gray-700 mb-2" />
+                                        <span className="text-sm font-bold text-gray-800">Galeria</span>
+                                     </div>
+                                </div>
                             )}
-                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'painel')} />
+                            {/* Inputs Ocultos */}
+                            <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'painel')} />
+                            <input type="file" ref={galleryInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'painel')} />
                         </div>
                     </div>
 
@@ -1153,10 +1165,33 @@ const SolicitacaoAbastecimentoPage = ({
                                 </div>
                                 <h4 className="font-bold text-green-800 text-lg">Aprovado! Envie o Cupom.</h4>
                                 
-                                <div onClick={() => cupomInputRef.current.click()} className="border-2 border-dashed border-green-300 rounded-xl p-6 bg-green-50 cursor-pointer relative h-40 flex items-center justify-center">
-                                    {cupomPreview ? <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl"/> : <div className="text-green-600 font-bold flex flex-col items-center"><Camera size={24}/> Tocar p/ Foto</div>}
-                                    <input type="file" ref={cupomInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
+                                {/* --- ÁREA DE UPLOAD CUPOM COM DUAS OPÇÕES --- */}
+                                <div className="border-2 border-dashed border-green-300 rounded-xl p-4 bg-green-50 relative h-40 flex flex-col items-center justify-center">
+                                    {cupomPreview ? (
+                                        <div onClick={() => setCupomPreview(null)} className="w-full h-full relative cursor-pointer">
+                                            <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl" />
+                                            <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
+                                                 <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
+                                                    <Trash2 size={10} className="text-red-500"/> Trocar Foto
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-row gap-3 w-full h-full items-center justify-center">
+                                             <div onClick={() => cameraCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
+                                                <Camera size={24} className="text-green-600 mb-1" />
+                                                <span className="text-xs font-bold text-green-700">Câmera</span>
+                                             </div>
+                                             <div onClick={() => galleryCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
+                                                <ImageIcon size={24} className="text-green-600 mb-1" />
+                                                <span className="text-xs font-bold text-green-700">Galeria</span>
+                                             </div>
+                                        </div>
+                                    )}
+                                    <input type="file" ref={cameraCupomRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
+                                    <input type="file" ref={galleryCupomRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'cupom')}/>
                                 </div>
+
                                 <button onClick={() => handleSendCupom(selectedRequest.id)} disabled={!cupomFile || loading} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg">
                                     {loading ? <Loader className="animate-spin inline"/> : "ENVIAR COMPROVANTE"}
                                 </button>
