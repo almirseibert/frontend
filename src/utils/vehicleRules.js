@@ -133,6 +133,13 @@ export const validateReading = (currentReading, newReading, type) => {
 };
 
 /**
+ * COMPATIBILIDADE LEGADO
+ * Alias para validateReading para satisfazer componentes antigos.
+ */
+export const checkReadingConsistency = validateReading;
+
+
+/**
  * Verifica restrições do veículo (Regra 4 - Alertas).
  * Retorna lista de alertas de Manutenção e Documentos.
  */
