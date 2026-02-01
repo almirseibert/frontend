@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     Camera, MapPin, Send, AlertTriangle, CheckCircle, Clock, 
     XCircle, ChevronRight, Fuel, Image as ImageIcon, Loader, 
-    WifiOff, RefreshCw, Lock, LogOut, Info, User
+    WifiOff, RefreshCw, Lock, LogOut, User, FileText, Droplet
 } from 'lucide-react';
 
 const SolicitacaoAbastecimentoPage = ({ 
@@ -10,14 +10,14 @@ const SolicitacaoAbastecimentoPage = ({
     vehicles = [], 
     obras = [], 
     partners = [], 
-    employees = [], // Recebendo lista de funcionários
+    employees = [], 
     setAlertMessage,
     user,
     onLogout
 }) => {
     
     // --- ESTADOS DE CONTROLE ---
-    const [view, setView] = useState('list'); // 'list' | 'form'
+    const [view, setView] = useState('list'); 
     const [loading, setLoading] = useState(false);
     const [userStatus, setUserStatus] = useState({ blocked: false, attempts: 0 });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -25,20 +25,19 @@ const SolicitacaoAbastecimentoPage = ({
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
     const [selectedRequest, setSelectedRequest] = useState(null);
-    const [lastPostoId, setLastPostoId] = useState(''); 
     
     // --- FORMULÁRIO ---
     const [formData, setFormData] = useState({
         veiculoId: '',
         obraId: '',
         postoId: '',
-        funcionarioId: '', // Novo campo para selecionar outro funcionário
+        funcionarioId: '', 
         tipoCombustivel: '',
         litragem: '',
         flagTanqueCheio: false,
         flagOutros: false,
-        descricaoOutros: '', // Novo campo de texto para outros
-        observacao: '', // Novo campo de observação
+        descricaoOutros: '', 
+        observacao: '', 
         
         // Arla
         needsArla: false,
@@ -60,14 +59,89 @@ const SolicitacaoAbastecimentoPage = ({
     const fileInputRef = useRef(null);
     const cupomInputRef = useRef(null);
 
-    // --- EFEITOS E INICIALIZAÇÃO ---
+    // --- ARRAYS DE TIPOS PARA REGRAS DE NEGÓCIO ---
+    const TIPOS_ARLA = [
+        'Bitruck', 'Caminhão', 'Caminhão Carroceria', 'Caminhão Pipa', 
+        'Caminhão Prancha', 'Caminhão Tanque', 'Cavalo', 'Caçamba', 
+        'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Truckado', 'Caçamba Traçado'
+    ];
+
+    const TIPOS_ODOMETRO = [
+        'Veículo Leve', 'Utilitário', 'Passeio', 'Caminhão Prancha'
+    ];
+
+    // --- LÓGICA DE FILTRAGEM (OBRA -> VEÍCULOS -> FUNCIONÁRIOS) ---
+
+    // 1. Identificar Obra(s) do Usuário Logado
+    const userObrasIds = useMemo(() => {
+        if (!user || !obras.length) return [];
+        
+        // Varre todas as obras procurando onde o funcionário está ativo (dataSaida NULL)
+        const activeObraIds = [];
+        
+        obras.forEach(obra => {
+            if (obra.historicoVeiculos && Array.isArray(obra.historicoVeiculos)) {
+                // Verifica se o usuário (employeeId) está ativo em algum registro dessa obra
+                const isUserInObra = obra.historicoVeiculos.some(h => 
+                    h.employeeId === user.id && !h.dataSaida
+                );
+                if (isUserInObra) {
+                    activeObraIds.push(obra.id);
+                }
+            }
+        });
+
+        // Se não encontrar alocação direta, retorna todas ativas (fallback para Admins/Gestores)
+        return activeObraIds.length > 0 ? activeObraIds : obras.filter(o => o.status === 'ativa').map(o => o.id);
+    }, [user, obras]);
+
+    // 2. Veículos Disponíveis (Baseado na Obra Selecionada no Form)
+    const filteredVehicles = useMemo(() => {
+        if (!formData.obraId) return [];
+        
+        const selectedObra = obras.find(o => o.id === formData.obraId);
+        if (!selectedObra || !selectedObra.historicoVeiculos) return [];
+
+        // Filtra veículos que estão ativos nesta obra (dataSaida NULL na tabela de histórico)
+        const activeVehicleIds = selectedObra.historicoVeiculos
+            .filter(h => !h.dataSaida)
+            .map(h => h.veiculoId);
+        
+        // Retorna os objetos de veículo completos
+        return vehicles.filter(v => activeVehicleIds.includes(v.id));
+    }, [formData.obraId, obras, vehicles]);
+
+    // 3. Funcionários Disponíveis (Baseado nos Veículos da Obra)
+    const filteredEmployees = useMemo(() => {
+        if (!formData.obraId) return [user]; // Fallback
+
+        const selectedObra = obras.find(o => o.id === formData.obraId);
+        if (!selectedObra || !selectedObra.historicoVeiculos) return [user];
+
+        // Pega IDs de funcionários ativos nesta obra
+        const activeEmployeeIds = selectedObra.historicoVeiculos
+            .filter(h => !h.dataSaida && h.employeeId)
+            .map(h => h.employeeId);
+        
+        // Inclui o próprio usuário e os colegas da obra
+        const colegas = employees.filter(e => activeEmployeeIds.includes(e.id));
+        
+        // Garante que o usuário logado esteja na lista
+        const exists = colegas.find(c => c.id === user.id);
+        if (!exists && user) colegas.unshift(user); // Adiciona user se não estiver na lista (ex: gestor)
+
+        return colegas;
+    }, [formData.obraId, obras, employees, user]);
+
+
+    // --- EFEITOS DE INICIALIZAÇÃO ---
 
     useEffect(() => {
         if (user) {
             checkUserStatus();
             fetchMyRequests();
         }
-
+        
         const handleOnline = () => setIsOffline(false);
         const handleOffline = () => setIsOffline(true);
         window.addEventListener('online', handleOnline);
@@ -80,103 +154,74 @@ const SolicitacaoAbastecimentoPage = ({
         };
     }, [user]);
 
-    // --- LÓGICA DE FILTRAGEM DE OBRA E VEÍCULOS (CRÍTICO) ---
-    
-    // 1. Tenta identificar a obra atual do usuário logado
-    const userCurrentObraId = useMemo(() => {
-        if (!user || vehicles.length === 0) return '';
-        // Procura algum veículo onde o usuário seja o motorista atual ou esteja alocado
-        const veiculoDoUsuario = vehicles.find(v => v.motoristaId === user.id || v.employeeId === user.id); // Ajustar campo conforme seu DB real
-        // Se encontrar, retorna a obra desse veículo
-        return veiculoDoUsuario ? veiculoDoUsuario.obraAtualId : '';
-    }, [user, vehicles]);
-
-    // 2. Filtra Obras Disponíveis (Se ele já tem obra fixa, só mostra ela, senão todas)
-    const filteredObras = useMemo(() => {
-        if (userCurrentObraId) {
-            return obras.filter(o => o.id === userCurrentObraId);
-        }
-        return obras.filter(o => o.status === 'ativa');
-    }, [obras, userCurrentObraId]);
-
-    // 3. Auto-seleciona a obra se só houver uma
+    // Auto-selecionar Obra se o usuário só tiver uma
     useEffect(() => {
-        if (filteredObras.length === 1 && !formData.obraId) {
-            setFormData(prev => ({ ...prev, obraId: filteredObras[0].id }));
+        if (userObrasIds.length === 1 && !formData.obraId) {
+            setFormData(prev => ({ ...prev, obraId: userObrasIds[0] }));
         }
-    }, [filteredObras]);
+    }, [userObrasIds]);
 
-    // 4. Filtra Veículos baseados na Obra Selecionada
-    const filteredVehicles = useMemo(() => {
-        if (!formData.obraId) return [];
-        return vehicles.filter(v => v.obraAtualId === formData.obraId);
-    }, [vehicles, formData.obraId]);
-
-    // 5. Filtra Funcionários baseados na Obra Selecionada (Para um pedir pelo outro)
-    const filteredEmployees = useMemo(() => {
-        if (!formData.obraId) return employees;
-        // Assume que 'employees' pode não ter obraId direto, então mostra todos ou tenta filtrar se tiver a info
-        // Se a estrutura de employees tiver obraId, use: return employees.filter(e => e.obraId === formData.obraId);
-        // Caso contrário, mostra todos para garantir usabilidade
-        return employees; 
-    }, [employees, formData.obraId]);
-
-    // 6. Configura o Funcionário Responsável padrão como o usuário logado
+    // Auto-selecionar o próprio usuário como funcionário responsável
     useEffect(() => {
         if (user && !formData.funcionarioId) {
             setFormData(prev => ({ ...prev, funcionarioId: user.id }));
         }
     }, [user]);
 
-    // --- LÓGICA DE ÚLTIMO POSTO E TIPO DE LEITURA ---
+    // --- LÓGICA DO VEÍCULO SELECIONADO ---
 
     const veiculoSelecionado = useMemo(() => {
         return vehicles.find(v => v.id === formData.veiculoId);
     }, [formData.veiculoId, vehicles]);
 
+    // Ao selecionar veículo: Sugere Posto e Limpa Leituras
     useEffect(() => {
         if (veiculoSelecionado) {
-            // Sugerir último posto (Lógica baseada no histórico local ou dados do veículo)
-            // Se o objeto veículo tiver lastPartnerId, usa ele. Senão tenta achar nos requests.
-            if (veiculoSelecionado.lastPartnerId) {
-                setFormData(prev => ({ ...prev, postoId: veiculoSelecionado.lastPartnerId }));
-            } else {
-                // Tenta achar no histórico de requisições recentes
-                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id);
-                if (lastReq && lastReq.posto_id) {
-                    setFormData(prev => ({ ...prev, postoId: lastReq.posto_id }));
-                }
-            }
-
-            // Limpar leituras inválidas ao trocar veículo
             setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
+
+            // Sugestão de Posto (Último utilizado)
+            // Tenta pegar do objeto veículo (se backend mandar) ou busca no histórico local
+            let lastPartner = veiculoSelecionado.lastPartnerId;
+            if (!lastPartner) {
+                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id);
+                if (lastReq) lastPartner = lastReq.posto_id;
+            }
+            if (lastPartner) {
+                setFormData(prev => ({ ...prev, postoId: lastPartner }));
+            }
         }
     }, [veiculoSelecionado, myRequests]);
 
-    // Determina qual input mostrar (Odo vs Horimetro)
+    // Determina tipo de leitura (Km ou Horas)
     const readingType = useMemo(() => {
-        if (!veiculoSelecionado) return 'ambos'; // Fallback
-        const tipo = veiculoSelecionado.tipo || '';
-        const nome = (veiculoSelecionado.registroInterno || '').toUpperCase();
-        const modelo = (veiculoSelecionado.modelo || '').toUpperCase();
+        if (!veiculoSelecionado) return 'ambos';
+        
+        // Verifica se o tipo ou modelo está na lista de Odômetro (Leves + Prancha)
+        const type = veiculoSelecionado.tipo || '';
+        const model = veiculoSelecionado.modelo || '';
+        
+        const isOdometer = TIPOS_ODOMETRO.some(t => 
+            type.includes(t) || model.toUpperCase().includes(t.toUpperCase())
+        );
 
-        // Regra: Caminhão Prancha e Leves -> Odometro
-        if (tipo === 'Veículo Leve' || tipo === 'Utilitário' || tipo === 'Passeio' || modelo.includes('PRANCHA')) {
-            return 'odometro';
-        }
-        // Regra: Caminhões e Máquinas -> Horimetro
-        if (tipo === 'Caminhão' || tipo === 'Máquina' || tipo === 'Equipamento' || tipo === 'Trator') {
-            return 'horimetro';
-        }
-        return 'ambos'; // Se não identificar, libera os dois (comportamento seguro)
+        return isOdometer ? 'odometro' : 'horimetro';
     }, [veiculoSelecionado]);
 
-    const isTruckGroup = useMemo(() => {
+    // Determina se exibe Arla
+    const showArlaSection = useMemo(() => {
         if (!veiculoSelecionado) return false;
-        return ['Caminhão', 'Carreta', 'Bi-Trem'].includes(veiculoSelecionado.tipo);
+        
+        const type = veiculoSelecionado.tipo || '';
+        const model = veiculoSelecionado.modelo || '';
+
+        return TIPOS_ARLA.some(t => 
+            type.toUpperCase() === t.toUpperCase() || 
+            model.toUpperCase().includes(t.toUpperCase())
+        );
     }, [veiculoSelecionado]);
 
-    // --- FUNÇÕES AUXILIARES ---
+
+    // --- FUNÇÕES AUXILIARES E API ---
 
     const checkUserStatus = async () => {
         try {
@@ -187,10 +232,7 @@ const SolicitacaoAbastecimentoPage = ({
             });
         } catch (error) {
             if (user?.bloqueado_abastecimento) {
-                setUserStatus({
-                    blocked: true,
-                    attempts: user.tentativas_falhas_abastecimento || 0
-                });
+                setUserStatus({ blocked: true, attempts: user.tentativas_falhas_abastecimento || 0 });
             }
         }
     };
@@ -217,9 +259,7 @@ const SolicitacaoAbastecimentoPage = ({
                         longitude: position.coords.longitude
                     }));
                 },
-                (error) => {
-                    console.warn("Erro GPS:", error);
-                },
+                (error) => console.warn("Erro GPS:", error),
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
         }
@@ -275,7 +315,6 @@ const SolicitacaoAbastecimentoPage = ({
         });
     };
 
-    // --- SUBMISSÃO ---
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -290,17 +329,17 @@ const SolicitacaoAbastecimentoPage = ({
         }
 
         if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId) {
-            setAlertMessage("Preencha todos os campos obrigatórios (Veículo, Obra, Posto, Combustível).");
+            setAlertMessage("Preencha todos os campos obrigatórios.");
             return;
         }
 
-        // Validação Cruzada de Leitura
+        // Validação Específica de Leitura
         if (readingType === 'odometro' && !formData.odometro) {
-            setAlertMessage("Obrigatório preencher o Hodômetro para este veículo.");
+            setAlertMessage("É obrigatório informar o HODÔMETRO (Km) para este veículo.");
             return;
         }
         if (readingType === 'horimetro' && !formData.horimetro) {
-            setAlertMessage("Obrigatório preencher o Horímetro para este veículo.");
+            setAlertMessage("É obrigatório informar o HORÍMETRO (Hr) para este equipamento.");
             return;
         }
 
@@ -308,27 +347,22 @@ const SolicitacaoAbastecimentoPage = ({
 
         const payload = new FormData();
         
-        // Mapeia campos do form para o backend
         payload.append('veiculoId', formData.veiculoId);
         payload.append('obraId', formData.obraId);
         payload.append('postoId', formData.postoId);
-        payload.append('funcionarioId', formData.funcionarioId); // Backend deve estar preparado para receber isso ou ignorar
+        payload.append('funcionarioId', formData.funcionarioId);
         payload.append('tipoCombustivel', formData.tipoCombustivel);
         payload.append('litragem', formData.flagTanqueCheio ? '0' : formData.litragem);
         payload.append('flagTanqueCheio', formData.flagTanqueCheio);
         payload.append('flagOutros', formData.flagOutros);
-        
-        // Concatena descrições extras e Arla na observação ou campos específicos
-        // Como o banco tem 'descricao_outros', usamos ele para os produtos
         payload.append('descricao_outros', formData.descricaoOutros);
         
-        // Monta observação completa com Arla se necessário (já que o banco pode não ter colunas arla ainda)
-        let obsCompleta = formData.observacao;
+        // Monta observação incluindo Arla
+        let obsFinal = formData.observacao;
         if (formData.needsArla) {
-            const arlaInfo = ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
-            obsCompleta += arlaInfo;
+            obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
         }
-        payload.append('observacao', obsCompleta); // Backend precisa mapear isso ou salvar em 'outros'
+        payload.append('observacao', obsFinal);
 
         if (formData.horimetro) payload.append('horimetro', formData.horimetro);
         if (formData.odometro) payload.append('odometro', formData.odometro);
@@ -342,9 +376,9 @@ const SolicitacaoAbastecimentoPage = ({
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             
-            setAlertMessage("Solicitação enviada! Aguarde liberação.");
+            setAlertMessage("Solicitação enviada com sucesso!");
             
-            // Reset Inteligente (Mantém Obra e Posto)
+            // Reset
             setView('list');
             fetchMyRequests();
             setFormData(prev => ({
@@ -356,18 +390,15 @@ const SolicitacaoAbastecimentoPage = ({
                 needsArla: false, litragemArla: '', flagTanqueCheioArla: false,
                 horimetro: '', odometro: '',
                 observacao: '',
-                // Mantém obraId, postoId, funcionarioId, lat/long
             }));
             setPreviewImage(null);
             setRawImageFile(null);
-            checkUserStatus(); 
+            checkUserStatus();
 
         } catch (error) {
-            const msg = error.response?.data?.error || error.message || "Erro ao enviar solicitação.";
-            setAlertMessage(msg); 
-            if (msg.includes("BLOQUEADO") || msg.includes("Tentativa")) {
-                checkUserStatus();
-            }
+            const msg = error.response?.data?.error || error.message || "Erro ao enviar.";
+            setAlertMessage(msg);
+            if (msg.includes("BLOQUEADO")) checkUserStatus();
         } finally {
             setLoading(false);
         }
@@ -398,38 +429,27 @@ const SolicitacaoAbastecimentoPage = ({
         }
     };
 
+    // --- RENDERIZAÇÃO ---
+
     if (!user) return <div className="flex justify-center items-center h-screen"><Loader className="animate-spin"/></div>;
 
-    // TELA DE BLOQUEIO
     if (userStatus.blocked) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-red-50 p-6 text-center animate-fadeIn">
-                <div className="bg-white p-8 rounded-full shadow-lg mb-6">
-                    <Lock size={64} className="text-red-500" />
+                <Lock size={64} className="text-red-500 mb-4" />
+                <h1 className="text-2xl font-bold text-red-700 mb-2">ACESSO BLOQUEADO</h1>
+                <p className="text-gray-600 mb-4">Número máximo de tentativas falhas excedido.</p>
+                <div className="bg-red-100 border-l-4 border-red-500 p-4 text-left w-full max-w-md">
+                    <p className="font-bold text-red-800">Contate o Gestor de Frotas.</p>
                 </div>
-                <h1 className="text-3xl font-bold text-red-700 mb-2">ACESSO BLOQUEADO</h1>
-                <p className="text-gray-600 text-lg mb-4">
-                    Você excedeu o número máximo de tentativas falhas (3 erros de leitura/odômetro).
-                </p>
-                <div className="bg-red-100 border-l-4 border-red-500 p-4 w-full max-w-md text-left mb-6">
-                    <p className="font-bold text-red-800">Instruções:</p>
-                    <p className="text-red-700 text-sm">Entre em contato com o Gestor de Frotas imediatamente para desbloqueio manual da sua conta.</p>
-                </div>
-                <button onClick={() => window.location.reload()} className="px-8 py-3 bg-gray-800 text-white rounded-xl shadow-lg hover:bg-gray-700 transition">
-                    Tentar Novamente
-                </button>
-                {onLogout && (
-                    <button onClick={onLogout} className="mt-4 text-gray-500 underline text-sm">Sair do Sistema</button>
-                )}
+                <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-gray-800 text-white rounded-lg shadow">Atualizar</button>
             </div>
         );
     }
 
-    // TELA DE FORMULÁRIO (Check-in)
     if (view === 'form') {
         return (
             <div className="min-h-screen bg-gray-50 pb-32 animate-slide-up">
-                {/* Header App */}
                 <div className="bg-yellow-400 p-4 shadow-md sticky top-0 z-10 flex justify-between items-center">
                     <button onClick={() => setView('list')} className="p-2 bg-yellow-500 rounded-full text-white hover:bg-yellow-600 transition">
                         <ChevronRight className="rotate-180" size={24} />
@@ -442,11 +462,11 @@ const SolicitacaoAbastecimentoPage = ({
                     
                     {isOffline && (
                         <div className="bg-orange-100 text-orange-900 p-3 rounded-lg flex items-center gap-2 text-sm border border-orange-200">
-                            <WifiOff size={16} /> <strong>Modo Offline:</strong> Dados salvos localmente.
+                            <WifiOff size={16} /> <strong>Offline:</strong> Salvo localmente.
                         </div>
                     )}
 
-                    {/* Alertas Gerais do Veículo */}
+                    {/* Alertas do Veículo */}
                     {veiculoSelecionado && (
                         <div className="space-y-2">
                             {veiculoSelecionado.status === 'manutencao' && (
@@ -454,31 +474,32 @@ const SolicitacaoAbastecimentoPage = ({
                                     <AlertTriangle size={14}/> VEÍCULO EM MANUTENÇÃO
                                 </div>
                             )}
-                            {/* Simulando alerta de 24h (necessitaria dados reais de lastRefuelDate no obj veiculo) */}
-                            {/* <div className="bg-yellow-100 text-yellow-800 p-2 rounded text-xs font-bold flex items-center gap-2">
-                                <Clock size={14}/> Abastecido há menos de 24h
-                            </div> */}
+                            {veiculoSelecionado.naoPodeCircular && (
+                                <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold flex items-center gap-2">
+                                    <XCircle size={14}/> NÃO PODE CIRCULAR (Docs)
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* Seleção de Obra (Primeiro passo para filtrar o resto) */}
+                    {/* Seleção de Obra */}
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Obra / Local de Trabalho</label>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Obra / Local</label>
                         <select 
                             className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
                             value={formData.obraId}
-                            onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: ''})} // Reseta veículo ao trocar obra
+                            onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: ''})}
                         >
                             <option value="">Selecione a Obra...</option>
-                            {filteredObras.map(o => (
+                            {obras.filter(o => userObrasIds.includes(o.id)).map(o => (
                                 <option key={o.id} value={o.id}>{o.nome}</option>
                             ))}
                         </select>
                     </div>
 
-                    {/* Seleção de Veículo (Filtrado pela Obra) */}
+                    {/* Seleção de Veículo */}
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo / Equipamento</label>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo</label>
                         <select 
                             className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
                             value={formData.veiculoId}
@@ -490,9 +511,6 @@ const SolicitacaoAbastecimentoPage = ({
                                 <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.modelo})</option>
                             ))}
                         </select>
-                        {filteredVehicles.length === 0 && formData.obraId && (
-                            <p className="text-xs text-red-500 px-1">Nenhum veículo encontrado nesta obra.</p>
-                        )}
                         {veiculoSelecionado && (
                             <p className="text-xs text-gray-400 text-right px-1">
                                 Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
@@ -500,27 +518,23 @@ const SolicitacaoAbastecimentoPage = ({
                         )}
                     </div>
 
-                    {/* Seleção de Funcionário Responsável (Quem está pedindo/operando) */}
+                    {/* Seleção de Funcionário Responsável */}
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
-                            <User size={12}/> Responsável / Motorista
-                        </label>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Responsável</label>
                         <select 
                             className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-base focus:ring-2 focus:ring-yellow-400 outline-none"
                             value={formData.funcionarioId}
                             onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
                         >
-                            <option value={user.id}>Eu ({user.name})</option>
-                            {filteredEmployees.filter(e => e.id !== user.id).map(e => (
-                                <option key={e.id} value={e.id}>{e.nome} {e.cargo ? `(${e.cargo})` : ''}</option>
+                            {filteredEmployees.map(e => (
+                                <option key={e.id} value={e.id}>{e.nome}</option>
                             ))}
                         </select>
                     </div>
 
-                    {/* Leitura (Condicional por tipo) */}
+                    {/* Leitura (Condicional) */}
                     <div className="grid grid-cols-1 gap-4">
-                        {/* Campo Hodômetro */}
-                        {(readingType === 'odometro' || readingType === 'ambos') && (
+                        {readingType === 'odometro' && (
                             <div>
                                 <label className="text-xs font-bold text-gray-500 uppercase ml-1">Hodômetro (Km)</label>
                                 <input 
@@ -534,12 +548,11 @@ const SolicitacaoAbastecimentoPage = ({
                             </div>
                         )}
                         
-                        {/* Campo Horímetro */}
-                        {(readingType === 'horimetro' || readingType === 'ambos') && (
+                        {readingType === 'horimetro' && (
                             <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
+                                <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between items-center">
                                     Horímetro (Hr)
-                                    {readingType === 'horimetro' && <span className="text-red-500 text-[10px] uppercase">Não use Km aqui!</span>}
+                                    <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-[10px] font-bold">NÃO USAR KM!</span>
                                 </label>
                                 <input 
                                     type="number" 
@@ -553,11 +566,11 @@ const SolicitacaoAbastecimentoPage = ({
                         )}
                     </div>
 
-                    {/* Foto do Painel */}
+                    {/* Foto */}
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between flex-wrap">
-                            <span>Foto do Painel (Obrigatório)</span>
-                            <span className="text-red-600 font-bold bg-red-50 px-2 rounded">Foto ilegível anula o pedido</span>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between items-center">
+                            <span>Foto do Painel</span>
+                            <span className="text-red-600 text-[10px] font-bold bg-red-50 px-2 py-1 rounded">Foto ilegível anula o pedido</span>
                         </label>
                         <div 
                             onClick={() => fileInputRef.current.click()}
@@ -574,25 +587,18 @@ const SolicitacaoAbastecimentoPage = ({
                                 <>
                                     <Camera size={48} className="text-gray-400 mb-2" />
                                     <span className="text-base text-gray-600 font-bold">Tocar para abrir Câmera</span>
-                                    <span className="text-xs text-gray-400 mt-1">A imagem será otimizada automaticamente</span>
+                                    <span className="text-xs text-gray-400 mt-1">Tire foto nítida</span>
                                 </>
                             )}
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                className="hidden" 
-                                accept="image/*" 
-                                capture="environment"
-                                onChange={(e) => handleFileChange(e, 'painel')}
-                            />
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'painel')} />
                         </div>
                     </div>
 
                     {/* Posto */}
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
-                            Posto de Abastecimento
-                            {lastPostoId && <span className="text-blue-600 font-normal cursor-pointer" onClick={() => setFormData(p => ({...p, postoId: lastPostoId}))}>Usar último</span>}
+                            Posto
+                            {formData.postoId && <span className="text-blue-600 text-[10px]">Sugestão aplicada</span>}
                         </label>
                         <select 
                             className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
@@ -600,16 +606,9 @@ const SolicitacaoAbastecimentoPage = ({
                             onChange={e => setFormData({...formData, postoId: e.target.value})}
                         >
                             <option value="">Selecione o Posto...</option>
-                            {lastPostoId && partners.find(p => p.id === lastPostoId) && (
-                                <optgroup label="Sugestão (Último Utilizado)">
-                                    <option value={lastPostoId}>{partners.find(p => p.id === lastPostoId)?.razaoSocial}</option>
-                                </optgroup>
-                            )}
-                            <optgroup label="Todos os Postos">
-                                {partners.map(p => (
-                                    <option key={p.id} value={p.id}>{p.razaoSocial}</option>
-                                ))}
-                            </optgroup>
+                            {partners.map(p => (
+                                <option key={p.id} value={p.id}>{p.razaoSocial}</option>
+                            ))}
                         </select>
                     </div>
 
@@ -624,11 +623,10 @@ const SolicitacaoAbastecimentoPage = ({
                             value={formData.tipoCombustivel}
                             onChange={e => setFormData({...formData, tipoCombustivel: e.target.value})}
                         >
-                            <option value="">Selecione o Combustível...</option>
+                            <option value="">Selecione...</option>
                             <option value="DIESEL S10">Diesel S10</option>
                             <option value="DIESEL S500">Diesel S500</option>
                             <option value="GASOLINA COMUM">Gasolina Comum</option>
-                            {/* ARLA foi removido daqui conforme solicitado */}
                         </select>
 
                         <div className="flex items-center justify-between gap-4">
@@ -650,32 +648,30 @@ const SolicitacaoAbastecimentoPage = ({
                                     onChange={e => setFormData({...formData, flagTanqueCheio: e.target.checked})}
                                     className="w-5 h-5 accent-black"
                                 />
-                                <span className="text-sm font-bold">Tanque Cheio</span>
+                                <span className="text-sm font-bold">Cheio</span>
                             </label>
                         </div>
                     </div>
 
-                    {/* Seção Arla 32 (Apenas Caminhões) */}
-                    {isTruckGroup && (
-                        <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <label className="text-sm font-bold text-blue-900 flex items-center gap-2">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={formData.needsArla}
-                                        onChange={e => setFormData({...formData, needsArla: e.target.checked})}
-                                        className="w-5 h-5 accent-blue-600"
-                                    />
-                                    Adicionar Arla 32
-                                </label>
-                            </div>
+                    {/* Seção Arla 32 (Condicional) */}
+                    {showArlaSection && (
+                        <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3 animate-fadeIn">
+                            <label className="text-sm font-bold text-blue-900 flex items-center gap-2 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={formData.needsArla}
+                                    onChange={e => setFormData({...formData, needsArla: e.target.checked})}
+                                    className="w-5 h-5 accent-blue-600"
+                                />
+                                <Droplet size={18}/> Adicionar Arla 32
+                            </label>
 
                             {formData.needsArla && (
-                                <div className="flex items-center justify-between gap-4 animate-fadeIn">
+                                <div className="flex items-center justify-between gap-4">
                                     <div className="flex-1 relative">
                                         <input 
                                             type="number" 
-                                            placeholder="Litros Arla" 
+                                            placeholder="Lts Arla" 
                                             className="w-full p-3 border border-blue-300 rounded-lg disabled:bg-gray-100"
                                             disabled={formData.flagTanqueCheioArla}
                                             value={formData.litragemArla}
@@ -697,38 +693,41 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     )}
 
-                    {/* Outros Produtos */}
-                    <div className="bg-white p-3 border rounded-xl space-y-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <input 
-                                type="checkbox" 
-                                checked={formData.flagOutros}
-                                onChange={e => setFormData({...formData, flagOutros: e.target.checked})}
-                                className="w-4 h-4 text-gray-500 rounded accent-gray-600"
-                            />
-                            <span className="text-sm text-gray-700 font-medium">Incluir Outros Produtos/Serviços (Óleo, Filtro...)</span>
-                        </label>
-                        {formData.flagOutros && (
-                            <input 
-                                type="text"
-                                placeholder="Descreva os itens (Ex: 1L Óleo Motor)"
-                                className="w-full p-3 border border-gray-300 rounded-lg text-sm"
-                                value={formData.descricaoOutros}
-                                onChange={e => setFormData({...formData, descricaoOutros: e.target.value})}
-                            />
-                        )}
-                    </div>
+                    {/* Outros e Observações */}
+                    <div className="space-y-3">
+                        <div className="bg-white p-3 border rounded-xl space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={formData.flagOutros}
+                                    onChange={e => setFormData({...formData, flagOutros: e.target.checked})}
+                                    className="w-4 h-4 text-gray-500 rounded accent-gray-600"
+                                />
+                                <span className="text-sm text-gray-700 font-medium">Incluir Outros (Óleo, Filtro...)</span>
+                            </label>
+                            {formData.flagOutros && (
+                                <input 
+                                    type="text"
+                                    placeholder="Descreva os itens..."
+                                    className="w-full p-3 border border-gray-300 rounded-lg text-sm"
+                                    value={formData.descricaoOutros}
+                                    onChange={e => setFormData({...formData, descricaoOutros: e.target.value})}
+                                />
+                            )}
+                        </div>
 
-                    {/* Observações */}
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Observações Adicionais</label>
-                        <textarea 
-                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-sm"
-                            rows="2"
-                            placeholder="Informações adicionais..."
-                            value={formData.observacao}
-                            onChange={e => setFormData({...formData, observacao: e.target.value})}
-                        ></textarea>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
+                                <FileText size={12}/> Observações
+                            </label>
+                            <textarea 
+                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-sm"
+                                rows="2"
+                                placeholder="Informações adicionais..."
+                                value={formData.observacao}
+                                onChange={e => setFormData({...formData, observacao: e.target.value})}
+                            ></textarea>
+                        </div>
                     </div>
 
                     <button 
@@ -743,10 +742,9 @@ const SolicitacaoAbastecimentoPage = ({
         );
     }
 
-    // TELA DE DASHBOARD (LISTA)
+    // LIST VIEW
     return (
         <div className="min-h-screen bg-gray-100 pb-24 animate-fadeIn">
-            {/* Header Dashboard */}
             <div className="bg-gray-900 text-white p-6 pb-12 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
                 <div className="absolute top-[-20px] right-[-20px] p-4 opacity-10 rotate-12">
                     <Fuel size={150} />
@@ -768,7 +766,6 @@ const SolicitacaoAbastecimentoPage = ({
                     </div>
                 </div>
                 
-                {/* Botão Principal de Ação */}
                 <button 
                     onClick={() => { getLocation(); setView('form'); }}
                     className="w-full py-4 bg-yellow-400 text-gray-900 font-bold rounded-2xl shadow-lg flex items-center justify-center gap-3 hover:bg-yellow-300 transition active:scale-98 relative z-10"
@@ -778,17 +775,7 @@ const SolicitacaoAbastecimentoPage = ({
                 </button>
             </div>
 
-            {/* Alerta de Pendência Crítica */}
-            {myRequests.some(r => r.status === 'LIBERADO' || r.status === 'REJEITADO_COMPROVANTE') && (
-                <div className="mx-4 -mt-4 mb-4 relative z-20 bg-red-500 text-white p-3 rounded-xl shadow-lg flex items-center gap-3 animate-pulse">
-                    <AlertTriangle size={24} className="shrink-0"/>
-                    <div className="text-sm font-bold leading-tight">
-                        Você tem ordens aguardando comprovante! Envie a foto para liberar novas solicitações.
-                    </div>
-                </div>
-            )}
-
-            {/* Lista de Solicitações */}
+            {/* Lista Histórico */}
             <div className="px-4 mt-2">
                 <h2 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
                     <Clock size={14} /> Minhas Solicitações Recentes
@@ -796,170 +783,75 @@ const SolicitacaoAbastecimentoPage = ({
                 
                 {myRequests.length === 0 ? (
                     <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-300">
-                        <Fuel size={48} className="mx-auto text-gray-200 mb-2"/>
                         <p className="text-gray-400 text-sm">Nenhuma solicitação encontrada.</p>
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {myRequests.map(req => {
-                            // Cores de Status
-                            let statusStyle = 'bg-gray-100 text-gray-600';
-                            let statusLabel = req.status;
-                            let icon = null;
-
-                            if (req.status === 'PENDENTE') {
-                                statusStyle = 'bg-yellow-100 text-yellow-800 border-yellow-200';
-                                statusLabel = 'AGUARDANDO LIBERAÇÃO';
-                                icon = <Clock size={14}/>;
-                            } else if (req.status === 'LIBERADO') {
-                                statusStyle = 'bg-green-100 text-green-800 border-green-200 font-bold animate-pulse';
-                                statusLabel = 'LIBERADO - ENVIAR CUPOM';
-                                icon = <Camera size={14}/>;
-                            } else if (req.status === 'NEGADO') {
-                                statusStyle = 'bg-red-100 text-red-800 border-red-200 font-bold';
-                                statusLabel = 'NEGADO';
-                                icon = <XCircle size={14}/>;
-                            } else if (req.status === 'AGUARDANDO_BAIXA') {
-                                statusStyle = 'bg-blue-50 text-blue-800 border-blue-200';
-                                statusLabel = 'EM ANÁLISE DE BAIXA';
-                                icon = <CheckCircle size={14}/>;
-                            } else if (req.status === 'CONCLUIDO') {
-                                statusStyle = 'bg-gray-200 text-gray-500 line-through opacity-70';
-                                statusLabel = 'FINALIZADO';
-                            }
-
-                            const data = new Date(req.data_solicitacao).toLocaleDateString('pt-BR');
-                            
-                            return (
-                                <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer active:scale-98 transition relative overflow-hidden">
-                                    {/* Barra Lateral Colorida */}
-                                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
-                                    
-                                    <div className="pl-2">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <span className={`text-[10px] px-2 py-1 rounded-md border flex items-center gap-1 ${statusStyle}`}>
-                                                {icon} {statusLabel}
-                                            </span>
-                                            <span className="text-xs text-gray-400 font-medium">{data}</span>
-                                        </div>
-                                        
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <p className="font-bold text-gray-800 text-lg">{req.placa}</p>
-                                                <p className="text-xs text-gray-500 font-medium uppercase">{req.veiculo_nome}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Tanque Cheio'}</p>
-                                                <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
-                                            </div>
-                                        </div>
-
-                                        {req.status === 'NEGADO' && (
-                                            <div className="mt-3 p-2 bg-red-50 rounded border border-red-100">
-                                                <p className="text-xs text-red-800 font-bold">Motivo: {req.motivo_negativa}</p>
-                                                <p className="text-[10px] text-red-600 mt-1">Contate o responsável para detalhes.</p>
-                                            </div>
-                                        )}
+                        {myRequests.map(req => (
+                            <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden">
+                                <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
+                                <div className="pl-2">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className={`text-[10px] px-2 py-1 rounded-md border font-bold ${req.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
+                                            {req.status}
+                                        </span>
+                                        <span className="text-xs text-gray-400">{new Date(req.data_solicitacao).toLocaleDateString('pt-BR')}</span>
                                     </div>
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <p className="font-bold text-gray-800">{req.placa}</p>
+                                            <p className="text-xs text-gray-500 uppercase">{req.veiculo_nome}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
+                                            <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
+                                        </div>
+                                    </div>
+                                    {req.status === 'LIBERADO' && (
+                                        <div className="mt-2 bg-green-50 text-green-700 text-xs p-2 rounded flex items-center gap-1 font-bold animate-pulse">
+                                            <Camera size={12}/> Enviar Cupom Agora
+                                        </div>
+                                    )}
                                 </div>
-                            );
-                        })}
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>
 
-            {/* Modal de Detalhes / Upload Cupom */}
+            {/* Modal Detalhes */}
             {selectedRequest && (
                 <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
                     <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-6 border-b pb-4">
-                            <div>
-                                <h3 className="font-bold text-xl text-gray-900">Solicitação #{selectedRequest.id}</h3>
-                                <p className="text-sm text-gray-500">{selectedRequest.placa} - {selectedRequest.veiculo_nome}</p>
-                            </div>
-                            <button onClick={() => { setSelectedRequest(null); setCupomFile(null); setCupomPreview(null); }} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
-                                <XCircle size={24} className="text-gray-600"/>
-                            </button>
+                            <h3 className="font-bold text-xl text-gray-900">Solicitação #{selectedRequest.id}</h3>
+                            <button onClick={() => setSelectedRequest(null)} className="p-2 bg-gray-100 rounded-full"><XCircle size={24}/></button>
                         </div>
                         
-                        <div className="space-y-4">
-                            {selectedRequest.status === 'LIBERADO' ? (
-                                <div className="bg-green-50 border border-green-200 rounded-2xl p-5 text-center shadow-sm">
-                                    <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3">
-                                        <CheckCircle size={32} className="text-green-600" />
-                                    </div>
-                                    <h4 className="font-bold text-green-800 text-lg mb-1">Aprovado! Envie o Cupom.</h4>
-                                    <p className="text-sm text-green-700 mb-6 px-4">
-                                        O abastecimento foi autorizado. Após abastecer, tire uma foto legível do cupom fiscal para finalizar.
-                                    </p>
-                                    
-                                    {/* Upload Cupom */}
-                                    <div 
-                                        onClick={() => cupomInputRef.current.click()}
-                                        className={`border-2 border-dashed rounded-xl p-4 cursor-pointer transition-colors relative overflow-hidden h-40 flex flex-col items-center justify-center ${cupomPreview ? 'border-green-500' : 'border-green-300 bg-white hover:bg-green-50'}`}
-                                    >
-                                        {cupomPreview ? (
-                                            <>
-                                                <img src={cupomPreview} alt="Cupom" className="absolute inset-0 w-full h-full object-cover" />
-                                                <div className="absolute bottom-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs font-bold">
-                                                    Toque para alterar
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <ImageIcon size={32} className="text-green-400 mb-2"/>
-                                                <span className="text-sm font-bold text-green-600">Fotografar Cupom Fiscal</span>
-                                            </>
-                                        )}
-                                        <input 
-                                            type="file" 
-                                            ref={cupomInputRef} 
-                                            className="hidden" 
-                                            accept="image/*" 
-                                            capture="environment"
-                                            onChange={(e) => handleFileChange(e, 'cupom')}
-                                        />
-                                    </div>
-
-                                    <button 
-                                        onClick={() => handleSendCupom(selectedRequest.id)}
-                                        disabled={!cupomFile || loading}
-                                        className="w-full mt-4 py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                                    >
-                                        {loading ? <Loader className="animate-spin" size={20}/> : "ENVIAR COMPROVANTE"}
-                                    </button>
+                        {selectedRequest.status === 'LIBERADO' ? (
+                            <div className="text-center space-y-4">
+                                <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                                    <CheckCircle size={32} className="text-green-600" />
                                 </div>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                    <div className="bg-gray-50 p-3 rounded-xl">
-                                        <p className="text-xs text-gray-500 uppercase font-bold">Posto</p>
-                                        <p className="font-medium text-gray-800 truncate">{selectedRequest.posto_nome || 'Não Informado'}</p>
-                                    </div>
-                                    <div className="bg-gray-50 p-3 rounded-xl">
-                                        <p className="text-xs text-gray-500 uppercase font-bold">Combustível</p>
-                                        <p className="font-medium text-gray-800">{selectedRequest.tipo_combustivel}</p>
-                                    </div>
-                                    <div className="bg-gray-50 p-3 rounded-xl">
-                                        <p className="text-xs text-gray-500 uppercase font-bold">Quantidade</p>
-                                        <p className="font-medium text-gray-800">{selectedRequest.litragem_solicitada ? `${selectedRequest.litragem_solicitada} L` : 'Tanque Cheio'}</p>
-                                    </div>
-                                    <div className="bg-gray-50 p-3 rounded-xl">
-                                        <p className="text-xs text-gray-500 uppercase font-bold">Leitura</p>
-                                        <p className="font-medium text-gray-800">
-                                            {selectedRequest.odometro_informado ? `${selectedRequest.odometro_informado} Km` : `${selectedRequest.horimetro_informado} h`}
-                                        </p>
-                                    </div>
+                                <h4 className="font-bold text-green-800 text-lg">Aprovado! Envie o Cupom.</h4>
+                                
+                                <div onClick={() => cupomInputRef.current.click()} className="border-2 border-dashed border-green-300 rounded-xl p-6 bg-green-50 cursor-pointer relative h-40 flex items-center justify-center">
+                                    {cupomPreview ? <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl"/> : <div className="text-green-600 font-bold flex flex-col items-center"><Camera size={24}/> Tocar p/ Foto</div>}
+                                    <input type="file" ref={cupomInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
                                 </div>
-                            )}
-
-                            {selectedRequest.status === 'AGUARDANDO_BAIXA' && (
-                                <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-center border border-blue-100">
-                                    <Clock size={24} className="mx-auto mb-2 text-blue-500"/>
-                                    <p className="font-bold">Comprovante em Análise</p>
-                                    <p className="text-xs mt-1">O gestor está validando a foto do cupom. Você será notificado quando for concluído.</p>
+                                <button onClick={() => handleSendCupom(selectedRequest.id)} disabled={!cupomFile || loading} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg">
+                                    {loading ? <Loader className="animate-spin inline"/> : "ENVIAR COMPROVANTE"}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-3 text-sm">
+                                <div className="bg-gray-50 p-3 rounded-xl border">
+                                    <p className="font-bold text-gray-500 text-xs uppercase">Status</p>
+                                    <p className="font-bold text-gray-900">{selectedRequest.status}</p>
+                                    {selectedRequest.motivo_negativa && <p className="text-red-600 mt-1 text-xs">{selectedRequest.motivo_negativa}</p>}
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
