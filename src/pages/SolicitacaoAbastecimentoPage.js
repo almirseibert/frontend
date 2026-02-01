@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     Camera, MapPin, Send, AlertTriangle, CheckCircle, Clock, 
     XCircle, ChevronRight, Fuel, Image as ImageIcon, Loader, 
-    WifiOff, RefreshCw, Lock, LogOut, User, FileText, Droplet
+    WifiOff, RefreshCw, Lock, LogOut, User, FileText, Droplet, 
+    CalendarClock, Gauge
 } from 'lucide-react';
 
 const SolicitacaoAbastecimentoPage = ({ 
@@ -59,31 +60,40 @@ const SolicitacaoAbastecimentoPage = ({
     const fileInputRef = useRef(null);
     const cupomInputRef = useRef(null);
 
-    // --- ARRAYS DE TIPOS PARA REGRAS DE NEGÓCIO ---
-    const TIPOS_ARLA = [
-        'Bitruck', 'Caminhão', 'Caminhão Carroceria', 'Caminhão Pipa', 
-        'Caminhão Prancha', 'Caminhão Tanque', 'Cavalo', 'Caçamba', 
-        'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Truckado', 'Caçamba Traçado'
+    // --- REGRAS DE NEGÓCIO (LISTAS E TIPOS) ---
+
+    // Grupos que usam ARLA 32
+    const GRUPOS_ARLA = [
+        'BITRUCK', 'CAMINHÃO', 'CAMINHÃO CARROCERIA', 'CAMINHÃO PIPA', 
+        'CAMINHÃO PRANCHA', 'CAMINHÃO TANQUE', 'CAVALO', 'CAÇAMBA', 
+        'CAÇAMBA BITRUCK', 'CAÇAMBA TOCO', 'CAÇAMBA TRUCKADO', 'CAÇAMBA TRAÇADO'
     ];
 
-    const TIPOS_ODOMETRO = [
-        'Veículo Leve', 'Utilitário', 'Passeio', 'Caminhão Prancha'
+    // Grupos que usam ODÔMETRO (KM)
+    const GRUPOS_ODOMETRO = [
+        'VEÍCULO LEVE', 'UTILITÁRIO', 'PASSEIO', 'CAMINHÃO PRANCHA', 'CAMINHÃO TOCO'
     ];
+    // OBS: Caminhão Prancha pode estar em ambos (Arla e Km), o sistema tratará corretamente.
 
     // --- LÓGICA DE FILTRAGEM (OBRA -> VEÍCULOS -> FUNCIONÁRIOS) ---
 
-    // 1. Identificar Obra(s) do Usuário Logado
+    // 1. Identificar Obra(s) onde o Usuário Logado está ALOCADO ATUALMENTE
     const userObrasIds = useMemo(() => {
         if (!user || !obras.length) return [];
         
-        // Varre todas as obras procurando onde o funcionário está ativo (dataSaida NULL)
+        // Se for Admin ou Gestor sem restrição, pode ver tudo (opcional, mantendo regra estrita do solicitante)
+        // Mas a regra diz: "filtrar a partir da tabela users coluna employeeId"
+        
+        const myEmployeeId = user.employeeId; // ID do funcionário vinculado ao usuário
+        if (!myEmployeeId) return []; // Se usuário não tem vínculo com funcionário, não vê obras
+
         const activeObraIds = [];
         
         obras.forEach(obra => {
             if (obra.historicoVeiculos && Array.isArray(obra.historicoVeiculos)) {
-                // Verifica se o usuário (employeeId) está ativo em algum registro dessa obra
+                // Procura se o funcionário está ativo nesta obra (dataSaida IS NULL)
                 const isUserInObra = obra.historicoVeiculos.some(h => 
-                    h.employeeId === user.id && !h.dataSaida
+                    h.employeeId === myEmployeeId && !h.dataSaida
                 );
                 if (isUserInObra) {
                     activeObraIds.push(obra.id);
@@ -91,47 +101,44 @@ const SolicitacaoAbastecimentoPage = ({
             }
         });
 
-        // Se não encontrar alocação direta, retorna todas ativas (fallback para Admins/Gestores)
-        return activeObraIds.length > 0 ? activeObraIds : obras.filter(o => o.status === 'ativa').map(o => o.id);
+        return activeObraIds;
     }, [user, obras]);
 
-    // 2. Veículos Disponíveis (Baseado na Obra Selecionada no Form)
+    // 2. Veículos Disponíveis (Filtrados pela Obra Selecionada)
     const filteredVehicles = useMemo(() => {
         if (!formData.obraId) return [];
         
         const selectedObra = obras.find(o => o.id === formData.obraId);
         if (!selectedObra || !selectedObra.historicoVeiculos) return [];
 
-        // Filtra veículos que estão ativos nesta obra (dataSaida NULL na tabela de histórico)
+        // Filtra veículos que estão ativos nesta obra (dataSaida NULL)
         const activeVehicleIds = selectedObra.historicoVeiculos
             .filter(h => !h.dataSaida)
             .map(h => h.veiculoId);
         
-        // Retorna os objetos de veículo completos
-        return vehicles.filter(v => activeVehicleIds.includes(v.id));
+        // Retorna e ordena alfabeticamente
+        return vehicles
+            .filter(v => activeVehicleIds.includes(v.id))
+            .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [formData.obraId, obras, vehicles]);
 
-    // 3. Funcionários Disponíveis (Baseado nos Veículos da Obra)
+    // 3. Funcionários Disponíveis (Todos que estão na mesma obra selecionada)
     const filteredEmployees = useMemo(() => {
-        if (!formData.obraId) return [user]; // Fallback
+        if (!formData.obraId) return []; 
 
         const selectedObra = obras.find(o => o.id === formData.obraId);
-        if (!selectedObra || !selectedObra.historicoVeiculos) return [user];
+        if (!selectedObra || !selectedObra.historicoVeiculos) return [];
 
-        // Pega IDs de funcionários ativos nesta obra
+        // Pega IDs de funcionários ativos nesta obra (Colegas de trabalho)
         const activeEmployeeIds = selectedObra.historicoVeiculos
             .filter(h => !h.dataSaida && h.employeeId)
             .map(h => h.employeeId);
         
-        // Inclui o próprio usuário e os colegas da obra
-        const colegas = employees.filter(e => activeEmployeeIds.includes(e.id));
-        
-        // Garante que o usuário logado esteja na lista
-        const exists = colegas.find(c => c.id === user.id);
-        if (!exists && user) colegas.unshift(user); // Adiciona user se não estiver na lista (ex: gestor)
-
-        return colegas;
-    }, [formData.obraId, obras, employees, user]);
+        // Filtra lista de funcionários e ordena
+        return employees
+            .filter(e => activeEmployeeIds.includes(e.id))
+            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    }, [formData.obraId, obras, employees]);
 
 
     // --- EFEITOS DE INICIALIZAÇÃO ---
@@ -163,10 +170,14 @@ const SolicitacaoAbastecimentoPage = ({
 
     // Auto-selecionar o próprio usuário como funcionário responsável
     useEffect(() => {
-        if (user && !formData.funcionarioId) {
-            setFormData(prev => ({ ...prev, funcionarioId: user.id }));
+        if (user && user.employeeId && !formData.funcionarioId) {
+            // Verifica se ele está na lista de filtrados (está na obra)
+            const isInList = filteredEmployees.some(e => e.id === user.employeeId);
+            if (isInList) {
+                setFormData(prev => ({ ...prev, funcionarioId: user.employeeId }));
+            }
         }
-    }, [user]);
+    }, [user, filteredEmployees]);
 
     // --- LÓGICA DO VEÍCULO SELECIONADO ---
 
@@ -179,13 +190,17 @@ const SolicitacaoAbastecimentoPage = ({
         if (veiculoSelecionado) {
             setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
 
-            // Sugestão de Posto (Último utilizado)
-            // Tenta pegar do objeto veículo (se backend mandar) ou busca no histórico local
+            // REGRA: Sempre selecionar o último posto que aquele veículo abasteceu
+            // 1. Tenta pegar direto do objeto veículo (se o backend mandar 'lastPartnerId')
             let lastPartner = veiculoSelecionado.lastPartnerId;
+            
+            // 2. Se não tiver no objeto, tenta achar na lista de requisições recentes
             if (!lastPartner) {
-                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id);
+                // Procura a última requisição aprovada deste veículo
+                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id && r.status === 'CONCLUIDO');
                 if (lastReq) lastPartner = lastReq.posto_id;
             }
+
             if (lastPartner) {
                 setFormData(prev => ({ ...prev, postoId: lastPartner }));
             }
@@ -194,15 +209,13 @@ const SolicitacaoAbastecimentoPage = ({
 
     // Determina tipo de leitura (Km ou Horas)
     const readingType = useMemo(() => {
-        if (!veiculoSelecionado) return 'ambos';
+        if (!veiculoSelecionado) return 'bloqueado';
         
-        // Verifica se o tipo ou modelo está na lista de Odômetro (Leves + Prancha)
-        const type = veiculoSelecionado.tipo || '';
-        const model = veiculoSelecionado.modelo || '';
+        const tipo = (veiculoSelecionado.tipo || '').toUpperCase();
+        const modelo = (veiculoSelecionado.modelo || '').toUpperCase();
         
-        const isOdometer = TIPOS_ODOMETRO.some(t => 
-            type.includes(t) || model.toUpperCase().includes(t.toUpperCase())
-        );
+        // Verifica se encaixa nos grupos de Odômetro
+        const isOdometer = GRUPOS_ODOMETRO.some(t => tipo === t || modelo.includes(t));
 
         return isOdometer ? 'odometro' : 'horimetro';
     }, [veiculoSelecionado]);
@@ -211,13 +224,25 @@ const SolicitacaoAbastecimentoPage = ({
     const showArlaSection = useMemo(() => {
         if (!veiculoSelecionado) return false;
         
-        const type = veiculoSelecionado.tipo || '';
-        const model = veiculoSelecionado.modelo || '';
+        const tipo = (veiculoSelecionado.tipo || '').toUpperCase();
+        const modelo = (veiculoSelecionado.modelo || '').toUpperCase();
 
-        return TIPOS_ARLA.some(t => 
-            type.toUpperCase() === t.toUpperCase() || 
-            model.toUpperCase().includes(t.toUpperCase())
-        );
+        return GRUPOS_ARLA.some(t => tipo === t || modelo.includes(t));
+    }, [veiculoSelecionado]);
+
+    // Alerta de Abastecimento Recente (< 24h)
+    const recentRefuelAlert = useMemo(() => {
+        if (!veiculoSelecionado) return false;
+        
+        const lastDate = veiculoSelecionado.ultimaDataAbastecimento 
+            ? new Date(veiculoSelecionado.ultimaDataAbastecimento) 
+            : null;
+
+        if (lastDate) {
+            const diffHours = (new Date() - lastDate) / (1000 * 60 * 60);
+            if (diffHours < 24) return true;
+        }
+        return false;
     }, [veiculoSelecionado]);
 
 
@@ -466,29 +491,22 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     )}
 
-                    {/* Alertas do Veículo */}
-                    {veiculoSelecionado && (
-                        <div className="space-y-2">
-                            {veiculoSelecionado.status === 'manutencao' && (
-                                <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold flex items-center gap-2">
-                                    <AlertTriangle size={14}/> VEÍCULO EM MANUTENÇÃO
-                                </div>
-                            )}
-                            {veiculoSelecionado.naoPodeCircular && (
-                                <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold flex items-center gap-2">
-                                    <XCircle size={14}/> NÃO PODE CIRCULAR (Docs)
-                                </div>
-                            )}
+                    {/* Mensagem de Erro/Alerta se não houver obras */}
+                    {userObrasIds.length === 0 && (
+                        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
+                            <p className="font-bold flex items-center gap-2"><AlertTriangle size={18}/> Sem Obra Alocada</p>
+                            <p className="text-sm mt-1">Seu usuário não está vinculado a nenhuma obra ativa no momento. Contate o RH ou Gestor.</p>
                         </div>
                     )}
 
-                    {/* Seleção de Obra */}
+                    {/* Seleção de Obra (Filtrada) */}
                     <div className="space-y-1">
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1">Obra / Local</label>
                         <select 
                             className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
                             value={formData.obraId}
                             onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: ''})}
+                            disabled={userObrasIds.length === 0}
                         >
                             <option value="">Selecione a Obra...</option>
                             {obras.filter(o => userObrasIds.includes(o.id)).map(o => (
@@ -497,9 +515,9 @@ const SolicitacaoAbastecimentoPage = ({
                         </select>
                     </div>
 
-                    {/* Seleção de Veículo */}
+                    {/* Seleção de Veículo (Filtrado por Obra) */}
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo</label>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo (na Obra)</label>
                         <select 
                             className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
                             value={formData.veiculoId}
@@ -511,32 +529,55 @@ const SolicitacaoAbastecimentoPage = ({
                                 <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.modelo})</option>
                             ))}
                         </select>
+                        
+                        {/* ALERTAS DO VEÍCULO SELECIONADO */}
                         {veiculoSelecionado && (
-                            <p className="text-xs text-gray-400 text-right px-1">
-                                Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
-                            </p>
+                            <div className="space-y-2 mt-2 px-1">
+                                {veiculoSelecionado.status === 'manutencao' && (
+                                    <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold flex items-center gap-2 border border-red-200">
+                                        <AlertTriangle size={14}/> VEÍCULO EM MANUTENÇÃO
+                                    </div>
+                                )}
+                                {veiculoSelecionado.naoPodeCircular && (
+                                    <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold flex items-center gap-2 border border-red-200">
+                                        <XCircle size={14}/> NÃO PODE CIRCULAR (Docs)
+                                    </div>
+                                )}
+                                {recentRefuelAlert && (
+                                    <div className="bg-orange-100 text-orange-800 p-2 rounded text-xs font-bold flex items-center gap-2 border border-orange-200">
+                                        <Clock size={14}/> ABASTECIDO HÁ MENOS DE 24H
+                                    </div>
+                                )}
+                                <p className="text-xs text-gray-400 text-right">
+                                    Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
+                                </p>
+                            </div>
                         )}
                     </div>
 
-                    {/* Seleção de Funcionário Responsável */}
+                    {/* Seleção de Funcionário Responsável (Colegas da Obra) */}
                     <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Responsável</label>
+                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Responsável (Solicitante/Motorista)</label>
                         <select 
                             className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-base focus:ring-2 focus:ring-yellow-400 outline-none"
                             value={formData.funcionarioId}
                             onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
+                            disabled={!formData.obraId}
                         >
+                            <option value="">Selecione o Responsável...</option>
                             {filteredEmployees.map(e => (
                                 <option key={e.id} value={e.id}>{e.nome}</option>
                             ))}
                         </select>
                     </div>
 
-                    {/* Leitura (Condicional) */}
+                    {/* LEITURA INTELIGENTE (KM vs HR) */}
                     <div className="grid grid-cols-1 gap-4">
                         {readingType === 'odometro' && (
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Hodômetro (Km)</label>
+                            <div className="animate-fadeIn">
+                                <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
+                                    <Gauge size={14}/> Hodômetro (Km)
+                                </label>
                                 <input 
                                     type="number" 
                                     className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
@@ -549,10 +590,12 @@ const SolicitacaoAbastecimentoPage = ({
                         )}
                         
                         {readingType === 'horimetro' && (
-                            <div>
+                            <div className="animate-fadeIn">
                                 <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between items-center">
-                                    Horímetro (Hr)
-                                    <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-[10px] font-bold">NÃO USAR KM!</span>
+                                    <span className="flex items-center gap-1"><CalendarClock size={14}/> Horímetro (Hr)</span>
+                                    <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-[10px] font-bold border border-red-200">
+                                        NÃO USAR KM!
+                                    </span>
                                 </label>
                                 <input 
                                     type="number" 
@@ -598,7 +641,7 @@ const SolicitacaoAbastecimentoPage = ({
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
                             Posto
-                            {formData.postoId && <span className="text-blue-600 text-[10px]">Sugestão aplicada</span>}
+                            {formData.postoId && <span className="text-blue-600 text-[10px] font-bold bg-blue-50 px-1 rounded">Sugestão Automática</span>}
                         </label>
                         <select 
                             className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
@@ -653,7 +696,7 @@ const SolicitacaoAbastecimentoPage = ({
                         </div>
                     </div>
 
-                    {/* Seção Arla 32 (Condicional) */}
+                    {/* Seção Arla 32 (Condicional aos Grupos) */}
                     {showArlaSection && (
                         <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3 animate-fadeIn">
                             <label className="text-sm font-bold text-blue-900 flex items-center gap-2 cursor-pointer">
