@@ -28,6 +28,7 @@ const SolicitacaoAbastecimentoPage = ({
     const [gpsError, setGpsError] = useState(false);
     
     // Estado interno para garantir que funcionários existam mesmo que a prop falhe
+    // (Mantido caso precisemos reativar, mas a chamada API foi removida para evitar 404)
     const [internalEmployees, setInternalEmployees] = useState([]);
     
     // --- DADOS ---
@@ -80,30 +81,15 @@ const SolicitacaoAbastecimentoPage = ({
             .trim();
     };
 
-    // --- CARREGAMENTO DE DADOS DE FALLBACK ---
+    // --- CARREGAMENTO DE DADOS ---
     useEffect(() => {
-        // Se a lista de funcionários veio vazia, tenta buscar manualmente
-        const fetchMissingEmployees = async () => {
-            if (employees.length === 0 && internalEmployees.length === 0) {
-                try {
-                    // Tenta endpoints comuns. Ajuste conforme sua rota real.
-                    const res = await apiClient.get('/funcionarios?ativo=true');
-                    if (Array.isArray(res)) {
-                        setInternalEmployees(res);
-                    }
-                } catch (error) {
-                    // Silencioso: Se falhar (404), vamos usar a extração via Obras
-                    console.log("API Funcionários indisponível, usando dados das Obras.");
-                }
-            }
-        };
-
+        // Removido fetchMissingEmployees para evitar erro 404
+        // A lógica de extração via Obras já supre a necessidade
         if (user) {
-            fetchMissingEmployees();
             checkUserStatus();
             fetchMyRequests();
         }
-    }, [user, employees.length]); // Executa se user muda ou se employees continua vazio
+    }, [user]); 
 
     // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO (CRÍTICA) ---
     const myEmployeeId = useMemo(() => {
@@ -343,7 +329,8 @@ const SolicitacaoAbastecimentoPage = ({
                     }));
                 },
                 (error) => {
-                    console.warn("GPS Indisponível:", error.message);
+                    // Log silencioso para debug, sem warn para limpar console
+                    console.log("GPS não obtido (permissão negada ou erro):", error.message);
                     setGpsError(true);
                 },
                 { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -416,8 +403,9 @@ const SolicitacaoAbastecimentoPage = ({
             return;
         }
 
-        if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId) {
-            setAlertMessage("Preencha todos os campos obrigatórios.");
+        // Validação COMPLETA (incluindo funcionarioId para evitar erro 500)
+        if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId || !formData.funcionarioId) {
+            setAlertMessage("Preencha todos os campos obrigatórios (incluindo o condutor).");
             return;
         }
 
@@ -450,6 +438,10 @@ const SolicitacaoAbastecimentoPage = ({
             obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : formData.litragemArla + ' L'}]`;
             payload.set('observacao', obsFinal);
         }
+
+        // Garante envio de lat/long zerados se o GPS falhou (evita erro no backend se obrigatório)
+        if (!formData.latitude) payload.append('latitude', '0');
+        if (!formData.longitude) payload.append('longitude', '0');
 
         payload.append('foto_painel', rawImageFile);
 
