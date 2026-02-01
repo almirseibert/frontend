@@ -2,9 +2,9 @@
 
 // --- DEFINIÇÕES DE GRUPOS (Base de Conhecimento) ---
 export const vehicleGroups = {
-    'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
+    'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto', 'Passeio', 'Veículo Leve'],
     'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
-    'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques'], 
+    'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques', 'Caminhão Toco'], 
     'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Escavadeira + Rompedor', 'Fresadora', 'Trator Esteira']
 };
 
@@ -21,6 +21,13 @@ export const equipmentTypesForHours = [
     'Caçamba Traçado', 'Caçamba Truckado', 'Fresadora'
 ];
 
+// Grupos específicos para Arla 32 (Usado no Abastecimento)
+export const GRUPOS_ARLA = [
+    'BITRUCK', 'CAMINHÃO', 'CAMINHÃO CARROCERIA', 'CAMINHÃO PIPA', 
+    'CAMINHÃO PRANCHA', 'CAMINHÃO TANQUE', 'CAVALO', 'CAÇAMBA', 
+    'CAÇAMBA BITRUCK', 'CAÇAMBA TOCO', 'CAÇAMBA TRUCKADO', 'CAÇAMBA TRAÇADO'
+];
+
 /**
  * Retorna o tipo de leitura ('KM' ou 'HR') baseado no grupo do veículo.
  * Regra 1: Somente Veículos Leves e Caminhões de Trecho usam KM.
@@ -33,15 +40,42 @@ export const getReadingType = (vehicle) => {
     const tipo = (vehicle.tipo || '').trim();
     const grupo = (vehicle.grupo || '').trim();
 
-    // Verifica se pertence aos grupos de Odômetro
-    const isLeve = vehicleGroups['Veículos Leves'].includes(tipo) || grupo === 'Veículos Leves';
-    const isTrecho = vehicleGroups['Caminhões de Trecho'].includes(tipo) || grupo === 'Caminhões de Trecho';
+    // Verifica se pertence aos grupos de Odômetro (KM)
+    // Verifica tanto pelo tipo exato quanto pelo grupo
+    const isLeve = vehicleGroups['Veículos Leves'].some(t => tipo.includes(t)) || grupo === 'Veículos Leves';
+    const isTrecho = vehicleGroups['Caminhões de Trecho'].some(t => tipo.includes(t)) || grupo === 'Caminhões de Trecho';
 
     if (isLeve || isTrecho) {
         return 'KM';
     }
 
     return 'HR';
+};
+
+/**
+ * ADAPTER: Função de compatibilidade para a página de Abastecimento.
+ * Converte o retorno 'KM'/'HR' para 'odometro'/'horimetro'.
+ * @param {Object} vehicle 
+ * @returns {string} 'odometro' | 'horimetro'
+ */
+export const getVehicleMainReading = (vehicle) => {
+    const type = getReadingType(vehicle);
+    return type === 'KM' ? 'odometro' : 'horimetro';
+};
+
+/**
+ * Determina se o veículo precisa de Arla 32
+ * @param {Object} vehicle 
+ * @returns {boolean}
+ */
+export const needsArla = (vehicle) => {
+    if (!vehicle) return false;
+    
+    const tipo = (vehicle.tipo || '').toUpperCase();
+    const modelo = (vehicle.modelo || '').toUpperCase();
+
+    // Verifica se o tipo ou modelo contém algum dos termos do grupo Arla
+    return GRUPOS_ARLA.some(t => tipo === t || modelo.includes(t) || tipo.includes(t));
 };
 
 /**
