@@ -6,6 +6,9 @@ import {
     CalendarClock, Gauge
 } from 'lucide-react';
 
+// Importação das Regras Centralizadas para evitar erro de build
+import { getVehicleMainReading, needsArla } from './utils/vehicleRules';
+
 const SolicitacaoAbastecimentoPage = ({ 
     apiClient, 
     vehicles = [], 
@@ -60,21 +63,6 @@ const SolicitacaoAbastecimentoPage = ({
     // Refs
     const fileInputRef = useRef(null);
     const cupomInputRef = useRef(null);
-
-    // --- REGRAS DE NEGÓCIO (LISTAS E TIPOS) ---
-
-    // Grupos que usam ARLA 32
-    const GRUPOS_ARLA = [
-        'BITRUCK', 'CAMINHÃO', 'CAMINHÃO CARROCERIA', 'CAMINHÃO PIPA', 
-        'CAMINHÃO PRANCHA', 'CAMINHÃO TANQUE', 'CAVALO', 'CAÇAMBA', 
-        'CAÇAMBA BITRUCK', 'CAÇAMBA TOCO', 'CAÇAMBA TRUCKADO', 'CAÇAMBA TRAÇADO'
-    ];
-
-    // Grupos que usam ODÔMETRO (KM)
-    // ATENÇÃO: Caminhão Prancha foi movido para cá conforme solicitação
-    const GRUPOS_ODOMETRO = [
-        'VEÍCULO LEVE', 'UTILITÁRIO', 'PASSEIO', 'CAMINHÃO PRANCHA', 'CAMINHÃO TOCO', 'MOTO', 'AUTOMÓVEL'
-    ];
 
     // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
     const myEmployeeId = useMemo(() => {
@@ -225,28 +213,14 @@ const SolicitacaoAbastecimentoPage = ({
         }
     }, [veiculoSelecionado, myRequests]);
 
-    // Determina tipo de leitura (Km ou Horas)
+    // Determina tipo de leitura (Km ou Horas) usando o UTILS
     const readingType = useMemo(() => {
-        if (!veiculoSelecionado) return 'bloqueado';
-        
-        const tipo = (veiculoSelecionado.tipo || '').toUpperCase();
-        const modelo = (veiculoSelecionado.modelo || '').toUpperCase();
-        
-        // Verifica se encaixa nos grupos de Odômetro (Inclui Caminhão Prancha)
-        // Se NÃO estiver aqui, assume-se Horímetro (Máquinas Pesadas, outros Caminhões)
-        const isOdometer = GRUPOS_ODOMETRO.some(t => tipo === t || modelo.includes(t) || tipo.includes(t));
-
-        return isOdometer ? 'odometro' : 'horimetro';
+        return getVehicleMainReading(veiculoSelecionado);
     }, [veiculoSelecionado]);
 
-    // Determina se exibe Arla
+    // Determina se exibe Arla usando o UTILS
     const showArlaSection = useMemo(() => {
-        if (!veiculoSelecionado) return false;
-        
-        const tipo = (veiculoSelecionado.tipo || '').toUpperCase();
-        const modelo = (veiculoSelecionado.modelo || '').toUpperCase();
-
-        return GRUPOS_ARLA.some(t => tipo === t || modelo.includes(t));
+        return needsArla(veiculoSelecionado);
     }, [veiculoSelecionado]);
 
     // Alerta de Abastecimento Recente (< 24h)
