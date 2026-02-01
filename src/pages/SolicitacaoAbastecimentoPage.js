@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 
 // Importação das Regras Centralizadas
-// Caminho corrigido para '../utils' (pois o arquivo está em 'src/pages')
 import { getVehicleMainReading, needsArla } from '../utils/vehicleRules';
 
 const SolicitacaoAbastecimentoPage = ({ 
@@ -65,25 +64,39 @@ const SolicitacaoAbastecimentoPage = ({
     const fileInputRef = useRef(null);
     const cupomInputRef = useRef(null);
 
-    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
+    // --- HELPER: NORMALIZAÇÃO DE STRING ---
+    // Remove acentos, espaços extras e coloca em minúsculas para comparação segura
+    const normalizeStr = (str) => {
+        if (!str) return '';
+        return str.toString()
+            .toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
+            .replace(/\s+/g, ' ') // Remove espaços duplos
+            .trim();
+    };
+
+    // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO (FALLBACKS ROBUSTOS) ---
     const myEmployeeId = useMemo(() => {
         if (!user) return null;
         
-        // 1. Tenta pegar direto do objeto user
+        // 1. Tenta pegar direto do objeto user (se o backend enviar)
         if (user.employeeId) return user.employeeId;
         if (user.employee_id) return user.employee_id;
 
-        // 2. Fallback: Procura na lista de funcionários pelo email
-        if (user.email && Array.isArray(employees) && employees.length > 0) {
-            const userEmail = user.email.toLowerCase().trim();
-            const found = employees.find(e => e.email && e.email.toLowerCase().trim() === userEmail);
+        // Se não temos a lista de funcionários, não dá para buscar
+        if (!Array.isArray(employees) || employees.length === 0) return null;
+
+        // 2. Fallback: Procura por E-mail (Normalizado)
+        if (user.email) {
+            const userEmail = normalizeStr(user.email);
+            const found = employees.find(e => normalizeStr(e.email) === userEmail);
             if (found) return found.id;
         }
 
-        // 3. Fallback: Procura pelo nome
-        if (user.name && Array.isArray(employees) && employees.length > 0) {
-            const userName = user.name.toLowerCase().trim();
-            const found = employees.find(e => e.nome && e.nome.toLowerCase().trim() === userName);
+        // 3. Fallback CRÍTICO: Procura pelo NOME (Normalizado)
+        if (user.name) {
+            const userName = normalizeStr(user.name);
+            const found = employees.find(e => normalizeStr(e.nome) === userName);
             if (found) return found.id;
         }
 
@@ -92,7 +105,7 @@ const SolicitacaoAbastecimentoPage = ({
 
     // --- LÓGICA DE FILTRAGEM (OBRA -> VEÍCULOS -> FUNCIONÁRIOS) ---
 
-    // 1. Obras onde o usuário está ALOCADO (Tabela obras_historico_veiculos com dataSaida NULL)
+    // 1. Identificar Obra(s) onde o Usuário Logado está ALOCADO ATUALMENTE
     const allowedObras = useMemo(() => {
         if (!myEmployeeId || !obras.length) return [];
 
@@ -107,29 +120,29 @@ const SolicitacaoAbastecimentoPage = ({
         });
     }, [myEmployeeId, obras]);
 
-    // 2. Veículos e Funcionários da Obra Selecionada
+    // Lógica Unificada para filtrar Veículos e Funcionários baseados na OBRA SELECIONADA
     const { filteredVehicles, filteredEmployees } = useMemo(() => {
         if (!formData.obraId) return { filteredVehicles: [], filteredEmployees: [] };
 
-        // Encontra a obra selecionada
+        // 1. Encontra a Obra Selecionada
         const selectedObra = obras.find(o => String(o.id) === String(formData.obraId));
         
         if (!selectedObra || !selectedObra.historicoVeiculos) {
             return { filteredVehicles: [], filteredEmployees: [] };
         }
 
+        // 2. Coleta IDs de Veículos e Funcionários ATIVOS nesta Obra (dataSaida NULL)
         const activeVehiclesIds = new Set();
         const activeEmployeesIds = new Set();
 
-        // Varre o histórico da obra selecionada para achar TODOS que estão nela atualmente
         selectedObra.historicoVeiculos.forEach(h => {
-            if (!h.dataSaida) { // Apenas ativos na obra
+            if (!h.dataSaida) { // Apenas registros ativos
                 if (h.veiculoId) activeVehiclesIds.add(String(h.veiculoId));
                 if (h.employeeId) activeEmployeesIds.add(String(h.employeeId));
             }
         });
 
-        // Mapeia IDs para objetos completos
+        // 3. Filtra as listas principais usando os IDs coletados
         const veiculosDaObra = vehicles
             .filter(v => activeVehiclesIds.has(String(v.id)))
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
@@ -163,18 +176,19 @@ const SolicitacaoAbastecimentoPage = ({
         };
     }, [user]);
 
-    // Auto-selecionar Obra se o usuário só tiver uma
+    // Auto-selecionar Obra se o usuário só tiver uma alocada
     useEffect(() => {
         if (allowedObras.length === 1 && !formData.obraId) {
             setFormData(prev => ({ ...prev, obraId: allowedObras[0].id }));
         }
     }, [allowedObras]);
 
-    // Auto-selecionar Funcionário (ele mesmo) se estiver na lista da obra
+    // Auto-selecionar o próprio usuário como funcionário responsável
     useEffect(() => {
         if (myEmployeeId && formData.obraId && !formData.funcionarioId) {
-            const myselfInList = filteredEmployees.some(e => String(e.id) === String(myEmployeeId));
-            if (myselfInList) {
+            // Verifica se ele está na lista de funcionários da obra selecionada
+            const isInList = filteredEmployees.some(e => String(e.id) === String(myEmployeeId));
+            if (isInList) {
                 setFormData(prev => ({ ...prev, funcionarioId: myEmployeeId }));
             }
         }
@@ -192,24 +206,17 @@ const SolicitacaoAbastecimentoPage = ({
             setFormData(prev => ({ ...prev, odometro: '', horimetro: '' }));
 
             // REGRA: Sempre selecionar o último posto que aquele veículo abasteceu
-            let lastPartnerId = null;
-
-            // 1. Tenta pegar do histórico de solicitações recentes (mais confiável para fluxo do app)
-            // Procura a última solicitação CONCLUÍDA ou LIBERADA deste veículo
-            const lastReq = myRequests.find(r => 
-                String(r.veiculo_id) === String(veiculoSelecionado.id) && 
-                (r.status === 'CONCLUIDO' || r.status === 'LIBERADO' || r.status === 'AGUARDANDO_BAIXA')
-            );
+            // 1. Tenta pegar direto do objeto veículo
+            let lastPartner = veiculoSelecionado.lastPartnerId;
             
-            if (lastReq && lastReq.posto_id) {
-                lastPartnerId = lastReq.posto_id;
-            } else {
-                // 2. Fallback para o cadastro do veículo
-                lastPartnerId = veiculoSelecionado.lastPartnerId;
+            // 2. Se não tiver no objeto, tenta achar na lista de requisições recentes
+            if (!lastPartner) {
+                const lastReq = myRequests.find(r => r.veiculo_id === veiculoSelecionado.id && r.status === 'CONCLUIDO');
+                if (lastReq) lastPartner = lastReq.posto_id;
             }
 
-            if (lastPartnerId) {
-                setFormData(prev => ({ ...prev, postoId: lastPartnerId }));
+            if (lastPartner) {
+                setFormData(prev => ({ ...prev, postoId: lastPartner }));
             }
         }
     }, [veiculoSelecionado, myRequests]);
@@ -513,6 +520,7 @@ const SolicitacaoAbastecimentoPage = ({
                             <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
                                 <p><strong>User:</strong> {user.name} ({user.id})</p>
                                 <p><strong>EmpID Detectado:</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
+                                <p><strong>Funcionários na Lista:</strong> {Array.isArray(employees) ? employees.length : 'Erro (não é array)'}</p>
                                 <p><strong>Obras Disponíveis Total:</strong> {obras.length}</p>
                             </div>
                         </div>
