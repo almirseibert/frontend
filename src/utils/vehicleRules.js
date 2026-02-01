@@ -21,7 +21,7 @@ export const equipmentTypesForHours = [
     'Caçamba Traçado', 'Caçamba Truckado', 'Fresadora'
 ];
 
-// Grupos específicos para Arla 32 (Usado no Abastecimento)
+// Grupos específicos para Arla 32 (Adicionado para Abastecimento)
 export const GRUPOS_ARLA = [
     'BITRUCK', 'CAMINHÃO', 'CAMINHÃO CARROCERIA', 'CAMINHÃO PIPA', 
     'CAMINHÃO PRANCHA', 'CAMINHÃO TANQUE', 'CAVALO', 'CAÇAMBA', 
@@ -40,8 +40,7 @@ export const getReadingType = (vehicle) => {
     const tipo = (vehicle.tipo || '').trim();
     const grupo = (vehicle.grupo || '').trim();
 
-    // Verifica se pertence aos grupos de Odômetro (KM)
-    // Verifica tanto pelo tipo exato quanto pelo grupo
+    // Verifica se pertence aos grupos de Odômetro
     const isLeve = vehicleGroups['Veículos Leves'].some(t => tipo.includes(t)) || grupo === 'Veículos Leves';
     const isTrecho = vehicleGroups['Caminhões de Trecho'].some(t => tipo.includes(t)) || grupo === 'Caminhões de Trecho';
 
@@ -54,7 +53,7 @@ export const getReadingType = (vehicle) => {
 
 /**
  * ADAPTER: Função de compatibilidade para a página de Abastecimento.
- * Converte o retorno 'KM'/'HR' para 'odometro'/'horimetro'.
+ * Converte o retorno 'KM'/'HR' para 'odometro'/'horimetro' (formato do BD).
  * @param {Object} vehicle 
  * @returns {string} 'odometro' | 'horimetro'
  */

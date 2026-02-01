@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 
 // Importação das Regras Centralizadas para evitar erro de build
-import { getVehicleMainReading, needsArla } from './utils/vehicleRules';
+// CORREÇÃO: Uso de '../utils' pois este arquivo está em 'src/pages'
+import { getVehicleMainReading, needsArla } from '../utils/vehicleRules';
 
 const SolicitacaoAbastecimentoPage = ({ 
     apiClient, 
