@@ -6,14 +6,14 @@ import {
     CalendarClock, Gauge, Calendar, AlertOctagon, Trash2
 } from 'lucide-react';
 
-// --- INÍCIO DA INTEGRAÇÃO DAS REGRAS DE VEÍCULO (vehicleRules.js) ---
-// Integrado localmente para evitar erros de importação em ambiente single-file
+// --- INÍCIO DA LÓGICA DE REGRAS (Cópia fiel do vehicleRules.js para funcionamento local) ---
+// Mantido aqui para garantir que esta página funcione independente de imports externos
 
 const vehicleGroups = {
-    'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto', 'Passeio', 'Veículo Leve'],
+    'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
     'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
-    'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques', 'Caminhão Toco'], 
-    'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Escavadeira + Rompedor', 'Fresadora', 'Trator Esteira']
+    'Caminhões de Trecho': ['Caminhão Prancha', 'Semirreboques'], 
+    'Máquinas Pesadas': ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator', 'Escavadeira', 'Fresadora', 'Trator Esteira']
 };
 
 const GRUPOS_ARLA = [
@@ -22,24 +22,19 @@ const GRUPOS_ARLA = [
     'CAÇAMBA BITRUCK', 'CAÇAMBA TOCO', 'CAÇAMBA TRUCKADO', 'CAÇAMBA TRAÇADO'
 ];
 
-const getReadingType = (vehicle) => {
-    if (!vehicle) return 'HR'; 
-    
-    const tipo = (vehicle.tipo || '').trim();
-    const grupo = (vehicle.grupo || '').trim();
-
-    const isLeve = vehicleGroups['Veículos Leves'].some(t => tipo.includes(t)) || grupo === 'Veículos Leves';
-    const isTrecho = vehicleGroups['Caminhões de Trecho'].some(t => tipo.includes(t)) || grupo === 'Caminhões de Trecho';
-
-    if (isLeve || isTrecho) {
-        return 'KM';
+const getAllowedReadingTypes = (vehicleType) => {
+    const group = Object.keys(vehicleGroups).find(key => vehicleGroups[key].includes(vehicleType));
+    if (group === 'Veículos Leves' || group === 'Caminhões de Trecho') {
+        return ['odometro'];
     }
-    return 'HR';
+    return ['horimetro']; 
 };
 
-const getVehicleMainReading = (vehicle) => {
-    const type = getReadingType(vehicle);
-    return type === 'KM' ? 'odometro' : 'horimetro';
+// Retorna 'odometro' ou 'horimetro' string para uso no formulário
+const getFormReadingType = (vehicle) => {
+    if (!vehicle || !vehicle.tipo) return 'horimetro';
+    const allowed = getAllowedReadingTypes(vehicle.tipo);
+    return allowed.includes('odometro') ? 'odometro' : 'horimetro';
 };
 
 const needsArla = (vehicle) => {
@@ -71,34 +66,50 @@ const checkVehicleRestrictions = (vehicle) => {
     }
 
     // 2. Manutenção por Leitura
-    const currentReading = parseFloat(vehicle.horimetro || 0);
-    const type = getReadingType(vehicle);
-    let proximaLeitura = 0;
+    const formType = getFormReadingType(vehicle);
+    const isKm = formType === 'odometro';
     
-    if (type === 'KM') {
+    // Pega o valor atual correto baseado no tipo
+    const currentReading = isKm 
+        ? parseFloat(vehicle.odometro || 0) 
+        : parseFloat(vehicle.horimetro || vehicle.horimetroDigital || 0);
+
+    // Pega a meta correta
+    let proximaLeitura = 0;
+    if (isKm) {
         proximaLeitura = parseFloat(vehicle.proximaRevisaoKm || 0);
     } else {
         proximaLeitura = parseFloat(vehicle.proximaRevisaoHoras || 0);
     }
 
     if (proximaLeitura > 0) {
-        const avisoAntecedencia = type === 'KM' ? 500 : 20; 
+        const avisoAntecedencia = isKm ? 500 : 20; 
 
         if (currentReading >= proximaLeitura) {
-            issues.push({ category: 'manutencao', type: 'error', message: `MANUTENÇÃO VENCIDA (Leitura): ${currentReading}/${proximaLeitura} ${type}.` });
+            const unit = isKm ? 'Km' : 'h';
+            issues.push({ category: 'manutencao', type: 'error', message: `MANUTENÇÃO VENCIDA (Leitura): ${currentReading}/${proximaLeitura} ${unit}.` });
         } else if ((proximaLeitura - currentReading) <= avisoAntecedencia) {
             const faltam = (proximaLeitura - currentReading).toFixed(1);
-            issues.push({ category: 'manutencao', type: 'warning', message: `Manutenção PRÓXIMA: Faltam ${faltam} ${type}.` });
+            const unit = isKm ? 'Km' : 'h';
+            issues.push({ category: 'manutencao', type: 'warning', message: `Manutenção PRÓXIMA: Faltam ${faltam} ${unit}.` });
         }
     }
 
     // 3. Documentos
+    // Verifica se é caminhão para aplicar regras de tacógrafo/AET
+    const isTruck = vehicleGroups['Caminhões']?.includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
+    
     const docs = [
-        { key: 'validadeTacografo', label: 'Tacógrafo' },
-        { key: 'validadeAET_DAER', label: 'AET DAER' },
-        { key: 'validadeAET_DNIT', label: 'AET DNIT' },
-        { key: 'validadeLicenciamento', label: 'Licenciamento' },
+        { key: 'validadeLicenciamento', label: 'Licenciamento', checkAlways: true },
     ];
+    
+    if (isTruck) {
+        docs.push(
+            { key: 'validadeTacografo', label: 'Tacógrafo' },
+            { key: 'validadeAET_DAER', label: 'AET DAER' },
+            { key: 'validadeAET_DNIT', label: 'AET DNIT' }
+        );
+    }
 
     docs.forEach(doc => {
         if (vehicle[doc.key]) {
@@ -122,7 +133,7 @@ const checkVehicleRestrictions = (vehicle) => {
 
     return issues;
 };
-// --- FIM DA INTEGRAÇÃO DAS REGRAS ---
+// --- FIM DA LÓGICA DE REGRAS ---
 
 const SolicitacaoAbastecimentoPage = ({ 
     apiClient, 
@@ -418,7 +429,7 @@ const SolicitacaoAbastecimentoPage = ({
         }
     }, [veiculoSelecionado, myRequests]);
 
-    const readingType = useMemo(() => getVehicleMainReading(veiculoSelecionado), [veiculoSelecionado]);
+    const readingType = useMemo(() => getFormReadingType(veiculoSelecionado), [veiculoSelecionado]);
     const showArlaSection = useMemo(() => needsArla(veiculoSelecionado), [veiculoSelecionado]);
     
     // --- API & HELPERS ---
@@ -832,7 +843,7 @@ const SolicitacaoAbastecimentoPage = ({
                             value={formData.dataAbastecimento}
                             onChange={e => setFormData({...formData, dataAbastecimento: e.target.value})}
                         />
-                         <p className="text-[10px] text-gray-500 px-1">Selecione o dia em que vai ao posto.</p>
+                         <p className="text-[10px] text-gray-500 px-1">Se for em outro dia altere aqui, se for hoje não altere.</p>
                     </div>
 
                     <div className="space-y-1">
@@ -846,7 +857,7 @@ const SolicitacaoAbastecimentoPage = ({
                             {formData.funcionarioId && filteredEmployees.length === 0 && (
                                 <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
                             )}
-                            <option value="">Selecione quem está trabalhando na RE...</option>
+                            <option value="">Selecione quem está abastecendo...</option>
                             {filteredEmployees.map(e => (
                                 <option key={e.id} value={e.id}>{e.nome}</option>
                             ))}
