@@ -91,11 +91,13 @@ const AdminSolicitacoesPage = ({
         } catch { return new Date(); }
     };
 
-    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA (Lógica idêntica ao RefuelingOrderModal) ---
+    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA ---
     const getLastFuelingInfo = (veiculoId) => {
-        if (!abastecimentos || abastecimentos.length === 0) return "Histórico indisponível.";
+        // Verificação defensiva: se abastecimentos for undefined ou null, retorna msg de erro de carregamento
+        if (!abastecimentos) return "Carregando histórico...";
+        if (abastecimentos.length === 0) return "Nenhum histórico no sistema.";
 
-        const vehicle = vehicles.find(v => v.id === veiculoId);
+        const vehicle = vehicles.find(v => String(v.id) === String(veiculoId));
         if (!vehicle) return "Veículo não encontrado.";
 
         // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
@@ -117,11 +119,10 @@ const AdminSolicitacoesPage = ({
 
             const allowed = getAllowedReadingTypes(vehicle.tipo);
             if (allowed.includes('horimetro')) {
-                // Tenta pegar horimetro, se não tiver tenta o digital
                 const lastHr = parseFloat(last.horimetro || last.horimetroDigital || 0); 
                 const prevHr = parseFloat(penultimo.horimetro || penultimo.horimetroDigital || 0);
                 diff = lastHr - prevHr;
-                unit = 'L/Hr';
+                unit = 'L/h';
             } else {
                 const lastKm = parseFloat(last.odometro || 0);
                 const prevKm = parseFloat(penultimo.odometro || 0);
@@ -129,7 +130,8 @@ const AdminSolicitacoesPage = ({
             }
 
             if (diff > 0 && litros > 0) {
-                // Lógica padrão: Máquinas (l/h), Veículos (km/l)
+                // Lógica: Máquinas (l/h), Veículos (km/l)
+                // Se for unidade L/h a conta é Litros / Diferença Horas
                 const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
                 mediaTexto = `${avg.toFixed(2)} ${unit}`;
             } else {
@@ -141,7 +143,6 @@ const AdminSolicitacoesPage = ({
         const dateStr = new Date(last.data || last.date).toLocaleDateString('pt-BR');
         const fuel = last.fuelType || 'Combustível';
         
-        // Determina qual leitura exibir baseada no tipo
         const allowedReadings = getAllowedReadingTypes(vehicle.tipo);
         const isKm = allowedReadings.includes('odometro');
         const readVal = isKm ? (last.odometro || 0) : (last.horimetro || last.horimetroDigital || 0);
@@ -155,7 +156,7 @@ const AdminSolicitacoesPage = ({
         if (!obras || obras.length === 0) return "Dados de obras não carregados.";
         
         const obra = obras.find(o => String(o.id) === String(obraId));
-        if (!obra) return "Obra não vinculada ou não encontrada.";
+        if (!obra) return "Obra não vinculada.";
 
         // Soma gastos de combustível
         const totalGasto = expenses
@@ -173,7 +174,7 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (Idêntica ao RefuelingOrderModal) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
@@ -183,17 +184,12 @@ const AdminSolicitacoesPage = ({
 
         let pdfLink = '';
         
-        // Se houver função de geração, processa o arquivo (Upload para gerar link)
         if (onGeneratePDF) {
             try {
-                // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
-                
-                // 2. UPLOAD (Para gerar o link público para o posto)
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
                 let serverBaseUrl = '';
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
@@ -203,27 +199,20 @@ const AdminSolicitacoesPage = ({
                     serverBaseUrl = window.location.origin;
                 }
 
-                // LIMPEZA DA URL BASE
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
-                // --- BUSCA AGRESSIVA DE TOKEN ---
-                let token = localStorage.getItem('token') || localStorage.getItem('authToken') || localStorage.getItem('userToken');
+                let token = localStorage.getItem('token') || localStorage.getItem('authToken');
                 if (!token) {
                     try {
                         const userStored = localStorage.getItem('user');
-                        if (userStored) {
-                            const uObj = JSON.parse(userStored);
-                            if (uObj.token) token = uObj.token;
-                        }
+                        if (userStored) token = JSON.parse(userStored).token;
                     } catch(e) {}
                 }
-                if (token && typeof token === 'string' && token.startsWith('"') && token.endsWith('"')) {
-                    token = token.slice(1, -1);
-                }
+                if (token && token.startsWith('"')) token = token.slice(1, -1);
 
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -237,20 +226,14 @@ const AdminSolicitacoesPage = ({
                 if (response.ok) {
                     const uploadRes = await response.json();
                     if (uploadRes && uploadRes.url) {
-                        if (uploadRes.url.startsWith('/')) {
-                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
-                        } else {
-                            pdfLink = uploadRes.url;
-                        }
+                        pdfLink = uploadRes.url.startsWith('/') ? `${serverBaseUrl}${uploadRes.url}` : uploadRes.url;
                     }
                 }
             } catch (err) {
-                console.error("Erro ao processar PDF (Upload):", err);
-                setAlertMessage("Ordem gerada. Erro ao gerar link do PDF, enviando texto simples.");
+                console.error("Erro upload PDF:", err);
             }
         }
 
-        // --- MONTAGEM DA MENSAGEM ---
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
         let readingMsg = '';
         if (allowedReadings.includes('odometro')) {
@@ -260,42 +243,15 @@ const AdminSolicitacoesPage = ({
         }
         
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-        
         const arlaMsg = finalData.needsArla 
             ? `\n*Arla 32:* ${finalData.litrosLiberadosArla ? finalData.litrosLiberadosArla + ' Litros' : 'Incluso'}` 
             : '';
 
-        // MENSAGEM COM LINK
         let msg = '';
-        
         if (pdfLink) {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Segue link para a Autorização Oficial (PDF):
-${pdfLink}
-
-*Resumo:*
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
-*Combustível:* ${finalData.fuelType}
-*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
-*Motorista:* ${employee?.nome || 'N/A'}`;
+            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\nSegue link para a Autorização Oficial (PDF):\n${pdfLink}\n\n*Resumo:*\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}\n*Combustível:* ${finalData.fuelType}\n*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}\n*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            // Fallback Texto (caso o upload falhe)
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-(Link PDF indisponível, verifique sistema)
-
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
-${readingMsg}
-*Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${finalData.fuelType}
-*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\n(Link PDF indisponível, verifique sistema)\n\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}\n${readingMsg}\n*Motorista:* ${employee?.nome || 'N/A'}\n*Combustível:* ${finalData.fuelType}\n*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
 
         setTimeout(() => {
@@ -307,7 +263,6 @@ ${readingMsg}
     const handleAprovar = async (id) => {
         if (!window.confirm("Deseja realmente aprovar e gerar a Ordem de Abastecimento?")) return;
         
-        // Busca os dados da solicitação atual para usar no envio
         const s = solicitacoes.find(item => item.id === id);
 
         try {
@@ -317,16 +272,14 @@ ${readingMsg}
             setModalData(null);
             fetchSolicitacoes();
 
-            // --- ENVIO AUTOMÁTICO WHATSAPP ---
             if (s && res && res.authNumber) {
                 const vehicle = vehicles.find(v => v.id === s.veiculo_id);
                 const partner = partners.find(p => p.id === s.posto_id);
                 const employee = employees.find(e => e.id === s.funcionario_id);
 
-                // Mapeia os dados da solicitação para o formato esperado pela função de envio e PDF
                 const orderData = {
                     authNumber: res.authNumber,
-                    date: new Date().toISOString(), // Data da emissão (Hoje)
+                    date: new Date().toISOString(),
                     vehicleId: s.veiculo_id,
                     partnerId: s.posto_id,
                     partnerName: partner?.razaoSocial,
@@ -336,7 +289,6 @@ ${readingMsg}
                     litrosLiberados: s.litragem_solicitada,
                     odometro: s.odometro_informado,
                     horimetro: s.horimetro_informado,
-                    // Verifica se tem Arla na observação (já que não tem campo booleano direto no banco para solicitação)
                     needsArla: s.observacao && s.observacao.includes('ARLA'),
                     isFillUpArla: false, 
                     litrosLiberadosArla: '', 
@@ -357,10 +309,7 @@ ${readingMsg}
             return;
         }
         try {
-            await apiClient.put(`/solicitacoes/${id}/avaliar`, { 
-                status: 'NEGADO', 
-                motivoNegativa: rejectReason 
-            });
+            await apiClient.put(`/solicitacoes/${id}/avaliar`, { status: 'NEGADO', motivoNegativa: rejectReason });
             setAlertMessage("Solicitação Negada.");
             setModalData(null);
             setRejectReason('');
@@ -400,7 +349,7 @@ ${readingMsg}
         return ''; 
     };
 
-    // --- MODAL DE AVALIAÇÃO ---
+    // --- MODAL DE AVALIAÇÃO (COMPACTO) ---
     const renderModal = () => {
         if (!modalData) return null;
         const s = modalData;
@@ -417,138 +366,129 @@ ${readingMsg}
         const diferenca = leituraInformada - leituraAtualSistema;
 
         return (
-            <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4 animate-fadeIn">
-                <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col md:flex-row overflow-hidden">
+            <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-2 animate-fadeIn">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[95vh] flex flex-col md:flex-row overflow-hidden">
                     
                     {/* COLUNA ESQUERDA: EVIDÊNCIAS */}
-                    <div className="md:w-3/5 bg-gray-900 flex flex-col relative">
-                        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent z-10 flex justify-between items-center text-white">
-                            <h4 className="font-bold flex items-center gap-2">
-                                <ImageIcon size={18}/> {isApproval ? 'Evidência do Painel' : 'Comprovante Fiscal'}
+                    <div className="md:w-1/2 bg-gray-900 flex flex-col relative">
+                        <div className="absolute top-0 left-0 right-0 p-2 bg-gradient-to-b from-black/70 to-transparent z-10 flex justify-between items-center text-white">
+                            <h4 className="font-bold flex items-center gap-2 text-sm">
+                                <ImageIcon size={16}/> {isApproval ? 'Evidência do Painel' : 'Comprovante Fiscal'}
                             </h4>
                             {s.latitude && (
-                                <a 
-                                    href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full flex items-center gap-1 transition"
-                                >
-                                    <MapPin size={12}/> Ver Localização GPS
+                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded-full flex items-center gap-1 transition">
+                                    <MapPin size={10}/> Ver Localização GPS
                                 </a>
                             )}
                         </div>
-                        <div className="flex-1 flex items-center justify-center p-4 bg-black">
+                        <div className="flex-1 flex items-center justify-center p-2 bg-black">
                             {isApproval && urlPainel ? (
                                 <img src={urlPainel} alt="Painel" className="max-w-full max-h-full object-contain" />
                             ) : isBaixa && urlCupom ? (
                                 <img src={urlCupom} alt="Cupom" className="max-w-full max-h-full object-contain" />
                             ) : (
                                 <div className="text-gray-500 flex flex-col items-center">
-                                    <AlertTriangle size={48} className="mb-2"/>
-                                    <p>Imagem indisponível</p>
+                                    <AlertTriangle size={32} className="mb-2"/>
+                                    <p className="text-xs">Imagem indisponível</p>
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    {/* COLUNA DIREITA: DADOS E AÇÃO */}
-                    <div className="md:w-2/5 flex flex-col bg-gray-50">
-                        <div className="p-6 border-b bg-white">
-                            <div className="flex justify-between items-start mb-2">
+                    {/* COLUNA DIREITA: DADOS E AÇÃO (COMPACTO) */}
+                    <div className="md:w-1/2 flex flex-col bg-gray-50">
+                        <div className="p-3 border-b bg-white">
+                            <div className="flex justify-between items-start mb-1">
                                 <div>
-                                    <h2 className="text-xl font-bold text-gray-800">
+                                    <h2 className="text-lg font-bold text-gray-800 leading-tight">
                                         {isApproval ? 'Análise de Solicitação' : 'Conferência de Baixa'}
                                     </h2>
-                                    <p className="text-sm text-gray-500">#{s.id} • {new Date(s.data_solicitacao).toLocaleString()}</p>
+                                    <p className="text-[10px] text-gray-500">#{s.id} • {new Date(s.data_solicitacao).toLocaleString()}</p>
                                 </div>
-                                <button onClick={() => setModalData(null)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><X size={24}/></button>
+                                <button onClick={() => setModalData(null)} className="p-1 hover:bg-gray-100 rounded-full text-gray-500"><X size={20}/></button>
                             </div>
                             
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                                <p className="font-bold text-gray-800 text-lg">{s.veiculo_nome}</p>
-                                <p className="text-sm text-gray-600">{s.placa} • {s.solicitante_nome}</p>
+                            <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                                <p className="font-bold text-gray-800 text-sm leading-tight">{s.veiculo_nome}</p>
+                                <p className="text-xs text-gray-600 leading-tight">{s.placa} • {s.solicitante_nome}</p>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
                             
-                            {/* Destaques Motorista e Data */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-white p-3 rounded-lg border shadow-sm">
-                                    <p className="text-xs text-gray-500 uppercase font-bold">Motorista</p>
-                                    <p className="font-bold text-purple-700 text-sm truncate" title={getFuncionarioNome(s.funcionario_id)}>
-                                        {getFuncionarioNome(s.funcionario_id)}
-                                    </p>
-                                </div>
-                                <div className="bg-white p-3 rounded-lg border shadow-sm">
-                                    <p className="text-xs text-gray-500 uppercase font-bold">Data Selecionada</p>
-                                    <p className="font-bold text-gray-800 text-sm">
-                                        {s.data_abastecimento ? new Date(s.data_abastecimento).toLocaleDateString('pt-BR') : new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
-                                    </p>
-                                </div>
-                            </div>
-
                             {/* Comparativo de Leitura */}
                             <div>
-                                <h5 className="text-xs font-bold text-gray-400 uppercase mb-2">Validar Leitura</h5>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-white p-3 rounded-lg border shadow-sm">
-                                        <p className="text-xs text-gray-500">Informado (Foto)</p>
-                                        <p className="text-2xl font-bold text-blue-600">
-                                            {leituraInformada} <span className="text-sm text-gray-400">{s.odometro_informado ? 'Km' : 'h'}</span>
+                                <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-1">Validar Leitura</h5>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="bg-white p-2 rounded border shadow-sm">
+                                        <p className="text-[10px] text-gray-500">Informado (Foto)</p>
+                                        <p className="text-base font-bold text-blue-600 leading-none">
+                                            {leituraInformada} <span className="text-[10px] text-gray-400 font-normal">{s.odometro_informado ? 'Km' : 'h'}</span>
                                         </p>
                                     </div>
-                                    <div className="bg-white p-3 rounded-lg border shadow-sm">
-                                        <p className="text-xs text-gray-500">Sistema (Anterior)</p>
-                                        <p className="text-2xl font-bold text-gray-700">{leituraAtualSistema}</p>
+                                    <div className="bg-white p-2 rounded border shadow-sm">
+                                        <p className="text-[10px] text-gray-500">Sistema (Anterior)</p>
+                                        <p className="text-base font-bold text-gray-700 leading-none">{leituraAtualSistema}</p>
                                     </div>
                                 </div>
-                                <div className={`mt-2 text-xs font-bold px-2 py-1 rounded inline-block ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                <div className={`mt-1 text-[10px] font-bold px-2 py-0.5 rounded inline-block ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                                     Diferença: {diferenca > 0 ? '+' : ''}{diferenca.toFixed(1)}
                                 </div>
                             </div>
 
-                            {/* Detalhes do Pedido */}
+                            {/* Detalhes do Pedido - Layout Mais Denso */}
                             <div>
-                                <h5 className="text-xs font-bold text-gray-400 uppercase mb-2">Detalhes</h5>
-                                <div className="bg-white p-4 rounded-lg border shadow-sm space-y-3">
-                                    <div className="flex justify-between border-b pb-2">
-                                        <span className="text-gray-600 text-sm">Combustível</span>
-                                        <span className="font-bold text-sm">{s.tipo_combustivel}</span>
+                                <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-1">Detalhes do Pedido</h5>
+                                <div className="bg-white p-2 rounded border shadow-sm space-y-1 text-xs">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <span className="text-[10px] text-gray-500 block">Combustível</span>
+                                            <span className="font-bold text-gray-800">{s.tipo_combustivel}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] text-gray-500 block">Quantidade</span>
+                                            <span className="font-bold text-gray-800">{s.flag_tanque_cheio ? 'COMPLETAR TANQUE' : `${s.litragem_solicitada} L`}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] text-gray-500 block">Motorista</span>
+                                            <span className="font-bold text-purple-700 truncate block" title={getFuncionarioNome(s.funcionario_id)}>{getFuncionarioNome(s.funcionario_id)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] text-gray-500 block">Data Selecionada</span>
+                                            <span className="font-bold text-gray-800">
+                                                {s.data_abastecimento ? new Date(s.data_abastecimento).toLocaleDateString('pt-BR') : new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="flex justify-between border-b pb-2">
-                                        <span className="text-gray-600 text-sm">Quantidade</span>
-                                        <span className="font-bold text-sm">{s.flag_tanque_cheio ? 'COMPLETAR TANQUE' : `${s.litragem_solicitada} L`}</span>
+                                    <div className="border-t pt-1 mt-1">
+                                        <span className="text-[10px] text-gray-500 block">Posto Selecionado</span>
+                                        <span className="font-medium text-gray-800 leading-tight block">{getPostoNome(s.posto_id)}</span>
                                     </div>
-                                    <div className="border-b pb-2">
-                                        <span className="text-gray-600 text-xs block mb-1">Posto Selecionado</span>
-                                        <span className="font-medium text-sm block whitespace-normal">{getPostoNome(s.posto_id)}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600 text-xs block mb-1">Obra de Destino</span>
-                                        <span className="font-medium text-sm block whitespace-normal">{getObraNome(s.obra_id)}</span>
+                                    <div className="border-t pt-1 mt-1">
+                                        <span className="text-[10px] text-gray-500 block">Obra de Destino</span>
+                                        <span className="font-medium text-gray-800 leading-tight block">{getObraNome(s.obra_id)}</span>
                                     </div>
                                 </div>
                             </div>
 
                             {/* DADOS DE ANÁLISE (Último Abastecimento e Financeiro) */}
-                            <div className="space-y-3 border-t pt-4">
-                                <h3 className="text-sm font-bold text-gray-700 uppercase flex items-center gap-2">
-                                    <BarChart3 size={16}/> Dados para Análise
+                            <div className="space-y-2 border-t pt-2">
+                                <h3 className="text-xs font-bold text-gray-700 uppercase flex items-center gap-1">
+                                    <BarChart3 size={12}/> Dados para Análise
                                 </h3>
                                 
                                 {/* Info Último Abastecimento */}
-                                <div className="bg-gray-100 p-3 rounded-lg border border-gray-200">
-                                    <p className="text-xs text-gray-500 uppercase font-bold mb-1 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</p>
-                                    <p className="text-xs text-gray-800 font-mono leading-relaxed whitespace-pre-wrap">
+                                <div className="bg-gray-100 p-2 rounded border border-gray-200">
+                                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-0.5 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</p>
+                                    <p className="text-[10px] text-gray-800 font-mono leading-tight whitespace-pre-wrap">
                                         {getLastFuelingInfo(s.veiculo_id)}
                                     </p>
                                 </div>
 
                                 {/* Info Progresso Financeiro */}
-                                <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                                    <p className="text-xs text-green-700 uppercase font-bold mb-1 flex items-center gap-1"><TrendingUp size={10}/> Progresso Financeiro (Obra)</p>
-                                    <p className="text-xs text-green-900 font-mono leading-relaxed whitespace-pre-wrap">
+                                <div className="bg-green-50 p-2 rounded border border-green-200">
+                                    <p className="text-[10px] text-green-700 uppercase font-bold mb-0.5 flex items-center gap-1"><TrendingUp size={10}/> Progresso Financeiro (Obra)</p>
+                                    <p className="text-[10px] text-green-900 font-mono leading-tight whitespace-pre-wrap">
                                         {getFinancialProgress(s.obra_id)}
                                     </p>
                                 </div>
@@ -556,62 +496,49 @@ ${readingMsg}
 
                             {/* Alertas */}
                             {s.alerta_media_consumo === 1 && (
-                                <div className="bg-red-50 border-l-4 border-red-500 p-3 rounded">
-                                    <div className="flex items-center gap-2 text-red-800 font-bold text-sm">
-                                        <AlertTriangle size={16}/> ATENÇÃO: Queda de Média
+                                <div className="bg-red-50 border-l-2 border-red-500 p-2 rounded">
+                                    <div className="flex items-center gap-1 text-red-800 font-bold text-xs">
+                                        <AlertTriangle size={12}/> ATENÇÃO: Queda de Média
                                     </div>
-                                    <p className="text-xs text-red-700 mt-1">O consumo deste veículo aumentou drasticamente (>25%) comparado ao histórico.</p>
+                                    <p className="text-[10px] text-red-700 leading-tight">Consumo aumentou drasticamente (>25%).</p>
                                 </div>
                             )}
                         </div>
 
                         {/* Footer: Ações */}
-                        <div className="p-6 bg-white border-t space-y-3">
+                        <div className="p-3 bg-white border-t space-y-2">
                             {isApproval ? (
                                 <>
-                                    <div className="flex gap-3">
-                                        <button 
-                                            onClick={() => handleAprovar(s.id)}
-                                            className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 transition"
-                                        >
-                                            <Check size={20}/> APROVAR
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleAprovar(s.id)} className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow text-sm flex items-center justify-center gap-1 transition">
+                                            <Check size={16}/> APROVAR
                                         </button>
-                                        <button 
-                                            onClick={() => setRejectReason(' ')} 
-                                            className="px-4 py-3 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-lg border border-red-200 transition"
-                                        >
+                                        <button onClick={() => setRejectReason(' ')} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded border border-red-200 text-sm transition">
                                             Negar...
                                         </button>
                                     </div>
                                     {rejectReason !== '' && (
-                                        <div className="animate-slide-up bg-red-50 p-3 rounded-lg border border-red-200 mt-2">
-                                            <label className="text-xs font-bold text-red-800 mb-1 block">Motivo da Negativa:</label>
-                                            <textarea 
-                                                className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-red-500 outline-none"
-                                                rows="2"
-                                                value={rejectReason}
-                                                onChange={e => setRejectReason(e.target.value)}
-                                                placeholder="Ex: Foto ilegível, KM inconsistente..."
-                                                autoFocus
-                                            ></textarea>
-                                            <div className="flex justify-end gap-2 mt-2">
-                                                <button onClick={() => setRejectReason('')} className="text-xs text-gray-500 underline">Cancelar</button>
-                                                <button onClick={() => handleNegar(s.id)} className="px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700">Confirmar</button>
+                                        <div className="animate-slide-up bg-red-50 p-2 rounded border border-red-200 mt-1">
+                                            <label className="text-[10px] font-bold text-red-800 mb-1 block">Motivo da Negativa:</label>
+                                            <textarea className="w-full p-1 border rounded text-xs focus:ring-1 focus:ring-red-500 outline-none" rows="2" value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Ex: Foto ilegível..." autoFocus></textarea>
+                                            <div className="flex justify-end gap-2 mt-1">
+                                                <button onClick={() => setRejectReason('')} className="text-[10px] text-gray-500 underline">Cancelar</button>
+                                                <button onClick={() => handleNegar(s.id)} className="px-3 py-1 bg-red-600 text-white text-[10px] font-bold rounded hover:bg-red-700">Confirmar</button>
                                             </div>
                                         </div>
                                     )}
                                 </>
                             ) : isBaixa ? (
-                                <div className="flex gap-3">
-                                    <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 transition">
-                                        <Check size={20}/> CONFIRMAR BAIXA
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow text-sm flex items-center justify-center gap-1 transition">
+                                        <Check size={16}/> CONFIRMAR BAIXA
                                     </button>
-                                    <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-3 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded-lg border border-orange-200 flex items-center justify-center gap-2 transition">
-                                        <X size={20}/> Rejeitar Foto
+                                    <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded border border-orange-200 text-sm flex items-center justify-center gap-1 transition">
+                                        <X size={16}/> Rejeitar Foto
                                     </button>
                                 </div>
                             ) : (
-                                <div className="text-center text-gray-400 text-sm italic">
+                                <div className="text-center text-xs text-gray-400 py-1">
                                     Solicitação finalizada ({s.status})
                                 </div>
                             )}
