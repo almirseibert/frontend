@@ -16,8 +16,7 @@ const AdminSolicitacoesPage = ({
     vehicleGroups = {},
     refuelings = [], 
     expenses = [],
-    onGeneratePDF,
-    user // Adicionado prop User para passar ao criador do PDF
+    onGeneratePDF 
 }) => {
     
     const [solicitacoes, setSolicitacoes] = useState([]);
@@ -100,6 +99,7 @@ const AdminSolicitacoesPage = ({
         const vehicle = vehicles.find(v => String(v.id) === String(veiculoId));
         if (!vehicle) return "Veículo não encontrado.";
 
+        // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
         const history = refuelings
             .filter(r => String(r.vehicleId) === String(veiculoId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
             .sort((a, b) => getSafeDateObj(b.data || b.date).getTime() - getSafeDateObj(a.data || a.date).getTime());
@@ -107,6 +107,7 @@ const AdminSolicitacoesPage = ({
         const last = history[0];
         if (!last) return "Nenhum abastecimento anterior registrado.";
 
+        // Cálculo de Média
         let mediaTexto = "N/A";
         const penultimo = history[1];
         
@@ -169,7 +170,7 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (Cópia exata do RefuelingOrderModal.js) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (Lógica Replicada do RefuelingOrderModal) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
@@ -181,11 +182,14 @@ const AdminSolicitacoesPage = ({
         
         if (onGeneratePDF) {
             try {
+                // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+                
+                // 2. Prepara Upload
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
+                // --- Determinação da URL Base (Igual ao Modal) ---
                 let serverBaseUrl = '';
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
@@ -195,14 +199,17 @@ const AdminSolicitacoesPage = ({
                     serverBaseUrl = window.location.origin;
                 }
 
-                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
+                // Limpeza da URL
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
+                // Endpoint para a rota criada em solicitacaoRoutes.js
                 const uploadEndpoint = `${serverBaseUrl}/api/solicitacoes/upload-pdf-generated`;
                 
-                // --- BUSCA AGRESSIVA DE TOKEN (Igual ao RefuelingOrderModal) ---
+                console.log("Iniciando Upload PDF para:", uploadEndpoint);
+
+                // --- Busca de Token (Igual ao Modal) ---
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
@@ -241,9 +248,11 @@ const AdminSolicitacoesPage = ({
                             pdfLink = uploadRes.url;
                         }
                     }
+                } else {
+                    console.error("Erro upload status:", response.status);
                 }
             } catch (err) {
-                console.error("Erro upload PDF:", err);
+                console.error("Erro exceção upload PDF:", err);
             }
         }
 
@@ -262,32 +271,9 @@ const AdminSolicitacoesPage = ({
 
         let msg = '';
         if (pdfLink) {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Segue link para a Autorização Oficial (PDF):
-${pdfLink}
-
-*Resumo:*
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
-*Combustível:* ${finalData.fuelType}
-*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
-*Motorista:* ${employee?.nome || 'N/A'}`;
+            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\nSegue link para a Autorização Oficial (PDF):\n${pdfLink}\n\n*Resumo:*\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}\n*Combustível:* ${finalData.fuelType}\n*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}\n*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-(Link PDF indisponível, verifique sistema)
-
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
-${readingMsg}
-*Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${finalData.fuelType}
-*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\n(Link PDF indisponível, verifique sistema)\n\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}\n${readingMsg}\n*Motorista:* ${employee?.nome || 'N/A'}\n*Combustível:* ${finalData.fuelType}\n*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
 
         setTimeout(() => {
@@ -329,7 +315,7 @@ ${readingMsg}
                     isFillUpArla: false, 
                     litrosLiberadosArla: '', 
                     outros: s.observacao,
-                    createdBy: user || 'Gestor App' // Passa o usuário para assinatura do PDF
+                    createdBy: { name: 'Gestor (App)' } // Passa um objeto simples se User não estiver disponível
                 };
 
                 await sendToWhatsApp(orderData, vehicle, partner, employee);
