@@ -175,6 +175,45 @@ const BillingPage = ({
         });
     }, [selectedObraId, obras, vehicles, vehicleGroups]);
 
+    // Separação de Obras Ativas e Finalizadas
+    const { activeObras, inactiveObras } = useMemo(() => {
+        const active = [];
+        const inactive = [];
+        const now = new Date();
+        now.setHours(0, 0, 0, 0); // Zera hora para comparar apenas datas
+
+        obras.forEach(obra => {
+            let isFinished = false;
+
+            // Critério 1: Status explícito (se existir essa propriedade no futuro)
+            if (obra.status === 'Finalizada' || obra.status === 'Concluída' || obra.status === 'Inativa') {
+                isFinished = true;
+            } 
+            // Critério 2: Data Fim já passou
+            else if (obra.dataFim) {
+                const fim = new Date(obra.dataFim);
+                // Adiciona margem até o final do dia
+                fim.setHours(23, 59, 59, 999);
+                if (fim < new Date()) {
+                    isFinished = true;
+                }
+            }
+
+            if (isFinished) {
+                inactive.push(obra);
+            } else {
+                active.push(obra);
+            }
+        });
+
+        // Ordenação alfabética dentro de cada grupo
+        active.sort((a, b) => a.nome.localeCompare(b.nome));
+        inactive.sort((a, b) => a.nome.localeCompare(b.nome));
+
+        return { activeObras: active, inactiveObras: inactive };
+    }, [obras]);
+
+
     const getDefaultOperator = () => {
         if (dailyLogs.length > 0) {
             const lastLog = dailyLogs.find(l => l.employeeId);
@@ -245,7 +284,8 @@ const BillingPage = ({
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
             
             const payload = {
-                id: existingLog ? existingLog.id : null, // GARANTIA EXTRA: Envia o ID se já soubermos que existe
+                // Passa o ID se já existir no frontend, para facilitar para o backend
+                id: existingLog ? existingLog.id : null,
                 obraId: selectedObraId,
                 vehicleId: controlVehicleId, 
                 date: dateKey,
@@ -523,7 +563,7 @@ const BillingPage = ({
                 <FileText className="text-yellow-500" /> Faturamento & Controle
             </h1>
 
-            {/* Seleção de Obra */}
+            {/* Seleção de Obra com Grupo Ativas/Inativas */}
             <div className="bg-white p-4 rounded-lg shadow mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Selecione a Obra</label>
                 <select 
@@ -532,9 +572,26 @@ const BillingPage = ({
                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
                 >
                     <option value="">-- Selecione --</option>
-                    {obras.sort((a, b) => a.nome.localeCompare(b.nome)).map(obra => (
-                        <option key={obra.id} value={obra.id}>{obra.nome}</option>
-                    ))}
+                    
+                    {/* Obras Ativas */}
+                    <optgroup label="Obras Ativas">
+                        {activeObras.map(obra => (
+                            <option key={obra.id} value={obra.id} className="text-gray-900 font-medium">
+                                {obra.nome}
+                            </option>
+                        ))}
+                    </optgroup>
+
+                    {/* Obras Finalizadas (se houver) */}
+                    {inactiveObras.length > 0 && (
+                        <optgroup label="Obras Finalizadas (Arquivo)" className="text-red-600 font-bold">
+                            {inactiveObras.map(obra => (
+                                <option key={obra.id} value={obra.id} className="text-red-600">
+                                    {obra.nome} (Finalizada)
+                                </option>
+                            ))}
+                        </optgroup>
+                    )}
                 </select>
             </div>
 
