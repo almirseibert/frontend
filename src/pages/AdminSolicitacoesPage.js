@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     Check, X, AlertTriangle, MapPin, Eye, Fuel, 
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
-    ExternalLink
+    ExternalLink, BarChart3, Clock, TrendingUp
 } from 'lucide-react';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
@@ -10,10 +10,13 @@ const AdminSolicitacoesPage = ({
     apiClient, 
     setAlertMessage, 
     vehicles = [],
-    // Novos props necessários para o envio de WhatsApp e PDF
     partners = [], 
     employees = [],
+    obras = [],
     vehicleGroups = {},
+    // Novos dados históricos para análise detalhada
+    abastecimentos = [], // Lista de todos os abastecimentos (histórico)
+    expenses = [],       // Lista de despesas (para financeiro)
     onGeneratePDF 
 }) => {
     
@@ -26,7 +29,7 @@ const AdminSolicitacoesPage = ({
     const [rejectReason, setRejectReason] = useState('');
     
     // Filtros
-    const [filterStatus, setFilterStatus] = useState('PENDENTE'); // PENDENTE, AGUARDANDO_BAIXA, TODOS
+    const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
     const [searchTerm, setSearchTerm] = useState('');
 
     // --- CARREGAMENTO INICIAL E POLLING ---
@@ -34,7 +37,6 @@ const AdminSolicitacoesPage = ({
         setLoading(true);
         try {
             const res = await apiClient.get('/solicitacoes');
-            // O endpoint retorna array direto
             setSolicitacoes(Array.isArray(res) ? res : []);
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
@@ -46,7 +48,6 @@ const AdminSolicitacoesPage = ({
 
     useEffect(() => {
         fetchSolicitacoes();
-        // Polling para atualização automática a cada 30s
         const interval = setInterval(fetchSolicitacoes, 30000);
         return () => clearInterval(interval);
     }, []);
@@ -77,7 +78,11 @@ const AdminSolicitacoesPage = ({
         setFilteredSolicitacoes(list);
     }, [solicitacoes, filterStatus, searchTerm]);
 
-    // --- HELPERS PARA WHATSAPP (Adicionado) ---
+    // --- HELPERS AUXILIARES (Dados do Sistema) ---
+    const getFuncionarioNome = (id) => employees.find(e => String(e.id) === String(id))?.nome || 'Não informado';
+    const getPostoNome = (id) => partners.find(p => String(p.id) === String(id))?.razaoSocial || 'Posto não identificado';
+    const getObraNome = (id) => obras.find(o => String(o.id) === String(id))?.nome || 'Obra não identificada';
+
     const getSafeDateObj = (dateInput) => {
         if (!dateInput) return new Date();
         try {
@@ -86,6 +91,74 @@ const AdminSolicitacoesPage = ({
         } catch { return new Date(); }
     };
 
+    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA ---
+    const getLastFuelingInfo = (veiculoId) => {
+        if (!abastecimentos || abastecimentos.length === 0) return "Histórico indisponível.";
+
+        // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
+        const history = abastecimentos
+            .filter(a => String(a.vehicleId) === String(veiculoId) && (a.status === 'Concluída' || a.status === 'Confirmada'))
+            .sort((a, b) => new Date(b.data || b.date) - new Date(a.data || a.date));
+
+        const last = history[0];
+        if (!last) return "Nenhum abastecimento anterior registrado.";
+
+        // Cálculo de Média
+        let mediaTexto = "N/A";
+        const penultimo = history[1];
+        
+        if (penultimo) {
+            // Tenta detectar se usa KM ou Horas
+            const isKm = parseFloat(last.odometro) > 0;
+            const lastRead = isKm ? parseFloat(last.odometro) : parseFloat(last.horimetro || last.horimetroDigital);
+            const prevRead = isKm ? parseFloat(penultimo.odometro) : parseFloat(penultimo.horimetro || penultimo.horimetroDigital);
+            
+            const diff = lastRead - prevRead;
+            const litros = parseFloat(last.litrosAbastecidos || last.litrosLiberados);
+            
+            if (litros > 0 && diff > 0) {
+                // Lógica padrão: Máquinas (l/h), Veículos (km/l)
+                if (isKm) {
+                    mediaTexto = `${(diff / litros).toFixed(2)} km/l`;
+                } else {
+                    mediaTexto = `${(litros / diff).toFixed(2)} l/h`;
+                }
+            }
+        }
+
+        const postoName = last.partnerName || partners.find(p => String(p.id) === String(last.partnerId))?.razaoSocial || "Desconhecido";
+        const dateStr = new Date(last.data || last.date).toLocaleDateString('pt-BR');
+        const fuel = last.fuelType || 'Combustível';
+        const readVal = last.odometro > 0 ? last.odometro : (last.horimetro || last.horimetroDigital || 0);
+        const litrosVal = last.litrosAbastecidos || last.litrosLiberados || 0;
+
+        return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
+    };
+
+    // --- CÁLCULO DE PROGRESSO FINANCEIRO DA OBRA ---
+    const getFinancialProgress = (obraId) => {
+        if (!obras || obras.length === 0) return "Dados de obras não carregados.";
+        
+        const obra = obras.find(o => String(o.id) === String(obraId));
+        if (!obra) return "Obra não vinculada ou não encontrada.";
+
+        // Soma gastos de combustível
+        const totalGasto = expenses
+            .filter(e => String(e.obraId) === String(obraId) && (e.category === 'Combustível' || e.fuelType))
+            .reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
+            
+        const totalContrato = parseFloat(obra.valorContrato || obra.valorTotalContrato || 0);
+        const formatMoney = (val) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        
+        if (totalContrato > 0) {
+            const pct = ((totalGasto / totalContrato) * 100).toFixed(1);
+            return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: ${formatMoney(totalContrato)} / ${pct}% utilizado`;
+        }
+        
+        return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
+    };
+
+    // --- FUNÇÃO DE ENVIO WHATSAPP ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
@@ -95,47 +168,27 @@ const AdminSolicitacoesPage = ({
 
         let pdfLink = '';
         
-        // Se houver função de geração, processa o arquivo (Upload para gerar link)
         if (onGeneratePDF) {
             try {
-                // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
-                
-                // 2. UPLOAD (Para gerar o link público para o posto)
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
-                let serverBaseUrl = '';
-                if (process.env.REACT_APP_API_URL) {
-                    serverBaseUrl = process.env.REACT_APP_API_URL;
-                } else if (apiClient?.defaults?.baseURL) {
-                    serverBaseUrl = apiClient.defaults.baseURL;
-                } else {
-                    serverBaseUrl = window.location.origin;
-                }
-
-                // LIMPEZA DA URL BASE
+                let serverBaseUrl = process.env.REACT_APP_API_URL || apiClient?.defaults?.baseURL || window.location.origin;
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
-                // --- BUSCA AGRESSIVA DE TOKEN ---
-                let token = localStorage.getItem('token') || localStorage.getItem('authToken') || localStorage.getItem('userToken');
+                let token = localStorage.getItem('token') || localStorage.getItem('authToken');
                 if (!token) {
                     try {
                         const userStored = localStorage.getItem('user');
-                        if (userStored) {
-                            const uObj = JSON.parse(userStored);
-                            if (uObj.token) token = uObj.token;
-                        }
+                        if (userStored) token = JSON.parse(userStored).token;
                     } catch(e) {}
                 }
-                if (token && typeof token === 'string' && token.startsWith('"') && token.endsWith('"')) {
-                    token = token.slice(1, -1);
-                }
+                if (token && token.startsWith('"')) token = token.slice(1, -1);
 
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -149,20 +202,15 @@ const AdminSolicitacoesPage = ({
                 if (response.ok) {
                     const uploadRes = await response.json();
                     if (uploadRes && uploadRes.url) {
-                        if (uploadRes.url.startsWith('/')) {
-                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
-                        } else {
-                            pdfLink = uploadRes.url;
-                        }
+                        pdfLink = uploadRes.url.startsWith('/') ? `${serverBaseUrl}${uploadRes.url}` : uploadRes.url;
                     }
                 }
             } catch (err) {
-                console.error("Erro ao processar PDF (Upload):", err);
+                console.error("Erro upload PDF:", err);
                 setAlertMessage("Ordem gerada. Erro ao gerar link do PDF, enviando texto simples.");
             }
         }
 
-        // --- MONTAGEM DA MENSAGEM ---
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
         let readingMsg = '';
         if (allowedReadings.includes('odometro')) {
@@ -172,42 +220,15 @@ const AdminSolicitacoesPage = ({
         }
         
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-        
         const arlaMsg = finalData.needsArla 
             ? `\n*Arla 32:* ${finalData.litrosLiberadosArla ? finalData.litrosLiberadosArla + ' Litros' : 'Incluso'}` 
             : '';
 
-        // MENSAGEM COM LINK
         let msg = '';
-        
         if (pdfLink) {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Segue link para a Autorização Oficial (PDF):
-${pdfLink}
-
-*Resumo:*
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
-*Combustível:* ${finalData.fuelType}
-*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
-*Motorista:* ${employee?.nome || 'N/A'}`;
+            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\nSegue link para a Autorização Oficial (PDF):\n${pdfLink}\n\n*Resumo:*\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}\n*Combustível:* ${finalData.fuelType}\n*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}\n*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            // Fallback Texto (caso o upload falhe)
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-(Link PDF indisponível, verifique sistema)
-
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
-${readingMsg}
-*Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${finalData.fuelType}
-*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\n(Link PDF indisponível, verifique sistema)\n\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}\n${readingMsg}\n*Motorista:* ${employee?.nome || 'N/A'}\n*Combustível:* ${finalData.fuelType}\n*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
 
         setTimeout(() => {
@@ -216,11 +237,9 @@ ${readingMsg}
     };
 
     // --- AÇÕES ---
-
     const handleAprovar = async (id) => {
         if (!window.confirm("Deseja realmente aprovar e gerar a Ordem de Abastecimento?")) return;
         
-        // Busca os dados da solicitação atual para usar no envio
         const s = solicitacoes.find(item => item.id === id);
 
         try {
@@ -230,16 +249,14 @@ ${readingMsg}
             setModalData(null);
             fetchSolicitacoes();
 
-            // --- ENVIO AUTOMÁTICO WHATSAPP ---
             if (s && res && res.authNumber) {
                 const vehicle = vehicles.find(v => v.id === s.veiculo_id);
                 const partner = partners.find(p => p.id === s.posto_id);
                 const employee = employees.find(e => e.id === s.funcionario_id);
 
-                // Mapeia os dados da solicitação para o formato esperado pela função de envio e PDF
                 const orderData = {
                     authNumber: res.authNumber,
-                    date: new Date().toISOString(), // Data da emissão (Hoje)
+                    date: new Date().toISOString(),
                     vehicleId: s.veiculo_id,
                     partnerId: s.posto_id,
                     partnerName: partner?.razaoSocial,
@@ -249,7 +266,6 @@ ${readingMsg}
                     litrosLiberados: s.litragem_solicitada,
                     odometro: s.odometro_informado,
                     horimetro: s.horimetro_informado,
-                    // Verifica se tem Arla na observação (já que não tem campo booleano direto no banco para solicitação)
                     needsArla: s.observacao && s.observacao.includes('ARLA'),
                     isFillUpArla: false, 
                     litrosLiberadosArla: '', 
@@ -270,10 +286,7 @@ ${readingMsg}
             return;
         }
         try {
-            await apiClient.put(`/solicitacoes/${id}/avaliar`, { 
-                status: 'NEGADO', 
-                motivoNegativa: rejectReason 
-            });
+            await apiClient.put(`/solicitacoes/${id}/avaliar`, { status: 'NEGADO', motivoNegativa: rejectReason });
             setAlertMessage("Solicitação Negada.");
             setModalData(null);
             setRejectReason('');
@@ -306,27 +319,22 @@ ${readingMsg}
         }
     };
 
-    // --- HELPERS VISUAIS ---
     const getBaseURL = () => {
-        if (apiClient.defaults?.baseURL) {
-            return apiClient.defaults.baseURL.replace('/api', '');
-        }
+        if (apiClient.defaults?.baseURL) return apiClient.defaults.baseURL.replace('/api', '');
         return ''; 
     };
 
-    // --- MODAL DE AVALIAÇÃO ---
+    // --- MODAL DE AVALIAÇÃO (VISUAL ATUALIZADO) ---
     const renderModal = () => {
         if (!modalData) return null;
         const s = modalData;
         const isApproval = s.status === 'PENDENTE';
         const isBaixa = s.status === 'AGUARDANDO_BAIXA';
 
-        // URL das Imagens
         const baseURL = getBaseURL();
         const urlPainel = s.foto_painel_path ? `${baseURL}${s.foto_painel_path}` : null;
         const urlCupom = s.foto_cupom_path ? `${baseURL}${s.foto_cupom_path}` : null;
 
-        // Veículo atual para comparar leitura
         const vehicleCurrent = vehicles.find(v => v.id === s.veiculo_id) || {};
         const leituraAtualSistema = parseFloat(s.odometro_informado ? (vehicleCurrent.odometro || 0) : (vehicleCurrent.horimetro || 0));
         const leituraInformada = parseFloat(s.odometro_informado || s.horimetro_informado || 0);
@@ -336,24 +344,18 @@ ${readingMsg}
             <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4 animate-fadeIn">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col md:flex-row overflow-hidden">
                     
-                    {/* COLUNA ESQUERDA: EVIDÊNCIAS (FOTOS) */}
+                    {/* COLUNA ESQUERDA: EVIDÊNCIAS */}
                     <div className="md:w-3/5 bg-gray-900 flex flex-col relative">
                         <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent z-10 flex justify-between items-center text-white">
                             <h4 className="font-bold flex items-center gap-2">
                                 <ImageIcon size={18}/> {isApproval ? 'Evidência do Painel' : 'Comprovante Fiscal'}
                             </h4>
                             {s.latitude && (
-                                <a 
-                                    href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full flex items-center gap-1 transition"
-                                >
+                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full flex items-center gap-1 transition">
                                     <MapPin size={12}/> Ver Localização GPS
                                 </a>
                             )}
                         </div>
-
                         <div className="flex-1 flex items-center justify-center p-4 bg-black">
                             {isApproval && urlPainel ? (
                                 <img src={urlPainel} alt="Painel" className="max-w-full max-h-full object-contain" />
@@ -389,6 +391,22 @@ ${readingMsg}
 
                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                             
+                            {/* Destaques Motorista e Data */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-white p-3 rounded-lg border shadow-sm">
+                                    <p className="text-xs text-gray-500 uppercase font-bold">Motorista</p>
+                                    <p className="font-bold text-purple-700 text-sm truncate" title={getFuncionarioNome(s.funcionario_id)}>
+                                        {getFuncionarioNome(s.funcionario_id)}
+                                    </p>
+                                </div>
+                                <div className="bg-white p-3 rounded-lg border shadow-sm">
+                                    <p className="text-xs text-gray-500 uppercase font-bold">Data Selecionada</p>
+                                    <p className="font-bold text-gray-800 text-sm">
+                                        {s.data_abastecimento ? new Date(s.data_abastecimento).toLocaleDateString('pt-BR') : new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
+                                    </p>
+                                </div>
+                            </div>
+
                             {/* Comparativo de Leitura */}
                             <div>
                                 <h5 className="text-xs font-bold text-gray-400 uppercase mb-2">Validar Leitura</h5>
@@ -401,9 +419,7 @@ ${readingMsg}
                                     </div>
                                     <div className="bg-white p-3 rounded-lg border shadow-sm">
                                         <p className="text-xs text-gray-500">Sistema (Anterior)</p>
-                                        <p className="text-2xl font-bold text-gray-700">
-                                            {leituraAtualSistema}
-                                        </p>
+                                        <p className="text-2xl font-bold text-gray-700">{leituraAtualSistema}</p>
                                     </div>
                                 </div>
                                 <div className={`mt-2 text-xs font-bold px-2 py-1 rounded inline-block ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -411,26 +427,49 @@ ${readingMsg}
                                 </div>
                             </div>
 
-                            {/* Detalhes Combustível */}
+                            {/* Detalhes do Pedido */}
                             <div>
-                                <h5 className="text-xs font-bold text-gray-400 uppercase mb-2">Pedido</h5>
+                                <h5 className="text-xs font-bold text-gray-400 uppercase mb-2">Detalhes</h5>
                                 <div className="bg-white p-4 rounded-lg border shadow-sm space-y-3">
                                     <div className="flex justify-between border-b pb-2">
-                                        <span className="text-gray-600">Combustível</span>
-                                        <span className="font-bold">{s.tipo_combustivel}</span>
+                                        <span className="text-gray-600 text-sm">Combustível</span>
+                                        <span className="font-bold text-sm">{s.tipo_combustivel}</span>
                                     </div>
                                     <div className="flex justify-between border-b pb-2">
-                                        <span className="text-gray-600">Quantidade</span>
-                                        <span className="font-bold">{s.flag_tanque_cheio ? 'COMPLETAR TANQUE' : `${s.litragem_solicitada} L`}</span>
+                                        <span className="text-gray-600 text-sm">Quantidade</span>
+                                        <span className="font-bold text-sm">{s.flag_tanque_cheio ? 'COMPLETAR TANQUE' : `${s.litragem_solicitada} L`}</span>
                                     </div>
-                                    <div className="flex justify-between border-b pb-2">
-                                        <span className="text-gray-600">Posto</span>
-                                        <span className="font-medium text-right truncate w-40">{s.posto_nome || 'A definir'}</span>
+                                    <div className="border-b pb-2">
+                                        <span className="text-gray-600 text-xs block mb-1">Posto Selecionado</span>
+                                        <span className="font-medium text-sm block whitespace-normal">{getPostoNome(s.posto_id)}</span>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Obra</span>
-                                        <span className="font-medium text-right truncate w-40">{s.obra_nome}</span>
+                                    <div>
+                                        <span className="text-gray-600 text-xs block mb-1">Obra de Destino</span>
+                                        <span className="font-medium text-sm block whitespace-normal">{getObraNome(s.obra_id)}</span>
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* DADOS DE ANÁLISE (Último Abastecimento e Financeiro) */}
+                            <div className="space-y-3 border-t pt-4">
+                                <h3 className="text-sm font-bold text-gray-700 uppercase flex items-center gap-2">
+                                    <BarChart3 size={16}/> Dados para Análise
+                                </h3>
+                                
+                                {/* Info Último Abastecimento */}
+                                <div className="bg-gray-100 p-3 rounded-lg border border-gray-200">
+                                    <p className="text-xs text-gray-500 uppercase font-bold mb-1 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</p>
+                                    <p className="text-xs text-gray-800 font-mono leading-relaxed whitespace-pre-wrap">
+                                        {getLastFuelingInfo(s.veiculo_id)}
+                                    </p>
+                                </div>
+
+                                {/* Info Progresso Financeiro */}
+                                <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                                    <p className="text-xs text-green-700 uppercase font-bold mb-1 flex items-center gap-1"><TrendingUp size={10}/> Progresso Financeiro (Obra)</p>
+                                    <p className="text-xs text-green-900 font-mono leading-relaxed whitespace-pre-wrap">
+                                        {getFinancialProgress(s.obra_id)}
+                                    </p>
                                 </div>
                             </div>
 
@@ -443,7 +482,6 @@ ${readingMsg}
                                     <p className="text-xs text-red-700 mt-1">O consumo deste veículo aumentou drasticamente (>25%) comparado ao histórico.</p>
                                 </div>
                             )}
-
                         </div>
 
                         {/* Footer: Ações */}
@@ -464,8 +502,6 @@ ${readingMsg}
                                             Negar...
                                         </button>
                                     </div>
-                                    
-                                    {/* Área de Negativa (Expandida) */}
                                     {rejectReason !== '' && (
                                         <div className="animate-slide-up bg-red-50 p-3 rounded-lg border border-red-200 mt-2">
                                             <label className="text-xs font-bold text-red-800 mb-1 block">Motivo da Negativa:</label>
@@ -479,28 +515,17 @@ ${readingMsg}
                                             ></textarea>
                                             <div className="flex justify-end gap-2 mt-2">
                                                 <button onClick={() => setRejectReason('')} className="text-xs text-gray-500 underline">Cancelar</button>
-                                                <button 
-                                                    onClick={() => handleNegar(s.id)}
-                                                    className="px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700"
-                                                >
-                                                    Confirmar
-                                                </button>
+                                                <button onClick={() => handleNegar(s.id)} className="px-4 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700">Confirmar</button>
                                             </div>
                                         </div>
                                     )}
                                 </>
                             ) : isBaixa ? (
                                 <div className="flex gap-3">
-                                    <button 
-                                        onClick={() => handleConfirmarBaixa(s.id)}
-                                        className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 transition"
-                                    >
+                                    <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 transition">
                                         <Check size={20}/> CONFIRMAR BAIXA
                                     </button>
-                                    <button 
-                                        onClick={() => handleRejeitarComprovante(s.id)}
-                                        className="flex-1 py-3 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded-lg border border-orange-200 flex items-center justify-center gap-2 transition"
-                                    >
+                                    <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-3 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded-lg border border-orange-200 flex items-center justify-center gap-2 transition">
                                         <X size={20}/> Rejeitar Foto
                                     </button>
                                 </div>
@@ -526,30 +551,20 @@ ${readingMsg}
                     <p className="text-gray-500 text-sm">Central de aprovação de abastecimentos via Mobile.</p>
                 </div>
                 
-                {/* Controles de Filtro */}
                 <div className="flex flex-wrap gap-2 justify-center md:justify-end">
-                    <button 
-                        onClick={() => setFilterStatus('PENDENTE')}
-                        className={`px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 ${filterStatus === 'PENDENTE' ? 'bg-yellow-400 text-gray-900 shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
+                    <button onClick={() => setFilterStatus('PENDENTE')} className={`px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 ${filterStatus === 'PENDENTE' ? 'bg-yellow-400 text-gray-900 shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         Pendentes
                         {solicitacoes.filter(s => s.status === 'PENDENTE').length > 0 && (
                             <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{solicitacoes.filter(s => s.status === 'PENDENTE').length}</span>
                         )}
                     </button>
-                    <button 
-                        onClick={() => setFilterStatus('AGUARDANDO_BAIXA')}
-                        className={`px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 ${filterStatus === 'AGUARDANDO_BAIXA' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
+                    <button onClick={() => setFilterStatus('AGUARDANDO_BAIXA')} className={`px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 ${filterStatus === 'AGUARDANDO_BAIXA' ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         Baixas
                         {solicitacoes.filter(s => s.status === 'AGUARDANDO_BAIXA').length > 0 && (
                             <span className="bg-blue-800 text-white text-[10px] px-1.5 py-0.5 rounded-full">{solicitacoes.filter(s => s.status === 'AGUARDANDO_BAIXA').length}</span>
                         )}
                     </button>
-                    <button 
-                        onClick={() => setFilterStatus('TODOS')}
-                        className={`px-4 py-2 rounded-lg font-bold text-sm transition ${filterStatus === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
+                    <button onClick={() => setFilterStatus('TODOS')} className={`px-4 py-2 rounded-lg font-bold text-sm transition ${filterStatus === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         Histórico
                     </button>
                     <button onClick={fetchSolicitacoes} className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 border border-gray-200">
@@ -558,7 +573,6 @@ ${readingMsg}
                 </div>
             </div>
 
-            {/* Barra de Busca */}
             <div className="relative">
                 <input 
                     type="text" 
@@ -570,22 +584,18 @@ ${readingMsg}
                 <Search className="absolute left-3 top-3.5 text-gray-400" size={18} />
             </div>
 
-            {/* Lista Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {loading && filteredSolicitacoes.length === 0 && (
                     <div className="col-span-full py-20 text-center text-gray-400">
                         <Loader className="animate-spin inline mr-2" /> Carregando solicitações...
                     </div>
                 )}
-                
                 {!loading && filteredSolicitacoes.length === 0 && (
                     <div className="col-span-full py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300 text-center text-gray-400">
                         Nenhuma solicitação encontrada com os filtros atuais.
                     </div>
                 )}
-
                 {filteredSolicitacoes.map(s => {
-                    // Configuração Visual do Card
                     let borderColor = 'border-gray-200';
                     let statusColor = 'bg-gray-100 text-gray-600';
                     let statusLabel = s.status.replace('_', ' ');
@@ -613,11 +623,9 @@ ${readingMsg}
                                     {statusLabel}
                                 </span>
                             </div>
-                            
                             <div className="flex-1">
                                 <h3 className="font-bold text-gray-800 text-lg truncate" title={s.veiculo_nome}>{s.veiculo_nome}</h3>
                                 <p className="text-sm text-gray-600 font-medium mb-3">{s.placa}</p>
-                                
                                 <div className="space-y-1 text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded">
                                     <div className="flex justify-between">
                                         <span>Solicitante:</span>
@@ -635,13 +643,9 @@ ${readingMsg}
                                     </div>
                                 </div>
                             </div>
-
                             <div className="mt-2 pt-2 border-t">
                                 {(s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA') ? (
-                                    <button 
-                                        onClick={() => setModalData(s)}
-                                        className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-gray-800 flex items-center justify-center gap-2 transition"
-                                    >
+                                    <button onClick={() => setModalData(s)} className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-gray-800 flex items-center justify-center gap-2 transition">
                                         <Eye size={16}/> AVALIAR
                                     </button>
                                 ) : (
