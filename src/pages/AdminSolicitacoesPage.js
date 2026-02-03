@@ -147,7 +147,7 @@ const AdminSolicitacoesPage = ({
         const readVal = isKm ? (last.odometro || 0) : (last.horimetro || last.horimetroDigital || 0);
         const litrosVal = last.litrosAbastecidos || last.litrosLiberados || 0;
 
-        return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
+        return `Último: ${dateStr} \nPosto: ${postoName} \n${litrosVal} L (${fuel}) \nLeitura: ${readVal} \nMédia: ${mediaTexto}`;
     };
 
     // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
@@ -166,7 +166,7 @@ const AdminSolicitacoesPage = ({
         
         if (totalContrato > 0) {
             const pct = ((totalGasto / totalContrato) * 100).toFixed(1);
-            return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: ${formatMoney(totalContrato)} / ${pct}% utilizado`;
+            return `Gasto Combustível: ${formatMoney(totalGasto)} \nContrato Total: ${formatMoney(totalContrato)} \n${pct}% utilizado`;
         }
         
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
