@@ -3,12 +3,12 @@ import {
     Camera, MapPin, Send, AlertTriangle, CheckCircle, Clock, 
     XCircle, ChevronRight, Fuel, Image as ImageIcon, Loader, 
     WifiOff, RefreshCw, Lock, LogOut, User, FileText, Droplet, 
-    CalendarClock, Gauge, Calendar, AlertOctagon, Trash2
+    CalendarClock, Gauge, Calendar, AlertOctagon, Trash2, X
 } from 'lucide-react';
 
-// --- INÍCIO DA LÓGICA DE REGRAS (Cópia fiel do vehicleRules.js para funcionamento local) ---
-// Mantido aqui para garantir que esta página funcione independente de imports externos
+import ChangePasswordModal from './ChangePasswordModal';
 
+// --- INÍCIO DA LÓGICA DE REGRAS (Mantida idêntica para estabilidade) ---
 const vehicleGroups = {
     'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
     'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
@@ -96,7 +96,6 @@ const checkVehicleRestrictions = (vehicle) => {
     }
 
     // 3. Documentos
-    // Verifica se é caminhão para aplicar regras de tacógrafo/AET
     const isTruck = vehicleGroups['Caminhões']?.includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho']?.includes(vehicle.tipo);
     
     const docs = [
@@ -152,7 +151,11 @@ const SolicitacaoAbastecimentoPage = ({
     const [userStatus, setUserStatus] = useState({ blocked: false, attempts: 0 });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [gpsError, setGpsError] = useState(false);
+    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     
+    // Estado para o Popup de Erro Customizado
+    const [errorPopup, setErrorPopup] = useState({ open: false, title: '', messages: [] });
+
     // Estado interno mantido para compatibilidade
     const [internalEmployees, setInternalEmployees] = useState([]);
     
@@ -173,7 +176,6 @@ const SolicitacaoAbastecimentoPage = ({
         descricaoOutros: '', 
         observacao: '', 
         
-        // Arla
         needsArla: false,
         litragemArla: '',
         flagTanqueCheioArla: false,
@@ -182,8 +184,6 @@ const SolicitacaoAbastecimentoPage = ({
         odometro: '',
         latitude: null,
         longitude: null,
-
-        // Novo campo: Data do Abastecimento
         dataAbastecimento: ''
     });
     
@@ -192,18 +192,14 @@ const SolicitacaoAbastecimentoPage = ({
     const [cupomFile, setCupomFile] = useState(null);
     const [cupomPreview, setCupomPreview] = useState(null);
 
-    // Refs para Painel
+    // Refs
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
-
-    // Refs para Cupom
     const cameraCupomRef = useRef(null);
     const galleryCupomRef = useRef(null);
 
-    // Usa a lista interna se a prop vier vazia
     const effectiveEmployees = employees.length > 0 ? employees : internalEmployees;
 
-    // --- HELPER: NORMALIZAÇÃO DE STRING ---
     const normalizeStr = (str) => {
         if (!str) return '';
         return str.toString()
@@ -224,7 +220,6 @@ const SolicitacaoAbastecimentoPage = ({
     // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
     const myEmployeeId = useMemo(() => {
         if (!user) return null;
-        
         if (user.employeeId) return user.employeeId;
         if (user.employee_id) return user.employee_id;
 
@@ -249,21 +244,16 @@ const SolicitacaoAbastecimentoPage = ({
                         !h.dataSaida && 
                         (normalizeStr(h.employeeName || h.nome_funcionario) === normalizedUserName)
                     );
-                    
-                    if (match && match.employeeId) {
-                        return match.employeeId;
-                    }
+                    if (match && match.employeeId) return match.employeeId;
                 }
             }
         }
-
         return null;
     }, [user, effectiveEmployees, obras]);
 
     // --- LÓGICA DE FILTRAGEM ---
     const allowedObras = useMemo(() => {
         if (!myEmployeeId || !obras.length) return [];
-
         return obras.filter(obra => {
             if (!obra.historicoVeiculos || !Array.isArray(obra.historicoVeiculos)) return false;
             return obra.historicoVeiculos.some(h => 
@@ -276,10 +266,7 @@ const SolicitacaoAbastecimentoPage = ({
         if (!formData.obraId) return { filteredVehicles: [], filteredEmployees: [] };
 
         const selectedObra = obras.find(o => String(o.id) === String(formData.obraId));
-        
-        if (!selectedObra || !selectedObra.historicoVeiculos) {
-            return { filteredVehicles: [], filteredEmployees: [] };
-        }
+        if (!selectedObra || !selectedObra.historicoVeiculos) return { filteredVehicles: [], filteredEmployees: [] };
 
         const activeVehiclesIds = new Set();
         const activeEmployeesIds = new Set();
@@ -296,7 +283,6 @@ const SolicitacaoAbastecimentoPage = ({
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
 
         let funcionariosDaObra = [];
-
         if (effectiveEmployees.length > 0) {
             funcionariosDaObra = effectiveEmployees
                 .filter(e => activeEmployeesIds.has(String(e.id)))
@@ -309,29 +295,21 @@ const SolicitacaoAbastecimentoPage = ({
                 const empId = String(h.employeeId);
                 const empName = h.employeeName || h.nome_funcionario;
                 if (!h.dataSaida && empId && !existingIds.has(empId) && empId !== 'null' && empId !== 'undefined') {
-                    funcionariosDaObra.push({
-                        id: empId,
-                        nome: empName || 'Funcionário (Sem Nome)'
-                    });
+                    funcionariosDaObra.push({ id: empId, nome: empName || 'Funcionário (Sem Nome)' });
                     existingIds.add(empId);
                 }
             });
         }
-
         funcionariosDaObra.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
-
         return { filteredVehicles: veiculosDaObra, filteredEmployees: funcionariosDaObra };
-
     }, [formData.obraId, obras, vehicles, effectiveEmployees]);
 
-    // --- EFEITOS DE SISTEMA ---
     useEffect(() => {
         const handleOnline = () => setIsOffline(false);
         const handleOffline = () => setIsOffline(true);
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
         getLocation();
-
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
@@ -357,60 +335,44 @@ const SolicitacaoAbastecimentoPage = ({
         return vehicles.find(v => String(v.id) === String(formData.veiculoId));
     }, [formData.veiculoId, vehicles]);
 
-    // --- SISTEMA DE REGRAS E ALERTAS (ATUALIZADO) ---
+    // --- SISTEMA DE REGRAS E ALERTAS ---
     const vehicleAlerts = useMemo(() => {
         if (!veiculoSelecionado) return [];
-        
-        // 1. Pega as regras padrão (Manutenção, Documentos, Status)
         const alerts = checkVehicleRestrictions(veiculoSelecionado);
         
-        // 2. Regra de Abastecimento Recente (< 24h)
         if (veiculoSelecionado.ultimaDataAbastecimento) {
             const diffHours = (new Date() - new Date(veiculoSelecionado.ultimaDataAbastecimento)) / (1000 * 60 * 60);
             if (diffHours < 24) {
-                alerts.push({
-                    category: 'consumo',
-                    type: 'warning',
-                    message: `ALERTA: Abastecido há menos de 24h (${Math.round(diffHours)}h atrás).`
-                });
+                alerts.push({ category: 'consumo', type: 'warning', message: `ALERTA: Abastecido há menos de 24h (${Math.round(diffHours)}h atrás).` });
             }
         }
 
-        // 3. Regra de Duplicidade (Já existe pedido aberto?)
         const openRequest = myRequests.find(r => 
             String(r.veiculo_id) === String(veiculoSelecionado.id) && 
             (r.status === 'PENDENTE' || r.status === 'LIBERADO' || r.status === 'AGUARDANDO_BAIXA')
         );
 
         if (openRequest) {
-            alerts.push({
-                category: 'duplicidade',
-                type: 'block', // 'block' impede o envio
-                message: `BLOQUEADO: Existe uma solicitação pendente (#${openRequest.id}) para este veículo. Finalize-a primeiro.`
-            });
+            alerts.push({ category: 'duplicidade', type: 'block', message: `BLOQUEADO: Existe uma solicitação pendente (#${openRequest.id}).` });
         }
-
         return alerts;
     }, [veiculoSelecionado, myRequests]);
 
-    // Verifica se existe algum alerta do tipo 'block' ou erro grave
     const hasBlockingAlert = useMemo(() => {
         return vehicleAlerts.some(a => a.type === 'block' || a.category === 'status');
     }, [vehicleAlerts]);
 
-
     useEffect(() => {
         if (veiculoSelecionado) {
-            // Inicializa data atual formatada para input date (YYYY-MM-DD)
             const now = new Date();
             now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-            const defaultDate = now.toISOString().slice(0, 10); // Alterado para 10 caracteres (YYYY-MM-DD)
+            const defaultDate = now.toISOString().slice(0, 10);
 
             setFormData(prev => ({ 
                 ...prev, 
                 odometro: '', 
                 horimetro: '',
-                dataAbastecimento: defaultDate // Seta data padrão sem hora
+                dataAbastecimento: defaultDate 
             }));
             
             let lastPartnerId = null;
@@ -472,7 +434,7 @@ const SolicitacaoAbastecimentoPage = ({
                     }));
                 },
                 (error) => {
-                    console.log("GPS não obtido (permissão negada ou erro):", error.message);
+                    console.log("GPS erro:", error.message);
                     setGpsError(true);
                 },
                 { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -532,81 +494,96 @@ const SolicitacaoAbastecimentoPage = ({
         });
     };
 
+    const showError = (title, messages) => {
+        setErrorPopup({
+            open: true,
+            title: title,
+            messages: Array.isArray(messages) ? messages : [messages]
+        });
+    };
+
     // --- FUNÇÃO CORRIGIDA DE ENVIO ---
     const handleSubmit = async (e) => {
         e.preventDefault();
         
         if (userStatus.blocked) {
-            setAlertMessage("VOCÊ ESTÁ BLOQUEADO. Contate o administrador.");
+            showError("ACESSO BLOQUEADO", "Você está bloqueado. Contate o administrador.");
             return;
         }
 
         if (hasBlockingAlert) {
-            setAlertMessage("Existem pendências bloqueantes neste veículo (veja os alertas vermelhos).");
+            showError("VEÍCULO BLOQUEADO", "Existem pendências bloqueantes neste veículo (veja os alertas).");
             return;
         }
 
-        if (!rawImageFile) {
-            setAlertMessage("A foto do painel/evidência é obrigatória.");
-            return;
-        }
+        const errors = [];
 
-        // Validação de Campos Obrigatórios Básicos
-        if (!formData.veiculoId || !formData.tipoCombustivel || !formData.postoId || !formData.obraId || !formData.funcionarioId) {
-            setAlertMessage("Preencha todos os campos obrigatórios (incluindo o condutor).");
-            return;
-        }
-
-        if (!formData.dataAbastecimento) {
-            setAlertMessage("Informe a data e hora do abastecimento.");
-            return;
-        }
+        // Validação de Campos Obrigatórios
+        if (!formData.veiculoId) errors.push("Selecione um Veículo.");
+        if (!formData.obraId) errors.push("Selecione a Obra.");
+        if (!formData.postoId) errors.push("Selecione o Posto.");
+        if (!formData.tipoCombustivel) errors.push("Selecione o Tipo de Combustível.");
+        if (!formData.funcionarioId) errors.push("Selecione o Condutor/Responsável.");
+        if (!formData.dataAbastecimento) errors.push("Informe a Data do Abastecimento.");
+        if (!rawImageFile) errors.push("A foto do painel/evidência é obrigatória.");
 
         // Validação da Leitura (Odômetro vs Horímetro)
-        if (readingType === 'odometro' && !formData.odometro) {
-            setAlertMessage("É obrigatório informar o HODÔMETRO (Km).");
-            return;
-        }
-        if (readingType === 'horimetro' && !formData.horimetro) {
-            setAlertMessage("É obrigatório informar o HORÍMETRO (Hr).");
-            return;
+        if (readingType === 'odometro') {
+            if (!formData.odometro) errors.push("É obrigatório informar o HODÔMETRO (Km).");
+            
+            // Verificação de regressão
+            if (veiculoSelecionado && veiculoSelecionado.odometro) {
+                const currentKm = parseFloat(veiculoSelecionado.odometro);
+                const inputKm = parseFloat(formData.odometro);
+                if (inputKm <= currentKm) {
+                    errors.push(`Odômetro inválido: O valor informado (${inputKm} Km) deve ser maior que o atual (${currentKm} Km).`);
+                }
+            }
+        } 
+        
+        if (readingType === 'horimetro') {
+            if (!formData.horimetro) errors.push("É obrigatório informar o HORÍMETRO (Hr).");
+            
+            // Verificação de regressão
+            if (veiculoSelecionado) {
+                const currentHr = parseFloat(veiculoSelecionado.horimetro || veiculoSelecionado.horimetroDigital || 0);
+                const inputHr = parseFloat(formData.horimetro);
+                if (inputHr <= currentHr) {
+                    errors.push(`Horímetro inválido: O valor informado (${inputHr} h) deve ser maior que o atual (${currentHr} h).`);
+                }
+            }
         }
 
-        // Validação de Litragem (Se não for tanque cheio, tem que ter valor)
+        // Validação de Litragem
         if (!formData.flagTanqueCheio && (!formData.litragem || parseFloat(formData.litragem.toString().replace(',', '.')) <= 0)) {
-            setAlertMessage("Informe a litragem ou marque Tanque Cheio.");
+            errors.push("Informe a litragem ou marque 'Tanque Cheio'.");
+        }
+
+        if (errors.length > 0) {
+            showError("Dados Incorretos", errors);
             return;
         }
 
         setLoading(true);
 
         const payload = new FormData();
-
-        // --- Mapeamento para Snake Case e Tratamento de Tipos ---
-        
         payload.append('veiculo_id', formData.veiculoId);
         payload.append('obra_id', formData.obraId);
         payload.append('posto_id', formData.postoId);
         payload.append('funcionario_id', formData.funcionarioId);
         payload.append('tipo_combustivel', formData.tipoCombustivel);
-        payload.append('data_abastecimento', formData.dataAbastecimento); // Envia a data escolhida
-
-        // Booleanos
+        payload.append('data_abastecimento', formData.dataAbastecimento);
         payload.append('flag_tanque_cheio', formData.flagTanqueCheio ? '1' : '0');
         payload.append('flag_outros', formData.flagOutros ? '1' : '0');
         payload.append('descricao_outros', formData.descricaoOutros || '');
 
-        // Litragem: Garante que seja numérico
         if (formData.flagTanqueCheio) {
             payload.append('litragem', '0');
         } else {
-            // Substitui vírgula por ponto para garantir formato numérico padrão
             const litragemSanitized = formData.litragem ? formData.litragem.toString().replace(',', '.') : '0';
             payload.append('litragem', litragemSanitized);
         }
 
-        // Leituras: Envia valor sanitizado. 
-        // IMPORTANTE: Envia '0' em vez de string vazia '' para evitar erro de tipo DECIMAL no MySQL.
         let odometroVal = '0';
         let horimetroVal = '0';
 
@@ -616,45 +593,25 @@ const SolicitacaoAbastecimentoPage = ({
             horimetroVal = formData.horimetro ? formData.horimetro.toString().replace(',', '.') : '0';
         }
         
-        // Garantia final de que não estamos enviando vazio
-        if (!odometroVal) odometroVal = '0';
-        if (!horimetroVal) horimetroVal = '0';
-        
         payload.append('odometro', odometroVal); 
         payload.append('horimetro', horimetroVal);
-
-        // GPS: Garante '0' se nulo
         payload.append('latitude', formData.latitude ? formData.latitude.toString() : '0');
         payload.append('longitude', formData.longitude ? formData.longitude.toString() : '0');
-
-        // Foto
         payload.append('foto_painel', rawImageFile);
         
-        // Observação
         let obsFinal = formData.observacao || '';
         if (formData.needsArla) {
             obsFinal += ` [ARLA 32: ${formData.flagTanqueCheioArla ? 'Tanque Cheio' : (formData.litragemArla || '0') + ' L'}]`;
         }
         payload.append('observacao', obsFinal);
 
-        // DEBUG
-        console.log("--- Payload Envio (Corrigido) ---");
-        for (let [key, value] of payload.entries()) {
-             console.log(`${key}:`, value);
-        }
-
         try {
-            // CORREÇÃO CRÍTICA: Forçar Content-Type undefined remove headers padrões (ex: application/json)
-            // permitindo que o browser defina o multipart/form-data boundary corretamente.
             await apiClient.post('/solicitacoes', payload, {
-                headers: {
-                    'Content-Type': undefined 
-                }
+                headers: { 'Content-Type': undefined }
             });
             
             setAlertMessage("Solicitação enviada com sucesso!");
             
-            // Reset
             setView('list');
             fetchMyRequests();
             setFormData(prev => ({
@@ -675,7 +632,7 @@ const SolicitacaoAbastecimentoPage = ({
         } catch (error) {
             console.error("Erro no envio:", error);
             const msg = error.response?.data?.error || error.message || "Erro ao enviar.";
-            setAlertMessage(msg);
+            showError("Erro no Envio", msg);
             if (msg.includes("BLOQUEADO")) checkUserStatus();
         } finally {
             setLoading(false);
@@ -684,7 +641,7 @@ const SolicitacaoAbastecimentoPage = ({
 
     const handleSendCupom = async (solicitacaoId) => {
         if (!cupomFile) {
-            setAlertMessage("Selecione a foto do cupom.");
+            showError("Atenção", "Selecione a foto do cupom.");
             return;
         }
         setLoading(true);
@@ -692,11 +649,8 @@ const SolicitacaoAbastecimentoPage = ({
         payload.append('foto_cupom', cupomFile);
 
         try {
-            // Aplicando a mesma correção de header aqui também
             await apiClient.put(`/solicitacoes/${solicitacaoId}/comprovante`, payload, {
-                headers: {
-                    'Content-Type': undefined 
-                }
+                headers: { 'Content-Type': undefined }
             });
             setAlertMessage("Comprovante enviado!");
             setCupomFile(null);
@@ -704,7 +658,7 @@ const SolicitacaoAbastecimentoPage = ({
             setSelectedRequest(null);
             fetchMyRequests();
         } catch (error) {
-            setAlertMessage("Erro ao enviar comprovante: " + error.message);
+            showError("Erro", "Erro ao enviar comprovante: " + error.message);
         } finally {
             setLoading(false);
         }
@@ -726,498 +680,526 @@ const SolicitacaoAbastecimentoPage = ({
         );
     }
 
-    if (view === 'form') {
-        return (
-            <div className="min-h-screen bg-gray-50 pb-32 animate-slide-up">
-                <div className="bg-yellow-400 p-4 shadow-md sticky top-0 z-10 flex justify-between items-center">
-                    <button onClick={() => setView('list')} className="p-2 bg-yellow-500 rounded-full text-white hover:bg-yellow-600 transition">
-                        <ChevronRight className="rotate-180" size={24} />
-                    </button>
-                    <h1 className="text-lg font-bold text-gray-900">Solicitar Abastecimento</h1>
-                    <div className="w-8"></div>
-                </div>
+    return (
+        <div className="min-h-screen bg-gray-100 pb-24 animate-fadeIn relative">
+            {/* Modal de Alteração de Senha */}
+            <ChangePasswordModal 
+                isOpen={isPasswordModalOpen} 
+                onClose={() => setIsPasswordModalOpen(false)} 
+            />
 
-                <form onSubmit={handleSubmit} className="p-4 space-y-5 max-w-lg mx-auto">
-                    
-                    {isOffline && (
-                        <div className="bg-orange-100 text-orange-900 p-3 rounded-lg flex items-center gap-2 text-sm border border-orange-200">
-                            <WifiOff size={16} /> <strong>Offline:</strong> Salvo localmente.
-                        </div>
-                    )}
-                    
-                    {gpsError && (
-                        <div className="bg-gray-100 text-gray-600 p-2 rounded-lg flex items-center gap-2 text-xs border border-gray-200">
-                            <MapPin size={14} className="text-gray-400" /> 
-                            <span>Localização indisponível (Verifique permissões).</span>
-                        </div>
-                    )}
-
-                    {allowedObras.length === 0 && (
-                        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
-                            <p className="font-bold flex items-center gap-2"><AlertTriangle size={18}/> Sem Obra Alocada</p>
-                            <p className="text-sm mt-1">
-                                Não encontramos obras vinculadas ao seu usuário neste momento.
-                            </p>
-                            <p className="text-xs mt-2 text-red-800">
-                                <strong>Dica:</strong> Verifique se você está alocado em um veículo na obra ou peça para o gestor verificar sua alocação.
-                            </p>
-                            
-                            <div className="mt-3 p-2 bg-red-50 rounded border border-red-200 text-[10px] font-mono text-red-600 break-all">
-                                <p><strong>User:</strong> {user.name} ({user.id})</p>
-                                <p><strong>EmpID Detectado:</strong> {myEmployeeId || 'NÃO ENCONTRADO'}</p>
-                                <p><strong>Funcionários:</strong> {filteredEmployees.length} (Disponíveis)</p>
-                                <p><strong>Obras Disponíveis:</strong> {obras.length}</p>
+            {/* Popup de Erro Customizado */}
+            {errorPopup.open && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-slide-up">
+                        <div className="bg-red-600 p-4 flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-white font-bold text-lg">
+                                <AlertOctagon size={24} className="animate-pulse" />
+                                <span>{errorPopup.title}</span>
                             </div>
+                            <button onClick={() => setErrorPopup({...errorPopup, open: false})} className="text-white hover:bg-red-700 p-1 rounded-full">
+                                <X size={24} />
+                            </button>
                         </div>
-                    )}
-
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Sua Obra</label>
-                        <select 
-                            className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
-                            value={formData.obraId}
-                            onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: '', funcionarioId: ''})}
-                            disabled={allowedObras.length === 0}
-                        >
-                            <option value="">Selecione a Obra...</option>
-                            {allowedObras.map(o => (
-                                <option key={o.id} value={o.id}>{o.nome}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo (na Obra)</label>
-                        <select 
-                            className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
-                            value={formData.veiculoId}
-                            onChange={e => setFormData({...formData, veiculoId: e.target.value})}
-                            disabled={!formData.obraId}
-                        >
-                            <option value="">Selecione o Veículo...</option>
-                            {filteredVehicles.map(v => (
-                                <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.modelo})</option>
-                            ))}
-                        </select>
-                        
-                        {/* --- ÁREA DE ALERTAS E STATUS DO VEÍCULO --- */}
-                        {veiculoSelecionado && (
-                            <div className="space-y-2 mt-2 px-1">
-                                {/* Exibir alertas gerados pelo vehicleRules */}
-                                {vehicleAlerts.map((alert, idx) => (
-                                    <div 
-                                        key={idx} 
-                                        className={`p-3 rounded-lg text-xs font-bold flex flex-col gap-1 border animate-fadeIn
-                                            ${alert.type === 'block' || alert.type === 'error' 
-                                                ? 'bg-red-500 border-red-700 text-white animate-pulse' 
-                                                : 'bg-orange-100 border-orange-300 text-orange-900'}`}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            {alert.type === 'block' ? <XCircle size={18} className="shrink-0"/> : <AlertOctagon size={18} className="shrink-0"/>}
-                                            <span className="uppercase text-sm">{alert.type === 'block' ? 'BLOQUEIO' : 'ATENÇÃO'}</span>
-                                        </div>
-                                        <p className="ml-6">{alert.message}</p>
-                                        {(alert.category === 'manutencao' || alert.type === 'block') && (
-                                            <div className="ml-6 mt-1 bg-black/20 p-1 rounded text-[10px] text-center">
-                                                CONTATE O SETOR DE FROTAS IMEDIATAMENTE
-                                            </div>
-                                        )}
+                        <div className="p-6">
+                            <div className="space-y-3">
+                                {errorPopup.messages.map((msg, idx) => (
+                                    <div key={idx} className="flex items-start gap-3 p-2 bg-red-50 rounded-lg border border-red-100">
+                                        <XCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
+                                        <p className="text-sm text-gray-800 font-medium">{msg}</p>
                                     </div>
                                 ))}
-                                
-                                <p className="text-xs text-gray-400 text-right">
-                                    Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
+                            </div>
+                            <button 
+                                onClick={() => setErrorPopup({...errorPopup, open: false})}
+                                className="w-full mt-6 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800"
+                            >
+                                ENTENDI, VOU CORRIGIR
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {view === 'form' ? (
+                <div className="min-h-screen bg-gray-50 pb-32 animate-slide-up">
+                    <div className="bg-yellow-400 p-4 shadow-md sticky top-0 z-10 flex justify-between items-center">
+                        <button onClick={() => setView('list')} className="p-2 bg-yellow-500 rounded-full text-white hover:bg-yellow-600 transition">
+                            <ChevronRight className="rotate-180" size={24} />
+                        </button>
+                        <h1 className="text-lg font-bold text-gray-900">Solicitar Abastecimento</h1>
+                        <div className="w-8"></div>
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="p-4 space-y-5 max-w-lg mx-auto">
+                        
+                        {isOffline && (
+                            <div className="bg-orange-100 text-orange-900 p-3 rounded-lg flex items-center gap-2 text-sm border border-orange-200">
+                                <WifiOff size={16} /> <strong>Offline:</strong> Salvo localmente.
+                            </div>
+                        )}
+                        
+                        {gpsError && (
+                            <div className="bg-gray-100 text-gray-600 p-2 rounded-lg flex items-center gap-2 text-xs border border-gray-200">
+                                <MapPin size={14} className="text-gray-400" /> 
+                                <span>Localização indisponível (Verifique permissões).</span>
+                            </div>
+                        )}
+
+                        {allowedObras.length === 0 && (
+                            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
+                                <p className="font-bold flex items-center gap-2"><AlertTriangle size={18}/> Sem Obra Alocada</p>
+                                <p className="text-sm mt-1">
+                                    Não encontramos obras vinculadas ao seu usuário neste momento.
                                 </p>
                             </div>
                         )}
-                    </div>
 
-                    {/* --- CAMPO DE DATA DO ABASTECIMENTO (ALTERADO) --- */}
-                    <div className="space-y-1">
-                         <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
-                            <Calendar size={14}/> Data do Abastecimento
-                        </label>
-                        <input 
-                            type="date" 
-                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg"
-                            value={formData.dataAbastecimento}
-                            onChange={e => setFormData({...formData, dataAbastecimento: e.target.value})}
-                        />
-                         <p className="text-[10px] text-gray-500 px-1">Se for em outro dia altere aqui, se for hoje não altere.</p>
-                    </div>
+                        <div className="space-y-1">
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Sua Obra</label>
+                            <select 
+                                className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
+                                value={formData.obraId}
+                                onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: '', funcionarioId: ''})}
+                                disabled={allowedObras.length === 0}
+                            >
+                                <option value="">Selecione a Obra...</option>
+                                {allowedObras.map(o => (
+                                    <option key={o.id} value={o.id}>{o.nome}</option>
+                                ))}
+                            </select>
+                        </div>
 
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1">Condutor/Responsável</label>
-                        <select 
-                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-base focus:ring-2 focus:ring-yellow-400 outline-none"
-                            value={formData.funcionarioId}
-                            onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
-                            disabled={!formData.obraId}
-                        >
-                            {formData.funcionarioId && filteredEmployees.length === 0 && (
-                                <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
-                            )}
-                            <option value="">Selecione quem está abastecendo...</option>
-                            {filteredEmployees.map(e => (
-                                <option key={e.id} value={e.id}>{e.nome}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                        {readingType === 'odometro' && (
-                            <div className="animate-fadeIn">
-                                <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
-                                    <Gauge size={14}/> Hodômetro (Km)
-                                </label>
-                                <input 
-                                    type="number" 
-                                    className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
-                                    placeholder="Ex: 15000"
-                                    value={formData.odometro}
-                                    onChange={e => setFormData({...formData, odometro: e.target.value, horimetro: ''})}
-                                    disabled={!veiculoSelecionado} 
-                                />
-                            </div>
-                        )}
-                        
-                        {readingType === 'horimetro' && (
-                            <div className="animate-fadeIn p-3 bg-red-50 border border-red-200 rounded-xl">
-                                <label className="text-xs font-bold text-red-700 uppercase ml-1 flex justify-between items-center mb-1">
-                                    <span className="flex items-center gap-1"><CalendarClock size={14}/> Horímetro (Hr)</span>
-                                    <span className="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold">
-                                        ATENÇÃO: NÃO USAR KM!
-                                    </span>
-                                </label>
-                                <input 
-                                    type="number" 
-                                    className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
-                                    placeholder="Ex: 1500.5"
-                                    value={formData.horimetro}
-                                    onChange={e => setFormData({...formData, horimetro: e.target.value, odometro: ''})}
-                                    disabled={!veiculoSelecionado}
-                                />
-                                <p className="text-[10px] text-red-600 mt-1 font-semibold">
-                                    Informe as horas de uso da máquina. Não informe a quilometragem.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between items-center">
-                            <span>Foto do Painel</span>
-                            <span className="text-red-600 text-[10px] font-bold bg-red-50 px-2 py-1 rounded">Foto ilegível anula o pedido</span>
-                        </label>
-                        
-                        {/* --- NOVA ÁREA DE UPLOAD COM DUAS OPÇÕES --- */}
-                        <div className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all h-48 relative overflow-hidden ${previewImage ? 'border-green-500 bg-green-50' : 'border-gray-400 bg-gray-50'}`}>
-                            {previewImage ? (
-                                <div onClick={() => setPreviewImage(null)} className="w-full h-full relative cursor-pointer">
-                                    <img src={previewImage} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                                    <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
-                                         <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
-                                            <CheckCircle size={12}/> Foto Carregada <span className="text-gray-400 font-normal">|</span> <Trash2 size={10} className="text-red-500"/> Alterar
-                                        </span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex flex-row gap-4 w-full h-full items-center justify-center">
-                                     <div onClick={() => cameraInputRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg cursor-pointer hover:bg-yellow-50 active:bg-yellow-100 transition border border-gray-200 shadow-sm">
-                                        <Camera size={32} className="text-gray-700 mb-2" />
-                                        <span className="text-sm font-bold text-gray-800">Câmera</span>
-                                     </div>
-                                     <div onClick={() => galleryInputRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg cursor-pointer hover:bg-blue-50 active:bg-blue-100 transition border border-gray-200 shadow-sm">
-                                        <ImageIcon size={32} className="text-gray-700 mb-2" />
-                                        <span className="text-sm font-bold text-gray-800">Galeria</span>
-                                     </div>
+                        <div className="space-y-1">
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo (na Obra)</label>
+                            <select 
+                                className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
+                                value={formData.veiculoId}
+                                onChange={e => setFormData({...formData, veiculoId: e.target.value})}
+                                disabled={!formData.obraId}
+                            >
+                                <option value="">Selecione o Veículo...</option>
+                                {filteredVehicles.map(v => (
+                                    <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.modelo})</option>
+                                ))}
+                            </select>
+                            
+                            {/* --- ÁREA DE ALERTAS E STATUS DO VEÍCULO --- */}
+                            {veiculoSelecionado && (
+                                <div className="space-y-2 mt-2 px-1">
+                                    {vehicleAlerts.map((alert, idx) => (
+                                        <div 
+                                            key={idx} 
+                                            className={`p-3 rounded-lg text-xs font-bold flex flex-col gap-1 border animate-fadeIn
+                                                ${alert.type === 'block' || alert.type === 'error' 
+                                                    ? 'bg-red-500 border-red-700 text-white animate-pulse' 
+                                                    : 'bg-orange-100 border-orange-300 text-orange-900'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                {alert.type === 'block' ? <XCircle size={18} className="shrink-0"/> : <AlertOctagon size={18} className="shrink-0"/>}
+                                                <span className="uppercase text-sm">{alert.type === 'block' ? 'BLOQUEIO' : 'ATENÇÃO'}</span>
+                                            </div>
+                                            <p className="ml-6">{alert.message}</p>
+                                            {(alert.category === 'manutencao' || alert.type === 'block') && (
+                                                <div className="ml-6 mt-1 bg-black/20 p-1 rounded text-[10px] text-center">
+                                                    CONTATE O SETOR DE FROTAS IMEDIATAMENTE
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    
+                                    <p className="text-xs text-gray-400 text-right">
+                                        Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
+                                    </p>
                                 </div>
                             )}
-                            {/* Inputs Ocultos */}
-                            <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'painel')} />
-                            <input type="file" ref={galleryInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'painel')} />
                         </div>
-                    </div>
 
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
-                            Posto
-                            {formData.postoId && <span className="text-blue-600 text-[10px] font-bold bg-blue-50 px-1 rounded">Sugestão Automática</span>}
-                        </label>
-                        <select 
-                            className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
-                            value={formData.postoId}
-                            onChange={e => setFormData({...formData, postoId: e.target.value})}
-                        >
-                            <option value="">Selecione o Posto...</option>
-                            {partners.map(p => (
-                                <option key={p.id} value={p.id}>{p.razaoSocial}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="bg-yellow-50 p-4 rounded-xl shadow-inner border border-yellow-200 space-y-3">
-                        <label className="text-sm font-bold text-yellow-900 flex items-center gap-2">
-                            <Fuel size={18}/> Detalhes do Combustível
-                        </label>
-                        
-                        <select 
-                            className="w-full p-3 border border-yellow-300 rounded-lg bg-white"
-                            value={formData.tipoCombustivel}
-                            onChange={e => setFormData({...formData, tipoCombustivel: e.target.value})}
-                        >
-                            <option value="">Selecione...</option>
-                            <option value="DIESEL S10">Diesel S10</option>
-                            <option value="DIESEL S500">Diesel S500</option>
-                            <option value="GASOLINA COMUM">Gasolina Comum</option>
-                        </select>
-
-                        <div className="flex items-center justify-between gap-4">
-                            <div className="flex-1 relative">
-                                <input 
-                                    type="number" 
-                                    placeholder="Litros" 
-                                    className="w-full p-3 border border-yellow-300 rounded-lg disabled:bg-gray-100"
-                                    disabled={formData.flagTanqueCheio}
-                                    value={formData.litragem}
-                                    onChange={e => setFormData({...formData, litragem: e.target.value})}
-                                />
-                                <span className="absolute right-3 top-3.5 text-gray-400 text-sm font-bold">L</span>
-                            </div>
-                            <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${formData.flagTanqueCheio ? 'bg-yellow-400 border-yellow-500 text-black' : 'bg-white border-yellow-300 text-gray-600'}`}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={formData.flagTanqueCheio}
-                                    onChange={e => setFormData({...formData, flagTanqueCheio: e.target.checked})}
-                                    className="w-5 h-5 accent-black"
-                                />
-                                <span className="text-sm font-bold">Cheio</span>
+                        {/* --- CAMPO DE DATA DO ABASTECIMENTO --- */}
+                        <div className="space-y-1">
+                             <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
+                                <Calendar size={14}/> Data do Abastecimento
                             </label>
+                            <input 
+                                type="date" 
+                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg"
+                                value={formData.dataAbastecimento}
+                                onChange={e => setFormData({...formData, dataAbastecimento: e.target.value})}
+                            />
+                             <p className="text-[10px] text-gray-500 px-1">Se for em outro dia altere aqui, se for hoje não altere.</p>
                         </div>
-                    </div>
 
-                    {showArlaSection && (
-                        <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3 animate-fadeIn">
-                            <label className="text-sm font-bold text-blue-900 flex items-center gap-2 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={formData.needsArla}
-                                    onChange={e => setFormData({...formData, needsArla: e.target.checked})}
-                                    className="w-5 h-5 accent-blue-600"
-                                />
-                                <Droplet size={18}/> Adicionar Arla 32
-                            </label>
+                        <div className="space-y-1">
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Condutor/Responsável</label>
+                            <select 
+                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-base focus:ring-2 focus:ring-yellow-400 outline-none"
+                                value={formData.funcionarioId}
+                                onChange={e => setFormData({...formData, funcionarioId: e.target.value})}
+                                disabled={!formData.obraId}
+                            >
+                                {formData.funcionarioId && filteredEmployees.length === 0 && (
+                                    <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
+                                )}
+                                <option value="">Selecione quem está abastecendo...</option>
+                                {filteredEmployees.map(e => (
+                                    <option key={e.id} value={e.id}>{e.nome}</option>
+                                ))}
+                            </select>
+                        </div>
 
-                            {formData.needsArla && (
-                                <div className="flex items-center justify-between gap-4">
-                                    <div className="flex-1 relative">
-                                        <input 
-                                            type="number" 
-                                            placeholder="Lts Arla" 
-                                            className="w-full p-3 border border-blue-300 rounded-lg disabled:bg-gray-100"
-                                            disabled={formData.flagTanqueCheioArla}
-                                            value={formData.litragemArla}
-                                            onChange={e => setFormData({...formData, litragemArla: e.target.value})}
-                                        />
-                                        <span className="absolute right-3 top-3.5 text-gray-400 text-sm font-bold">L</span>
-                                    </div>
-                                    <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${formData.flagTanqueCheioArla ? 'bg-blue-400 border-blue-500 text-white' : 'bg-white border-blue-300 text-gray-600'}`}>
-                                        <input 
-                                            type="checkbox" 
-                                            checked={formData.flagTanqueCheioArla}
-                                            onChange={e => setFormData({...formData, flagTanqueCheioArla: e.target.checked})}
-                                            className="w-5 h-5 accent-white"
-                                        />
-                                        <span className="text-sm font-bold">Cheio</span>
+                        <div className="grid grid-cols-1 gap-4">
+                            {readingType === 'odometro' && (
+                                <div className="animate-fadeIn">
+                                    <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
+                                        <Gauge size={14}/> Hodômetro (Km)
                                     </label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
+                                        placeholder="Ex: 15000"
+                                        value={formData.odometro}
+                                        onChange={e => setFormData({...formData, odometro: e.target.value, horimetro: ''})}
+                                        disabled={!veiculoSelecionado} 
+                                    />
+                                </div>
+                            )}
+                            
+                            {readingType === 'horimetro' && (
+                                <div className="animate-fadeIn p-3 bg-red-50 border border-red-200 rounded-xl">
+                                    <label className="text-xs font-bold text-red-700 uppercase ml-1 flex justify-between items-center mb-1">
+                                        <span className="flex items-center gap-1"><CalendarClock size={14}/> Horímetro (Hr)</span>
+                                        <span className="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold">
+                                            ATENÇÃO: NÃO USAR KM!
+                                        </span>
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-lg font-bold"
+                                        placeholder="Ex: 1500.5"
+                                        value={formData.horimetro}
+                                        onChange={e => setFormData({...formData, horimetro: e.target.value, odometro: ''})}
+                                        disabled={!veiculoSelecionado}
+                                    />
+                                    <p className="text-[10px] text-red-600 mt-1 font-semibold">
+                                        Informe as horas de uso da máquina. Não informe a quilometragem.
+                                    </p>
                                 </div>
                             )}
                         </div>
-                    )}
 
-                    <div className="space-y-3">
-                        <div className="bg-white p-3 border rounded-xl space-y-2">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={formData.flagOutros}
-                                    onChange={e => setFormData({...formData, flagOutros: e.target.checked})}
-                                    className="w-4 h-4 text-gray-500 rounded accent-gray-600"
-                                />
-                                <span className="text-sm text-gray-700 font-medium">Incluir Outros (Óleo, Filtro...)</span>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between items-center">
+                                <span>Foto do Painel</span>
+                                <span className="text-red-600 text-[10px] font-bold bg-red-50 px-2 py-1 rounded">Foto ilegível anula o pedido</span>
                             </label>
-                            {formData.flagOutros && (
-                                <input 
-                                    type="text"
-                                    placeholder="Descreva os itens..."
-                                    className="w-full p-3 border border-gray-300 rounded-lg text-sm"
-                                    value={formData.descricaoOutros}
-                                    onChange={e => setFormData({...formData, descricaoOutros: e.target.value})}
-                                />
-                            )}
+                            
+                            <div className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all h-48 relative overflow-hidden ${previewImage ? 'border-green-500 bg-green-50' : 'border-gray-400 bg-gray-50'}`}>
+                                {previewImage ? (
+                                    <div onClick={() => setPreviewImage(null)} className="w-full h-full relative cursor-pointer">
+                                        <img src={previewImage} alt="Preview" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                                        <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
+                                             <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
+                                                <CheckCircle size={12}/> Foto Carregada <span className="text-gray-400 font-normal">|</span> <Trash2 size={10} className="text-red-500"/> Alterar
+                                            </span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-row gap-4 w-full h-full items-center justify-center">
+                                         <div onClick={() => cameraInputRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg cursor-pointer hover:bg-yellow-50 active:bg-yellow-100 transition border border-gray-200 shadow-sm">
+                                            <Camera size={32} className="text-gray-700 mb-2" />
+                                            <span className="text-sm font-bold text-gray-800">Câmera</span>
+                                         </div>
+                                         <div onClick={() => galleryInputRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg cursor-pointer hover:bg-blue-50 active:bg-blue-100 transition border border-gray-200 shadow-sm">
+                                            <ImageIcon size={32} className="text-gray-700 mb-2" />
+                                            <span className="text-sm font-bold text-gray-800">Galeria</span>
+                                         </div>
+                                    </div>
+                                )}
+                                <input type="file" ref={cameraInputRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'painel')} />
+                                <input type="file" ref={galleryInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'painel')} />
+                            </div>
                         </div>
 
                         <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
-                                <FileText size={12}/> Observações
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex justify-between">
+                                Posto
+                                {formData.postoId && <span className="text-blue-600 text-[10px] font-bold bg-blue-50 px-1 rounded">Sugestão Automática</span>}
                             </label>
-                            <textarea 
-                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-sm"
-                                rows="2"
-                                placeholder="Informações adicionais..."
-                                value={formData.observacao}
-                                onChange={e => setFormData({...formData, observacao: e.target.value})}
-                            ></textarea>
+                            <select 
+                                className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm"
+                                value={formData.postoId}
+                                onChange={e => setFormData({...formData, postoId: e.target.value})}
+                            >
+                                <option value="">Selecione o Posto...</option>
+                                {partners.map(p => (
+                                    <option key={p.id} value={p.id}>{p.razaoSocial}</option>
+                                ))}
+                            </select>
                         </div>
-                    </div>
 
-                    <button 
-                        type="submit" 
-                        disabled={loading || hasBlockingAlert}
-                        className={`w-full py-4 font-bold rounded-xl shadow-xl hover:bg-gray-800 active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg disabled:opacity-50 disabled:cursor-not-allowed
-                        ${hasBlockingAlert ? 'bg-red-300 text-red-900' : 'bg-gray-900 text-white'}`}
-                    >
-                        {loading ? <Loader className="animate-spin" /> : 
-                            hasBlockingAlert ? <><Lock size={20}/> BLOQUEADO POR PENDÊNCIA</> : <><Send size={20} /> ENVIAR SOLICITAÇÃO</>
-                        }
-                    </button>
-                </form>
-            </div>
-        );
-    }
+                        <div className="bg-yellow-50 p-4 rounded-xl shadow-inner border border-yellow-200 space-y-3">
+                            <label className="text-sm font-bold text-yellow-900 flex items-center gap-2">
+                                <Fuel size={18}/> Detalhes do Combustível
+                            </label>
+                            
+                            <select 
+                                className="w-full p-3 border border-yellow-300 rounded-lg bg-white"
+                                value={formData.tipoCombustivel}
+                                onChange={e => setFormData({...formData, tipoCombustivel: e.target.value})}
+                            >
+                                <option value="">Selecione...</option>
+                                <option value="DIESEL S10">Diesel S10</option>
+                                <option value="DIESEL S500">Diesel S500</option>
+                                <option value="GASOLINA COMUM">Gasolina Comum</option>
+                            </select>
 
-    return (
-        <div className="min-h-screen bg-gray-100 pb-24 animate-fadeIn">
-            <div className="bg-gray-900 text-white p-6 pb-12 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
-                <div className="absolute top-[-20px] right-[-20px] p-4 opacity-10 rotate-12">
-                    <Fuel size={150} />
-                </div>
-                <div className="flex justify-between items-start mb-6 relative z-10">
-                    <div>
-                        <h1 className="text-2xl font-bold">Olá, {user.name.split(' ')[0]}</h1>
-                        <p className="text-gray-400 text-sm">Painel do Operador</p>
-                    </div>
-                    <div className="flex gap-2">
-                        <button onClick={fetchMyRequests} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition active:rotate-180">
-                            <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
-                        </button>
-                        {onLogout && (
-                            <button onClick={onLogout} className="p-2 bg-red-900/50 rounded-full hover:bg-red-900 transition">
-                                <LogOut size={20} />
-                            </button>
-                        )}
-                    </div>
-                </div>
-                
-                <button 
-                    onClick={() => { getLocation(); setView('form'); }}
-                    className="w-full py-4 bg-yellow-400 text-gray-900 font-bold rounded-2xl shadow-lg flex items-center justify-center gap-3 hover:bg-yellow-300 transition active:scale-98 relative z-10"
-                >
-                    <Fuel size={24} /> 
-                    <span className="text-lg">NOVO ABASTECIMENTO</span>
-                </button>
-            </div>
-
-            <div className="px-4 mt-2">
-                <h2 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
-                    <Clock size={14} /> Minhas Solicitações Recentes
-                </h2>
-                
-                {myRequests.length === 0 ? (
-                    <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-300">
-                        <p className="text-gray-400 text-sm">Nenhuma solicitação encontrada.</p>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {myRequests.map(req => (
-                            <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden">
-                                <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
-                                <div className="pl-2">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <span className={`text-[10px] px-2 py-1 rounded-md border font-bold ${req.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
-                                            {req.status}
-                                        </span>
-                                        <span className="text-xs text-gray-400">{new Date(req.data_solicitacao).toLocaleDateString('pt-BR')}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <p className="font-bold text-gray-800">{req.placa}</p>
-                                            <p className="text-xs text-gray-500 uppercase">{req.veiculo_nome}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
-                                            <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
-                                        </div>
-                                    </div>
-                                    {req.status === 'LIBERADO' && (
-                                        <div className="mt-2 bg-green-50 text-green-700 text-xs p-2 rounded flex items-center gap-1 font-bold animate-pulse">
-                                            <Camera size={12}/> Enviar Cupom Agora
-                                        </div>
-                                    )}
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="flex-1 relative">
+                                    <input 
+                                        type="number" 
+                                        placeholder="Litros" 
+                                        className="w-full p-3 border border-yellow-300 rounded-lg disabled:bg-gray-100"
+                                        disabled={formData.flagTanqueCheio}
+                                        value={formData.litragem}
+                                        onChange={e => setFormData({...formData, litragem: e.target.value})}
+                                    />
+                                    <span className="absolute right-3 top-3.5 text-gray-400 text-sm font-bold">L</span>
                                 </div>
+                                <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${formData.flagTanqueCheio ? 'bg-yellow-400 border-yellow-500 text-black' : 'bg-white border-yellow-300 text-gray-600'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={formData.flagTanqueCheio}
+                                        onChange={e => setFormData({...formData, flagTanqueCheio: e.target.checked})}
+                                        className="w-5 h-5 accent-black"
+                                    />
+                                    <span className="text-sm font-bold">Cheio</span>
+                                </label>
                             </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+                        </div>
 
-            {selectedRequest && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
-                    <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
-                        <div className="flex justify-between items-center mb-6 border-b pb-4">
-                            <h3 className="font-bold text-xl text-gray-900">Solicitação #{selectedRequest.id}</h3>
-                            <button onClick={() => setSelectedRequest(null)} className="p-2 bg-gray-100 rounded-full"><XCircle size={24}/></button>
+                        {showArlaSection && (
+                            <div className="bg-blue-50 p-4 rounded-xl shadow-inner border border-blue-200 space-y-3 animate-fadeIn">
+                                <label className="text-sm font-bold text-blue-900 flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={formData.needsArla}
+                                        onChange={e => setFormData({...formData, needsArla: e.target.checked})}
+                                        className="w-5 h-5 accent-blue-600"
+                                    />
+                                    <Droplet size={18}/> Adicionar Arla 32
+                                </label>
+
+                                {formData.needsArla && (
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex-1 relative">
+                                            <input 
+                                                type="number" 
+                                                placeholder="Lts Arla" 
+                                                className="w-full p-3 border border-blue-300 rounded-lg disabled:bg-gray-100"
+                                                disabled={formData.flagTanqueCheioArla}
+                                                value={formData.litragemArla}
+                                                onChange={e => setFormData({...formData, litragemArla: e.target.value})}
+                                            />
+                                            <span className="absolute right-3 top-3.5 text-gray-400 text-sm font-bold">L</span>
+                                        </div>
+                                        <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${formData.flagTanqueCheioArla ? 'bg-blue-400 border-blue-500 text-white' : 'bg-white border-blue-300 text-gray-600'}`}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.flagTanqueCheioArla}
+                                                onChange={e => setFormData({...formData, flagTanqueCheioArla: e.target.checked})}
+                                                className="w-5 h-5 accent-white"
+                                            />
+                                            <span className="text-sm font-bold">Cheio</span>
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="space-y-3">
+                            <div className="bg-white p-3 border rounded-xl space-y-2">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={formData.flagOutros}
+                                        onChange={e => setFormData({...formData, flagOutros: e.target.checked})}
+                                        className="w-4 h-4 text-gray-500 rounded accent-gray-600"
+                                    />
+                                    <span className="text-sm text-gray-700 font-medium">Incluir Outros (Óleo, Filtro...)</span>
+                                </label>
+                                {formData.flagOutros && (
+                                    <input 
+                                        type="text"
+                                        placeholder="Descreva os itens..."
+                                        className="w-full p-3 border border-gray-300 rounded-lg text-sm"
+                                        value={formData.descricaoOutros}
+                                        onChange={e => setFormData({...formData, descricaoOutros: e.target.value})}
+                                    />
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
+                                    <FileText size={12}/> Observações
+                                </label>
+                                <textarea 
+                                    className="w-full p-3 bg-white border border-gray-300 rounded-xl shadow-sm text-sm"
+                                    rows="2"
+                                    placeholder="Informações adicionais..."
+                                    value={formData.observacao}
+                                    onChange={e => setFormData({...formData, observacao: e.target.value})}
+                                ></textarea>
+                            </div>
+                        </div>
+
+                        <button 
+                            type="submit" 
+                            disabled={loading || hasBlockingAlert}
+                            className={`w-full py-4 font-bold rounded-xl shadow-xl hover:bg-gray-800 active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg disabled:opacity-50 disabled:cursor-not-allowed
+                            ${hasBlockingAlert ? 'bg-red-300 text-red-900' : 'bg-gray-900 text-white'}`}
+                        >
+                            {loading ? <Loader className="animate-spin" /> : 
+                                hasBlockingAlert ? <><Lock size={20}/> BLOQUEADO POR PENDÊNCIA</> : <><Send size={20} /> ENVIAR SOLICITAÇÃO</>
+                            }
+                        </button>
+                    </form>
+                </div>
+            ) : (
+                <>
+                    <div className="bg-gray-900 text-white p-6 pb-12 rounded-b-[2.5rem] shadow-xl relative overflow-hidden">
+                        <div className="absolute top-[-20px] right-[-20px] p-4 opacity-10 rotate-12">
+                            <Fuel size={150} />
+                        </div>
+                        <div className="flex justify-between items-start mb-6 relative z-10">
+                            <div>
+                                <h1 className="text-2xl font-bold">Olá, {user.name.split(' ')[0]}</h1>
+                                <p className="text-gray-400 text-sm">Painel do Operador</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => setIsPasswordModalOpen(true)} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition" title="Alterar Senha">
+                                    <Lock size={20} />
+                                </button>
+                                <button onClick={fetchMyRequests} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition active:rotate-180" title="Atualizar">
+                                    <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
+                                </button>
+                                {onLogout && (
+                                    <button onClick={onLogout} className="p-2 bg-red-900/50 rounded-full hover:bg-red-900 transition" title="Sair">
+                                        <LogOut size={20} />
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         
-                        {selectedRequest.status === 'LIBERADO' ? (
-                            <div className="text-center space-y-4">
-                                <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                                    <CheckCircle size={32} className="text-green-600" />
-                                </div>
-                                <h4 className="font-bold text-green-800 text-lg">Aprovado! Envie o Cupom.</h4>
-                                
-                                {/* --- ÁREA DE UPLOAD CUPOM COM DUAS OPÇÕES --- */}
-                                <div className="border-2 border-dashed border-green-300 rounded-xl p-4 bg-green-50 relative h-40 flex flex-col items-center justify-center">
-                                    {cupomPreview ? (
-                                        <div onClick={() => setCupomPreview(null)} className="w-full h-full relative cursor-pointer">
-                                            <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl" />
-                                            <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
-                                                 <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
-                                                    <Trash2 size={10} className="text-red-500"/> Trocar Foto
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-row gap-3 w-full h-full items-center justify-center">
-                                             <div onClick={() => cameraCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
-                                                <Camera size={24} className="text-green-600 mb-1" />
-                                                <span className="text-xs font-bold text-green-700">Câmera</span>
-                                             </div>
-                                             <div onClick={() => galleryCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
-                                                <ImageIcon size={24} className="text-green-600 mb-1" />
-                                                <span className="text-xs font-bold text-green-700">Galeria</span>
-                                             </div>
-                                        </div>
-                                    )}
-                                    <input type="file" ref={cameraCupomRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
-                                    <input type="file" ref={galleryCupomRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'cupom')}/>
-                                </div>
+                        <button 
+                            onClick={() => { getLocation(); setView('form'); }}
+                            className="w-full py-4 bg-yellow-400 text-gray-900 font-bold rounded-2xl shadow-lg flex items-center justify-center gap-3 hover:bg-yellow-300 transition active:scale-98 relative z-10"
+                        >
+                            <Fuel size={24} /> 
+                            <span className="text-lg">NOVO ABASTECIMENTO</span>
+                        </button>
+                    </div>
 
-                                <button onClick={() => handleSendCupom(selectedRequest.id)} disabled={!cupomFile || loading} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg">
-                                    {loading ? <Loader className="animate-spin inline"/> : "ENVIAR COMPROVANTE"}
-                                </button>
+                    <div className="px-4 mt-2">
+                        <h2 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
+                            <Clock size={14} /> Minhas Solicitações Recentes
+                        </h2>
+                        
+                        {myRequests.length === 0 ? (
+                            <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-300">
+                                <p className="text-gray-400 text-sm">Nenhuma solicitação encontrada.</p>
                             </div>
                         ) : (
-                            <div className="space-y-3 text-sm">
-                                <div className="bg-gray-50 p-3 rounded-xl border">
-                                    <p className="font-bold text-gray-500 text-xs uppercase">Status</p>
-                                    <p className="font-bold text-gray-900">{selectedRequest.status}</p>
-                                    {selectedRequest.motivo_negativa && <p className="text-red-600 mt-1 text-xs">{selectedRequest.motivo_negativa}</p>}
-                                </div>
+                            <div className="space-y-3">
+                                {myRequests.map(req => (
+                                    <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden">
+                                        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
+                                        <div className="pl-2">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <span className={`text-[10px] px-2 py-1 rounded-md border font-bold ${req.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
+                                                    {req.status}
+                                                </span>
+                                                <span className="text-xs text-gray-400">{new Date(req.data_solicitacao).toLocaleDateString('pt-BR')}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <p className="font-bold text-gray-800">{req.placa}</p>
+                                                    <p className="text-xs text-gray-500 uppercase">{req.veiculo_nome}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
+                                                    <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
+                                                </div>
+                                            </div>
+                                            {req.status === 'LIBERADO' && (
+                                                <div className="mt-2 bg-green-50 text-green-700 text-xs p-2 rounded flex items-center gap-1 font-bold animate-pulse">
+                                                    <Camera size={12}/> Enviar Cupom Agora
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
-                </div>
+
+                    {selectedRequest && (
+                        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
+                            <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
+                                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                                    <h3 className="font-bold text-xl text-gray-900">Solicitação #{selectedRequest.id}</h3>
+                                    <button onClick={() => setSelectedRequest(null)} className="p-2 bg-gray-100 rounded-full"><XCircle size={24}/></button>
+                                </div>
+                                
+                                {selectedRequest.status === 'LIBERADO' ? (
+                                    <div className="text-center space-y-4">
+                                        <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                                            <CheckCircle size={32} className="text-green-600" />
+                                        </div>
+                                        <h4 className="font-bold text-green-800 text-lg">Aprovado! Envie o Cupom.</h4>
+                                        
+                                        <div className="border-2 border-dashed border-green-300 rounded-xl p-4 bg-green-50 relative h-40 flex flex-col items-center justify-center">
+                                            {cupomPreview ? (
+                                                <div onClick={() => setCupomPreview(null)} className="w-full h-full relative cursor-pointer">
+                                                    <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl" />
+                                                    <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
+                                                         <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
+                                                            <Trash2 size={10} className="text-red-500"/> Trocar Foto
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-row gap-3 w-full h-full items-center justify-center">
+                                                     <div onClick={() => cameraCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
+                                                        <Camera size={24} className="text-green-600 mb-1" />
+                                                        <span className="text-xs font-bold text-green-700">Câmera</span>
+                                                     </div>
+                                                     <div onClick={() => galleryCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
+                                                        <ImageIcon size={24} className="text-green-600 mb-1" />
+                                                        <span className="text-xs font-bold text-green-700">Galeria</span>
+                                                     </div>
+                                                </div>
+                                            )}
+                                            <input type="file" ref={cameraCupomRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
+                                            <input type="file" ref={galleryCupomRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'cupom')}/>
+                                        </div>
+
+                                        <button onClick={() => handleSendCupom(selectedRequest.id)} disabled={!cupomFile || loading} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg">
+                                            {loading ? <Loader className="animate-spin inline"/> : "ENVIAR COMPROVANTE"}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3 text-sm">
+                                        <div className="bg-gray-50 p-3 rounded-xl border">
+                                            <p className="font-bold text-gray-500 text-xs uppercase">Status</p>
+                                            <p className="font-bold text-gray-900">{selectedRequest.status}</p>
+                                            {selectedRequest.motivo_negativa && <p className="text-red-600 mt-1 text-xs">{selectedRequest.motivo_negativa}</p>}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
