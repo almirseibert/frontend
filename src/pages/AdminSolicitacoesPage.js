@@ -16,7 +16,8 @@ const AdminSolicitacoesPage = ({
     vehicleGroups = {},
     refuelings = [], 
     expenses = [],
-    onGeneratePDF 
+    onGeneratePDF,
+    user // Prop user necessária para o PDF
 }) => {
     
     const [solicitacoes, setSolicitacoes] = useState([]);
@@ -170,11 +171,13 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (Lógica Replicada do RefuelingOrderModal) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (Replicada e Corrigida) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
-            setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF não enviado).");
+            setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF baixado).");
+            // Se não tem whatsapp, apenas gera o PDF localmente
+            if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
             return;
         }
 
@@ -182,14 +185,23 @@ const AdminSolicitacoesPage = ({
         
         if (onGeneratePDF) {
             try {
-                // 1. Gera o Blob
+                // 1. Gera o Blob (para upload e download local)
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
-                // 2. Prepara Upload
+                // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
+                const downloadUrl = window.URL.createObjectURL(pdfBlob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = `Ordem_${finalData.authNumber}_${vehicle?.registroInterno || 'Veic'}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // 3. UPLOAD (Para gerar o link público)
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- Determinação da URL Base (Igual ao Modal) ---
+                // --- DETERMINAÇÃO ROBUSTA DA URL BASE (Igual ao Modal) ---
                 let serverBaseUrl = '';
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
@@ -207,9 +219,7 @@ const AdminSolicitacoesPage = ({
                 // Endpoint para a rota criada em solicitacaoRoutes.js
                 const uploadEndpoint = `${serverBaseUrl}/api/solicitacoes/upload-pdf-generated`;
                 
-                console.log("Iniciando Upload PDF para:", uploadEndpoint);
-
-                // --- Busca de Token (Igual ao Modal) ---
+                // --- BUSCA AGRESSIVA DE TOKEN (Igual ao Modal) ---
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
@@ -233,6 +243,8 @@ const AdminSolicitacoesPage = ({
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
 
+                console.log("Enviando PDF para:", uploadEndpoint);
+
                 const response = await fetch(uploadEndpoint, {
                     method: 'POST',
                     headers: headers,
@@ -249,10 +261,11 @@ const AdminSolicitacoesPage = ({
                         }
                     }
                 } else {
-                    console.error("Erro upload status:", response.status);
+                    console.error("Erro upload status:", response.status, await response.text());
                 }
             } catch (err) {
                 console.error("Erro exceção upload PDF:", err);
+                // Não retorna, continua para enviar mensagem de texto como fallback
             }
         }
 
@@ -315,7 +328,7 @@ const AdminSolicitacoesPage = ({
                     isFillUpArla: false, 
                     litrosLiberadosArla: '', 
                     outros: s.observacao,
-                    createdBy: { name: 'Gestor (App)' } // Passa um objeto simples se User não estiver disponível
+                    createdBy: user || { name: 'Gestor (App)' }
                 };
 
                 await sendToWhatsApp(orderData, vehicle, partner, employee);
