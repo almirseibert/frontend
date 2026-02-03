@@ -14,9 +14,9 @@ const AdminSolicitacoesPage = ({
     employees = [],
     obras = [],
     vehicleGroups = {},
-    // Novos dados históricos para análise detalhada
-    abastecimentos = [], // Lista de todos os abastecimentos (histórico)
-    expenses = [],       // Lista de despesas (para financeiro)
+    // Alterado de 'abastecimentos' para 'refuelings' para padronizar com RefuelingPage
+    refuelings = [], 
+    expenses = [],
     onGeneratePDF 
 }) => {
     
@@ -78,32 +78,32 @@ const AdminSolicitacoesPage = ({
         setFilteredSolicitacoes(list);
     }, [solicitacoes, filterStatus, searchTerm]);
 
-    // --- HELPERS AUXILIARES (Dados do Sistema) ---
+    // --- HELPERS AUXILIARES ---
     const getFuncionarioNome = (id) => employees.find(e => String(e.id) === String(id))?.nome || 'Não informado';
     const getPostoNome = (id) => partners.find(p => String(p.id) === String(id))?.razaoSocial || 'Posto não identificado';
     const getObraNome = (id) => obras.find(o => String(o.id) === String(id))?.nome || 'Obra não identificada';
 
     const getSafeDateObj = (dateInput) => {
-        if (!dateInput) return new Date();
+        if (!dateInput) return new Date(0); // Retorna data muito antiga se inválido
         try {
-            const d = new Date(dateInput);
-            return isNaN(d.getTime()) ? new Date() : d;
-        } catch { return new Date(); }
+            let dateStr = String(dateInput);
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
+            const d = new Date(dateStr);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        } catch { return new Date(0); }
     };
 
-    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA ---
+    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA (Lógica do RefuelingPage) ---
     const getLastFuelingInfo = (veiculoId) => {
-        // Verificação defensiva: se abastecimentos for undefined ou null, retorna msg de erro de carregamento
-        if (!abastecimentos) return "Carregando histórico...";
-        if (abastecimentos.length === 0) return "Nenhum histórico no sistema.";
+        if (!refuelings || refuelings.length === 0) return "Histórico indisponível (Lista vazia).";
 
         const vehicle = vehicles.find(v => String(v.id) === String(veiculoId));
         if (!vehicle) return "Veículo não encontrado.";
 
         // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
-        const history = abastecimentos
-            .filter(a => String(a.vehicleId) === String(veiculoId) && (a.status === 'Concluída' || a.status === 'Confirmada'))
-            .sort((a, b) => new Date(b.data || b.date) - new Date(a.data || a.date));
+        const history = refuelings
+            .filter(r => String(r.vehicleId) === String(veiculoId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
+            .sort((a, b) => getSafeDateObj(b.data || b.date).getTime() - getSafeDateObj(a.data || a.date).getTime());
 
         const last = history[0];
         if (!last) return "Nenhum abastecimento anterior registrado.";
@@ -130,8 +130,7 @@ const AdminSolicitacoesPage = ({
             }
 
             if (diff > 0 && litros > 0) {
-                // Lógica: Máquinas (l/h), Veículos (km/l)
-                // Se for unidade L/h a conta é Litros / Diferença Horas
+                // Lógica de Média: Para L/h (Máquinas) é Litros/Hora. Para Km/L é Km/Litros.
                 const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
                 mediaTexto = `${avg.toFixed(2)} ${unit}`;
             } else {
@@ -140,7 +139,7 @@ const AdminSolicitacoesPage = ({
         }
 
         const postoName = last.partnerName || partners.find(p => String(p.id) === String(last.partnerId))?.razaoSocial || "Desconhecido";
-        const dateStr = new Date(last.data || last.date).toLocaleDateString('pt-BR');
+        const dateStr = getSafeDateObj(last.data || last.date).toLocaleDateString('pt-BR');
         const fuel = last.fuelType || 'Combustível';
         
         const allowedReadings = getAllowedReadingTypes(vehicle.tipo);
@@ -151,14 +150,13 @@ const AdminSolicitacoesPage = ({
         return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
     };
 
-    // --- CÁLCULO DE PROGRESSO FINANCEIRO DA OBRA ---
+    // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
     const getFinancialProgress = (obraId) => {
         if (!obras || obras.length === 0) return "Dados de obras não carregados.";
         
         const obra = obras.find(o => String(o.id) === String(obraId));
         if (!obra) return "Obra não vinculada.";
 
-        // Soma gastos de combustível
         const totalGasto = expenses
             .filter(e => String(e.obraId) === String(obraId) && (e.category === 'Combustível' || e.fuelType))
             .reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
@@ -191,13 +189,9 @@ const AdminSolicitacoesPage = ({
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
                 let serverBaseUrl = '';
-                if (process.env.REACT_APP_API_URL) {
-                    serverBaseUrl = process.env.REACT_APP_API_URL;
-                } else if (apiClient?.defaults?.baseURL) {
-                    serverBaseUrl = apiClient.defaults.baseURL;
-                } else {
-                    serverBaseUrl = window.location.origin;
-                }
+                if (process.env.REACT_APP_API_URL) serverBaseUrl = process.env.REACT_APP_API_URL;
+                else if (apiClient?.defaults?.baseURL) serverBaseUrl = apiClient.defaults.baseURL;
+                else serverBaseUrl = window.location.origin;
 
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
@@ -349,7 +343,7 @@ const AdminSolicitacoesPage = ({
         return ''; 
     };
 
-    // --- MODAL DE AVALIAÇÃO (COMPACTO) ---
+    // --- MODAL DE AVALIAÇÃO (COMPACTO e OTIMIZADO) ---
     const renderModal = () => {
         if (!modalData) return null;
         const s = modalData;
@@ -400,7 +394,7 @@ const AdminSolicitacoesPage = ({
                         <div className="p-3 border-b bg-white">
                             <div className="flex justify-between items-start mb-1">
                                 <div>
-                                    <h2 className="text-lg font-bold text-gray-800 leading-tight">
+                                    <h2 className="text-base font-bold text-gray-800 leading-tight">
                                         {isApproval ? 'Análise de Solicitação' : 'Conferência de Baixa'}
                                     </h2>
                                     <p className="text-[10px] text-gray-500">#{s.id} • {new Date(s.data_solicitacao).toLocaleString()}</p>
@@ -414,72 +408,66 @@ const AdminSolicitacoesPage = ({
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
                             
                             {/* Comparativo de Leitura */}
-                            <div>
-                                <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-1">Validar Leitura</h5>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div className="bg-white p-2 rounded border shadow-sm">
-                                        <p className="text-[10px] text-gray-500">Informado (Foto)</p>
-                                        <p className="text-base font-bold text-blue-600 leading-none">
-                                            {leituraInformada} <span className="text-[10px] text-gray-400 font-normal">{s.odometro_informado ? 'Km' : 'h'}</span>
-                                        </p>
-                                    </div>
-                                    <div className="bg-white p-2 rounded border shadow-sm">
-                                        <p className="text-[10px] text-gray-500">Sistema (Anterior)</p>
-                                        <p className="text-base font-bold text-gray-700 leading-none">{leituraAtualSistema}</p>
-                                    </div>
+                            <div className="bg-white p-2 rounded border shadow-sm">
+                                <div className="flex justify-between items-center mb-1">
+                                    <h5 className="text-[10px] font-bold text-gray-400 uppercase">Validar Leitura</h5>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                        Dif: {diferenca > 0 ? '+' : ''}{diferenca.toFixed(1)}
+                                    </span>
                                 </div>
-                                <div className={`mt-1 text-[10px] font-bold px-2 py-0.5 rounded inline-block ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                    Diferença: {diferenca > 0 ? '+' : ''}{diferenca.toFixed(1)}
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                        <p className="text-[10px] text-gray-500">Informado</p>
+                                        <p className="font-bold text-blue-600">{leituraInformada} {s.odometro_informado ? 'Km' : 'h'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] text-gray-500">Sistema</p>
+                                        <p className="font-bold text-gray-700">{leituraAtualSistema}</p>
+                                    </div>
                                 </div>
                             </div>
 
                             {/* Detalhes do Pedido - Layout Mais Denso */}
-                            <div>
+                            <div className="bg-white p-2 rounded border shadow-sm">
                                 <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-1">Detalhes do Pedido</h5>
-                                <div className="bg-white p-2 rounded border shadow-sm space-y-1 text-xs">
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <span className="text-[10px] text-gray-500 block">Combustível</span>
-                                            <span className="font-bold text-gray-800">{s.tipo_combustivel}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] text-gray-500 block">Quantidade</span>
-                                            <span className="font-bold text-gray-800">{s.flag_tanque_cheio ? 'COMPLETAR TANQUE' : `${s.litragem_solicitada} L`}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] text-gray-500 block">Motorista</span>
-                                            <span className="font-bold text-purple-700 truncate block" title={getFuncionarioNome(s.funcionario_id)}>{getFuncionarioNome(s.funcionario_id)}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] text-gray-500 block">Data Selecionada</span>
-                                            <span className="font-bold text-gray-800">
-                                                {s.data_abastecimento ? new Date(s.data_abastecimento).toLocaleDateString('pt-BR') : new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
-                                            </span>
-                                        </div>
+                                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                                    <div>
+                                        <span className="text-[9px] text-gray-500 block">Combustível</span>
+                                        <span className="font-bold text-gray-800">{s.tipo_combustivel}</span>
                                     </div>
-                                    <div className="border-t pt-1 mt-1">
-                                        <span className="text-[10px] text-gray-500 block">Posto Selecionado</span>
-                                        <span className="font-medium text-gray-800 leading-tight block">{getPostoNome(s.posto_id)}</span>
+                                    <div>
+                                        <span className="text-[9px] text-gray-500 block">Quantidade</span>
+                                        <span className="font-bold text-gray-800">{s.flag_tanque_cheio ? 'COMPLETAR' : `${s.litragem_solicitada} L`}</span>
                                     </div>
-                                    <div className="border-t pt-1 mt-1">
-                                        <span className="text-[10px] text-gray-500 block">Obra de Destino</span>
-                                        <span className="font-medium text-gray-800 leading-tight block">{getObraNome(s.obra_id)}</span>
+                                    <div>
+                                        <span className="text-[9px] text-gray-500 block">Motorista</span>
+                                        <span className="font-bold text-purple-700 truncate block" title={getFuncionarioNome(s.funcionario_id)}>{getFuncionarioNome(s.funcionario_id)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] text-gray-500 block">Data</span>
+                                        <span className="font-bold text-gray-800">
+                                            {s.data_abastecimento ? new Date(s.data_abastecimento).toLocaleDateString('pt-BR') : new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
+                                        </span>
+                                    </div>
+                                    <div className="col-span-2 pt-1 border-t border-gray-100">
+                                        <span className="text-[9px] text-gray-500 block">Posto</span>
+                                        <span className="font-medium text-gray-800 leading-tight block text-[11px]">{getPostoNome(s.posto_id)}</span>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <span className="text-[9px] text-gray-500 block">Obra</span>
+                                        <span className="font-medium text-gray-800 leading-tight block text-[11px]">{getObraNome(s.obra_id)}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* DADOS DE ANÁLISE (Último Abastecimento e Financeiro) */}
-                            <div className="space-y-2 border-t pt-2">
-                                <h3 className="text-xs font-bold text-gray-700 uppercase flex items-center gap-1">
-                                    <BarChart3 size={12}/> Dados para Análise
-                                </h3>
-                                
+                            {/* DADOS DE ANÁLISE */}
+                            <div className="space-y-1.5 pt-1">
                                 {/* Info Último Abastecimento */}
                                 <div className="bg-gray-100 p-2 rounded border border-gray-200">
-                                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-0.5 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</p>
+                                    <p className="text-[9px] text-gray-500 uppercase font-bold mb-0.5 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</p>
                                     <p className="text-[10px] text-gray-800 font-mono leading-tight whitespace-pre-wrap">
                                         {getLastFuelingInfo(s.veiculo_id)}
                                     </p>
@@ -487,7 +475,7 @@ const AdminSolicitacoesPage = ({
 
                                 {/* Info Progresso Financeiro */}
                                 <div className="bg-green-50 p-2 rounded border border-green-200">
-                                    <p className="text-[10px] text-green-700 uppercase font-bold mb-0.5 flex items-center gap-1"><TrendingUp size={10}/> Progresso Financeiro (Obra)</p>
+                                    <p className="text-[9px] text-green-700 uppercase font-bold mb-0.5 flex items-center gap-1"><TrendingUp size={10}/> Financeiro (Obra)</p>
                                     <p className="text-[10px] text-green-900 font-mono leading-tight whitespace-pre-wrap">
                                         {getFinancialProgress(s.obra_id)}
                                     </p>
@@ -497,10 +485,9 @@ const AdminSolicitacoesPage = ({
                             {/* Alertas */}
                             {s.alerta_media_consumo === 1 && (
                                 <div className="bg-red-50 border-l-2 border-red-500 p-2 rounded">
-                                    <div className="flex items-center gap-1 text-red-800 font-bold text-xs">
-                                        <AlertTriangle size={12}/> ATENÇÃO: Queda de Média
+                                    <div className="flex items-center gap-1 text-red-800 font-bold text-[10px]">
+                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (>25%)
                                     </div>
-                                    <p className="text-[10px] text-red-700 leading-tight">Consumo aumentou drasticamente (>25%).</p>
                                 </div>
                             )}
                         </div>
@@ -510,35 +497,35 @@ const AdminSolicitacoesPage = ({
                             {isApproval ? (
                                 <>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleAprovar(s.id)} className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow text-sm flex items-center justify-center gap-1 transition">
-                                            <Check size={16}/> APROVAR
+                                        <button onClick={() => handleAprovar(s.id)} className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
+                                            <Check size={14}/> APROVAR
                                         </button>
-                                        <button onClick={() => setRejectReason(' ')} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded border border-red-200 text-sm transition">
+                                        <button onClick={() => setRejectReason(' ')} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded border border-red-200 text-xs transition">
                                             Negar...
                                         </button>
                                     </div>
                                     {rejectReason !== '' && (
                                         <div className="animate-slide-up bg-red-50 p-2 rounded border border-red-200 mt-1">
-                                            <label className="text-[10px] font-bold text-red-800 mb-1 block">Motivo da Negativa:</label>
+                                            <label className="text-[9px] font-bold text-red-800 mb-1 block">Motivo da Negativa:</label>
                                             <textarea className="w-full p-1 border rounded text-xs focus:ring-1 focus:ring-red-500 outline-none" rows="2" value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Ex: Foto ilegível..." autoFocus></textarea>
                                             <div className="flex justify-end gap-2 mt-1">
-                                                <button onClick={() => setRejectReason('')} className="text-[10px] text-gray-500 underline">Cancelar</button>
-                                                <button onClick={() => handleNegar(s.id)} className="px-3 py-1 bg-red-600 text-white text-[10px] font-bold rounded hover:bg-red-700">Confirmar</button>
+                                                <button onClick={() => setRejectReason('')} className="text-[9px] text-gray-500 underline">Cancelar</button>
+                                                <button onClick={() => handleNegar(s.id)} className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded hover:bg-red-700">Confirmar</button>
                                             </div>
                                         </div>
                                     )}
                                 </>
                             ) : isBaixa ? (
                                 <div className="flex gap-2">
-                                    <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow text-sm flex items-center justify-center gap-1 transition">
-                                        <Check size={16}/> CONFIRMAR BAIXA
+                                    <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
+                                        <Check size={14}/> BAIXAR
                                     </button>
-                                    <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded border border-orange-200 text-sm flex items-center justify-center gap-1 transition">
-                                        <X size={16}/> Rejeitar Foto
+                                    <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded border border-orange-200 text-xs flex items-center justify-center gap-1 transition">
+                                        <X size={14}/> Rejeitar
                                     </button>
                                 </div>
                             ) : (
-                                <div className="text-center text-xs text-gray-400 py-1">
+                                <div className="text-center text-[10px] text-gray-400 py-1">
                                     Solicitação finalizada ({s.status})
                                 </div>
                             )}
