@@ -6,7 +6,7 @@ import {
     CalendarClock, Gauge, Calendar, AlertOctagon, Trash2, X
 } from 'lucide-react';
 
-import ChangePasswordModal from './ChangePasswordModal';
+import ChangePasswordModal from '..components/ChangePasswordModal';
 
 // --- INÍCIO DA LÓGICA DE REGRAS (Mantida idêntica para estabilidade) ---
 const vehicleGroups = {
