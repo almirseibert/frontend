@@ -14,10 +14,10 @@ const AdminSolicitacoesPage = ({
     employees = [],
     obras = [],
     vehicleGroups = {},
-    // Alterado de 'abastecimentos' para 'refuelings' para padronizar com RefuelingPage
     refuelings = [], 
     expenses = [],
-    onGeneratePDF 
+    onGeneratePDF,
+    user // Adicionado prop User para passar ao criador do PDF
 }) => {
     
     const [solicitacoes, setSolicitacoes] = useState([]);
@@ -84,7 +84,7 @@ const AdminSolicitacoesPage = ({
     const getObraNome = (id) => obras.find(o => String(o.id) === String(id))?.nome || 'Obra não identificada';
 
     const getSafeDateObj = (dateInput) => {
-        if (!dateInput) return new Date(0); // Retorna data muito antiga se inválido
+        if (!dateInput) return new Date(0);
         try {
             let dateStr = String(dateInput);
             if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
@@ -93,14 +93,13 @@ const AdminSolicitacoesPage = ({
         } catch { return new Date(0); }
     };
 
-    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA (Lógica do RefuelingPage) ---
+    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA ---
     const getLastFuelingInfo = (veiculoId) => {
         if (!refuelings || refuelings.length === 0) return "Histórico indisponível (Lista vazia).";
 
         const vehicle = vehicles.find(v => String(v.id) === String(veiculoId));
         if (!vehicle) return "Veículo não encontrado.";
 
-        // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
         const history = refuelings
             .filter(r => String(r.vehicleId) === String(veiculoId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
             .sort((a, b) => getSafeDateObj(b.data || b.date).getTime() - getSafeDateObj(a.data || a.date).getTime());
@@ -108,7 +107,6 @@ const AdminSolicitacoesPage = ({
         const last = history[0];
         if (!last) return "Nenhum abastecimento anterior registrado.";
 
-        // Cálculo de Média
         let mediaTexto = "N/A";
         const penultimo = history[1];
         
@@ -130,7 +128,6 @@ const AdminSolicitacoesPage = ({
             }
 
             if (diff > 0 && litros > 0) {
-                // Lógica de Média: Para L/h (Máquinas) é Litros/Hora. Para Km/L é Km/Litros.
                 const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
                 mediaTexto = `${avg.toFixed(2)} ${unit}`;
             } else {
@@ -147,7 +144,7 @@ const AdminSolicitacoesPage = ({
         const readVal = isKm ? (last.odometro || 0) : (last.horimetro || last.horimetroDigital || 0);
         const litrosVal = last.litrosAbastecidos || last.litrosLiberados || 0;
 
-        return `Último: ${dateStr} \nPosto: ${postoName} \n${litrosVal} L (${fuel}) \nLeitura: ${readVal} \nMédia: ${mediaTexto}`;
+        return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
     };
 
     // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
@@ -166,13 +163,13 @@ const AdminSolicitacoesPage = ({
         
         if (totalContrato > 0) {
             const pct = ((totalGasto / totalContrato) * 100).toFixed(1);
-            return `Gasto Combustível: ${formatMoney(totalGasto)} \nContrato Total: ${formatMoney(totalContrato)} \n${pct}% utilizado`;
+            return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: ${formatMoney(totalContrato)} / ${pct}% utilizado`;
         }
         
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (Cópia exata do RefuelingOrderModal.js) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
@@ -188,25 +185,43 @@ const AdminSolicitacoesPage = ({
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
+                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
                 let serverBaseUrl = '';
-                if (process.env.REACT_APP_API_URL) serverBaseUrl = process.env.REACT_APP_API_URL;
-                else if (apiClient?.defaults?.baseURL) serverBaseUrl = apiClient.defaults.baseURL;
-                else serverBaseUrl = window.location.origin;
+                if (process.env.REACT_APP_API_URL) {
+                    serverBaseUrl = process.env.REACT_APP_API_URL;
+                } else if (apiClient?.defaults?.baseURL) {
+                    serverBaseUrl = apiClient.defaults.baseURL;
+                } else {
+                    serverBaseUrl = window.location.origin;
+                }
 
+                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
+                const uploadEndpoint = `${serverBaseUrl}/api/solicitacoes/upload-pdf-generated`;
                 
-                let token = localStorage.getItem('token') || localStorage.getItem('authToken');
+                // --- BUSCA AGRESSIVA DE TOKEN (Igual ao RefuelingOrderModal) ---
+                let token = localStorage.getItem('token');
+                if (!token) token = localStorage.getItem('authToken');
+                if (!token) token = localStorage.getItem('userToken');
+                
                 if (!token) {
                     try {
                         const userStored = localStorage.getItem('user');
-                        if (userStored) token = JSON.parse(userStored).token;
+                        if (userStored) {
+                            const uObj = JSON.parse(userStored);
+                            if (uObj.token) token = uObj.token;
+                        }
                     } catch(e) {}
                 }
-                if (token && token.startsWith('"')) token = token.slice(1, -1);
+
+                if (token && typeof token === 'string') {
+                    if (token.startsWith('"') && token.endsWith('"')) {
+                        token = token.slice(1, -1);
+                    }
+                }
 
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -220,7 +235,11 @@ const AdminSolicitacoesPage = ({
                 if (response.ok) {
                     const uploadRes = await response.json();
                     if (uploadRes && uploadRes.url) {
-                        pdfLink = uploadRes.url.startsWith('/') ? `${serverBaseUrl}${uploadRes.url}` : uploadRes.url;
+                        if (uploadRes.url.startsWith('/')) {
+                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
+                        } else {
+                            pdfLink = uploadRes.url;
+                        }
                     }
                 }
             } catch (err) {
@@ -243,9 +262,32 @@ const AdminSolicitacoesPage = ({
 
         let msg = '';
         if (pdfLink) {
-            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\nSegue link para a Autorização Oficial (PDF):\n${pdfLink}\n\n*Resumo:*\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}\n*Combustível:* ${finalData.fuelType}\n*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}\n*Motorista:* ${employee?.nome || 'N/A'}`;
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+Segue link para a Autorização Oficial (PDF):
+${pdfLink}
+
+*Resumo:*
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
+*Combustível:* ${finalData.fuelType}
+*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
+*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\n(Link PDF indisponível, verifique sistema)\n\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}\n${readingMsg}\n*Motorista:* ${employee?.nome || 'N/A'}\n*Combustível:* ${finalData.fuelType}\n*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+(Link PDF indisponível, verifique sistema)
+
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
+${readingMsg}
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${finalData.fuelType}
+*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
 
         setTimeout(() => {
@@ -286,7 +328,8 @@ const AdminSolicitacoesPage = ({
                     needsArla: s.observacao && s.observacao.includes('ARLA'),
                     isFillUpArla: false, 
                     litrosLiberadosArla: '', 
-                    outros: s.observacao
+                    outros: s.observacao,
+                    createdBy: user || 'Gestor App' // Passa o usuário para assinatura do PDF
                 };
 
                 await sendToWhatsApp(orderData, vehicle, partner, employee);
@@ -343,7 +386,7 @@ const AdminSolicitacoesPage = ({
         return ''; 
     };
 
-    // --- MODAL DE AVALIAÇÃO (COMPACTO e OTIMIZADO) ---
+    // --- MODAL DE AVALIAÇÃO (COMPACTO) ---
     const renderModal = () => {
         if (!modalData) return null;
         const s = modalData;
@@ -518,10 +561,10 @@ const AdminSolicitacoesPage = ({
                             ) : isBaixa ? (
                                 <div className="flex gap-2">
                                     <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
-                                        <Check size={14}/> BAIXAR
+                                        <Check size={16}/> CONFIRMAR BAIXA
                                     </button>
                                     <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded border border-orange-200 text-xs flex items-center justify-center gap-1 transition">
-                                        <X size={14}/> Rejeitar
+                                        <X size={16}/> Rejeitar Foto
                                     </button>
                                 </div>
                             ) : (
