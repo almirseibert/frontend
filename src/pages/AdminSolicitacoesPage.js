@@ -91,9 +91,12 @@ const AdminSolicitacoesPage = ({
         } catch { return new Date(); }
     };
 
-    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA ---
+    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA (Lógica idêntica ao RefuelingOrderModal) ---
     const getLastFuelingInfo = (veiculoId) => {
         if (!abastecimentos || abastecimentos.length === 0) return "Histórico indisponível.";
+
+        const vehicle = vehicles.find(v => v.id === veiculoId);
+        if (!vehicle) return "Veículo não encontrado.";
 
         // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
         const history = abastecimentos
@@ -108,28 +111,40 @@ const AdminSolicitacoesPage = ({
         const penultimo = history[1];
         
         if (penultimo) {
-            // Tenta detectar se usa KM ou Horas
-            const isKm = parseFloat(last.odometro) > 0;
-            const lastRead = isKm ? parseFloat(last.odometro) : parseFloat(last.horimetro || last.horimetroDigital);
-            const prevRead = isKm ? parseFloat(penultimo.odometro) : parseFloat(penultimo.horimetro || penultimo.horimetroDigital);
-            
-            const diff = lastRead - prevRead;
-            const litros = parseFloat(last.litrosAbastecidos || last.litrosLiberados);
-            
-            if (litros > 0 && diff > 0) {
+            const litros = parseFloat(last.litrosAbastecidos || last.litrosLiberados || 0);
+            let diff = 0;
+            let unit = 'Km/L';
+
+            const allowed = getAllowedReadingTypes(vehicle.tipo);
+            if (allowed.includes('horimetro')) {
+                // Tenta pegar horimetro, se não tiver tenta o digital
+                const lastHr = parseFloat(last.horimetro || last.horimetroDigital || 0); 
+                const prevHr = parseFloat(penultimo.horimetro || penultimo.horimetroDigital || 0);
+                diff = lastHr - prevHr;
+                unit = 'L/Hr';
+            } else {
+                const lastKm = parseFloat(last.odometro || 0);
+                const prevKm = parseFloat(penultimo.odometro || 0);
+                diff = lastKm - prevKm;
+            }
+
+            if (diff > 0 && litros > 0) {
                 // Lógica padrão: Máquinas (l/h), Veículos (km/l)
-                if (isKm) {
-                    mediaTexto = `${(diff / litros).toFixed(2)} km/l`;
-                } else {
-                    mediaTexto = `${(litros / diff).toFixed(2)} l/h`;
-                }
+                const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                mediaTexto = `${avg.toFixed(2)} ${unit}`;
+            } else {
+                mediaTexto = 'Incalculável';
             }
         }
 
         const postoName = last.partnerName || partners.find(p => String(p.id) === String(last.partnerId))?.razaoSocial || "Desconhecido";
         const dateStr = new Date(last.data || last.date).toLocaleDateString('pt-BR');
         const fuel = last.fuelType || 'Combustível';
-        const readVal = last.odometro > 0 ? last.odometro : (last.horimetro || last.horimetroDigital || 0);
+        
+        // Determina qual leitura exibir baseada no tipo
+        const allowedReadings = getAllowedReadingTypes(vehicle.tipo);
+        const isKm = allowedReadings.includes('odometro');
+        const readVal = isKm ? (last.odometro || 0) : (last.horimetro || last.horimetroDigital || 0);
         const litrosVal = last.litrosAbastecidos || last.litrosLiberados || 0;
 
         return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
@@ -158,7 +173,7 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (Idêntica ao RefuelingOrderModal) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
@@ -168,27 +183,47 @@ const AdminSolicitacoesPage = ({
 
         let pdfLink = '';
         
+        // Se houver função de geração, processa o arquivo (Upload para gerar link)
         if (onGeneratePDF) {
             try {
+                // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+                
+                // 2. UPLOAD (Para gerar o link público para o posto)
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                let serverBaseUrl = process.env.REACT_APP_API_URL || apiClient?.defaults?.baseURL || window.location.origin;
+                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
+                let serverBaseUrl = '';
+                if (process.env.REACT_APP_API_URL) {
+                    serverBaseUrl = process.env.REACT_APP_API_URL;
+                } else if (apiClient?.defaults?.baseURL) {
+                    serverBaseUrl = apiClient.defaults.baseURL;
+                } else {
+                    serverBaseUrl = window.location.origin;
+                }
+
+                // LIMPEZA DA URL BASE
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
-                let token = localStorage.getItem('token') || localStorage.getItem('authToken');
+                // --- BUSCA AGRESSIVA DE TOKEN ---
+                let token = localStorage.getItem('token') || localStorage.getItem('authToken') || localStorage.getItem('userToken');
                 if (!token) {
                     try {
                         const userStored = localStorage.getItem('user');
-                        if (userStored) token = JSON.parse(userStored).token;
+                        if (userStored) {
+                            const uObj = JSON.parse(userStored);
+                            if (uObj.token) token = uObj.token;
+                        }
                     } catch(e) {}
                 }
-                if (token && token.startsWith('"')) token = token.slice(1, -1);
+                if (token && typeof token === 'string' && token.startsWith('"') && token.endsWith('"')) {
+                    token = token.slice(1, -1);
+                }
 
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -202,15 +237,20 @@ const AdminSolicitacoesPage = ({
                 if (response.ok) {
                     const uploadRes = await response.json();
                     if (uploadRes && uploadRes.url) {
-                        pdfLink = uploadRes.url.startsWith('/') ? `${serverBaseUrl}${uploadRes.url}` : uploadRes.url;
+                        if (uploadRes.url.startsWith('/')) {
+                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
+                        } else {
+                            pdfLink = uploadRes.url;
+                        }
                     }
                 }
             } catch (err) {
-                console.error("Erro upload PDF:", err);
+                console.error("Erro ao processar PDF (Upload):", err);
                 setAlertMessage("Ordem gerada. Erro ao gerar link do PDF, enviando texto simples.");
             }
         }
 
+        // --- MONTAGEM DA MENSAGEM ---
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
         let readingMsg = '';
         if (allowedReadings.includes('odometro')) {
@@ -220,15 +260,42 @@ const AdminSolicitacoesPage = ({
         }
         
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
+        
         const arlaMsg = finalData.needsArla 
             ? `\n*Arla 32:* ${finalData.litrosLiberadosArla ? finalData.litrosLiberadosArla + ' Litros' : 'Incluso'}` 
             : '';
 
+        // MENSAGEM COM LINK
         let msg = '';
+        
         if (pdfLink) {
-            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\nSegue link para a Autorização Oficial (PDF):\n${pdfLink}\n\n*Resumo:*\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}\n*Combustível:* ${finalData.fuelType}\n*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}\n*Motorista:* ${employee?.nome || 'N/A'}`;
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+Segue link para a Autorização Oficial (PDF):
+${pdfLink}
+
+*Resumo:*
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
+*Combustível:* ${finalData.fuelType}
+*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
+*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\n(Link PDF indisponível, verifique sistema)\n\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}\n${readingMsg}\n*Motorista:* ${employee?.nome || 'N/A'}\n*Combustível:* ${finalData.fuelType}\n*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+            // Fallback Texto (caso o upload falhe)
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+(Link PDF indisponível, verifique sistema)
+
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
+${readingMsg}
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${finalData.fuelType}
+*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
 
         setTimeout(() => {
@@ -240,6 +307,7 @@ const AdminSolicitacoesPage = ({
     const handleAprovar = async (id) => {
         if (!window.confirm("Deseja realmente aprovar e gerar a Ordem de Abastecimento?")) return;
         
+        // Busca os dados da solicitação atual para usar no envio
         const s = solicitacoes.find(item => item.id === id);
 
         try {
@@ -249,14 +317,16 @@ const AdminSolicitacoesPage = ({
             setModalData(null);
             fetchSolicitacoes();
 
+            // --- ENVIO AUTOMÁTICO WHATSAPP ---
             if (s && res && res.authNumber) {
                 const vehicle = vehicles.find(v => v.id === s.veiculo_id);
                 const partner = partners.find(p => p.id === s.posto_id);
                 const employee = employees.find(e => e.id === s.funcionario_id);
 
+                // Mapeia os dados da solicitação para o formato esperado pela função de envio e PDF
                 const orderData = {
                     authNumber: res.authNumber,
-                    date: new Date().toISOString(),
+                    date: new Date().toISOString(), // Data da emissão (Hoje)
                     vehicleId: s.veiculo_id,
                     partnerId: s.posto_id,
                     partnerName: partner?.razaoSocial,
@@ -266,6 +336,7 @@ const AdminSolicitacoesPage = ({
                     litrosLiberados: s.litragem_solicitada,
                     odometro: s.odometro_informado,
                     horimetro: s.horimetro_informado,
+                    // Verifica se tem Arla na observação (já que não tem campo booleano direto no banco para solicitação)
                     needsArla: s.observacao && s.observacao.includes('ARLA'),
                     isFillUpArla: false, 
                     litrosLiberadosArla: '', 
@@ -286,7 +357,10 @@ const AdminSolicitacoesPage = ({
             return;
         }
         try {
-            await apiClient.put(`/solicitacoes/${id}/avaliar`, { status: 'NEGADO', motivoNegativa: rejectReason });
+            await apiClient.put(`/solicitacoes/${id}/avaliar`, { 
+                status: 'NEGADO', 
+                motivoNegativa: rejectReason 
+            });
             setAlertMessage("Solicitação Negada.");
             setModalData(null);
             setRejectReason('');
@@ -320,11 +394,13 @@ const AdminSolicitacoesPage = ({
     };
 
     const getBaseURL = () => {
-        if (apiClient.defaults?.baseURL) return apiClient.defaults.baseURL.replace('/api', '');
+        if (apiClient.defaults?.baseURL) {
+            return apiClient.defaults.baseURL.replace('/api', '');
+        }
         return ''; 
     };
 
-    // --- MODAL DE AVALIAÇÃO (VISUAL ATUALIZADO) ---
+    // --- MODAL DE AVALIAÇÃO ---
     const renderModal = () => {
         if (!modalData) return null;
         const s = modalData;
@@ -351,7 +427,12 @@ const AdminSolicitacoesPage = ({
                                 <ImageIcon size={18}/> {isApproval ? 'Evidência do Painel' : 'Comprovante Fiscal'}
                             </h4>
                             {s.latitude && (
-                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full flex items-center gap-1 transition">
+                                <a 
+                                    href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full flex items-center gap-1 transition"
+                                >
                                     <MapPin size={12}/> Ver Localização GPS
                                 </a>
                             )}
