@@ -4,8 +4,18 @@ import {
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
     ExternalLink
 } from 'lucide-react';
+import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
-const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
+const AdminSolicitacoesPage = ({ 
+    apiClient, 
+    setAlertMessage, 
+    vehicles = [],
+    // Novos props necessários para o envio de WhatsApp e PDF
+    partners = [], 
+    employees = [],
+    vehicleGroups = {},
+    onGeneratePDF 
+}) => {
     
     const [solicitacoes, setSolicitacoes] = useState([]);
     const [filteredSolicitacoes, setFilteredSolicitacoes] = useState([]);
@@ -67,16 +77,188 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
         setFilteredSolicitacoes(list);
     }, [solicitacoes, filterStatus, searchTerm]);
 
+    // --- HELPERS PARA WHATSAPP (Adicionado) ---
+    const getSafeDateObj = (dateInput) => {
+        if (!dateInput) return new Date();
+        try {
+            const d = new Date(dateInput);
+            return isNaN(d.getTime()) ? new Date() : d;
+        } catch { return new Date(); }
+    };
+
+    const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
+        const phone = partner?.whatsapp || partner?.telefone;
+        if (!phone) {
+            setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF não enviado).");
+            return;
+        }
+
+        let pdfLink = '';
+        
+        // Se houver função de geração, processa o arquivo (Upload para gerar link)
+        if (onGeneratePDF) {
+            try {
+                // 1. Gera o Blob
+                const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+                
+                // 2. UPLOAD (Para gerar o link público para o posto)
+                const formDataUpload = new FormData();
+                formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
+                
+                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
+                let serverBaseUrl = '';
+                if (process.env.REACT_APP_API_URL) {
+                    serverBaseUrl = process.env.REACT_APP_API_URL;
+                } else if (apiClient?.defaults?.baseURL) {
+                    serverBaseUrl = apiClient.defaults.baseURL;
+                } else {
+                    serverBaseUrl = window.location.origin;
+                }
+
+                // LIMPEZA DA URL BASE
+                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
+                if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
+                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
+
+                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
+                
+                // --- BUSCA AGRESSIVA DE TOKEN ---
+                let token = localStorage.getItem('token') || localStorage.getItem('authToken') || localStorage.getItem('userToken');
+                if (!token) {
+                    try {
+                        const userStored = localStorage.getItem('user');
+                        if (userStored) {
+                            const uObj = JSON.parse(userStored);
+                            if (uObj.token) token = uObj.token;
+                        }
+                    } catch(e) {}
+                }
+                if (token && typeof token === 'string' && token.startsWith('"') && token.endsWith('"')) {
+                    token = token.slice(1, -1);
+                }
+
+                const headers = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const response = await fetch(uploadEndpoint, {
+                    method: 'POST',
+                    headers: headers,
+                    body: formDataUpload
+                });
+
+                if (response.ok) {
+                    const uploadRes = await response.json();
+                    if (uploadRes && uploadRes.url) {
+                        if (uploadRes.url.startsWith('/')) {
+                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
+                        } else {
+                            pdfLink = uploadRes.url;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao processar PDF (Upload):", err);
+                setAlertMessage("Ordem gerada. Erro ao gerar link do PDF, enviando texto simples.");
+            }
+        }
+
+        // --- MONTAGEM DA MENSAGEM ---
+        const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
+        let readingMsg = '';
+        if (allowedReadings.includes('odometro')) {
+             readingMsg = `*Hodômetro:* ${finalData.odometro ? finalData.odometro + ' Km' : 'N/A'}`;
+        } else {
+             readingMsg = `*Horímetro:* ${finalData.horimetro ? finalData.horimetro + ' Hr' : 'N/A'}`;
+        }
+        
+        const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
+        
+        const arlaMsg = finalData.needsArla 
+            ? `\n*Arla 32:* ${finalData.litrosLiberadosArla ? finalData.litrosLiberadosArla + ' Litros' : 'Incluso'}` 
+            : '';
+
+        // MENSAGEM COM LINK
+        let msg = '';
+        
+        if (pdfLink) {
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+Segue link para a Autorização Oficial (PDF):
+${pdfLink}
+
+*Resumo:*
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
+*Combustível:* ${finalData.fuelType}
+*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
+*Motorista:* ${employee?.nome || 'N/A'}`;
+        } else {
+            // Fallback Texto (caso o upload falhe)
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+(Link PDF indisponível, verifique sistema)
+
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
+${readingMsg}
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${finalData.fuelType}
+*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+        }
+
+        setTimeout(() => {
+            window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+        }, 1000);
+    };
+
     // --- AÇÕES ---
 
     const handleAprovar = async (id) => {
         if (!window.confirm("Deseja realmente aprovar e gerar a Ordem de Abastecimento?")) return;
         
+        // Busca os dados da solicitação atual para usar no envio
+        const s = solicitacoes.find(item => item.id === id);
+
         try {
-            await apiClient.put(`/solicitacoes/${id}/avaliar`, { status: 'LIBERADO' });
+            const res = await apiClient.put(`/solicitacoes/${id}/avaliar`, { status: 'LIBERADO' });
+            
             setAlertMessage("Solicitação Aprovada! Ordem gerada com sucesso.");
             setModalData(null);
             fetchSolicitacoes();
+
+            // --- ENVIO AUTOMÁTICO WHATSAPP ---
+            if (s && res && res.authNumber) {
+                const vehicle = vehicles.find(v => v.id === s.veiculo_id);
+                const partner = partners.find(p => p.id === s.posto_id);
+                const employee = employees.find(e => e.id === s.funcionario_id);
+
+                // Mapeia os dados da solicitação para o formato esperado pela função de envio e PDF
+                const orderData = {
+                    authNumber: res.authNumber,
+                    date: new Date().toISOString(), // Data da emissão (Hoje)
+                    vehicleId: s.veiculo_id,
+                    partnerId: s.posto_id,
+                    partnerName: partner?.razaoSocial,
+                    employeeId: s.funcionario_id,
+                    fuelType: s.tipo_combustivel,
+                    isFillUp: !!s.flag_tanque_cheio,
+                    litrosLiberados: s.litragem_solicitada,
+                    odometro: s.odometro_informado,
+                    horimetro: s.horimetro_informado,
+                    // Verifica se tem Arla na observação (já que não tem campo booleano direto no banco para solicitação)
+                    needsArla: s.observacao && s.observacao.includes('ARLA'),
+                    isFillUpArla: false, 
+                    litrosLiberadosArla: '', 
+                    outros: s.observacao
+                };
+
+                await sendToWhatsApp(orderData, vehicle, partner, employee);
+            }
+
         } catch (error) {
             setAlertMessage("Erro ao aprovar: " + (error.response?.data?.error || error.message));
         }
@@ -102,7 +284,6 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
     };
 
     const handleConfirmarBaixa = async (id) => {
-        // Confirmar baixa apenas finaliza o fluxo visual. A baixa financeira real idealmente ocorre no RefuelingPage
         try {
             await apiClient.put(`/solicitacoes/${id}/confirmar-baixa`, {});
             setAlertMessage("Baixa confirmada!");
@@ -127,7 +308,6 @@ const AdminSolicitacoesPage = ({ apiClient, setAlertMessage, vehicles }) => {
 
     // --- HELPERS VISUAIS ---
     const getBaseURL = () => {
-        // Tenta inferir a URL base para imagens
         if (apiClient.defaults?.baseURL) {
             return apiClient.defaults.baseURL.replace('/api', '');
         }
