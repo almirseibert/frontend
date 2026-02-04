@@ -366,7 +366,7 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- FUNÇÃO DE ENVIO + UPLOAD (COM LOGS DE DEBUG) ---
+    // --- FUNÇÃO DE ENVIO + UPLOAD (CORRIGIDA) ---
     const sendToWhatsApp = async (orderData) => {
         console.log(">>> [DEBUG] Iniciando sendToWhatsApp. Dados da Ordem:", orderData);
 
@@ -416,10 +416,12 @@ const RefuelingOrderModal = ({
 
                 console.log(">>> [DEBUG] Iniciando POST para /refuelings/upload-pdf...");
                 
-                // Tenta sem cabeçalho manual primeiro (melhor prática para FormData em Axios)
-                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload);
-
-                console.log(">>> [DEBUG] Resposta do Upload:", response);
+                // Força o header correto para garantir que o envio não seja tratado como JSON
+                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                });
 
                 if (response.data && response.data.url) {
                      // Corrige URL relativa se necessário
@@ -442,19 +444,12 @@ const RefuelingOrderModal = ({
                         pdfLink = `${baseUrl}${finalPath}`;
                      }
                      console.log(">>> [DEBUG] Link Final Construído:", pdfLink);
-                } else {
-                    console.warn(">>> [DEBUG] Upload feito, mas resposta não contém 'url'.", response.data);
                 }
 
             } catch (err) {
-                console.error(">>> [DEBUG] Erro FATAL no Upload/Geração PDF:", err);
-                if (err.response) {
-                    console.error(">>> [DEBUG] Detalhes do erro servidor:", err.response.data, err.response.status);
-                }
-                setAlertMessage("Ordem salva, mas falha ao gerar link do PDF. (Veja Console)");
+                console.error(">>> [DEBUG] Erro no Upload:", err);
+                setAlertMessage("Ordem salva, mas falha ao gerar link do PDF.");
             }
-        } else {
-            console.warn(">>> [DEBUG] onGeneratePDF não foi fornecido para o modal.");
         }
 
         // --- MENSAGEM WHATSAPP ---
@@ -502,8 +497,6 @@ ${readingMsg}
 *Combustível:* ${finalData.fuelType}
 *Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
-        
-        console.log(">>> [DEBUG] Abrindo WhatsApp com mensagem:", msg);
 
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -554,9 +547,7 @@ ${readingMsg}
             createdBy: user,
             // IMPORTANTE: Removemos 'solicitacaoId' daqui para evitar erros no backend
             // A ordem será criada como uma ordem padrão, idêntica à página de abastecimento
-            solicitacaoId: solicitacaoData ? solicitacaoData.id : null // Adicionei de volta para o backend conseguir dar baixa, se o backend suportar.
-            // Se o backend NÃO suportar o campo 'solicitacaoId' direto no INSERT/UPDATE, isso será ignorado ou causará erro se não tratado no Controller.
-            // O controller mais recente que você forneceu trata 'solicitacaoId' vindo no body e o remove antes do insert, usando-o apenas para update.
+            solicitacaoId: solicitacaoData ? solicitacaoData.id : null 
         };
 
         const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";

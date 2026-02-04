@@ -4,6 +4,8 @@ import {
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
     ExternalLink, BarChart3, Clock, TrendingUp
 } from 'lucide-react';
+import { jsPDF } from 'jspdf'; 
+import autoTable from 'jspdf-autotable'; 
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 
@@ -17,18 +19,18 @@ const AdminSolicitacoesPage = ({
     vehicleGroups = {},
     refuelings = [], 
     expenses = [],
-    onGeneratePDF,
+    // onGeneratePDF, // REMOVIDO: A página agora define sua própria função para garantir funcionamento
     user,
     PasswordConfirmationModal,
     ConfirmationModal,
-    reloadData // Importante para recarregar dados após ações no modal
+    reloadData 
 }) => {
     
     const [solicitacoes, setSolicitacoes] = useState([]);
     const [filteredSolicitacoes, setFilteredSolicitacoes] = useState([]);
     const [loading, setLoading] = useState(false);
     
-    // Controle do Modal de Detalhes (Visualização/Baixa)
+    // Controle do Modal de Detalhes
     const [modalData, setModalData] = useState(null); 
     const [rejectReason, setRejectReason] = useState('');
     
@@ -39,6 +41,84 @@ const AdminSolicitacoesPage = ({
     // Filtros
     const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
     const [searchTerm, setSearchTerm] = useState('');
+
+    // --- FUNÇÃO DE GERAÇÃO DE PDF (CRUCIAL PARA O UPLOAD FUNCIONAR) ---
+    const generateAuthorizationPDF = async (orderData, vehiclesList, partnersList, employeesList, groups, returnBlob = false) => {
+        const doc = new jsPDF();
+        
+        // Dados Auxiliares
+        const vehicle = vehiclesList.find(v => v.id === orderData.vehicleId) || {};
+        const partner = partnersList.find(p => p.id === orderData.partnerId) || {};
+        const employee = employeesList.find(e => e.id === orderData.employeeId) || {};
+        const obra = obras.find(o => o.id === orderData.obraId) || {};
+
+        // Configuração de Fonte
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text("AUTORIZAÇÃO DE ABASTECIMENTO", 105, 20, { align: "center" });
+        
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Nº ORDEM: ${orderData.authNumber}`, 105, 30, { align: "center" });
+        
+        // Data
+        const dateStr = orderData.date ? new Date(orderData.date).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+        doc.text(`Data de Emissão: ${dateStr}`, 14, 45);
+
+        // Detalhes em Tabela
+        const tableBody = [
+            ['Posto Autorizado', partner.razaoSocial || 'Não informado'],
+            ['Veículo / Equipamento', `${vehicle.modelo || ''} - ${vehicle.placa || ''} (${vehicle.registroInterno || 'S/N'})`],
+            ['Motorista / Operador', employee.nome || 'Não informado'],
+            ['Obra / Centro de Custo', obra.nome || 'Não informado'],
+            ['Combustível', orderData.fuelType ? orderData.fuelType.toUpperCase() : 'N/A'],
+            ['Quantidade', orderData.isFillUp ? 'COMPLETAR TANQUE' : `${orderData.litrosLiberados} Litros`],
+        ];
+
+        // Leituras
+        if (orderData.odometro) tableBody.push(['Odômetro Atual', `${orderData.odometro} Km`]);
+        if (orderData.horimetro) tableBody.push(['Horímetro Atual', `${orderData.horimetro} Hr`]);
+        
+        // Arla
+        if (orderData.needsArla) {
+            tableBody.push(['Arla 32', orderData.isFillUpArla ? 'COMPLETAR' : `${orderData.litrosLiberadosArla} Litros`]);
+        }
+
+        // Observações
+        if (orderData.outros) {
+            tableBody.push(['Observações', orderData.outros]);
+        }
+
+        autoTable(doc, {
+            startY: 50,
+            head: [['Campo', 'Detalhe']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [41, 128, 185] }, // Azul padrão
+            styles: { fontSize: 11, cellPadding: 3 }
+        });
+
+        // Rodapé / Assinaturas
+        const finalY = doc.lastAutoTable.finalY + 40;
+        
+        doc.setLineWidth(0.5);
+        doc.line(20, finalY, 90, finalY);
+        doc.line(120, finalY, 190, finalY);
+        
+        doc.setFontSize(10);
+        doc.text("Assinatura do Responsável (Frotas)", 55, finalY + 5, { align: "center" });
+        doc.text("Assinatura do Motorista", 155, finalY + 5, { align: "center" });
+
+        doc.setFontSize(8);
+        doc.text("Sistema de Gestão de Frotas MAK - Documento Gerado Eletronicamente", 105, 280, { align: "center" });
+
+        // Retorno
+        if (returnBlob) {
+            return doc.output('blob');
+        } else {
+            doc.save(`Ordem_${orderData.authNumber}_${vehicle.registroInterno || 'Veiculo'}.pdf`);
+        }
+    };
 
     // --- CARREGAMENTO INICIAL E POLLING ---
     const fetchSolicitacoes = async () => {
@@ -550,8 +630,8 @@ const AdminSolicitacoesPage = ({
             {isOrderModalOpen && solicitacaoToApprove && (
                 <RefuelingOrderModal
                     user={user}
-                    orderToEdit={null} // Não é edição de ordem existente, é criação nova
-                    solicitacaoData={solicitacaoToApprove} // Passa os dados para pré-preenchimento
+                    orderToEdit={null} 
+                    solicitacaoData={solicitacaoToApprove} 
                     vehicles={vehicles}
                     obras={obras}
                     partners={partners}
@@ -561,18 +641,18 @@ const AdminSolicitacoesPage = ({
                     onClose={() => {
                         setIsOrderModalOpen(false);
                         setSolicitacaoToApprove(null);
-                        fetchSolicitacoes(); // Recarrega lista após fechar
+                        fetchSolicitacoes(); 
                     }}
                     setAlertMessage={setAlertMessage}
-                    onGeneratePDF={onGeneratePDF}
+                    onGeneratePDF={generateAuthorizationPDF} // AGORA PASSANDO A FUNÇÃO DE GERAÇÃO!
                     extraObraOptions={[]}
                     ConfirmationModal={ConfirmationModal}
                     PasswordConfirmationModal={PasswordConfirmationModal}
                     vehicleGroups={vehicleGroups}
                     apiClient={apiClient}
                     reloadData={() => {
-                        reloadData(); // Atualiza dados globais
-                        fetchSolicitacoes(); // Atualiza lista local
+                        reloadData(); 
+                        fetchSolicitacoes(); 
                     }}
                 />
             )}
