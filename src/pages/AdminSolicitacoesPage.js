@@ -5,10 +5,7 @@ import {
     ExternalLink, BarChart3, Clock, TrendingUp
 } from 'lucide-react';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
-
-// --- IMPORTAÇÃO DA NOVA FUNÇÃO DO SERVIÇO ---
-// Agora que o arquivo RefuelingWhatsAppService.js foi criado, essa importação funcionará
-import { sendOrderToWhatsApp } from '../utils/refuelingWhatsAppService'; 
+import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 
@@ -21,17 +18,24 @@ const AdminSolicitacoesPage = ({
     refuelings = [], 
     expenses = [],
     onGeneratePDF,
-    user // Prop user necessária para o PDF
+    user,
+    PasswordConfirmationModal,
+    ConfirmationModal,
+    reloadData // Importante para recarregar dados após ações no modal
 }) => {
     
     const [solicitacoes, setSolicitacoes] = useState([]);
     const [filteredSolicitacoes, setFilteredSolicitacoes] = useState([]);
     const [loading, setLoading] = useState(false);
     
-    // Controle do Modal
+    // Controle do Modal de Detalhes (Visualização/Baixa)
     const [modalData, setModalData] = useState(null); 
     const [rejectReason, setRejectReason] = useState('');
     
+    // Controle do Modal de Ordem (Aprovação Unificada)
+    const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+    const [solicitacaoToApprove, setSolicitacaoToApprove] = useState(null);
+
     // Filtros
     const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
     const [searchTerm, setSearchTerm] = useState('');
@@ -176,61 +180,10 @@ const AdminSolicitacoesPage = ({
     };
 
     // --- AÇÕES ---
-    const handleAprovar = async (id) => {
-        if (!window.confirm("Deseja realmente aprovar e gerar a Ordem de Abastecimento?")) return;
-        
-        const s = solicitacoes.find(item => item.id === id);
-
-        try {
-            const res = await apiClient.put(`/solicitacoes/${id}/avaliar`, { status: 'LIBERADO' });
-            
-            setAlertMessage("Solicitação Aprovada! Ordem gerada com sucesso.");
-            setModalData(null);
-            fetchSolicitacoes();
-
-            if (s && res && res.authNumber) {
-                const vehicle = vehicles.find(v => v.id === s.veiculo_id);
-                const partner = partners.find(p => p.id === s.posto_id);
-                const employee = employees.find(e => e.id === s.funcionario_id);
-
-                const orderData = {
-                    authNumber: res.authNumber,
-                    date: new Date().toISOString(),
-                    vehicleId: s.veiculo_id,
-                    partnerId: s.posto_id,
-                    partnerName: partner?.razaoSocial,
-                    employeeId: s.funcionario_id,
-                    fuelType: s.tipo_combustivel,
-                    isFillUp: !!s.flag_tanque_cheio,
-                    litrosLiberados: s.litragem_solicitada,
-                    odometro: s.odometro_informado,
-                    horimetro: s.horimetro_informado,
-                    needsArla: s.observacao && s.observacao.includes('ARLA'),
-                    isFillUpArla: false, 
-                    litrosLiberadosArla: '', 
-                    outros: s.observacao,
-                    createdBy: user || { name: 'Gestor (App)' }
-                };
-
-                // --- USANDO O NOVO SERVIÇO ---
-                await sendOrderToWhatsApp({
-                    finalData: orderData,
-                    vehicle,
-                    partner,
-                    employee,
-                    vehicles,
-                    partners,
-                    employees,
-                    vehicleGroups,
-                    onGeneratePDF,
-                    apiClient,
-                    setAlertMessage
-                });
-            }
-
-        } catch (error) {
-            setAlertMessage("Erro ao aprovar: " + (error.response?.data?.error || error.message));
-        }
+    const handleOpenApprovalModal = (s) => {
+        setSolicitacaoToApprove(s);
+        setModalData(null); // Fecha o modal de detalhes
+        setIsOrderModalOpen(true); // Abre o modal unificado de ordem
     };
 
     const handleNegar = async (id) => {
@@ -279,7 +232,7 @@ const AdminSolicitacoesPage = ({
         return ''; 
     };
 
-    // --- MODAL DE AVALIAÇÃO (COMPACTO) ---
+    // --- MODAL DE AVALIAÇÃO (DETALHES) ---
     const renderModal = () => {
         if (!modalData) return null;
         const s = modalData;
@@ -433,8 +386,9 @@ const AdminSolicitacoesPage = ({
                             {isApproval ? (
                                 <>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleAprovar(s.id)} className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
-                                            <Check size={14}/> APROVAR
+                                        {/* AÇÃO UNIFICADA: ABRE O MODAL DE ORDEM */}
+                                        <button onClick={() => handleOpenApprovalModal(s)} className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
+                                            <Check size={14}/> APROVAR & GERAR ORDEM
                                         </button>
                                         <button onClick={() => setRejectReason(' ')} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded border border-red-200 text-xs transition">
                                             Negar...
@@ -591,6 +545,37 @@ const AdminSolicitacoesPage = ({
             </div>
 
             {renderModal()}
+
+            {/* MODAL DE ORDEM UNIFICADO (ABERTO APÓS APROVAÇÃO) */}
+            {isOrderModalOpen && solicitacaoToApprove && (
+                <RefuelingOrderModal
+                    user={user}
+                    orderToEdit={null} // Não é edição de ordem existente, é criação nova
+                    solicitacaoData={solicitacaoToApprove} // Passa os dados para pré-preenchimento
+                    vehicles={vehicles}
+                    obras={obras}
+                    partners={partners}
+                    employees={employees}
+                    refuelings={refuelings}
+                    expenses={expenses}
+                    onClose={() => {
+                        setIsOrderModalOpen(false);
+                        setSolicitacaoToApprove(null);
+                        fetchSolicitacoes(); // Recarrega lista após fechar
+                    }}
+                    setAlertMessage={setAlertMessage}
+                    onGeneratePDF={onGeneratePDF}
+                    extraObraOptions={[]}
+                    ConfirmationModal={ConfirmationModal}
+                    PasswordConfirmationModal={PasswordConfirmationModal}
+                    vehicleGroups={vehicleGroups}
+                    apiClient={apiClient}
+                    reloadData={() => {
+                        reloadData(); // Atualiza dados globais
+                        fetchSolicitacoes(); // Atualiza lista local
+                    }}
+                />
+            )}
         </div>
     );
 };

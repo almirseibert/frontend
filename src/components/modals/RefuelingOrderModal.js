@@ -19,7 +19,8 @@ const RefuelingOrderModal = ({
     PasswordConfirmationModal,
     vehicleGroups = {},
     apiClient,
-    reloadData
+    reloadData,
+    solicitacaoData = null // NOVA PROP: Dados vindos da solicitação do App
 }) => {
     
     // --- HELPERS DE DATA ---
@@ -50,29 +51,87 @@ const RefuelingOrderModal = ({
         } catch { return 'Erro'; }
     };
 
+    // Helper para normalizar tipo de combustível
+    const normalizeFuelType = (val) => {
+        if (!val) return '';
+        const v = val.toString().trim().toUpperCase();
+        const map = {
+            'DIESEL S10': 'dieselS10',
+            'DIESEL S500': 'dieselS500',
+            'GASOLINA COMUM': 'gasolinaComum',
+            'GASOLINA ADITIVADA': 'gasolinaAditivada',
+            'ETANOL': 'etanol',
+            'ARLA 32': 'arla32'
+        };
+        return map[v] || '';
+    };
+
     // --- ESTADOS ---
     const [formData, setFormData] = useState({
-        vehicleId: orderToEdit?.vehicleId || '',
-        partnerId: orderToEdit?.partnerId || '',
-        obraId: orderToEdit?.obraId || '',
-        employeeId: orderToEdit?.employeeId || '',
-        date: orderToEdit?.date 
-            ? getSafeDateObj(orderToEdit.date).toISOString().split('T')[0] 
-            : new Date().toISOString().split('T')[0],
-        // Leitura Unificada
-        odometro: orderToEdit?.odometro?.toString() || '',
-        horimetro: orderToEdit?.horimetro?.toString() || '',
-        
-        isFillUp: orderToEdit?.isFillUp || false,
-        litrosLiberados: orderToEdit?.litrosLiberados?.toString() || '',
-        fuelType: orderToEdit?.fuelType || '',
-        needsArla: orderToEdit?.needsArla || false,
-        isFillUpArla: orderToEdit?.isFillUpArla || false,
-        litrosLiberadosArla: orderToEdit?.litrosLiberadosArla?.toString() || '',
-        outros: orderToEdit?.outros || '',
-        outrosGeraValor: orderToEdit?.outrosGeraValor || false,
-        outrosValor: orderToEdit?.outrosValor?.toString() || '',
+        vehicleId: '',
+        partnerId: '',
+        obraId: '',
+        employeeId: '',
+        date: new Date().toISOString().split('T')[0],
+        odometro: '',
+        horimetro: '',
+        isFillUp: false,
+        litrosLiberados: '',
+        fuelType: '',
+        needsArla: false,
+        isFillUpArla: false,
+        litrosLiberadosArla: '',
+        outros: '',
+        outrosGeraValor: false,
+        outrosValor: '',
     });
+
+    // Efeito para Inicialização de Dados (Edição OU Solicitação)
+    useEffect(() => {
+        if (orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW') {
+            // MODO EDIÇÃO
+            setFormData({
+                vehicleId: orderToEdit.vehicleId || '',
+                partnerId: orderToEdit.partnerId || '',
+                obraId: orderToEdit.obraId || '',
+                employeeId: orderToEdit.employeeId || '',
+                date: orderToEdit.date 
+                    ? getSafeDateObj(orderToEdit.date).toISOString().split('T')[0] 
+                    : new Date().toISOString().split('T')[0],
+                odometro: orderToEdit.odometro?.toString() || '',
+                horimetro: orderToEdit.horimetro?.toString() || '',
+                isFillUp: orderToEdit.isFillUp || false,
+                litrosLiberados: orderToEdit.litrosLiberados?.toString() || '',
+                fuelType: orderToEdit.fuelType || '',
+                needsArla: orderToEdit.needsArla || false,
+                isFillUpArla: orderToEdit.isFillUpArla || false,
+                litrosLiberadosArla: orderToEdit.litrosLiberadosArla?.toString() || '',
+                outros: orderToEdit.outros || '',
+                outrosGeraValor: orderToEdit.outrosGeraValor || false,
+                outrosValor: orderToEdit.outrosValor?.toString() || '',
+            });
+        } else if (solicitacaoData) {
+            // MODO APROVAÇÃO DE SOLICITAÇÃO (Unificado)
+            setFormData({
+                vehicleId: solicitacaoData.veiculo_id || '',
+                partnerId: solicitacaoData.posto_id || '',
+                obraId: solicitacaoData.obra_id || '',
+                employeeId: solicitacaoData.funcionario_id || '',
+                date: new Date().toISOString().split('T')[0],
+                odometro: solicitacaoData.odometro_informado?.toString() || '',
+                horimetro: solicitacaoData.horimetro_informado?.toString() || '',
+                isFillUp: !!solicitacaoData.flag_tanque_cheio,
+                litrosLiberados: solicitacaoData.litragem_solicitada?.toString() || '',
+                fuelType: normalizeFuelType(solicitacaoData.tipo_combustivel),
+                needsArla: solicitacaoData.observacao && solicitacaoData.observacao.toUpperCase().includes('ARLA') ? true : false,
+                isFillUpArla: false,
+                litrosLiberadosArla: '',
+                outros: solicitacaoData.observacao || '',
+                outrosGeraValor: false,
+                outrosValor: '',
+            });
+        }
+    }, [orderToEdit, solicitacaoData]);
 
     const [isSaving, setIsSaving] = useState(false);
     const [blockReason, setBlockReason] = useState(null); 
@@ -88,6 +147,8 @@ const RefuelingOrderModal = ({
     const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
+    // Determina se é uma criação vinda de solicitação
+    const isSolicitacao = !!solicitacaoData;
 
     // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
     useEffect(() => {
@@ -142,7 +203,8 @@ const RefuelingOrderModal = ({
             const last = history[0];
             setLastRefuelData(last);
 
-            if (!isEditing) {
+            // AUTO-PREENCHIMENTO: Apenas se não for Edição e nem Solicitação (solicitação já traz os dados)
+            if (!isEditing && !isSolicitacao) {
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
 
@@ -172,7 +234,6 @@ const RefuelingOrderModal = ({
                     partnerId: autoPartnerId || prev.partnerId,
                     fuelType: autoFuelType || prev.fuelType,
                     litrosLiberados: autoLitros || prev.litrosLiberados,
-                    // Se já tiver horimetro/odometro salvos, usar eles, senão usar do veículo
                     odometro: prev.odometro || selectedVehicle.odometro?.toString() || '',
                     horimetro: prev.horimetro || selectedVehicle.horimetro?.toString() || ''
                 }));
@@ -212,7 +273,7 @@ const RefuelingOrderModal = ({
                 setLastAverage(null);
             }
         }
-    }, [selectedVehicle, obras, refuelings, isEditing]);
+    }, [selectedVehicle, obras, refuelings, isEditing, isSolicitacao]);
 
     // --- VALIDAÇÕES DE LEITURA (UNIFICADO) ---
     useEffect(() => {
@@ -339,37 +400,25 @@ const RefuelingOrderModal = ({
                 
                 // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
                 let serverBaseUrl = '';
-                
-                // Prioridade 1: Variável de Ambiente (Comum em CRA/Vite)
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
-                } 
-                // Prioridade 2: Configuração do Axios (apiClient)
-                else if (apiClient?.defaults?.baseURL) {
+                } else if (apiClient?.defaults?.baseURL) {
                     serverBaseUrl = apiClient.defaults.baseURL;
-                }
-                // Prioridade 3: Origem atual (Window)
-                else {
+                } else {
                     serverBaseUrl = window.location.origin;
                 }
 
                 // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
-                // Queremos apenas a raiz do servidor (ex: http://localhost:3001) pois a pasta 'uploads' fica na raiz
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
-                // Limpeza dupla caso tenha barra (ex: /api/)
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
-                console.log("Iniciando Upload PDF para:", uploadEndpoint); // Debug no console
-
-                // --- BUSCA AGRESSIVA DE TOKEN ---
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
                 
-                // Tenta buscar de um objeto 'user' no localStorage se for o caso
                 if (!token) {
                     try {
                         const userStored = localStorage.getItem('user');
@@ -380,14 +429,11 @@ const RefuelingOrderModal = ({
                     } catch(e) {}
                 }
 
-                // Remove aspas se o token estiver "sujo"
                 if (token && typeof token === 'string') {
                     if (token.startsWith('"') && token.endsWith('"')) {
                         token = token.slice(1, -1);
                     }
                 }
-
-                console.log("Token para Upload:", token ? "Encontrado" : "NÃO ENCONTRADO");
 
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -400,10 +446,7 @@ const RefuelingOrderModal = ({
 
                 if (response.ok) {
                     const uploadRes = await response.json();
-                    console.log("Upload Sucesso. Resposta:", uploadRes); // Debug no console
-
                     if (uploadRes && uploadRes.url) {
-                        // Se a URL retornada for relativa (começa com /), adiciona a base do servidor
                         if (uploadRes.url.startsWith('/')) {
                             pdfLink = `${serverBaseUrl}${uploadRes.url}`;
                         } else {
@@ -514,12 +557,11 @@ ${readingMsg}
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
-            createdBy: user 
+            createdBy: user,
+            // UNIFICAÇÃO: Envia ID da solicitação se existir
+            solicitacaoId: solicitacaoData ? solicitacaoData.id : null
         };
 
-        // --- ALTERAÇÃO SOLICITADA ---
-        // Se for edição de ordem já Concluída, replica os litros liberados para litros abastecidos
-        // Normalização de status para evitar falhas por maiúsculas/acentos
         const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
         
         if (isEditing && (currentStatus === 'concluida' || currentStatus === 'confirmada')) {
@@ -527,7 +569,6 @@ ${readingMsg}
              payload.litrosAbastecidosArla = payload.litrosLiberadosArla;
         }
 
-        // Adiciona nome do posto opcionalmente (backend já trata, mas ajuda se tiver cacheado)
         const partner = partners.find(p => p.id === formData.partnerId);
         if (partner) payload.partnerName = partner.razaoSocial;
 
@@ -549,7 +590,6 @@ ${readingMsg}
                     authNumber: res.authNumber || orderToEdit?.authNumber,
                     createdBy: user 
                  };
-                 // CHAMA O NOVO ENVIO (COM UPLOAD E DOWNLOAD)
                  await sendToWhatsApp(fullOrderData);
             }
             onClose();
@@ -589,7 +629,7 @@ ${readingMsg}
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
                     <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={16}/> : <FileText size={16}/>}
-                        {isEditing ? 'Editar' : 'Emitir'} Ordem
+                        {isEditing ? 'Editar' : 'Emitir'} Ordem {isSolicitacao ? '(Via Solicitação)' : ''}
                     </h2>
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={18}/></button>
                 </div>
@@ -618,7 +658,6 @@ ${readingMsg}
                             <label className="block font-bold text-gray-700 mb-0.5">Veículo *</label>
                             <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1 border border-gray-300 rounded focus:ring-1 focus:ring-yellow-400 outline-none" required>
                                 <option value="">Selecione...</option>
-                                {/* CORREÇÃO: Adicionado Tipo do Veículo */}
                                 {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.tipo})</option>)}
                             </select>
                         </div>
