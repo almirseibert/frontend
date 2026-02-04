@@ -1,6 +1,6 @@
-import { getAllowedReadingTypes } from './vehicleRules'; 
+import { getAllowedReadingTypes } from './vehicleRules';
 
-// --- HELPER DE DATA (Cópia exata do Modal) ---
+// --- HELPER DE DATA (Lógica robusta do Modal) ---
 const getSafeDateObj = (dateInput) => {
     if (!dateInput) return new Date(0);
     try {
@@ -12,10 +12,10 @@ const getSafeDateObj = (dateInput) => {
 };
 
 /**
- * Função unificada para gerar PDF, fazer Upload e enviar WhatsApp.
- * Baseada no código funcional de RefuelingOrderModal.js
+ * SERVIÇO CENTRALIZADO DE ENVIO DE WHATSAPP
+ * Réplica exata da lógica funcional do RefuelingOrderModal.js
  */
-export const processRefuelingWhatsApp = async ({
+export const sendOrderToWhatsApp = async ({
     finalData,
     vehicle,
     partner,
@@ -33,7 +33,7 @@ export const processRefuelingWhatsApp = async ({
     // 1. Validação de Telefone
     if (!phone) {
         if (setAlertMessage) setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF baixado).");
-        // Se não tem whatsapp, apenas gera o PDF localmente se a função existir
+        // Gera apenas localmente se não tiver telefone
         if (onGeneratePDF) {
             await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
         }
@@ -42,15 +42,15 @@ export const processRefuelingWhatsApp = async ({
 
     let pdfLink = '';
 
-    // 2. Lógica de Geração e Upload (Cópia do Modal)
+    // 2. Processo de Geração e Upload
     if (onGeneratePDF) {
         try {
-            console.log("Service: Iniciando geração do PDF...");
+            console.log("Service: Gerando PDF...");
             
-            // A. Gera o Blob
+            // A. GERAÇÃO DO BLOB
             const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
             
-            // B. Download Local (Garante a cópia para o usuário)
+            // B. DOWNLOAD LOCAL (Segurança para o usuário)
             const downloadUrl = window.URL.createObjectURL(pdfBlob);
             const link = document.createElement('a');
             link.href = downloadUrl;
@@ -60,11 +60,11 @@ export const processRefuelingWhatsApp = async ({
             document.body.removeChild(link);
             window.URL.revokeObjectURL(downloadUrl);
             
-            // C. Upload (Para gerar o link público)
+            // C. PREPARAÇÃO DO UPLOAD
             const formDataUpload = new FormData();
             formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
             
-            // --- DETERMINAÇÃO ROBUSTA DA URL (Lógica do Modal) ---
+            // --- CÁLCULO DA URL DO SERVIDOR (MUITO IMPORTANTE) ---
             let serverBaseUrl = '';
             
             if (process.env.REACT_APP_API_URL) {
@@ -75,17 +75,17 @@ export const processRefuelingWhatsApp = async ({
                 serverBaseUrl = window.location.origin;
             }
 
-            // Limpeza da URL
+            // Remove barras finais e '/api' para garantir a base limpa
             if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
             if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
             if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-            // USO DA ROTA DE REFUELINGS (A QUE FUNCIONA)
+            // ROTA EXATA QUE FUNCIONA NO MODAL
             const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
             
-            console.log("Service: Uploading to:", uploadEndpoint);
+            console.log("Service: Enviando para:", uploadEndpoint);
 
-            // --- TOKEN (Busca agressiva igual ao Modal) ---
+            // --- TOKEN DE AUTENTICAÇÃO ---
             let token = localStorage.getItem('token');
             if (!token) token = localStorage.getItem('authToken');
             if (!token) token = localStorage.getItem('userToken');
@@ -109,6 +109,7 @@ export const processRefuelingWhatsApp = async ({
             const headers = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
+            // D. FETCH / UPLOAD
             const response = await fetch(uploadEndpoint, {
                 method: 'POST',
                 headers: headers,
@@ -117,11 +118,11 @@ export const processRefuelingWhatsApp = async ({
 
             if (response.ok) {
                 const uploadRes = await response.json();
-                console.log("Service: Upload Sucesso. Resposta:", uploadRes);
+                console.log("Service: Upload OK. Resposta:", uploadRes);
 
                 if (uploadRes && uploadRes.url) {
                     if (uploadRes.url.startsWith('http')) {
-                        pdfLink = uploadRes.url;
+                         pdfLink = uploadRes.url;
                     } else if (uploadRes.url.startsWith('/')) {
                         pdfLink = `${serverBaseUrl}${uploadRes.url}`;
                     } else {
@@ -129,17 +130,18 @@ export const processRefuelingWhatsApp = async ({
                     }
                 }
             } else {
-                console.error("Service: Erro upload status:", response.status, await response.text());
-                // Não paramos aqui, deixamos cair para o fallback de texto se falhar
+                const errorText = await response.text();
+                console.error("Service: Erro upload:", response.status, errorText);
+                if (setAlertMessage) setAlertMessage(`Erro no upload do PDF: ${response.status}`);
             }
 
         } catch (err) {
-            console.error("Service: Erro exceção upload PDF:", err);
-            if (setAlertMessage) setAlertMessage("Ordem gerada, mas erro no upload do PDF. Enviando texto.");
+            console.error("Service: Erro exceção:", err);
+            if (setAlertMessage) setAlertMessage("Erro técnico ao processar PDF.");
         }
     }
 
-    // 3. Montagem da Mensagem (Cópia do Modal)
+    // 3. Montagem da Mensagem WhatsApp
     const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
     let readingMsg = '';
     if (allowedReadings.includes('odometro')) {
@@ -184,7 +186,7 @@ ${readingMsg}
 *Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
     }
 
-    // 4. Abertura do WhatsApp
+    // 4. Abrir WhatsApp
     setTimeout(() => {
         window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
     }, 1000);

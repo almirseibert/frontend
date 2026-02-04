@@ -6,8 +6,9 @@ import {
 } from 'lucide-react';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
-// --- IMPORTAÇÃO DA NOVA FUNÇÃO (DO ARQUIVO CRIADO ACIMA) ---
-import { processRefuelingWhatsApp } from '../utils/refuelingWhatsAppService'; 
+// --- IMPORTAÇÃO DA NOVA FUNÇÃO DO SERVIÇO ---
+// Certifique-se de que o arquivo RefuelingWhatsAppService.js existe em src/utils/
+import { sendOrderToWhatsApp } from '../utils/RefuelingWhatsAppService'; 
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 
@@ -211,9 +212,8 @@ const AdminSolicitacoesPage = ({
                     createdBy: user || { name: 'Gestor (App)' }
                 };
 
-                // --- CHAMADA PARA A NOVA FUNÇÃO EXTERNA ---
-                // Agora usamos o serviço dedicado que encapsula a lógica do Modal
-                await processRefuelingWhatsApp({
+                // --- USANDO O NOVO SERVIÇO ---
+                await sendOrderToWhatsApp({
                     finalData: orderData,
                     vehicle,
                     partner,
