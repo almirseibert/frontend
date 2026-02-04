@@ -218,7 +218,7 @@ const RefuelingOrderModal = ({
             const last = history[0];
             setLastRefuelData(last);
 
-            // AUTO-PREENCHIMENTO: Apenas se não for Edição e nem Solicitação (pois solicitação já traz os dados)
+            // AUTO-PREENCHIMENTO
             if (!isEditing && !isSolicitacao) {
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
@@ -366,12 +366,16 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- FUNÇÃO DE ENVIO + UPLOAD (CORRIGIDA) ---
+    // --- FUNÇÃO DE ENVIO + UPLOAD (COM LOGS DE DEBUG) ---
     const sendToWhatsApp = async (orderData) => {
+        console.log(">>> [DEBUG] Iniciando sendToWhatsApp. Dados da Ordem:", orderData);
+
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
+        console.log(">>> [DEBUG] Entidades Encontradas:", { vehicle, partner, employee });
+
         const finalData = orderData || {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
@@ -381,6 +385,7 @@ const RefuelingOrderModal = ({
 
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
+            console.log(">>> [DEBUG] Posto sem telefone/whatsapp. Abortando envio de link.");
             setAlertMessage("Ordem salva! Posto sem WhatsApp (PDF baixado).");
             if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
             return;
@@ -389,9 +394,11 @@ const RefuelingOrderModal = ({
         let pdfLink = '';
         
         if (onGeneratePDF) {
+            console.log(">>> [DEBUG] Função onGeneratePDF existe. Iniciando geração...");
             try {
                 // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+                console.log(">>> [DEBUG] Blob gerado com sucesso.", pdfBlob);
                 
                 // 2. DOWNLOAD LOCAL (Backup)
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
@@ -407,16 +414,18 @@ const RefuelingOrderModal = ({
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
 
-                // Força o header correto para garantir que o envio não seja tratado como JSON
-                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
-                    headers: {
-                        'Content-Type': 'multipart/form-data'
-                    }
-                });
+                console.log(">>> [DEBUG] Iniciando POST para /refuelings/upload-pdf...");
+                
+                // Tenta sem cabeçalho manual primeiro (melhor prática para FormData em Axios)
+                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload);
+
+                console.log(">>> [DEBUG] Resposta do Upload:", response);
 
                 if (response.data && response.data.url) {
                      // Corrige URL relativa se necessário
                      const returnedUrl = response.data.url;
+                     console.log(">>> [DEBUG] URL retornada:", returnedUrl);
+
                      if (returnedUrl.startsWith('http')) {
                         pdfLink = returnedUrl;
                      } else {
@@ -432,12 +441,20 @@ const RefuelingOrderModal = ({
                         const finalPath = returnedUrl.startsWith('/') ? returnedUrl : `/${returnedUrl}`;
                         pdfLink = `${baseUrl}${finalPath}`;
                      }
+                     console.log(">>> [DEBUG] Link Final Construído:", pdfLink);
+                } else {
+                    console.warn(">>> [DEBUG] Upload feito, mas resposta não contém 'url'.", response.data);
                 }
 
             } catch (err) {
-                console.error("Erro no Upload:", err);
-                setAlertMessage("Ordem salva, mas falha ao gerar link do PDF.");
+                console.error(">>> [DEBUG] Erro FATAL no Upload/Geração PDF:", err);
+                if (err.response) {
+                    console.error(">>> [DEBUG] Detalhes do erro servidor:", err.response.data, err.response.status);
+                }
+                setAlertMessage("Ordem salva, mas falha ao gerar link do PDF. (Veja Console)");
             }
+        } else {
+            console.warn(">>> [DEBUG] onGeneratePDF não foi fornecido para o modal.");
         }
 
         // --- MENSAGEM WHATSAPP ---
@@ -485,6 +502,8 @@ ${readingMsg}
 *Combustível:* ${finalData.fuelType}
 *Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
+        
+        console.log(">>> [DEBUG] Abrindo WhatsApp com mensagem:", msg);
 
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -535,6 +554,9 @@ ${readingMsg}
             createdBy: user,
             // IMPORTANTE: Removemos 'solicitacaoId' daqui para evitar erros no backend
             // A ordem será criada como uma ordem padrão, idêntica à página de abastecimento
+            solicitacaoId: solicitacaoData ? solicitacaoData.id : null // Adicionei de volta para o backend conseguir dar baixa, se o backend suportar.
+            // Se o backend NÃO suportar o campo 'solicitacaoId' direto no INSERT/UPDATE, isso será ignorado ou causará erro se não tratado no Controller.
+            // O controller mais recente que você forneceu trata 'solicitacaoId' vindo no body e o remove antes do insert, usando-o apenas para update.
         };
 
         const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
@@ -569,6 +591,7 @@ ${readingMsg}
             }
             onClose();
         } catch (error) {
+            console.error(">>> [DEBUG] Erro ao salvar ordem:", error);
             setAlertMessage("Erro ao salvar: " + (error.response?.data?.error || error.message));
         } finally {
             setIsSaving(false);
