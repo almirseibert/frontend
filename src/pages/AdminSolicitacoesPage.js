@@ -171,9 +171,10 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (Replicada e Corrigida) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (ATUALIZADA E ROBUSTA) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
+        
         if (!phone) {
             setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF baixado).");
             // Se não tem whatsapp, apenas gera o PDF localmente
@@ -186,6 +187,7 @@ const AdminSolicitacoesPage = ({
         if (onGeneratePDF) {
             try {
                 // 1. Gera o Blob (para upload e download local)
+                // IMPORTANTE: Aqui usamos 'await' para garantir que o PDF foi gerado antes de continuar
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
                 // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
@@ -196,22 +198,29 @@ const AdminSolicitacoesPage = ({
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+                window.URL.revokeObjectURL(downloadUrl);
                 
                 // 3. UPLOAD (Para gerar o link público)
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL BASE (Igual ao Modal) ---
+                // --- DETERMINAÇÃO ROBUSTA DA URL BASE DO BACKEND ---
                 let serverBaseUrl = '';
+                
+                // Prioridade 1: Variável de Ambiente
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
-                } else if (apiClient?.defaults?.baseURL) {
+                } 
+                // Prioridade 2: Configuração do Axios (apiClient)
+                else if (apiClient?.defaults?.baseURL) {
                     serverBaseUrl = apiClient.defaults.baseURL;
-                } else {
+                } 
+                // Prioridade 3: Origem atual (Window)
+                else {
                     serverBaseUrl = window.location.origin;
                 }
 
-                // Limpeza da URL
+                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
@@ -219,7 +228,9 @@ const AdminSolicitacoesPage = ({
                 // Endpoint para a rota criada em solicitacaoRoutes.js
                 const uploadEndpoint = `${serverBaseUrl}/api/solicitacoes/upload-pdf-generated`;
                 
-                // --- BUSCA AGRESSIVA DE TOKEN (Igual ao Modal) ---
+                console.log("Iniciando Upload PDF para:", uploadEndpoint);
+
+                // --- BUSCA AGRESSIVA DE TOKEN ---
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
@@ -243,8 +254,6 @@ const AdminSolicitacoesPage = ({
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
 
-                console.log("Enviando PDF para:", uploadEndpoint);
-
                 const response = await fetch(uploadEndpoint, {
                     method: 'POST',
                     headers: headers,
@@ -253,6 +262,8 @@ const AdminSolicitacoesPage = ({
 
                 if (response.ok) {
                     const uploadRes = await response.json();
+                    console.log("Upload Sucesso. Resposta:", uploadRes);
+
                     if (uploadRes && uploadRes.url) {
                         if (uploadRes.url.startsWith('/')) {
                             pdfLink = `${serverBaseUrl}${uploadRes.url}`;
@@ -266,6 +277,7 @@ const AdminSolicitacoesPage = ({
             } catch (err) {
                 console.error("Erro exceção upload PDF:", err);
                 // Não retorna, continua para enviar mensagem de texto como fallback
+                setAlertMessage("Ordem gerada, mas erro no link PDF. Enviando texto.");
             }
         }
 
@@ -283,10 +295,34 @@ const AdminSolicitacoesPage = ({
             : '';
 
         let msg = '';
+        
         if (pdfLink) {
-            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\nSegue link para a Autorização Oficial (PDF):\n${pdfLink}\n\n*Resumo:*\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}\n*Combustível:* ${finalData.fuelType}\n*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}\n*Motorista:* ${employee?.nome || 'N/A'}`;
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+Segue link para a Autorização Oficial (PDF):
+${pdfLink}
+
+*Resumo:*
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
+*Combustível:* ${finalData.fuelType}
+*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
+*Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            msg = `*ORDEM DE ABASTECIMENTO - FROTAS MAK*\n(Link PDF indisponível, verifique sistema)\n\n*Nº Ordem:* ${finalData.authNumber}\n*Data:* ${emissionDate}\n*Posto:* ${partner?.razaoSocial || 'N/A'}\n*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}\n${readingMsg}\n*Motorista:* ${employee?.nome || 'N/A'}\n*Combustível:* ${finalData.fuelType}\n*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
+            msg = 
+`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
+(Link PDF indisponível, verifique sistema)
+
+*Nº Ordem:* ${finalData.authNumber}
+*Data:* ${emissionDate}
+*Posto:* ${partner?.razaoSocial || 'N/A'}
+*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
+${readingMsg}
+*Motorista:* ${employee?.nome || 'N/A'}
+*Combustível:* ${finalData.fuelType}
+*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
         }
 
         setTimeout(() => {
