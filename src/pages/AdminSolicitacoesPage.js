@@ -171,13 +171,12 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (CORRIGIDA E ROBUSTA) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (RÉPLICA EXATA DO MODAL DE ABASTECIMENTOS) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         
         if (!phone) {
             setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF baixado).");
-            // Se não tem whatsapp, apenas gera o PDF localmente
             if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
             return;
         }
@@ -186,10 +185,10 @@ const AdminSolicitacoesPage = ({
         
         if (onGeneratePDF) {
             try {
-                // 1. Gera o Blob (para upload e download local)
+                // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
-                // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
+                // 2. Download Local
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
@@ -199,13 +198,12 @@ const AdminSolicitacoesPage = ({
                 document.body.removeChild(link);
                 window.URL.revokeObjectURL(downloadUrl);
                 
-                // 3. UPLOAD (Para gerar o link público)
+                // 3. Upload
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL BASE DO BACKEND ---
+                // --- DETERMINAÇÃO DA URL (Igual ao RefuelingOrderModal) ---
                 let serverBaseUrl = '';
-                
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
                 } else if (apiClient?.defaults?.baseURL) {
@@ -214,19 +212,16 @@ const AdminSolicitacoesPage = ({
                     serverBaseUrl = window.location.origin;
                 }
 
-                // Limpeza da URL para evitar duplicidade de barras ou sufixos
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                // --- LISTA DE ENDPOINTS PARA TENTAR (FALLBACK) ---
-                // Se o primeiro (solicitacoes) falhar (ex: erro 404), tenta o segundo (refuelings)
-                const endpoints = [
-                    `${serverBaseUrl}/api/solicitacoes/upload-pdf`,
-                    `${serverBaseUrl}/api/refuelings/upload-pdf`
-                ];
+                // USANDO O ENDPOINT QUE SABEMOS QUE FUNCIONA (/api/refuelings/upload-pdf)
+                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
-                // --- BUSCA AGRESSIVA DE TOKEN ---
+                console.log("Iniciando Upload PDF para:", uploadEndpoint);
+
+                // Busca Token
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
@@ -244,47 +239,33 @@ const AdminSolicitacoesPage = ({
                         token = token.slice(1, -1);
                     }
                 }
+
                 const headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
 
-                // --- LOOP DE TENTATIVA DE UPLOAD ---
-                for (const endpoint of endpoints) {
-                    try {
-                        console.log(`Tentando upload para: ${endpoint}`);
-                        const response = await fetch(endpoint, {
-                            method: 'POST',
-                            headers: headers,
-                            body: formDataUpload
-                        });
+                const response = await fetch(uploadEndpoint, {
+                    method: 'POST',
+                    headers: headers,
+                    body: formDataUpload
+                });
 
-                        if (response.ok) {
-                            const uploadRes = await response.json();
-                            console.log("Upload Sucesso no endpoint:", endpoint);
+                if (response.ok) {
+                    const uploadRes = await response.json();
+                    console.log("Upload Sucesso. Resposta:", uploadRes);
 
-                            if (uploadRes && uploadRes.url) {
-                                if (uploadRes.url.startsWith('http')) {
-                                    pdfLink = uploadRes.url;
-                                } else {
-                                    // Adiciona barra inicial se faltar e concatena
-                                    const relativePath = uploadRes.url.startsWith('/') ? uploadRes.url : `/${uploadRes.url}`;
-                                    pdfLink = `${serverBaseUrl}${relativePath}`;
-                                }
-                                break; // Sucesso, para de tentar outros endpoints
-                            }
+                    if (uploadRes && uploadRes.url) {
+                        if (uploadRes.url.startsWith('/')) {
+                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
                         } else {
-                            console.warn(`Falha no endpoint ${endpoint}:`, response.status);
+                            pdfLink = uploadRes.url;
                         }
-                    } catch (err) {
-                        console.warn(`Erro de conexão com ${endpoint}:`, err);
                     }
-                }
-                
-                if (!pdfLink) {
-                    console.error("Todas as tentativas de upload falharam.");
+                } else {
+                    console.error("Erro upload status:", response.status, await response.text());
                 }
 
             } catch (err) {
-                console.error("Erro exceção processo PDF:", err);
+                console.error("Erro exceção upload PDF:", err);
                 setAlertMessage("Ordem gerada, mas erro no upload do PDF. Enviando texto.");
             }
         }
