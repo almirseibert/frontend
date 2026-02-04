@@ -6,9 +6,8 @@ import {
 } from 'lucide-react';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
-// --- IMPORTAÇÃO DA NOVA FUNÇÃO BLINDADA ---
-// Certifique-se de salvar o arquivo acima em src/utils/refuelingPdfService.js
-import { sendOrderToWhatsApp } from '../utils/refuelingPdfService'; 
+// --- IMPORTAÇÃO DA NOVA FUNÇÃO (DO ARQUIVO CRIADO ACIMA) ---
+import { processRefuelingWhatsApp } from '../utils/refuelingWhatsAppService'; 
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 
@@ -213,7 +212,8 @@ const AdminSolicitacoesPage = ({
                 };
 
                 // --- CHAMADA PARA A NOVA FUNÇÃO EXTERNA ---
-                await sendOrderToWhatsApp({
+                // Agora usamos o serviço dedicado que encapsula a lógica do Modal
+                await processRefuelingWhatsApp({
                     finalData: orderData,
                     vehicle,
                     partner,
@@ -422,7 +422,7 @@ const AdminSolicitacoesPage = ({
                             {s.alerta_media_consumo === 1 && (
                                 <div className="bg-red-50 border-l-2 border-red-500 p-2 rounded">
                                     <div className="flex items-center gap-1 text-red-800 font-bold text-[10px]">
-                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (Acima de 25%)
+                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (>25%)
                                     </div>
                                 </div>
                             )}
