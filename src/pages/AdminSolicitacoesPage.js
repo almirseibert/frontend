@@ -225,8 +225,9 @@ const AdminSolicitacoesPage = ({
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                // Endpoint para a rota criada em solicitacaoRoutes.js
-                const uploadEndpoint = `${serverBaseUrl}/api/solicitacoes/upload-pdf-generated`;
+                // --- ALTERAÇÃO PRINCIPAL: USANDO ENDPOINT DE REFUELING (QUE FUNCIONA) ---
+                // O endpoint anterior era /api/solicitacoes/upload-pdf-generated
+                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
                 console.log("Iniciando Upload PDF para:", uploadEndpoint);
 
