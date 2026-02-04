@@ -140,7 +140,7 @@ const RefuelingOrderModal = ({
                 horimetro: solicitacaoData.horimetro_informado?.toString() || '',
                 isFillUp: !!solicitacaoData.flag_tanque_cheio,
                 litrosLiberados: solicitacaoData.litragem_solicitada?.toString() || '',
-                fuelType: normalizeFuelType(solicitacaoData.tipo_combustivel), // Usa a normalização robusta
+                fuelType: normalizeFuelType(solicitacaoData.tipo_combustivel),
                 needsArla: solicitacaoData.observacao && solicitacaoData.observacao.toUpperCase().includes('ARLA') ? true : false,
                 isFillUpArla: false,
                 litrosLiberadosArla: '',
@@ -412,72 +412,36 @@ const RefuelingOrderModal = ({
                 document.body.removeChild(link);
                 window.URL.revokeObjectURL(downloadUrl);
                 
-                // 3. UPLOAD (Para gerar o link público para o posto)
+                // 3. UPLOAD COM API CLIENT (CORREÇÃO PARA ERRO DE LINK INDISPONÍVEL)
+                // Usar o apiClient garante que a BaseURL e o Token de Autenticação sejam enviados corretamente
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
-                
-                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
-                let serverBaseUrl = '';
-                if (process.env.REACT_APP_API_URL) {
-                    serverBaseUrl = process.env.REACT_APP_API_URL;
-                } else if (apiClient?.defaults?.baseURL) {
-                    serverBaseUrl = apiClient.defaults.baseURL;
-                } else {
-                    serverBaseUrl = window.location.origin;
-                }
 
-                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
-                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
-                if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
-                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
+                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload);
 
-                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
-                
-                let token = localStorage.getItem('token');
-                if (!token) token = localStorage.getItem('authToken');
-                if (!token) token = localStorage.getItem('userToken');
-                
-                if (!token) {
-                    try {
-                        const userStored = localStorage.getItem('user');
-                        if (userStored) {
-                            const uObj = JSON.parse(userStored);
-                            if (uObj.token) token = uObj.token;
-                        }
-                    } catch(e) {}
-                }
-
-                if (token && typeof token === 'string') {
-                    if (token.startsWith('"') && token.endsWith('"')) {
-                        token = token.slice(1, -1);
+                if (response.status === 200 && response.data?.url) {
+                    const uploadRes = response.data;
+                    
+                    // Construção da URL completa
+                    let baseUrl = '';
+                    if (apiClient.defaults.baseURL) {
+                        // Se baseURL for .../api, remove o /api para pegar a raiz onde está /uploads
+                        baseUrl = apiClient.defaults.baseURL.replace(/\/api\/?$/, '');
+                    } else {
+                        baseUrl = window.location.origin;
                     }
-                }
-
-                const headers = {};
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-
-                const response = await fetch(uploadEndpoint, {
-                    method: 'POST',
-                    headers: headers,
-                    body: formDataUpload
-                });
-
-                if (response.ok) {
-                    const uploadRes = await response.json();
-                    if (uploadRes && uploadRes.url) {
-                        if (uploadRes.url.startsWith('/')) {
-                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
-                        } else {
-                            pdfLink = uploadRes.url;
-                        }
-                    }
-                } else {
-                    console.error("Erro upload status:", response.status, await response.text());
+                    
+                    // Normalização de barras
+                    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+                    const relativePath = uploadRes.url.startsWith('/') ? uploadRes.url : `/${uploadRes.url}`;
+                    
+                    // Se a URL do backend já vier absoluta (http...), usa ela. Senão, monta.
+                    pdfLink = uploadRes.url.startsWith('http') ? uploadRes.url : `${baseUrl}${relativePath}`;
                 }
 
             } catch (err) {
-                console.error("Erro ao processar PDF (Upload/Download):", err);
-                setAlertMessage("Ordem salva. Erro ao gerar link/arquivo, enviando texto simples.");
+                console.error("Erro ao processar PDF (Upload):", err);
+                setAlertMessage("Ordem salva. Erro no upload do PDF, enviando link simples.");
             }
         }
 
@@ -564,6 +528,7 @@ ${readingMsg}
             return isNaN(num) ? null : num;
         };
 
+        // CORREÇÃO: solicitacaoId na raiz do payload para compatibilidade com backend corrigido
         const payload = {
             ...formData,
             // Envia campos unificados e zera os legados explicitamente
