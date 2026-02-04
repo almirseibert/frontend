@@ -299,7 +299,7 @@ const ConfirmRefuelingModal = ({
 
                     <div>
                          <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Lts Abastecidos *</label>
-                         <input type="number" step="0.01" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1 border rounded font-bold focus:ring-1 focus:ring-yellow-400 outline-none" required autoFocus/>
+                         <input type="number" step="0.001" value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-1 border rounded font-bold focus:ring-1 focus:ring-yellow-400 outline-none" required autoFocus/>
                     </div>
                     
                     {order.needsArla && (

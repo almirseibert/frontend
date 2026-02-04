@@ -8,6 +8,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable'; 
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
+import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal'; // IMPORTADO
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 
@@ -19,7 +20,6 @@ const AdminSolicitacoesPage = ({
     vehicleGroups = {},
     refuelings = [], 
     expenses = [],
-    // onGeneratePDF, // REMOVIDO: A página agora define sua própria função para garantir funcionamento
     user,
     PasswordConfirmationModal,
     ConfirmationModal,
@@ -34,15 +34,19 @@ const AdminSolicitacoesPage = ({
     const [modalData, setModalData] = useState(null); 
     const [rejectReason, setRejectReason] = useState('');
     
-    // Controle do Modal de Ordem (Aprovação Unificada)
+    // Controle do Modal de Emissão (Aprovação)
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [solicitacaoToApprove, setSolicitacaoToApprove] = useState(null);
+
+    // Controle do Modal de Confirmação (Baixa Unificada)
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    const [orderToConfirm, setOrderToConfirm] = useState(null);
 
     // Filtros
     const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
     const [searchTerm, setSearchTerm] = useState('');
 
-    // --- FUNÇÃO DE GERAÇÃO DE PDF (CRUCIAL PARA O UPLOAD FUNCIONAR) ---
+    // --- FUNÇÃO DE GERAÇÃO DE PDF ---
     const generateAuthorizationPDF = async (orderData, vehiclesList, partnersList, employeesList, groups, returnBlob = false) => {
         const doc = new jsPDF();
         
@@ -94,7 +98,7 @@ const AdminSolicitacoesPage = ({
             head: [['Campo', 'Detalhe']],
             body: tableBody,
             theme: 'grid',
-            headStyles: { fillColor: [41, 128, 185] }, // Azul padrão
+            headStyles: { fillColor: [41, 128, 185] }, 
             styles: { fontSize: 11, cellPadding: 3 }
         });
 
@@ -188,7 +192,6 @@ const AdminSolicitacoesPage = ({
         const vehicle = vehicles.find(v => String(v.id) === String(veiculoId));
         if (!vehicle) return "Veículo não encontrado.";
 
-        // Filtra abastecimentos CONCLUÍDOS/CONFIRMADOS deste veículo
         const history = refuelings
             .filter(r => String(r.vehicleId) === String(veiculoId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
             .sort((a, b) => getSafeDateObj(b.data || b.date).getTime() - getSafeDateObj(a.data || a.date).getTime());
@@ -196,7 +199,6 @@ const AdminSolicitacoesPage = ({
         const last = history[0];
         if (!last) return "Nenhum abastecimento anterior registrado.";
 
-        // Cálculo de Média
         let mediaTexto = "N/A";
         const penultimo = history[1];
         
@@ -262,8 +264,34 @@ const AdminSolicitacoesPage = ({
     // --- AÇÕES ---
     const handleOpenApprovalModal = (s) => {
         setSolicitacaoToApprove(s);
-        setModalData(null); // Fecha o modal de detalhes
-        setIsOrderModalOpen(true); // Abre o modal unificado de ordem
+        setModalData(null); 
+        setIsOrderModalOpen(true); 
+    };
+
+    // --- NOVA FUNÇÃO UNIFICADA DE BAIXA ---
+    const handleOpenConfirmModal = (s) => {
+        // Encontra a ordem de abastecimento (Refueling) que foi gerada a partir desta solicitação
+        const relatedOrder = refuelings.find(r => {
+            // Verifica campo legado ou novo campo JSON criado na unificação
+            if (r.createdFromSolicitacaoId && String(r.createdFromSolicitacaoId) === String(s.id)) return true;
+            if (r.createdBy) {
+                let creator = r.createdBy;
+                // Se vier como string do banco, parseia
+                if (typeof creator === 'string') {
+                    try { creator = JSON.parse(creator); } catch (e) { return false; }
+                }
+                if (creator && String(creator.linkedSolicitacaoId) === String(s.id)) return true;
+            }
+            return false;
+        });
+
+        if (relatedOrder) {
+            setOrderToConfirm(relatedOrder);
+            setModalData(null); // Fecha o modal de detalhes (se estiver aberto)
+            setIsConfirmModalOpen(true); // Abre o modal de confirmação (mesmo da pág. Abastecimentos)
+        } else {
+            setAlertMessage("Erro: A ordem de abastecimento vinculada não foi encontrada no sistema. Verifique se já foi excluída.");
+        }
     };
 
     const handleNegar = async (id) => {
@@ -279,17 +307,6 @@ const AdminSolicitacoesPage = ({
             fetchSolicitacoes();
         } catch (error) {
             setAlertMessage("Erro ao negar: " + (error.response?.data?.error || error.message));
-        }
-    };
-
-    const handleConfirmarBaixa = async (id) => {
-        try {
-            await apiClient.put(`/solicitacoes/${id}/confirmar-baixa`, {});
-            setAlertMessage("Baixa confirmada!");
-            setModalData(null);
-            fetchSolicitacoes();
-        } catch (error) {
-            setAlertMessage("Erro ao confirmar baixa: " + (error.response?.data?.error || error.message));
         }
     };
 
@@ -455,7 +472,7 @@ const AdminSolicitacoesPage = ({
                             {s.alerta_media_consumo === 1 && (
                                 <div className="bg-red-50 border-l-2 border-red-500 p-2 rounded">
                                     <div className="flex items-center gap-1 text-red-800 font-bold text-[10px]">
-                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (>25%)
+                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (Acima de 25%)
                                     </div>
                                 </div>
                             )}
@@ -487,7 +504,8 @@ const AdminSolicitacoesPage = ({
                                 </>
                             ) : isBaixa ? (
                                 <div className="flex gap-2">
-                                    <button onClick={() => handleConfirmarBaixa(s.id)} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
+                                    {/* AÇÃO UNIFICADA: ABRE O MODAL DE CONFIRMAÇÃO REAL */}
+                                    <button onClick={() => handleOpenConfirmModal(s)} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded shadow text-xs flex items-center justify-center gap-1 transition">
                                         <Check size={16}/> CONFIRMAR BAIXA
                                     </button>
                                     <button onClick={() => handleRejeitarComprovante(s.id)} className="flex-1 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded border border-orange-200 text-xs flex items-center justify-center gap-1 transition">
@@ -644,7 +662,7 @@ const AdminSolicitacoesPage = ({
                         fetchSolicitacoes(); 
                     }}
                     setAlertMessage={setAlertMessage}
-                    onGeneratePDF={generateAuthorizationPDF} // AGORA PASSANDO A FUNÇÃO DE GERAÇÃO!
+                    onGeneratePDF={generateAuthorizationPDF}
                     extraObraOptions={[]}
                     ConfirmationModal={ConfirmationModal}
                     PasswordConfirmationModal={PasswordConfirmationModal}
@@ -654,6 +672,31 @@ const AdminSolicitacoesPage = ({
                         reloadData(); 
                         fetchSolicitacoes(); 
                     }}
+                />
+            )}
+
+            {/* MODAL DE CONFIRMAÇÃO UNIFICADO (BAIXA) */}
+            {isConfirmModalOpen && orderToConfirm && (
+                <ConfirmRefuelingModal 
+                    user={user}
+                    order={orderToConfirm}
+                    obras={obras}
+                    expenses={expenses}
+                    vehicles={vehicles}
+                    onClose={() => {
+                        setIsConfirmModalOpen(false);
+                        setOrderToConfirm(null);
+                        fetchSolicitacoes(); // Recarrega lista após confirmação
+                    }}
+                    setAlertMessage={setAlertMessage}
+                    apiClient={apiClient}
+                    reloadData={() => {
+                        reloadData(); // Atualiza dados globais (despesas, veículos)
+                        fetchSolicitacoes(); // Atualiza lista local
+                    }}
+                    refuelings={refuelings}
+                    partners={partners}
+                    PasswordConfirmationModal={PasswordConfirmationModal}
                 />
             )}
         </div>
