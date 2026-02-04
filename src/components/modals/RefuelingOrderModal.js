@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, AlertTriangle, Info, Send, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
+import { X, Loader, Info, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
 import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const RefuelingOrderModal = ({
@@ -20,7 +20,7 @@ const RefuelingOrderModal = ({
     vehicleGroups = {},
     apiClient,
     reloadData,
-    solicitacaoData = null // NOVA PROP: Dados vindos da solicitação do App
+    solicitacaoData = null // Usado APENAS para preencher os campos iniciais
 }) => {
     
     // --- HELPERS DE DATA ---
@@ -51,7 +51,7 @@ const RefuelingOrderModal = ({
         } catch { return 'Erro'; }
     };
 
-    // Helper ROBUSTO para normalizar tipo de combustível
+    // Helper ROBUSTO para normalizar tipo de combustível vindo do App
     const normalizeFuelType = (val) => {
         if (!val) return '';
         // Remove acentos, espaços extras e converte para maiúsculas
@@ -63,22 +63,19 @@ const RefuelingOrderModal = ({
             'DIESEL S500': 'dieselS500',
             'DIESEL S-500': 'dieselS500',
             'GASOLINA COMUM': 'gasolinaComum',
-            'GASOLINA': 'gasolinaComum', // Default para genérico
+            'GASOLINA': 'gasolinaComum', 
             'GASOLINA ADITIVADA': 'gasolinaAditivada',
             'ETANOL': 'etanol',
             'ARLA 32': 'arla32',
             'ARLA': 'arla32'
         };
 
-        // 1. Tenta mapeamento exato
         if (map[v]) return map[v];
-        
-        // 2. Tenta busca parcial (Heurística)
         if (v.includes('S10') || v.includes('S-10')) return 'dieselS10';
         if (v.includes('S500') || v.includes('S-500')) return 'dieselS500';
         if (v.includes('ADITIVADA')) return 'gasolinaAditivada';
         if (v.includes('GASOLINA')) return 'gasolinaComum';
-        if (v.includes('DIESEL')) return 'dieselS10'; // Default Diesel mais comum
+        if (v.includes('DIESEL')) return 'dieselS10';
         if (v.includes('ETANOL')) return 'etanol';
 
         return '';
@@ -104,7 +101,7 @@ const RefuelingOrderModal = ({
         outrosValor: '',
     });
 
-    // Efeito para Inicialização de Dados (Edição OU Solicitação)
+    // Efeito para Inicialização de Dados
     useEffect(() => {
         if (orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW') {
             // MODO EDIÇÃO
@@ -129,7 +126,8 @@ const RefuelingOrderModal = ({
                 outrosValor: orderToEdit.outrosValor?.toString() || '',
             });
         } else if (solicitacaoData) {
-            // MODO APROVAÇÃO DE SOLICITAÇÃO (Unificado)
+            // MODO VIA SOLICITAÇÃO: Apenas preenche o formulário visualmente
+            // Não guardamos estado extra para não sujar o payload de envio
             setFormData({
                 vehicleId: solicitacaoData.veiculo_id || '',
                 partnerId: solicitacaoData.posto_id || '',
@@ -165,7 +163,6 @@ const RefuelingOrderModal = ({
     const [obraStatus, setObraStatus] = useState(null);
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
-    // Determina se é uma criação vinda de solicitação
     const isSolicitacao = !!solicitacaoData;
 
     // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
@@ -221,7 +218,7 @@ const RefuelingOrderModal = ({
             const last = history[0];
             setLastRefuelData(last);
 
-            // AUTO-PREENCHIMENTO: Apenas se não for Edição e nem Solicitação (solicitação já traz os dados)
+            // AUTO-PREENCHIMENTO: Apenas se não for Edição e nem Solicitação (pois solicitação já traz os dados)
             if (!isEditing && !isSolicitacao) {
                 let autoEmployeeId = formData.employeeId;
                 let autoObraId = formData.obraId;
@@ -293,7 +290,7 @@ const RefuelingOrderModal = ({
         }
     }, [selectedVehicle, obras, refuelings, isEditing, isSolicitacao]);
 
-    // --- VALIDAÇÕES DE LEITURA (UNIFICADO) ---
+    // --- VALIDAÇÕES DE LEITURA ---
     useEffect(() => {
         setBlockReason(null);
         if (!selectedVehicle) return;
@@ -304,7 +301,6 @@ const RefuelingOrderModal = ({
 
         let reason = null;
 
-        // Validação KM
         if (isKm && formData.odometro) {
             const current = parseFloat(formData.odometro);
             const last = parseFloat(selectedVehicle.odometro || 0);
@@ -315,10 +311,8 @@ const RefuelingOrderModal = ({
             }
         }
 
-        // Validação HORAS (Unificado)
         if (isHr && formData.horimetro) {
             const current = parseFloat(formData.horimetro);
-            // Busca a última leitura (seja do campo novo ou do antigo legado)
             let last = parseFloat(selectedVehicle.horimetro || 0);
             if (last === 0) last = parseFloat(selectedVehicle.horimetroDigital || 0);
 
@@ -331,6 +325,7 @@ const RefuelingOrderModal = ({
         if (reason) setBlockReason(reason);
     }, [formData.odometro, formData.horimetro, selectedVehicle]);
 
+    // Validação Financeira
     useEffect(() => {
         if (formData.obraId && obras.length > 0) {
             const obra = obras.find(o => o.id === formData.obraId);
@@ -371,7 +366,7 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- FUNÇÃO DE ENVIO + UPLOAD + DOWNLOAD LOCAL ---
+    // --- FUNÇÃO DE ENVIO + UPLOAD (CORRIGIDA) ---
     const sendToWhatsApp = async (orderData) => {
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
@@ -387,103 +382,60 @@ const RefuelingOrderModal = ({
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
             setAlertMessage("Ordem salva! Posto sem WhatsApp (PDF baixado).");
-            // Se não tem whats, gera o PDF apenas para download local
             if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
             return;
         }
 
         let pdfLink = '';
         
-        // Se houver função de geração, processa o arquivo
         if (onGeneratePDF) {
             try {
-                // 1. Gera o Blob (para upload e para download local)
-                // IMPORTANTE: Aqui usamos 'await' para garantir que o PDF foi gerado antes de continuar
+                // 1. Gera o Blob
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
-                // 2. DOWNLOAD LOCAL (Opcional, mas útil para o usuário ter cópia)
+                // 2. DOWNLOAD LOCAL (Backup)
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
-                const safeFileName = `Ordem_${finalData.authNumber}_${vehicle?.registroInterno || 'Veic'}.pdf`;
-                link.download = safeFileName;
+                link.download = `Ordem_${finalData.authNumber}.pdf`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                window.URL.revokeObjectURL(downloadUrl);
                 
-                // 3. UPLOAD COM ESTRATÉGIA HÍBRIDA ROBUSTA
+                // 3. UPLOAD (SIMPLIFICADO E PADRONIZADO)
+                // Usando FormData puro e apiClient, deixando o browser definir o boundary
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
 
-                // Estratégia A: Tenta apiClient (com Content-Type undefined para Boundary)
-                try {
-                     const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
-                        headers: {
-                            'Content-Type': undefined // CRUCIAL: Deixa o browser definir o boundary multipart
+                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload);
+
+                if (response.data && response.data.url) {
+                     // Corrige URL relativa se necessário
+                     const returnedUrl = response.data.url;
+                     if (returnedUrl.startsWith('http')) {
+                        pdfLink = returnedUrl;
+                     } else {
+                        // Constrói URL baseada na origem atual ou na configuração da API
+                        let baseUrl = '';
+                        if (apiClient.defaults.baseURL) {
+                             baseUrl = apiClient.defaults.baseURL.replace(/\/api\/?$/, ''); // Remove /api do final
+                        } else {
+                             baseUrl = window.location.origin;
                         }
-                     });
-                     
-                     if (response.data && response.data.url) {
-                         const returnedUrl = response.data.url;
-                         // Constrói URL absoluta se necessário
-                         let baseUrl = apiClient.defaults.baseURL || '';
-                         if (baseUrl.endsWith('/api')) baseUrl = baseUrl.slice(0, -4);
-                         if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-                         
-                         if (returnedUrl.startsWith('http')) {
-                            pdfLink = returnedUrl;
-                         } else {
-                            const origin = baseUrl || window.location.origin;
-                            pdfLink = `${origin}${returnedUrl.startsWith('/') ? '' : '/'}${returnedUrl}`;
-                         }
+                        if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+                        
+                        const finalPath = returnedUrl.startsWith('/') ? returnedUrl : `/${returnedUrl}`;
+                        pdfLink = `${baseUrl}${finalPath}`;
                      }
-                } catch (apiErr) {
-                    console.warn("Upload via API Client falhou, tentando fetch manual...", apiErr);
-                    
-                    // Estratégia B: FETCH MANUAL (Fallback para contornar problemas de interceptor/token)
-                    let token = localStorage.getItem('token') || localStorage.getItem('authToken');
-                    if (!token) {
-                         const userStr = localStorage.getItem('user');
-                         if (userStr) { try { token = JSON.parse(userStr).token; } catch(e){} }
-                    }
-
-                    // Reconstrói URL da API manualmente
-                    let fetchBaseUrl = '';
-                    if (apiClient.defaults.baseURL) fetchBaseUrl = apiClient.defaults.baseURL;
-                    else if (process.env.REACT_APP_API_URL) fetchBaseUrl = process.env.REACT_APP_API_URL;
-                    else fetchBaseUrl = window.location.origin + '/api';
-
-                    if (fetchBaseUrl.endsWith('/')) fetchBaseUrl = fetchBaseUrl.slice(0, -1);
-                    
-                    const fetchRes = await fetch(`${fetchBaseUrl}/refuelings/upload-pdf`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                            // Nota: NÃO defina Content-Type aqui, o fetch fará automaticamente para FormData
-                        },
-                        body: formDataUpload
-                    });
-                    
-                    if (fetchRes.ok) {
-                        const data = await fetchRes.json();
-                        if (data.url) {
-                             let baseOrigin = fetchBaseUrl.replace(/\/api\/?$/, '');
-                             if (data.url.startsWith('http')) pdfLink = data.url;
-                             else pdfLink = `${baseOrigin}${data.url.startsWith('/') ? '' : '/'}${data.url}`;
-                        }
-                    } else {
-                        throw new Error(`Fetch fallback falhou: ${fetchRes.status}`);
-                    }
                 }
 
             } catch (err) {
-                console.error("Erro FATAL ao processar PDF (Upload):", err);
-                setAlertMessage("Ordem salva com sucesso, mas houve erro no upload do PDF.");
+                console.error("Erro no Upload:", err);
+                setAlertMessage("Ordem salva, mas falha ao gerar link do PDF.");
             }
         }
 
-        // --- MONTAGEM DA MENSAGEM ---
+        // --- MENSAGEM WHATSAPP ---
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
         let readingMsg = '';
         if (allowedReadings.includes('odometro')) {
@@ -498,7 +450,6 @@ const RefuelingOrderModal = ({
             ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
             : '';
 
-        // MENSAGEM COM LINK
         let msg = '';
         
         if (pdfLink) {
@@ -516,7 +467,6 @@ ${pdfLink}
 *Quantidade:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
 *Motorista:* ${employee?.nome || 'N/A'}`;
         } else {
-            // Fallback Texto (caso o upload falhe)
             msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
 (Link PDF indisponível, verifique sistema)
@@ -566,10 +516,9 @@ ${readingMsg}
             return isNaN(num) ? null : num;
         };
 
-        // CORREÇÃO: solicitacaoId na raiz do payload para compatibilidade com backend corrigido
         const payload = {
             ...formData,
-            // Envia campos unificados e zera os legados explicitamente
+            // Normalização de dados
             odometro: safeFloat(formData.odometro),
             horimetro: safeFloat(formData.horimetro),
             horimetroDigital: null,
@@ -579,8 +528,8 @@ ${readingMsg}
             outrosValor: safeFloat(formData.outrosValor) || 0,
             date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             createdBy: user,
-            // UNIFICAÇÃO: Envia ID da solicitação se existir
-            solicitacaoId: solicitacaoData ? solicitacaoData.id : null
+            // IMPORTANTE: Removemos 'solicitacaoId' daqui para evitar erros no backend
+            // A ordem será criada como uma ordem padrão, idêntica à página de abastecimento
         };
 
         const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
@@ -621,7 +570,6 @@ ${readingMsg}
         }
     };
 
-    // Renderiza Input Único Baseado no Tipo
     const renderReadingInputs = () => {
         if (!selectedVehicle) return null;
         const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
@@ -771,7 +719,7 @@ ${readingMsg}
                                 <option value="gasolinaAditivada">Gasolina Aditivada</option>
                                 <option value="dieselS500">Diesel S500</option>
                                 <option value="dieselS10">Diesel S10</option>
-                                <option value="etanol">Etanol</option> {/* OPÇÃO ADICIONADA */}
+                                <option value="etanol">Etanol</option>
                             </select>
                             
                             <div className="flex items-center gap-1 mb-1">
