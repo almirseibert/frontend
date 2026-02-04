@@ -171,12 +171,13 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (RÉPLICA EXATA DO MODAL DE ABASTECIMENTOS) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (RÉPLICA DO MODAL FUNCIONAL) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         
         if (!phone) {
             setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF baixado).");
+            // Se não tem whatsapp, apenas gera o PDF localmente
             if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
             return;
         }
@@ -186,7 +187,6 @@ const AdminSolicitacoesPage = ({
         if (onGeneratePDF) {
             try {
                 // 1. Gera o Blob (para upload e para download local)
-                // IMPORTANTE: Aqui usamos 'await' para garantir que o PDF foi gerado antes de continuar
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
                 // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
@@ -204,28 +204,24 @@ const AdminSolicitacoesPage = ({
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
                 // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
+                // Mesma lógica do RefuelingOrderModal.js que funciona
                 let serverBaseUrl = '';
                 
-                // Prioridade 1: Variável de Ambiente
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
-                } 
-                // Prioridade 2: Configuração do Axios (apiClient)
-                else if (apiClient?.defaults?.baseURL) {
+                } else if (apiClient?.defaults?.baseURL) {
                     serverBaseUrl = apiClient.defaults.baseURL;
-                }
-                // Prioridade 3: Origem atual (Window)
-                else {
+                } else {
                     serverBaseUrl = window.location.origin;
                 }
 
-                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
+                // Limpeza da URL
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                // USANDO O ENDPOINT QUE SABEMOS QUE FUNCIONA (/api/refuelings/upload-pdf)
-                // Isso garante compatibilidade total com o modal de abastecimento que já funciona
+                // --- USO DO ENDPOINT DO REFUELING (FUNCIONAL) ---
+                // Aponta para o controller de abastecimentos que já está validado e corrigido
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
                 console.log("Iniciando Upload PDF para:", uploadEndpoint);
@@ -245,7 +241,6 @@ const AdminSolicitacoesPage = ({
                     } catch(e) {}
                 }
 
-                // Remove aspas se o token estiver "sujo"
                 if (token && typeof token === 'string') {
                     if (token.startsWith('"') && token.endsWith('"')) {
                         token = token.slice(1, -1);
@@ -266,7 +261,6 @@ const AdminSolicitacoesPage = ({
                     console.log("Upload Sucesso. Resposta:", uploadRes);
 
                     if (uploadRes && uploadRes.url) {
-                        // Se a URL retornada for relativa (começa com /), adiciona a base do servidor
                         if (uploadRes.url.startsWith('/')) {
                             pdfLink = `${serverBaseUrl}${uploadRes.url}`;
                         } else {
@@ -279,6 +273,7 @@ const AdminSolicitacoesPage = ({
 
             } catch (err) {
                 console.error("Erro exceção upload PDF:", err);
+                // Não retorna, continua para enviar mensagem de texto como fallback
                 setAlertMessage("Ordem gerada, mas erro no upload do PDF. Enviando texto.");
             }
         }
