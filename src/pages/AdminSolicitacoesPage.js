@@ -171,7 +171,7 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (ATUALIZADA E ROBUSTA) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP (RÉPLICA EXATA DO MODAL FUNCIONAL) ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         
@@ -187,7 +187,6 @@ const AdminSolicitacoesPage = ({
         if (onGeneratePDF) {
             try {
                 // 1. Gera o Blob (para upload e download local)
-                // IMPORTANTE: Aqui usamos 'await' para garantir que o PDF foi gerado antes de continuar
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
                 // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
@@ -204,34 +203,29 @@ const AdminSolicitacoesPage = ({
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL BASE DO BACKEND ---
+                // --- DETERMINAÇÃO ROBUSTA DA URL BASE DO BACKEND (Igual ao Modal) ---
                 let serverBaseUrl = '';
                 
-                // Prioridade 1: Variável de Ambiente
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
-                } 
-                // Prioridade 2: Configuração do Axios (apiClient)
-                else if (apiClient?.defaults?.baseURL) {
+                } else if (apiClient?.defaults?.baseURL) {
                     serverBaseUrl = apiClient.defaults.baseURL;
-                } 
-                // Prioridade 3: Origem atual (Window)
-                else {
+                } else {
                     serverBaseUrl = window.location.origin;
                 }
 
-                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
+                // Limpeza da URL
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                // --- ALTERAÇÃO PRINCIPAL: USANDO ENDPOINT DE REFUELING (QUE FUNCIONA) ---
-                // O endpoint anterior era /api/solicitacoes/upload-pdf-generated
+                // --- USO DO ENDPOINT DO REFUELING (QUE FUNCIONA CORRETAMENTE COM O VOLUME) ---
+                // O controller de refuelings salva em ../public/uploads/orders, que é compatível com seu volume
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
                 console.log("Iniciando Upload PDF para:", uploadEndpoint);
 
-                // --- BUSCA AGRESSIVA DE TOKEN ---
+                // --- BUSCA AGRESSIVA DE TOKEN (Igual ao Modal) ---
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
@@ -278,7 +272,7 @@ const AdminSolicitacoesPage = ({
             } catch (err) {
                 console.error("Erro exceção upload PDF:", err);
                 // Não retorna, continua para enviar mensagem de texto como fallback
-                setAlertMessage("Ordem gerada, mas erro no link PDF. Enviando texto.");
+                setAlertMessage("Ordem gerada, mas erro no upload do PDF. Enviando texto.");
             }
         }
 
