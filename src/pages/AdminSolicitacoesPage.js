@@ -7,8 +7,8 @@ import {
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
 // --- IMPORTAÇÃO DA NOVA FUNÇÃO DO SERVIÇO ---
-// Certifique-se de que o arquivo RefuelingWhatsAppService.js existe em src/utils/
-import { sendOrderToWhatsApp } from '../utils/RefuelingWhatsAppService'; 
+// Agora que o arquivo RefuelingWhatsAppService.js foi criado, essa importação funcionará
+import { sendOrderToWhatsApp } from '../utils/refuelingWhatsAppService'; 
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 

@@ -1,6 +1,6 @@
 import { getAllowedReadingTypes } from './vehicleRules';
 
-// --- HELPER DE DATA (Lógica robusta do Modal) ---
+// --- HELPER DE DATA (Blindagem contra datas inválidas) ---
 const getSafeDateObj = (dateInput) => {
     if (!dateInput) return new Date(0);
     try {
@@ -12,8 +12,8 @@ const getSafeDateObj = (dateInput) => {
 };
 
 /**
- * SERVIÇO CENTRALIZADO DE ENVIO DE WHATSAPP
- * Réplica exata da lógica funcional do RefuelingOrderModal.js
+ * SERVIÇO DE ENVIO DE WHATSAPP (Lógica extraída do Modal de Abastecimento)
+ * Centraliza: Geração de PDF, Upload, Download Local e Redirecionamento WPP.
  */
 export const sendOrderToWhatsApp = async ({
     finalData,
@@ -45,12 +45,12 @@ export const sendOrderToWhatsApp = async ({
     // 2. Processo de Geração e Upload
     if (onGeneratePDF) {
         try {
-            console.log("Service: Gerando PDF...");
+            console.log("Service: Gerando PDF para upload...");
             
             // A. GERAÇÃO DO BLOB
             const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
             
-            // B. DOWNLOAD LOCAL (Segurança para o usuário)
+            // B. DOWNLOAD LOCAL (Segurança para o usuário ter o arquivo)
             const downloadUrl = window.URL.createObjectURL(pdfBlob);
             const link = document.createElement('a');
             link.href = downloadUrl;
@@ -64,7 +64,7 @@ export const sendOrderToWhatsApp = async ({
             const formDataUpload = new FormData();
             formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
             
-            // --- CÁLCULO DA URL DO SERVIDOR (MUITO IMPORTANTE) ---
+            // --- CÁLCULO DA URL DO SERVIDOR (Lógica Robusta) ---
             let serverBaseUrl = '';
             
             if (process.env.REACT_APP_API_URL) {
@@ -75,17 +75,17 @@ export const sendOrderToWhatsApp = async ({
                 serverBaseUrl = window.location.origin;
             }
 
-            // Remove barras finais e '/api' para garantir a base limpa
+            // Remove sufixos para garantir a base limpa
             if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
             if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
             if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-            // ROTA EXATA QUE FUNCIONA NO MODAL
+            // ROTA EXATA QUE FUNCIONA NO MODAL (/api/refuelings/upload-pdf)
             const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
             
-            console.log("Service: Enviando para:", uploadEndpoint);
+            console.log("Service: Enviando PDF para:", uploadEndpoint);
 
-            // --- TOKEN DE AUTENTICAÇÃO ---
+            // --- TOKEN DE AUTENTICAÇÃO (Busca Agressiva) ---
             let token = localStorage.getItem('token');
             if (!token) token = localStorage.getItem('authToken');
             if (!token) token = localStorage.getItem('userToken');
@@ -121,6 +121,7 @@ export const sendOrderToWhatsApp = async ({
                 console.log("Service: Upload OK. Resposta:", uploadRes);
 
                 if (uploadRes && uploadRes.url) {
+                    // Normaliza a URL retornada pelo backend
                     if (uploadRes.url.startsWith('http')) {
                          pdfLink = uploadRes.url;
                     } else if (uploadRes.url.startsWith('/')) {
@@ -132,12 +133,12 @@ export const sendOrderToWhatsApp = async ({
             } else {
                 const errorText = await response.text();
                 console.error("Service: Erro upload:", response.status, errorText);
-                if (setAlertMessage) setAlertMessage(`Erro no upload do PDF: ${response.status}`);
+                if (setAlertMessage) setAlertMessage(`Aviso: Upload do PDF falhou (${response.status}), mas o link de texto será enviado.`);
             }
 
         } catch (err) {
             console.error("Service: Erro exceção:", err);
-            if (setAlertMessage) setAlertMessage("Erro técnico ao processar PDF.");
+            if (setAlertMessage) setAlertMessage("Erro técnico ao processar PDF. Enviando mensagem de texto.");
         }
     }
 
@@ -157,6 +158,7 @@ export const sendOrderToWhatsApp = async ({
 
     let msg = '';
     
+    // Se o PDF falhou, enviamos o template sem link
     if (pdfLink) {
         msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
