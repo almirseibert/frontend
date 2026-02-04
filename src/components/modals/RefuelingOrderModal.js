@@ -407,7 +407,12 @@ const RefuelingOrderModal = ({
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
 
-                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload);
+                // Força o header correto para garantir que o envio não seja tratado como JSON
+                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                });
 
                 if (response.data && response.data.url) {
                      // Corrige URL relativa se necessário
@@ -598,7 +603,7 @@ ${readingMsg}
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
                     <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={16}/> : <FileText size={16}/>}
-                        {isEditing ? 'Editar' : 'Emitir'} Ordem {isSolicitacao ? '(Via Solicitação)' : ''}
+                        {isEditing ? 'Editar' : 'Emitir'} Ordem
                     </h2>
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full transition"><X size={18}/></button>
                 </div>
