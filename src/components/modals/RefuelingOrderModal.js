@@ -412,36 +412,74 @@ const RefuelingOrderModal = ({
                 document.body.removeChild(link);
                 window.URL.revokeObjectURL(downloadUrl);
                 
-                // 3. UPLOAD COM API CLIENT (CORREÇÃO PARA ERRO DE LINK INDISPONÍVEL)
-                // Usar o apiClient garante que a BaseURL e o Token de Autenticação sejam enviados corretamente
+                // 3. UPLOAD COM ESTRATÉGIA HÍBRIDA ROBUSTA
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
 
-                const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload);
-
-                if (response.status === 200 && response.data?.url) {
-                    const uploadRes = response.data;
+                // Estratégia A: Tenta apiClient (com Content-Type undefined para Boundary)
+                try {
+                     const response = await apiClient.post('/refuelings/upload-pdf', formDataUpload, {
+                        headers: {
+                            'Content-Type': undefined // CRUCIAL: Deixa o browser definir o boundary multipart
+                        }
+                     });
+                     
+                     if (response.data && response.data.url) {
+                         const returnedUrl = response.data.url;
+                         // Constrói URL absoluta se necessário
+                         let baseUrl = apiClient.defaults.baseURL || '';
+                         if (baseUrl.endsWith('/api')) baseUrl = baseUrl.slice(0, -4);
+                         if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+                         
+                         if (returnedUrl.startsWith('http')) {
+                            pdfLink = returnedUrl;
+                         } else {
+                            const origin = baseUrl || window.location.origin;
+                            pdfLink = `${origin}${returnedUrl.startsWith('/') ? '' : '/'}${returnedUrl}`;
+                         }
+                     }
+                } catch (apiErr) {
+                    console.warn("Upload via API Client falhou, tentando fetch manual...", apiErr);
                     
-                    // Construção da URL completa
-                    let baseUrl = '';
-                    if (apiClient.defaults.baseURL) {
-                        // Se baseURL for .../api, remove o /api para pegar a raiz onde está /uploads
-                        baseUrl = apiClient.defaults.baseURL.replace(/\/api\/?$/, '');
-                    } else {
-                        baseUrl = window.location.origin;
+                    // Estratégia B: FETCH MANUAL (Fallback para contornar problemas de interceptor/token)
+                    let token = localStorage.getItem('token') || localStorage.getItem('authToken');
+                    if (!token) {
+                         const userStr = localStorage.getItem('user');
+                         if (userStr) { try { token = JSON.parse(userStr).token; } catch(e){} }
                     }
+
+                    // Reconstrói URL da API manualmente
+                    let fetchBaseUrl = '';
+                    if (apiClient.defaults.baseURL) fetchBaseUrl = apiClient.defaults.baseURL;
+                    else if (process.env.REACT_APP_API_URL) fetchBaseUrl = process.env.REACT_APP_API_URL;
+                    else fetchBaseUrl = window.location.origin + '/api';
+
+                    if (fetchBaseUrl.endsWith('/')) fetchBaseUrl = fetchBaseUrl.slice(0, -1);
                     
-                    // Normalização de barras
-                    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-                    const relativePath = uploadRes.url.startsWith('/') ? uploadRes.url : `/${uploadRes.url}`;
+                    const fetchRes = await fetch(`${fetchBaseUrl}/refuelings/upload-pdf`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                            // Nota: NÃO defina Content-Type aqui, o fetch fará automaticamente para FormData
+                        },
+                        body: formDataUpload
+                    });
                     
-                    // Se a URL do backend já vier absoluta (http...), usa ela. Senão, monta.
-                    pdfLink = uploadRes.url.startsWith('http') ? uploadRes.url : `${baseUrl}${relativePath}`;
+                    if (fetchRes.ok) {
+                        const data = await fetchRes.json();
+                        if (data.url) {
+                             let baseOrigin = fetchBaseUrl.replace(/\/api\/?$/, '');
+                             if (data.url.startsWith('http')) pdfLink = data.url;
+                             else pdfLink = `${baseOrigin}${data.url.startsWith('/') ? '' : '/'}${data.url}`;
+                        }
+                    } else {
+                        throw new Error(`Fetch fallback falhou: ${fetchRes.status}`);
+                    }
                 }
 
             } catch (err) {
-                console.error("Erro ao processar PDF (Upload):", err);
-                setAlertMessage("Ordem salva. Erro no upload do PDF, enviando link simples.");
+                console.error("Erro FATAL ao processar PDF (Upload):", err);
+                setAlertMessage("Ordem salva com sucesso, mas houve erro no upload do PDF.");
             }
         }
 
