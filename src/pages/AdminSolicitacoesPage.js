@@ -6,6 +6,10 @@ import {
 } from 'lucide-react';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 
+// --- IMPORTAÇÃO DA NOVA FUNÇÃO BLINDADA ---
+// Certifique-se de salvar o arquivo acima em src/utils/refuelingPdfService.js
+import { sendOrderToWhatsApp } from '../utils/refuelingPdfService'; 
+
 const AdminSolicitacoesPage = ({ 
     apiClient, 
     setAlertMessage, 
@@ -171,162 +175,6 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (RÉPLICA DO MODAL FUNCIONAL) ---
-    const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
-        const phone = partner?.whatsapp || partner?.telefone;
-        
-        if (!phone) {
-            setAlertMessage("Ordem gerada! Posto sem WhatsApp (PDF baixado).");
-            // Se não tem whatsapp, apenas gera o PDF localmente
-            if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
-            return;
-        }
-
-        let pdfLink = '';
-        
-        if (onGeneratePDF) {
-            try {
-                // 1. Gera o Blob (para upload e para download local)
-                const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
-                
-                // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
-                const downloadUrl = window.URL.createObjectURL(pdfBlob);
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = `Ordem_${finalData.authNumber}_${vehicle?.registroInterno || 'Veic'}.pdf`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                window.URL.revokeObjectURL(downloadUrl);
-                
-                // 3. UPLOAD (Para gerar o link público)
-                const formDataUpload = new FormData();
-                formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
-                
-                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
-                // Mesma lógica do RefuelingOrderModal.js que funciona
-                let serverBaseUrl = '';
-                
-                if (process.env.REACT_APP_API_URL) {
-                    serverBaseUrl = process.env.REACT_APP_API_URL;
-                } else if (apiClient?.defaults?.baseURL) {
-                    serverBaseUrl = apiClient.defaults.baseURL;
-                } else {
-                    serverBaseUrl = window.location.origin;
-                }
-
-                // Limpeza da URL
-                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
-                if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
-                if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
-
-                // --- USO DO ENDPOINT DO REFUELING (FUNCIONAL) ---
-                // Aponta para o controller de abastecimentos que já está validado e corrigido
-                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
-                
-                console.log("Iniciando Upload PDF para:", uploadEndpoint);
-
-                // --- BUSCA AGRESSIVA DE TOKEN ---
-                let token = localStorage.getItem('token');
-                if (!token) token = localStorage.getItem('authToken');
-                if (!token) token = localStorage.getItem('userToken');
-                
-                if (!token) {
-                    try {
-                        const userStored = localStorage.getItem('user');
-                        if (userStored) {
-                            const uObj = JSON.parse(userStored);
-                            if (uObj.token) token = uObj.token;
-                        }
-                    } catch(e) {}
-                }
-
-                if (token && typeof token === 'string') {
-                    if (token.startsWith('"') && token.endsWith('"')) {
-                        token = token.slice(1, -1);
-                    }
-                }
-
-                const headers = {};
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-
-                const response = await fetch(uploadEndpoint, {
-                    method: 'POST',
-                    headers: headers,
-                    body: formDataUpload
-                });
-
-                if (response.ok) {
-                    const uploadRes = await response.json();
-                    console.log("Upload Sucesso. Resposta:", uploadRes);
-
-                    if (uploadRes && uploadRes.url) {
-                        if (uploadRes.url.startsWith('/')) {
-                            pdfLink = `${serverBaseUrl}${uploadRes.url}`;
-                        } else {
-                            pdfLink = uploadRes.url;
-                        }
-                    }
-                } else {
-                    console.error("Erro upload status:", response.status, await response.text());
-                }
-
-            } catch (err) {
-                console.error("Erro exceção upload PDF:", err);
-                // Não retorna, continua para enviar mensagem de texto como fallback
-                setAlertMessage("Ordem gerada, mas erro no upload do PDF. Enviando texto.");
-            }
-        }
-
-        const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
-        let readingMsg = '';
-        if (allowedReadings.includes('odometro')) {
-             readingMsg = `*Hodômetro:* ${finalData.odometro ? finalData.odometro + ' Km' : 'N/A'}`;
-        } else {
-             readingMsg = `*Horímetro:* ${finalData.horimetro ? finalData.horimetro + ' Hr' : 'N/A'}`;
-        }
-        
-        const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-        const arlaMsg = finalData.needsArla 
-            ? `\n*Arla 32:* ${finalData.litrosLiberadosArla ? finalData.litrosLiberadosArla + ' Litros' : 'Incluso'}` 
-            : '';
-
-        let msg = '';
-        
-        if (pdfLink) {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Segue link para a Autorização Oficial (PDF):
-${pdfLink}
-
-*Resumo:*
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
-*Combustível:* ${finalData.fuelType}
-*Quantidade:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}
-*Motorista:* ${employee?.nome || 'N/A'}`;
-        } else {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-(Link PDF indisponível, verifique sistema)
-
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
-${readingMsg}
-*Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${finalData.fuelType}
-*Qtd:* ${finalData.isFillUp ? 'COMPLETAR TANQUE' : finalData.litrosLiberados + ' Litros'}${arlaMsg}`;
-        }
-
-        setTimeout(() => {
-            window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }, 1000);
-    };
-
     // --- AÇÕES ---
     const handleAprovar = async (id) => {
         if (!window.confirm("Deseja realmente aprovar e gerar a Ordem de Abastecimento?")) return;
@@ -364,7 +212,20 @@ ${readingMsg}
                     createdBy: user || { name: 'Gestor (App)' }
                 };
 
-                await sendToWhatsApp(orderData, vehicle, partner, employee);
+                // --- CHAMADA PARA A NOVA FUNÇÃO EXTERNA ---
+                await sendOrderToWhatsApp({
+                    finalData: orderData,
+                    vehicle,
+                    partner,
+                    employee,
+                    vehicles,
+                    partners,
+                    employees,
+                    vehicleGroups,
+                    onGeneratePDF,
+                    apiClient,
+                    setAlertMessage
+                });
             }
 
         } catch (error) {
@@ -561,7 +422,7 @@ ${readingMsg}
                             {s.alerta_media_consumo === 1 && (
                                 <div className="bg-red-50 border-l-2 border-red-500 p-2 rounded">
                                     <div className="flex items-center gap-1 text-red-800 font-bold text-[10px]">
-                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (>25%)
+                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (Acima de 25%)
                                     </div>
                                 </div>
                             )}
