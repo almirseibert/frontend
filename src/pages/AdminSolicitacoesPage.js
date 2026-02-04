@@ -171,7 +171,7 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- FUNÇÃO DE ENVIO WHATSAPP (RÉPLICA EXATA DO MODAL FUNCIONAL) ---
+    // --- FUNÇÃO DE ENVIO WHATSAPP ---
     const sendToWhatsApp = async (finalData, vehicle, partner, employee) => {
         const phone = partner?.whatsapp || partner?.telefone;
         
@@ -203,7 +203,7 @@ const AdminSolicitacoesPage = ({
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO ROBUSTA DA URL BASE DO BACKEND (Igual ao Modal) ---
+                // --- DETERMINAÇÃO ROBUSTA DA URL BASE DO BACKEND ---
                 let serverBaseUrl = '';
                 
                 if (process.env.REACT_APP_API_URL) {
@@ -214,14 +214,15 @@ const AdminSolicitacoesPage = ({
                     serverBaseUrl = window.location.origin;
                 }
 
-                // Limpeza da URL
+                // Limpeza da URL para evitar duplicidade de barras ou sufixos
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
-                // --- USO DO ENDPOINT DO REFUELING (QUE FUNCIONA CORRETAMENTE COM O VOLUME) ---
-                // O controller de refuelings salva em ../public/uploads/orders, que é compatível com seu volume
-                const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
+                // --- USO DO ENDPOINT DO CONTROLLER DE SOLICITAÇÕES (CORRIGIDO) ---
+                // Alterado de /api/refuelings/upload-pdf para /api/solicitacoes/upload-pdf
+                // para corresponder à nova rota criada no solicitacaoRoutes.js
+                const uploadEndpoint = `${serverBaseUrl}/api/solicitacoes/upload-pdf`;
                 
                 console.log("Iniciando Upload PDF para:", uploadEndpoint);
 
@@ -260,10 +261,13 @@ const AdminSolicitacoesPage = ({
                     console.log("Upload Sucesso. Resposta:", uploadRes);
 
                     if (uploadRes && uploadRes.url) {
-                        if (uploadRes.url.startsWith('/')) {
+                        // Se a URL já vier completa (http...), usa ela. Se vier relativa (/uploads...), concatena.
+                        if (uploadRes.url.startsWith('http')) {
+                            pdfLink = uploadRes.url;
+                        } else if (uploadRes.url.startsWith('/')) {
                             pdfLink = `${serverBaseUrl}${uploadRes.url}`;
                         } else {
-                            pdfLink = uploadRes.url;
+                            pdfLink = `${serverBaseUrl}/${uploadRes.url}`;
                         }
                     }
                 } else {
@@ -718,7 +722,7 @@ ${readingMsg}
                                     </button>
                                 ) : (
                                     <div className="text-center text-xs text-gray-400 py-1">
-                                        Processado em {s.data_aprovacao ? new Date(s.data_aprovacao).toLocaleDateString() : '-'}
+                                        Processado em {s.data_aprovacao ? new Date(s.data_aprovacao).toLocaleDateString() : '-'}\r
                                     </div>
                                 )}
                             </div>
