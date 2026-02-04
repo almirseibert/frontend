@@ -51,19 +51,37 @@ const RefuelingOrderModal = ({
         } catch { return 'Erro'; }
     };
 
-    // Helper para normalizar tipo de combustível
+    // Helper ROBUSTO para normalizar tipo de combustível
     const normalizeFuelType = (val) => {
         if (!val) return '';
-        const v = val.toString().trim().toUpperCase();
+        // Remove acentos, espaços extras e converte para maiúsculas
+        const v = val.toString().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        
         const map = {
             'DIESEL S10': 'dieselS10',
+            'DIESEL S-10': 'dieselS10',
             'DIESEL S500': 'dieselS500',
+            'DIESEL S-500': 'dieselS500',
             'GASOLINA COMUM': 'gasolinaComum',
+            'GASOLINA': 'gasolinaComum', // Default para genérico
             'GASOLINA ADITIVADA': 'gasolinaAditivada',
             'ETANOL': 'etanol',
-            'ARLA 32': 'arla32'
+            'ARLA 32': 'arla32',
+            'ARLA': 'arla32'
         };
-        return map[v] || '';
+
+        // 1. Tenta mapeamento exato
+        if (map[v]) return map[v];
+        
+        // 2. Tenta busca parcial (Heurística)
+        if (v.includes('S10') || v.includes('S-10')) return 'dieselS10';
+        if (v.includes('S500') || v.includes('S-500')) return 'dieselS500';
+        if (v.includes('ADITIVADA')) return 'gasolinaAditivada';
+        if (v.includes('GASOLINA')) return 'gasolinaComum';
+        if (v.includes('DIESEL')) return 'dieselS10'; // Default Diesel mais comum
+        if (v.includes('ETANOL')) return 'etanol';
+
+        return '';
     };
 
     // --- ESTADOS ---
@@ -122,7 +140,7 @@ const RefuelingOrderModal = ({
                 horimetro: solicitacaoData.horimetro_informado?.toString() || '',
                 isFillUp: !!solicitacaoData.flag_tanque_cheio,
                 litrosLiberados: solicitacaoData.litragem_solicitada?.toString() || '',
-                fuelType: normalizeFuelType(solicitacaoData.tipo_combustivel),
+                fuelType: normalizeFuelType(solicitacaoData.tipo_combustivel), // Usa a normalização robusta
                 needsArla: solicitacaoData.observacao && solicitacaoData.observacao.toUpperCase().includes('ARLA') ? true : false,
                 isFillUpArla: false,
                 litrosLiberadosArla: '',
@@ -750,6 +768,7 @@ ${readingMsg}
                                 <option value="gasolinaAditivada">Gasolina Aditivada</option>
                                 <option value="dieselS500">Diesel S500</option>
                                 <option value="dieselS10">Diesel S10</option>
+                                <option value="etanol">Etanol</option> {/* OPÇÃO ADICIONADA */}
                             </select>
                             
                             <div className="flex items-center gap-1 mb-1">
