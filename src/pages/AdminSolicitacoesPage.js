@@ -185,10 +185,11 @@ const AdminSolicitacoesPage = ({
         
         if (onGeneratePDF) {
             try {
-                // 1. Gera o Blob
+                // 1. Gera o Blob (para upload e para download local)
+                // IMPORTANTE: Aqui usamos 'await' para garantir que o PDF foi gerado antes de continuar
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
-                // 2. Download Local
+                // 2. DOWNLOAD LOCAL (Garante a cópia para o usuário)
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
@@ -198,33 +199,42 @@ const AdminSolicitacoesPage = ({
                 document.body.removeChild(link);
                 window.URL.revokeObjectURL(downloadUrl);
                 
-                // 3. Upload
+                // 3. UPLOAD (Para gerar o link público)
                 const formDataUpload = new FormData();
                 formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
                 
-                // --- DETERMINAÇÃO DA URL (Igual ao RefuelingOrderModal) ---
+                // --- DETERMINAÇÃO ROBUSTA DA URL DO BACKEND ---
                 let serverBaseUrl = '';
+                
+                // Prioridade 1: Variável de Ambiente
                 if (process.env.REACT_APP_API_URL) {
                     serverBaseUrl = process.env.REACT_APP_API_URL;
-                } else if (apiClient?.defaults?.baseURL) {
+                } 
+                // Prioridade 2: Configuração do Axios (apiClient)
+                else if (apiClient?.defaults?.baseURL) {
                     serverBaseUrl = apiClient.defaults.baseURL;
-                } else {
+                }
+                // Prioridade 3: Origem atual (Window)
+                else {
                     serverBaseUrl = window.location.origin;
                 }
 
+                // LIMPEZA DA URL BASE (Remover '/api' e barras finais)
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
                 if (serverBaseUrl.endsWith('/api')) serverBaseUrl = serverBaseUrl.slice(0, -4);
                 if (serverBaseUrl.endsWith('/')) serverBaseUrl = serverBaseUrl.slice(0, -1);
 
                 // USANDO O ENDPOINT QUE SABEMOS QUE FUNCIONA (/api/refuelings/upload-pdf)
+                // Isso garante compatibilidade total com o modal de abastecimento que já funciona
                 const uploadEndpoint = `${serverBaseUrl}/api/refuelings/upload-pdf`;
                 
                 console.log("Iniciando Upload PDF para:", uploadEndpoint);
 
-                // Busca Token
+                // --- BUSCA AGRESSIVA DE TOKEN ---
                 let token = localStorage.getItem('token');
                 if (!token) token = localStorage.getItem('authToken');
                 if (!token) token = localStorage.getItem('userToken');
+                
                 if (!token) {
                     try {
                         const userStored = localStorage.getItem('user');
@@ -234,6 +244,8 @@ const AdminSolicitacoesPage = ({
                         }
                     } catch(e) {}
                 }
+
+                // Remove aspas se o token estiver "sujo"
                 if (token && typeof token === 'string') {
                     if (token.startsWith('"') && token.endsWith('"')) {
                         token = token.slice(1, -1);
@@ -254,6 +266,7 @@ const AdminSolicitacoesPage = ({
                     console.log("Upload Sucesso. Resposta:", uploadRes);
 
                     if (uploadRes && uploadRes.url) {
+                        // Se a URL retornada for relativa (começa com /), adiciona a base do servidor
                         if (uploadRes.url.startsWith('/')) {
                             pdfLink = `${serverBaseUrl}${uploadRes.url}`;
                         } else {
