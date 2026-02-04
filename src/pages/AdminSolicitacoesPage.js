@@ -472,7 +472,7 @@ const AdminSolicitacoesPage = ({
                             {s.alerta_media_consumo === 1 && (
                                 <div className="bg-red-50 border-l-2 border-red-500 p-2 rounded">
                                     <div className="flex items-center gap-1 text-red-800 font-bold text-[10px]">
-                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (Acima de 25%)
+                                        <AlertTriangle size={10}/> ATENÇÃO: Queda de Média (Maior que 25%)
                                     </div>
                                 </div>
                             )}
