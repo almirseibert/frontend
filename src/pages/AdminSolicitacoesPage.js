@@ -208,11 +208,12 @@ const AdminSolicitacoesPage = ({
                 return false;
             });
 
-            // Se não achar, cria um "mock" seguro com os dados da solicitação para não travar a tela
+            // Se não achar na lista (pode ser paginação ou delay), tenta inferir dados para não travar
             if (!order) {
-                console.warn("Ordem vinculada não encontrada. Usando fallback.");
+                console.warn(`Ordem vinculada à solicitação #${modalData.id} não encontrada na lista local.`);
+                // Cria um objeto temporário para permitir o preenchimento dos dados enquanto tenta resolver
                 order = {
-                    id: null, // Indica que não temos o ID real da ordem (API pode precisar tratar ou buscar lá)
+                    id: null, // Sem ID real, vamos depender do ID da solicitação no submit
                     vehicleId: modalData.veiculo_id,
                     fuelType: modalData.tipo_combustivel,
                     partnerId: modalData.posto_id,
@@ -220,7 +221,7 @@ const AdminSolicitacoesPage = ({
                     litrosLiberadosArla: 0,
                     odometro: modalData.odometro_informado,
                     horimetro: modalData.horimetro_informado,
-                    needsArla: false, // Assumimos false no fallback
+                    needsArla: false, 
                     invoiceNumber: ''
                 };
             }
@@ -370,28 +371,40 @@ const AdminSolicitacoesPage = ({
                 outrosValor: parseFloat(confirmForm.outrosValor) || 0,
                 invoiceNumber: confirmForm.nf,
                 updatePartnerPrice: updatePartnerPrice,
-                // Passamos o ID da solicitação caso a ordem não exista/seja encontrada no backend pelo ID direto
-                solicitacaoId: modalData.id 
+                // Envia ID da solicitação em múltiplos formatos para garantir compatibilidade com o backend
+                solicitacaoId: modalData.id,
+                solicitacao_id: modalData.id 
             };
 
-            // Se temos uma relatedOrder válida, usamos o endpoint de refueling.
-            // Se não, tentamos via rota alternativa ou assumimos que o backend acha via solicitacaoId
             const orderId = relatedOrder?.id;
             
             if (orderId) {
+                // Cenário Ideal: Temos o ID da ordem de abastecimento
                 await apiClient.confirmRefuelingOrder(orderId, payload);
             } else {
-                // Fallback: Tenta confirmar via rota da solicitação se existir, ou lança erro
-                // Assumindo aqui que o backend consegue resolver ou que a ordem existe.
-                // Se sua API for estrita em precisar do ID da ordem, isso falhará se relatedOrder for mock.
-                // Vou tentar usar o ID da solicitação como proxy se a API suportar, senão alerto.
-                throw new Error("Ordem de abastecimento original não localizada no sistema. Contate o suporte.");
+                // Fallback Crítico: Se não temos ID da ordem (erro de sync/lista),
+                // tentamos usar um endpoint que aceite confirmação via solicitação OU lançamos erro claro
+                // Se a API permitir POST/PUT em /refueling-orders/confirm-by-solicitation, seria ideal.
+                // Como não temos certeza dessa rota, assumimos que o backend pode ter lógica interna ou
+                // o usuário está em um estado inconsistente.
+                throw new Error("Ordem de abastecimento não localizada na lista. Atualize a página e tente novamente.");
             }
             
-            setAlertMessage("Baixa confirmada e Ordem atualizada com sucesso!");
+            // Sucesso: Remoção Otimista da Interface
+            // Removemos o item da lista localmente IMEDIATAMENTE para dar feedback visual
+            setSolicitacoes(prev => prev.filter(s => s.id !== modalData.id));
+            setFilteredSolicitacoes(prev => prev.filter(s => s.id !== modalData.id));
+
+            setAlertMessage("Baixa confirmada com sucesso!");
             setModalData(null);
-            reloadData(); // Atualiza dados globais
-            fetchSolicitacoes(); // Atualiza lista
+            
+            // Atualiza dados globais
+            reloadData(); 
+            // Adiciona pequeno delay antes de recarregar a lista completa para garantir consistência no DB
+            setTimeout(() => {
+                fetchSolicitacoes(); 
+            }, 1000);
+
         } catch (error) {
             setAlertMessage("Erro ao confirmar baixa: " + (error.response?.data?.error || error.message));
         } finally {
