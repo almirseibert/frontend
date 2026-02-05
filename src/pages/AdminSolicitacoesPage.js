@@ -389,8 +389,22 @@ const AdminSolicitacoesPage = ({
             const orderId = relatedOrder?.id;
             
             if (orderId) {
-                // Cenário Ideal: Temos o ID da ordem de abastecimento
+                // --- AQUI ESTÁ A CORREÇÃO PRINCIPAL ---
+                
+                // 1. Executa a baixa completa da ORDEM (Financeiro, Estoque, Despesa)
+                // Mantém a lógica complexa que funciona.
                 await apiClient.confirmRefuelingOrder(orderId, payload);
+
+                // 2. Executa a baixa de status da SOLICITAÇÃO (Interface/Fluxo)
+                // Adiciona a chamada que existia no arquivo "Old" para garantir que a solicitação
+                // mude de status para CONCLUÍDO/BAIXADO e saia da lista do backend.
+                try {
+                    await apiClient.put(`/solicitacoes/${idToProcess}/confirmar-baixa`, {});
+                } catch (statusError) {
+                    console.warn("Ordem baixada, mas houve falha ao atualizar status da solicitação na API específica.", statusError);
+                    // Não lançamos erro aqui para não travar a UI, já que a parte financeira (mais crítica) funcionou.
+                }
+
             } else {
                 // Fallback: Se não temos ID da ordem, tentamos enviar mas provavelmente falhará se a API for estrita.
                 throw new Error("Ordem de abastecimento não localizada na lista. Atualize a página e tente novamente.");
