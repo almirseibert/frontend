@@ -387,18 +387,24 @@ const RefuelingOrderModal = ({
             try {
                 const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
                 
+                // Constrói nome do arquivo padronizado
+                const emissionDateStr = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
+                const safeDate = emissionDateStr.replace(/\//g, '-');
+                const reCode = vehicle?.registroInterno || 'SN';
+                const pdfFileName = `Autorizacao_${finalData.authNumber}_RE${reCode}_${safeDate}.pdf`;
+
                 // Backup Download
                 const downloadUrl = window.URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
-                link.download = `Ordem_${finalData.authNumber}.pdf`;
+                link.download = pdfFileName;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
                 
                 // UPLOAD VIA FETCH (Garante Boundary Correto)
                 const formDataUpload = new FormData();
-                formDataUpload.append('file', pdfBlob, `ordem_${finalData.authNumber}.pdf`);
+                formDataUpload.append('file', pdfBlob, pdfFileName);
 
                 // Recupera token manualmente para o fetch
                 const getToken = () => {

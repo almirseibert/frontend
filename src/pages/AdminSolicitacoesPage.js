@@ -141,7 +141,10 @@ const AdminSolicitacoesPage = ({
         if (returnBlob) {
             return doc.output('blob');
         } else {
-            doc.save(`Ordem_${orderData.authNumber}_${vehicle.registroInterno || 'Veiculo'}.pdf`);
+            // Alterado conforme solicitado: Nome do arquivo agora é Autorizacao... e inclui RE e Data
+            const safeDate = dateStr.replace(/\//g, '-');
+            const reCode = vehicle.registroInterno || 'SN';
+            doc.save(`Autorizacao_${orderData.authNumber}_RE${reCode}_${safeDate}.pdf`);
         }
     };
 
