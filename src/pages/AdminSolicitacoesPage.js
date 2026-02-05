@@ -30,6 +30,11 @@ const AdminSolicitacoesPage = ({
     const [solicitacoes, setSolicitacoes] = useState([]);
     const [filteredSolicitacoes, setFilteredSolicitacoes] = useState([]);
     const [loading, setLoading] = useState(false);
+
+    // --- ESTADO PARA CONSISTÊNCIA DE INTERFACE ---
+    // IDs que foram processados localmente e devem ser ignorados nas próximas requisições
+    // para evitar que o delay do backend os faça reaparecer na tela.
+    const [ignoreIds, setIgnoreIds] = useState(new Set());
     
     // Controle do Modal Geral
     const [modalData, setModalData] = useState(null); 
@@ -145,7 +150,10 @@ const AdminSolicitacoesPage = ({
         setLoading(true);
         try {
             const res = await apiClient.get('/solicitacoes');
-            setSolicitacoes(Array.isArray(res) ? res : []);
+            // Filtra localmente os IDs que marcamos como "recém concluídos" para evitar flicker
+            const rawList = Array.isArray(res) ? res : [];
+            const cleanList = rawList.filter(s => !ignoreIds.has(s.id));
+            setSolicitacoes(cleanList);
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
             setAlertMessage("Erro ao carregar lista de solicitações.");
@@ -158,7 +166,7 @@ const AdminSolicitacoesPage = ({
         fetchSolicitacoes();
         const interval = setInterval(fetchSolicitacoes, 30000);
         return () => clearInterval(interval);
-    }, []);
+    }, [ignoreIds]); // Reexecuta se ignoreIds mudar, mas a lógica interna protege
 
     // --- FILTROS ---
     useEffect(() => {
@@ -360,7 +368,9 @@ const AdminSolicitacoesPage = ({
     };
 
     const submitBaixa = async (updatePartnerPrice) => {
+        const idToProcess = modalData.id;
         setValidationState(prev => ({ ...prev, isSaving: true }));
+        
         try {
             const payload = {
                 litrosAbastecidos: parseFloat(confirmForm.litros) || 0,
@@ -372,8 +382,8 @@ const AdminSolicitacoesPage = ({
                 invoiceNumber: confirmForm.nf,
                 updatePartnerPrice: updatePartnerPrice,
                 // Envia ID da solicitação em múltiplos formatos para garantir compatibilidade com o backend
-                solicitacaoId: modalData.id,
-                solicitacao_id: modalData.id 
+                solicitacaoId: idToProcess,
+                solicitacao_id: idToProcess 
             };
 
             const orderId = relatedOrder?.id;
@@ -382,28 +392,37 @@ const AdminSolicitacoesPage = ({
                 // Cenário Ideal: Temos o ID da ordem de abastecimento
                 await apiClient.confirmRefuelingOrder(orderId, payload);
             } else {
-                // Fallback Crítico: Se não temos ID da ordem (erro de sync/lista),
-                // tentamos usar um endpoint que aceite confirmação via solicitação OU lançamos erro claro
-                // Se a API permitir POST/PUT em /refueling-orders/confirm-by-solicitation, seria ideal.
-                // Como não temos certeza dessa rota, assumimos que o backend pode ter lógica interna ou
-                // o usuário está em um estado inconsistente.
+                // Fallback: Se não temos ID da ordem, tentamos enviar mas provavelmente falhará se a API for estrita.
                 throw new Error("Ordem de abastecimento não localizada na lista. Atualize a página e tente novamente.");
             }
             
-            // Sucesso: Remoção Otimista da Interface
-            // Removemos o item da lista localmente IMEDIATAMENTE para dar feedback visual
-            setSolicitacoes(prev => prev.filter(s => s.id !== modalData.id));
-            setFilteredSolicitacoes(prev => prev.filter(s => s.id !== modalData.id));
+            // --- ATUALIZAÇÃO OTIMISTA E ROBUSTA DA INTERFACE ---
+            // 1. Removemos imediatamente da lista local
+            setSolicitacoes(prev => prev.filter(s => s.id !== idToProcess));
+            setFilteredSolicitacoes(prev => prev.filter(s => s.id !== idToProcess));
+
+            // 2. Adicionamos o ID à lista de ignorados para que o polling/fetch não traga esse item de volta
+            // enquanto o backend processa a transição de status.
+            setIgnoreIds(prev => new Set(prev).add(idToProcess));
+            
+            // 3. Define um timeout para remover da lista de ignorados após 10s (tempo seguro para consistência)
+            setTimeout(() => {
+                setIgnoreIds(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(idToProcess);
+                    return newSet;
+                });
+            }, 10000);
 
             setAlertMessage("Baixa confirmada com sucesso!");
             setModalData(null);
             
             // Atualiza dados globais
             reloadData(); 
-            // Adiciona pequeno delay antes de recarregar a lista completa para garantir consistência no DB
+            // Delay seguro para refetch
             setTimeout(() => {
                 fetchSolicitacoes(); 
-            }, 1000);
+            }, 2000);
 
         } catch (error) {
             setAlertMessage("Erro ao confirmar baixa: " + (error.response?.data?.error || error.message));
