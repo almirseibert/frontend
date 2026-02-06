@@ -142,7 +142,8 @@ const SolicitacaoAbastecimentoPage = ({
     employees = [], 
     setAlertMessage,
     user,
-    onLogout
+    onLogout,
+    socket // NOVO: Prop socket adicionada para tempo real
 }) => {
     
     // --- ESTADOS DE CONTROLE ---
@@ -216,6 +217,28 @@ const SolicitacaoAbastecimentoPage = ({
             fetchMyRequests();
         }
     }, [user]); 
+
+    // --- LÓGICA DE SOCKET.IO (TEMPO REAL) ---
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleSync = (data) => {
+            // Se o evento server:sync tiver como alvo 'solicitacoes', recarregamos a lista
+            if (data && data.targets && data.targets.includes('solicitacoes')) {
+                // Pequeno delay para garantir que o BD já commitor
+                setTimeout(() => {
+                    fetchMyRequests();
+                }, 500);
+            }
+        };
+
+        socket.on('server:sync', handleSync);
+
+        // Cleanup ao desmontar
+        return () => {
+            socket.off('server:sync', handleSync);
+        };
+    }, [socket]);
 
     // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
     const myEmployeeId = useMemo(() => {
@@ -411,14 +434,13 @@ const SolicitacaoAbastecimentoPage = ({
     };
 
     const fetchMyRequests = async () => {
-        setLoading(true);
+        // Removemos o setLoading global para evitar piscar tela em atualizações de socket
+        // mas podemos usar um estado local se quisermos indicar "atualizando..."
         try {
             const res = await apiClient.get('/solicitacoes');
             setMyRequests(Array.isArray(res) ? res : []);
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -1110,34 +1132,46 @@ const SolicitacaoAbastecimentoPage = ({
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {myRequests.map(req => (
-                                    <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden">
-                                        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
-                                        <div className="pl-2">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <span className={`text-[10px] px-2 py-1 rounded-md border font-bold ${req.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
-                                                    {req.status}
-                                                </span>
-                                                <span className="text-xs text-gray-400">{new Date(req.data_solicitacao).toLocaleDateString('pt-BR')}</span>
+                                {myRequests.map(req => {
+                                    // Determina se sou o dono
+                                    const isMine = String(req.usuario_id) === String(user.id);
+                                    
+                                    return (
+                                        <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden">
+                                            <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
+                                            <div className="pl-2">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <span className={`text-[10px] px-2 py-1 rounded-md border font-bold ${req.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
+                                                        {req.status}
+                                                    </span>
+                                                    <div className="text-right">
+                                                        <span className="text-xs text-gray-400 block">{new Date(req.data_solicitacao).toLocaleDateString('pt-BR')}</span>
+                                                        {!isMine && (
+                                                            <span className="text-[9px] text-blue-600 bg-blue-50 px-1 rounded">
+                                                                Por: {req.solicitante_nome?.split(' ')[0] || 'Outro'}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <p className="font-bold text-gray-800">{req.placa}</p>
+                                                        <p className="text-xs text-gray-500 uppercase">{req.veiculo_nome}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
+                                                        <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
+                                                    </div>
+                                                </div>
+                                                {req.status === 'LIBERADO' && isMine && (
+                                                    <div className="mt-2 bg-green-50 text-green-700 text-xs p-2 rounded flex items-center gap-1 font-bold animate-pulse">
+                                                        <Camera size={12}/> Enviar Cupom Agora
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <p className="font-bold text-gray-800">{req.placa}</p>
-                                                    <p className="text-xs text-gray-500 uppercase">{req.veiculo_nome}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
-                                                    <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
-                                                </div>
-                                            </div>
-                                            {req.status === 'LIBERADO' && (
-                                                <div className="mt-2 bg-green-50 text-green-700 text-xs p-2 rounded flex items-center gap-1 font-bold animate-pulse">
-                                                    <Camera size={12}/> Enviar Cupom Agora
-                                                </div>
-                                            )}
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -1157,35 +1191,44 @@ const SolicitacaoAbastecimentoPage = ({
                                         </div>
                                         <h4 className="font-bold text-green-800 text-lg">Aprovado! Envie o Cupom.</h4>
                                         
-                                        <div className="border-2 border-dashed border-green-300 rounded-xl p-4 bg-green-50 relative h-40 flex flex-col items-center justify-center">
-                                            {cupomPreview ? (
-                                                <div onClick={() => setCupomPreview(null)} className="w-full h-full relative cursor-pointer">
-                                                    <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl" />
-                                                    <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
-                                                         <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
-                                                            <Trash2 size={10} className="text-red-500"/> Trocar Foto
-                                                        </span>
-                                                    </div>
+                                        {/* Apenas o dono pode enviar o comprovante */}
+                                        {String(selectedRequest.usuario_id) === String(user.id) ? (
+                                            <>
+                                                <div className="border-2 border-dashed border-green-300 rounded-xl p-4 bg-green-50 relative h-40 flex flex-col items-center justify-center">
+                                                    {cupomPreview ? (
+                                                        <div onClick={() => setCupomPreview(null)} className="w-full h-full relative cursor-pointer">
+                                                            <img src={cupomPreview} className="absolute inset-0 w-full h-full object-cover rounded-xl" />
+                                                            <div className="absolute bottom-2 left-0 right-0 text-center flex justify-center">
+                                                                 <span className="bg-white px-3 py-1 rounded-full shadow text-xs font-bold text-green-700 inline-flex items-center gap-1">
+                                                                    <Trash2 size={10} className="text-red-500"/> Trocar Foto
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-row gap-3 w-full h-full items-center justify-center">
+                                                             <div onClick={() => cameraCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
+                                                                <Camera size={24} className="text-green-600 mb-1" />
+                                                                <span className="text-xs font-bold text-green-700">Câmera</span>
+                                                             </div>
+                                                             <div onClick={() => galleryCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
+                                                                <ImageIcon size={24} className="text-green-600 mb-1" />
+                                                                <span className="text-xs font-bold text-green-700">Galeria</span>
+                                                             </div>
+                                                        </div>
+                                                    )}
+                                                    <input type="file" ref={cameraCupomRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
+                                                    <input type="file" ref={galleryCupomRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'cupom')}/>
                                                 </div>
-                                            ) : (
-                                                <div className="flex flex-row gap-3 w-full h-full items-center justify-center">
-                                                     <div onClick={() => cameraCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
-                                                        <Camera size={24} className="text-green-600 mb-1" />
-                                                        <span className="text-xs font-bold text-green-700">Câmera</span>
-                                                     </div>
-                                                     <div onClick={() => galleryCupomRef.current.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-green-100 active:bg-green-200 transition border border-green-200 shadow-sm">
-                                                        <ImageIcon size={24} className="text-green-600 mb-1" />
-                                                        <span className="text-xs font-bold text-green-700">Galeria</span>
-                                                     </div>
-                                                </div>
-                                            )}
-                                            <input type="file" ref={cameraCupomRef} className="hidden" accept="image/*" capture="environment" onChange={(e) => handleFileChange(e, 'cupom')}/>
-                                            <input type="file" ref={galleryCupomRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, 'cupom')}/>
-                                        </div>
 
-                                        <button onClick={() => handleSendCupom(selectedRequest.id)} disabled={!cupomFile || loading} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg">
-                                            {loading ? <Loader className="animate-spin inline"/> : "ENVIAR COMPROVANTE"}
-                                        </button>
+                                                <button onClick={() => handleSendCupom(selectedRequest.id)} disabled={!cupomFile || loading} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg">
+                                                    {loading ? <Loader className="animate-spin inline"/> : "ENVIAR COMPROVANTE"}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <div className="p-4 bg-yellow-50 text-yellow-800 rounded-lg text-sm">
+                                                Apenas o solicitante ({selectedRequest.solicitante_nome}) pode enviar o comprovante.
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="space-y-3 text-sm">
