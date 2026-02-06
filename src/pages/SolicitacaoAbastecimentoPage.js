@@ -285,6 +285,21 @@ const SolicitacaoAbastecimentoPage = ({
         });
     }, [myEmployeeId, obras]);
 
+    // --- FILTRO DE VISUALIZAÇÃO (CORREÇÃO DE CONTEXTO) ---
+    // Filtra as solicitações para mostrar APENAS aquelas que pertencem às obras onde
+    // o usuário está atualmente alocado (allowedObras).
+    const visibleRequests = useMemo(() => {
+        if (!myRequests.length) return [];
+        if (!allowedObras.length) return [];
+
+        const myObraIds = new Set(allowedObras.map(o => String(o.id)));
+
+        return myRequests.filter(req => {
+            // Verifica se a solicitação pertence a uma das obras permitidas/ativas do usuário
+            return myObraIds.has(String(req.obra_id));
+        });
+    }, [myRequests, allowedObras]);
+
     const { filteredVehicles, filteredEmployees } = useMemo(() => {
         if (!formData.obraId) return { filteredVehicles: [], filteredEmployees: [] };
 
@@ -1097,18 +1112,18 @@ const SolicitacaoAbastecimentoPage = ({
                                 <h1 className="text-2xl font-bold">Olá, {user.name.split(' ')[0]}</h1>
                                 <p className="text-gray-400 text-sm">Painel do Operador</p>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 items-center">
                                 <button onClick={() => setIsPasswordModalOpen(true)} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition" title="Alterar Senha">
                                     <Lock size={20} />
                                 </button>
                                 <button onClick={fetchMyRequests} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition active:rotate-180" title="Atualizar">
                                     <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
                                 </button>
-                                {onLogout && (
-                                    <button onClick={onLogout} className="p-2 bg-red-900/50 rounded-full hover:bg-red-900 transition" title="Sair">
-                                        <LogOut size={20} />
-                                    </button>
-                                )}
+                                {/* BOTÃO DE LOGOUT EXPLÍCITO */}
+                                <button onClick={onLogout || (() => window.location.reload())} className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-2 shadow-sm" title="Sair">
+                                    <LogOut size={18} />
+                                    <span className="text-xs font-bold hidden sm:inline">SAIR</span>
+                                </button>
                             </div>
                         </div>
                         
@@ -1126,13 +1141,13 @@ const SolicitacaoAbastecimentoPage = ({
                             <Clock size={14} /> Minhas Solicitações Recentes
                         </h2>
                         
-                        {myRequests.length === 0 ? (
+                        {visibleRequests.length === 0 ? (
                             <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-300">
-                                <p className="text-gray-400 text-sm">Nenhuma solicitação encontrada.</p>
+                                <p className="text-gray-400 text-sm">Nenhuma solicitação encontrada para sua obra atual.</p>
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {myRequests.map(req => {
+                                {visibleRequests.map(req => {
                                     // Determina se sou o dono
                                     const isMine = String(req.usuario_id) === String(user.id);
                                     
