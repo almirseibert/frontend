@@ -285,18 +285,34 @@ const SolicitacaoAbastecimentoPage = ({
         });
     }, [myEmployeeId, obras]);
 
-    // --- FILTRO DE VISUALIZAÇÃO (CORREÇÃO DE CONTEXTO) ---
-    // Filtra as solicitações para mostrar APENAS aquelas que pertencem às obras onde
-    // o usuário está atualmente alocado (allowedObras).
+    // --- FILTRO VISUALIZAÇÃO: OBRAS + 12 HORAS ---
     const visibleRequests = useMemo(() => {
         if (!myRequests.length) return [];
         if (!allowedObras.length) return [];
 
         const myObraIds = new Set(allowedObras.map(o => String(o.id)));
+        const now = new Date().getTime();
+        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
         return myRequests.filter(req => {
-            // Verifica se a solicitação pertence a uma das obras permitidas/ativas do usuário
-            return myObraIds.has(String(req.obra_id));
+            // 1. Filtro de Obra
+            if (!myObraIds.has(String(req.obra_id))) return false;
+
+            // 2. Filtro de Tempo (Remover concluídas há +12h)
+            const statusUpper = (req.status || '').toUpperCase();
+            if (['CONCLUIDA', 'BAIXADA', 'LIBERADO', 'NEGADO', 'CONCLUIDO'].includes(statusUpper)) {
+                // Tenta pegar a data mais recente de atualização ou usa a data de criação
+                const dataRefStr = req.updated_at || req.data_baixa || req.data_aprovacao || req.data_solicitacao;
+                const dataRef = new Date(dataRefStr).getTime();
+                
+                if (!isNaN(dataRef)) {
+                    if ((now - dataRef) > TWELVE_HOURS) {
+                        return false; // Esconde se passou de 12h
+                    }
+                }
+            }
+
+            return true;
         });
     }, [myRequests, allowedObras]);
 
@@ -449,8 +465,6 @@ const SolicitacaoAbastecimentoPage = ({
     };
 
     const fetchMyRequests = async () => {
-        // Removemos o setLoading global para evitar piscar tela em atualizações de socket
-        // mas podemos usar um estado local se quisermos indicar "atualizando..."
         try {
             const res = await apiClient.get('/solicitacoes');
             setMyRequests(Array.isArray(res) ? res : []);
@@ -478,6 +492,21 @@ const SolicitacaoAbastecimentoPage = ({
             );
         } else {
             setGpsError(true);
+        }
+    };
+
+    // --- LOGOUT FORÇADO E ROBUSTO ---
+    const handleLogout = () => {
+        // Tenta limpar tudo que pode estar segurando a sessão
+        localStorage.removeItem('token');
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('user');
+        
+        if (onLogout) {
+            onLogout();
+        } else {
+            // Fallback: Força reload para a raiz, o que deve disparar o redirecionamento de login
+            window.location.href = '/'; 
         }
     };
 
@@ -539,7 +568,6 @@ const SolicitacaoAbastecimentoPage = ({
         });
     };
 
-    // --- FUNÇÃO CORRIGIDA DE ENVIO ---
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -564,11 +592,9 @@ const SolicitacaoAbastecimentoPage = ({
         if (!formData.dataAbastecimento) errors.push("Informe a Data do Abastecimento.");
         if (!rawImageFile) errors.push("A foto do painel/evidência é obrigatória.");
 
-        // Validação da Leitura (Odômetro vs Horímetro)
+        // Validação da Leitura
         if (readingType === 'odometro') {
             if (!formData.odometro) errors.push("É obrigatório informar o HODÔMETRO (Km).");
-            
-            // Verificação de regressão
             if (veiculoSelecionado && veiculoSelecionado.odometro) {
                 const currentKm = parseFloat(veiculoSelecionado.odometro);
                 const inputKm = parseFloat(formData.odometro);
@@ -577,11 +603,8 @@ const SolicitacaoAbastecimentoPage = ({
                 }
             }
         } 
-        
         if (readingType === 'horimetro') {
             if (!formData.horimetro) errors.push("É obrigatório informar o HORÍMETRO (Hr).");
-            
-            // Verificação de regressão
             if (veiculoSelecionado) {
                 const currentHr = parseFloat(veiculoSelecionado.horimetro || veiculoSelecionado.horimetroDigital || 0);
                 const inputHr = parseFloat(formData.horimetro);
@@ -591,7 +614,6 @@ const SolicitacaoAbastecimentoPage = ({
             }
         }
 
-        // Validação de Litragem
         if (!formData.flagTanqueCheio && (!formData.litragem || parseFloat(formData.litragem.toString().replace(',', '.')) <= 0)) {
             errors.push("Informe a litragem ou marque 'Tanque Cheio'.");
         }
@@ -717,8 +739,10 @@ const SolicitacaoAbastecimentoPage = ({
         );
     }
 
+    // --- RENDERIZAÇÃO PRINCIPAL ---
     return (
-        <div className="min-h-screen bg-gray-100 pb-24 animate-fadeIn relative">
+        // Wrapper principal ajustado para evitar quebra de layout externo
+        <div className="w-full bg-gray-100 pb-24 relative">
             {/* Modal de Alteração de Senha */}
             <ChangePasswordModal 
                 isOpen={isPasswordModalOpen} 
@@ -1108,11 +1132,11 @@ const SolicitacaoAbastecimentoPage = ({
                             <Fuel size={150} />
                         </div>
                         <div className="flex justify-between items-start mb-6 relative z-10">
-                            <div>
-                                <h1 className="text-2xl font-bold">Olá, {user.name.split(' ')[0]}</h1>
+                            <div className="flex-1 mr-2 overflow-hidden">
+                                <h1 className="text-xl md:text-2xl font-bold truncate">Olá, {user.name.split(' ')[0]}</h1>
                                 <p className="text-gray-400 text-sm">Painel do Operador</p>
                             </div>
-                            <div className="flex gap-2 items-center">
+                            <div className="flex gap-2 items-center shrink-0">
                                 <button onClick={() => setIsPasswordModalOpen(true)} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition" title="Alterar Senha">
                                     <Lock size={20} />
                                 </button>
@@ -1120,7 +1144,7 @@ const SolicitacaoAbastecimentoPage = ({
                                     <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
                                 </button>
                                 {/* BOTÃO DE LOGOUT EXPLÍCITO */}
-                                <button onClick={onLogout || (() => window.location.reload())} className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-2 shadow-sm" title="Sair">
+                                <button onClick={handleLogout} className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-2 shadow-sm" title="Sair">
                                     <LogOut size={18} />
                                     <span className="text-xs font-bold hidden sm:inline">SAIR</span>
                                 </button>
