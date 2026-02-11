@@ -44,7 +44,7 @@ const VehicleModal = ({
         
         // Leituras
         odometro: vehicle?.odometro?.toString() || '0',
-        horimetro: vehicle?.horimetro?.toString() || (vehicle?.horimetroDigital?.toString() || '0'),
+        horimetro: vehicle?.horimetro?.toString() || '0',
         
         // Configurações
         isComboioVehicle: vehicle?.isComboioVehicle || false,
@@ -189,8 +189,6 @@ const VehicleModal = ({
             ...formData,
             odometro: showOdometro ? (parseFloat(formData.odometro) || 0) : null,
             horimetro: showHorimetro ? (parseFloat(formData.horimetro) || 0) : null,
-            horimetroDigital: null,
-            horimetroAnalogico: null,
             
             mediaCalculo: mediaCalculo,
             fuelCapacity: parseFloat(formData.fuelCapacity) || null,
