@@ -298,9 +298,14 @@ const SolicitacaoAbastecimentoPage = ({
             // 1. Filtro de Obra
             if (!myObraIds.has(String(req.obra_id))) return false;
 
-            // 2. Filtro de Tempo (Remover concluídas há +12h)
+            // 2. Filtro de Tempo (Remover concluídas/canceladas há +12h)
+            // Solicitações PENDENTES e LIBERADAS permanecem.
             const statusUpper = (req.status || '').toUpperCase();
-            if (['CONCLUIDA', 'BAIXADA', 'LIBERADO', 'NEGADO', 'CONCLUIDO'].includes(statusUpper)) {
+            
+            // Lista de status que devem passar pela verificação de tempo (expirar da lista)
+            const statusesToTimeFilter = ['CONCLUIDA', 'BAIXADA', 'NEGADO', 'CONCLUIDO', 'CANCELADA'];
+
+            if (statusesToTimeFilter.includes(statusUpper)) {
                 // Tenta pegar a data mais recente de atualização ou usa a data de criação
                 const dataRefStr = req.updated_at || req.data_baixa || req.data_aprovacao || req.data_solicitacao;
                 const dataRef = new Date(dataRefStr).getTime();
