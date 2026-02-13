@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'; 
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
-    ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert,MdBuild, 
+    ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, MdBuild, 
     User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp // <--- TrendingUp adicionado
 } from 'lucide-react';
 
