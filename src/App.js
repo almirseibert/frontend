@@ -254,7 +254,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
     
     const navItems = [
         { id: 'dashboard', label: 'Painel Geral', icon: <Building size={16} /> },
-        //{ id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', icon: <TrendingUp size={16} />, restricted: ['admin', 'supervisor'] }, // <--- NOVO ITEM
+        { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', icon: <TrendingUp size={16} />, restricted: ['admin', 'supervisor'] }, // <--- NOVO ITEM
         { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
