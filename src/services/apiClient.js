@@ -1,7 +1,5 @@
 // src/services/apiClient.js
 
-// Este arquivo centraliza todas as chamadas à sua API backend.
-
 // URL base da sua API no Easypanel
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api'; 
 
@@ -88,7 +86,6 @@ const apiClient = {
     unassignVehicleFromOperational: async (id, data) => apiFetch(`/vehicles/${id}/unassign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     startVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/start-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
     endVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/end-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
-
     uploadVehicleImage: async (id, formData) => {
         return apiFetch(`/vehicles/${id}/upload-image`, {
             method: 'POST',
@@ -113,10 +110,15 @@ const apiClient = {
         });
     },
 
-    // --- Faturamento / Controle Diário (CORRIGIDO PARA EVITAR 404) ---
+    // --- MÓDULO SUPERVISOR (Novo) ---
+    getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),
+    getSupervisorObraDetails: async (id) => apiFetch(`/supervisor/obra/${id}`),
+    saveSupervisorContract: async (data) => apiFetch('/supervisor/contract', { method: 'POST', body: JSON.stringify(data) }),
+    addSupervisorCrmLog: async (data) => apiFetch('/supervisor/crm', { method: 'POST', body: JSON.stringify(data) }),
+
+    // --- Faturamento / Controle Diário ---
     getDailyLogs: async (obraId, filters = {}) => {
         const queryParams = new URLSearchParams(filters).toString();
-        // Ajuste: Usa apenas a rota base com query param, que é mais segura se a rota específica não existir
         return apiFetch(`/billing?obraId=${obraId}&${queryParams}`);
     },
     upsertDailyLog: async (data) => apiFetch('/billing', { method: 'POST', body: JSON.stringify(data) }),
@@ -158,7 +160,7 @@ const apiClient = {
     updatePartnerFuelPrices: async (id, prices) => apiFetch(`/partners/${id}/prices`, { method: 'PUT', body: JSON.stringify(prices) }),
     updatePartnerStatus: async (id, status) => apiFetch(`/partners/${id}/status`, { method: 'PUT', body: JSON.stringify({ status_operacional: status }) }),
 
-    // --- SOLICITAÇÕES (NOVO MÓDULO APP) ---
+    // --- SOLICITAÇÕES (App) ---
     getSolicitacoes: async (params) => {
         const queryParams = new URLSearchParams(params).toString();
         return apiFetch(`/solicitacoes?${queryParams}`);

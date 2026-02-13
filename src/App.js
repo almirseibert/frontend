@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone // <--- Smartphone adicionado aqui
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp // <--- TrendingUp adicionado
 } from 'lucide-react';
 
 // Importação do Socket.io Client
@@ -29,6 +29,8 @@ import OrdersPage from './pages/OrdersPage';
 import LoginScreen from './components/LoginScreen'; 
 import TiresPage from './pages/TiresPage'; 
 import BillingPage from './pages/BillingPage';
+import SupervisorDashboard from './pages/SupervisorDashboard'; // <--- MÓDULO SUPERVISOR
+import SupervisorObraDetail from './pages/SupervisorObraDetail'; // <--- MÓDULO SUPERVISOR DETALHE
 
 // --- NOVAS PÁGINAS IMPORTADAS ---
 import SolicitacaoAbastecimentoPage from './pages/SolicitacaoAbastecimentoPage';
@@ -254,6 +256,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
     
     const navItems = [
         { id: 'dashboard', label: 'Painel Geral', icon: <Building size={16} /> },
+        { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', icon: <TrendingUp size={16} />, restricted: ['admin', 'supervisor'] }, // <--- NOVO ITEM
         { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
@@ -297,9 +300,14 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                         const isAdmin = user.user_type === 'admin';
                         const canAccessRefuelingRelated = user.podeAcessarAbastecimento || isAdmin;
 
+                        // Filtros de acesso
                         if ((item.id === 'refueling' || item.id === 'comboio' || item.id === 'admin_solicitacoes') && !canAccessRefuelingRelated) return null;
                         
-                        const isActive = currentPage === item.id;
+                        // Filtro de restrição de papel (ex: dashboard supervisor)
+                        if (item.restricted && !item.restricted.includes(user.user_type) && user.user_type !== 'admin') return null;
+                        
+                        // Mantém ativo se estiver no detalhe do supervisor
+                        const isActive = currentPage === item.id || (item.id === 'supervisor_dashboard' && currentPage === 'supervisor_detail'); 
                         const isDimmed = item.dimmed;
 
                         return (
@@ -384,6 +392,9 @@ const AppContent = () => {
     const [currentPage, setCurrentPage] = useState('dashboard');
     const [pageFilter, setPageFilter] = useState(null); 
     const [alertMessage, setAlertMessage] = useState(''); 
+
+    // Estado para navegação na página de supervisor
+    const [selectedObraId, setSelectedObraId] = useState(null);
 
     // Dados Globais
     const [vehicles, setVehicles] = useState([]);
@@ -590,6 +601,12 @@ const AppContent = () => {
         setPageFilter(filter); 
     };
 
+    // Nova função para navegar para o detalhe da obra
+    const handleNavigateToObra = (obraId) => {
+        setSelectedObraId(obraId);
+        setCurrentPage('supervisor_detail');
+    };
+
     const loadAllData = React.useCallback(async () => {
         if (!user) { setLoadingData(false); return; }
         
@@ -712,6 +729,11 @@ const AppContent = () => {
 
         switch (currentPage) {
             case 'dashboard': return <Dashboard {...commonProps} />;
+            
+            // --- MÓDULO SUPERVISOR ---
+            case 'supervisor_dashboard': return <SupervisorDashboard {...commonProps} onNavigateToDetail={handleNavigateToObra} />;
+            case 'supervisor_detail': return <SupervisorObraDetail obraId={selectedObraId} onBack={() => setCurrentPage('supervisor_dashboard')} />;
+            
             case 'vehicles': return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
             case 'obras': return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
             case 'billing': return <BillingPage {...commonProps} />;
