@@ -29,10 +29,8 @@ import OrdersPage from './pages/OrdersPage';
 import LoginScreen from './components/LoginScreen'; 
 import TiresPage from './pages/TiresPage'; 
 import BillingPage from './pages/BillingPage';
-import SupervisorDashboard from './pages/SupervisorDashboard'; // <--- MÓDULO SUPERVISOR
-import SupervisorObraDetail from './pages/SupervisorObraDetail'; // <--- MÓDULO SUPERVISOR DETALHE
-
-// --- NOVAS PÁGINAS IMPORTADAS ---
+//import SupervisorDashboard from './pages/SupervisorDashboard'; // <--- MÓDULO SUPERVISOR
+//import SupervisorObraDetail from './pages/SupervisorObraDetail'; // <--- MÓDULO SUPERVISOR DETALHE
 import SolicitacaoAbastecimentoPage from './pages/SolicitacaoAbastecimentoPage';
 import AdminSolicitacoesPage from './pages/AdminSolicitacoesPage';
 
