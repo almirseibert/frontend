@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'; 
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
-    ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert, 
+    ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert,MdBuild, 
     User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp // <--- TrendingUp adicionado
 } from 'lucide-react';
 
@@ -258,14 +258,14 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
         { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
-        { id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} />, dimmed: true },
-        { id: 'revisions', label: 'Revisões', icon: <Bell size={16} /> },
+        //{ id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} />, dimmed: true },
+        { id: 'revisions', label: 'Revisões', icon: <MdBuild size={16} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
         { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
         { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
         { id: 'admin_solicitacoes', label: 'Solicitações (App)', icon: <Smartphone size={16} />, badge: pendingSolicitacoesCount },
         { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
-        { id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/>, dimmed: true },
+        //{ id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/>, dimmed: true },
         { id: 'expenses', label: 'Despesas', icon: <DollarSign size={16} /> },
         { id: 'employees', label: 'Funcionários', icon: <User size={16} /> },
         { id: 'fines', label: 'Multas', icon: <ShieldAlert size={16} /> },
