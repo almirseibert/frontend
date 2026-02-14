@@ -16,6 +16,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
 
     const fetchDashboardData = async () => {
         try {
+            // Se for o primeiro load, mostra spinner. Nos updates silenciosos (setInterval), não.
             if (obras.length === 0) setLoading(true);
             const data = await apiClient.getSupervisorDashboard();
             setObras(data);
@@ -29,26 +30,22 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
 
     useEffect(() => {
         fetchDashboardData();
+        // Atualiza a cada 5 minutos (Modo TV/Quiosque)
         const interval = setInterval(() => {
             fetchDashboardData();
-        }, 300000); // 5 min
+        }, 300000); 
         return () => clearInterval(interval);
     }, []);
 
-    // Abre o modal de configuração (Passo 1)
     const handleConfigClick = (obra) => {
         setSelectedObraForConfig(obra);
         setIsConfigModalOpen(true);
     };
 
-    // Navega para a visão detalhada (Passo 2)
     const handleCardClick = (obraId) => {
-        if (!isTvMode) {
-            if (onNavigateToDetail) {
-                onNavigateToDetail(obraId);
-            } else {
-                console.warn("Função de navegação não fornecida para o Dashboard");
-            }
+        // No modo TV, bloqueamos navegação acidental ou implementamos o "explodir detalhe" em modal
+        if (!isTvMode && onNavigateToDetail) {
+            onNavigateToDetail(obraId);
         }
     };
 
@@ -64,12 +61,6 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         }
     };
 
-    useEffect(() => {
-        const handleEsc = () => { if (!document.fullscreenElement) setIsTvMode(false); };
-        document.addEventListener('fullscreenchange', handleEsc);
-        return () => document.removeEventListener('fullscreenchange', handleEsc);
-    }, []);
-
     return (
         <div className={`p-6 min-h-screen bg-slate-100 ${isTvMode ? 'overflow-hidden' : ''}`}>
             
@@ -77,11 +68,12 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                 <div>
                     <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-2">
                         <LayoutDashboard className="text-blue-600" size={32} />
-                        Painel de Controle de Obras
+                        Gestão de Obras
                     </h1>
                     <p className="text-slate-500 mt-1 flex items-center text-sm">
                         <RefreshCw size={12} className="mr-1" />
-                        Última atualização: {lastUpdate.toLocaleTimeString()}
+                        Atualizado: {lastUpdate.toLocaleTimeString()}
+                        {isTvMode && <span className="ml-2 text-red-500 font-bold animate-pulse">• AO VIVO</span>}
                     </p>
                 </div>
                 
@@ -103,20 +95,20 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                         `}
                     >
                         <Tv size={20} />
-                        {isTvMode ? 'Sair do Modo TV' : 'Modo TV'}
+                        {isTvMode ? 'Sair Modo TV' : 'Modo TV'}
                     </button>
                 </div>
             </div>
 
             {loading && obras.length === 0 ? (
-                <div className="flex h-96 items-center justify-center">
-                    <Loader size={48} className="animate-spin text-blue-600" />
-                    <span className="ml-3 text-xl text-slate-600">Calculando previsões...</span>
+                <div className="flex h-96 items-center justify-center flex-col">
+                    <Loader size={48} className="animate-spin text-blue-600 mb-4" />
+                    <span className="text-xl text-slate-600">Calculando previsões de término...</span>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
                     {obras.map((obra) => (
-                        <div key={obra.id} className="h-full">
+                        <div key={obra.id} className="h-full transform transition-all hover:-translate-y-1">
                             <ObraCard 
                                 obra={obra} 
                                 onClick={handleCardClick}
@@ -128,13 +120,12 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                     {obras.length === 0 && (
                         <div className="col-span-full text-center py-20 text-slate-400">
                             <AlertCircle size={64} className="mx-auto mb-4 opacity-20" />
-                            <p className="text-lg">Nenhuma obra ativa com contrato configurado encontrada.</p>
+                            <p className="text-lg">Nenhuma obra ativa encontrada.</p>
                         </div>
                     )}
                 </div>
             )}
 
-            {/* Modal de Configuração */}
             <ContractConfigModal 
                 isOpen={isConfigModalOpen}
                 onClose={() => setIsConfigModalOpen(false)}

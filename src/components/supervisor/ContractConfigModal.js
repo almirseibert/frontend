@@ -7,7 +7,7 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
         valor_total: '',
         horas_totais: '',
         data_inicio: '',
-        data_fim_contratual: '', // Data limite oficial do contrato
+        data_fim_contratual: '',
         fiscal_nome: ''
     });
     const [loading, setLoading] = useState(false);
@@ -15,12 +15,24 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
 
     useEffect(() => {
         if (isOpen && obra) {
+            // Lógica de Prioridade: Dados do Contrato > Dados da Obra > Vazio
+            // Isso atende ao requisito: "caso nao esteja preenchido buscar a informação inicial na coluna da tabela obras"
+            const kpi = obra.kpi || {};
+            
+            // Tenta pegar do contrato (se existir no objeto obra ou kpi) ou faz fallback para obra
+            const valorInicial = kpi.valor_total_contrato || obra.valorTotalContrato || '';
+            const horasIniciais = kpi.horas_contratadas || obra.horasContratadasTotal || ''; // Assumindo que o back mande a soma se não tiver contrato
+            
+            // Datas
+            const dataInicioRaw = obra.data_inicio_contratual || obra.dataInicio;
+            const dataFimRaw = obra.data_fim_contratual || obra.dataFimPrevisto;
+
             setFormData({
-                valor_total: obra.kpi?.valor_total_contrato || obra.contract_total_value || '',
-                horas_totais: obra.kpi?.horas_contratadas || obra.contract_hours || '',
-                data_inicio: obra.data_inicio_contratual ? obra.data_inicio_contratual.split('T')[0] : '',
-                data_fim_contratual: obra.data_fim_contratual ? obra.data_fim_contratual.split('T')[0] : '',
-                fiscal_nome: obra.fiscal_nome || ''
+                valor_total: valorInicial,
+                horas_totais: horasIniciais,
+                data_inicio: dataInicioRaw ? dataInicioRaw.split('T')[0] : '',
+                data_fim_contratual: dataFimRaw ? dataFimRaw.split('T')[0] : '',
+                fiscal_nome: obra.fiscal_nome || obra.fiscal || ''
             });
             setError('');
         }
@@ -34,9 +46,8 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
         setError('');
         
         try {
-            // Validação básica
             if (!formData.valor_total || !formData.horas_totais) {
-                throw new Error("Valor total e Horas totais são obrigatórios.");
+                throw new Error("Valor total e Horas totais são obrigatórios para o cálculo de previsão.");
             }
 
             await apiClient.post('/supervisor/contract', {
@@ -44,7 +55,7 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                 valor_total: parseFloat(formData.valor_total),
                 horas_totais: parseFloat(formData.horas_totais),
                 data_inicio: formData.data_inicio,
-                data_fim_contratual: formData.data_fim_contratual, // Enviar data limite
+                data_fim_contratual: formData.data_fim_contratual,
                 fiscal_nome: formData.fiscal_nome
             });
             
@@ -60,7 +71,6 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100] backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up border border-slate-200">
-                {/* Header */}
                 <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                     <h2 className="text-lg font-bold flex items-center gap-2">
                         <FileText size={20} className="text-yellow-400" />
@@ -71,7 +81,6 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                     </button>
                 </div>
 
-                {/* Body */}
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
                     {error && (
                         <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm flex items-center gap-2 border border-red-200">
@@ -80,16 +89,13 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                         </div>
                     )}
 
-                    <p className="text-sm text-slate-500 mb-4 bg-blue-50 p-3 rounded border border-blue-100 flex gap-2">
-                        <AlertCircle size={16} className="text-blue-500 shrink-0 mt-0.5" />
-                        <span>Preencha os dados oficiais. O sistema usará "Horas Totais" para calcular a barra de progresso e as previsões de término.</span>
+                    <p className="text-xs text-slate-500 bg-blue-50 p-2 rounded border border-blue-100">
+                        <b>Nota:</b> O sistema importou dados do cadastro da obra. Confirme ou ajuste para oficializar o contrato.
                     </p>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                                Valor Total (R$)
-                            </label>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Valor Total (R$)</label>
                             <div className="relative">
                                 <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
                                 <input
@@ -98,16 +104,13 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                                     required
                                     value={formData.valor_total}
                                     onChange={e => setFormData({...formData, valor_total: e.target.value})}
-                                    className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all"
-                                    placeholder="0.00"
+                                    className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                                Horas Contratadas
-                            </label>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Horas Contratadas</label>
                             <div className="relative">
                                 <Clock size={16} className="absolute left-3 top-3 text-slate-400" />
                                 <input
@@ -116,8 +119,7 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                                     required
                                     value={formData.horas_totais}
                                     onChange={e => setFormData({...formData, horas_totais: e.target.value})}
-                                    className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all"
-                                    placeholder="Total Horas"
+                                    className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
                                 />
                             </div>
                         </div>
@@ -125,9 +127,7 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                                Data Início Real
-                            </label>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Data Início</label>
                             <input
                                 type="date"
                                 required
@@ -137,9 +137,7 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                                Fim Contratual (Limite)
-                            </label>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Data Fim (Contratual)</label>
                             <input
                                 type="date"
                                 required
@@ -151,41 +149,23 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                     </div>
 
                     <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                            Nome do Fiscal (Cliente)
-                        </label>
+                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Nome do Fiscal</label>
                         <div className="relative">
                             <User size={16} className="absolute left-3 top-3 text-slate-400" />
                             <input
                                 type="text"
                                 value={formData.fiscal_nome}
                                 onChange={e => setFormData({...formData, fiscal_nome: e.target.value})}
-                                className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all"
-                                placeholder="Ex: Eng. João Silva"
+                                className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
+                                placeholder="Fiscal ou Eng. Responsável"
                             />
                         </div>
                     </div>
 
-                    {/* Footer Actions */}
                     <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-4 py-2 text-slate-600 font-semibold hover:bg-slate-100 rounded-lg transition-colors text-sm"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="px-6 py-2 bg-yellow-400 text-slate-900 font-bold rounded-lg hover:bg-yellow-500 transition-colors flex items-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 text-sm"
-                        >
-                            {loading ? 'Salvando...' : (
-                                <>
-                                    <Save size={18} />
-                                    Salvar Contrato
-                                </>
-                            )}
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">Cancelar</button>
+                        <button type="submit" disabled={loading} className="px-6 py-2 bg-yellow-400 text-slate-900 font-bold rounded-lg hover:bg-yellow-500 flex items-center gap-2 text-sm shadow-sm">
+                            <Save size={18} /> Salvar Contrato
                         </button>
                     </div>
                 </form>

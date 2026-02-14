@@ -1,343 +1,363 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
     ArrowLeft, Clock, Calendar, TrendingUp, AlertTriangle, 
-    Truck, Save, Loader, CheckSquare, FileText, CheckCircle, Users, HardHat
+    Truck, Save, Loader, CheckSquare, FileText, CheckCircle, 
+    Printer, Phone, ShieldCheck, Scale, MapPin
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
-    const [data, setData] = useState(null); // Agora armazena { obra, vehicles, employees, crm_history }
+    const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [lastUpdate, setLastUpdate] = useState(new Date());
+    const [activeTab, setActiveTab] = useState('geral');
     
-    // Estado para CRM
+    // CRM States
     const [crmNote, setCrmNote] = useState('');
-    const [interactionType, setInteractionType] = useState('daily_check'); 
-    const [submittingCrm, setSubmittingCrm] = useState(false);
+    const [interactionType, setInteractionType] = useState('daily_check');
+    const [agreedAction, setAgreedAction] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
     const fetchDetails = useCallback(async () => {
         setLoading(true);
-        setError(null);
         try {
-            const response = await apiClient.get('/supervisor/obra/' + obraId);
-            
-            if (!response || !response.obra) {
-                throw new Error("Dados da obra não retornados pelo servidor.");
-            }
-
-            setData(response);
-            setLastUpdate(new Date());
+            const res = await apiClient.get('/supervisor/obra/' + obraId);
+            setData(res);
         } catch (error) {
-            console.error("Erro ao carregar detalhes:", error);
-            setError("Não foi possível carregar os dados. Tente recarregar a página.");
+            console.error("Erro:", error);
         } finally {
             setLoading(false);
         }
     }, [obraId]);
 
-    useEffect(() => {
-        if (obraId) fetchDetails();
-    }, [obraId, fetchDetails]);
+    useEffect(() => { if (obraId) fetchDetails(); }, [obraId, fetchDetails]);
 
-    const handleSaveCRM = async () => {
-        if (!crmNote.trim()) return;
-        setSubmittingCrm(true);
+    // Cálculo dinâmico de previsão (replicando lógica do back para visualização instantânea)
+    const calculatePrediction = () => {
+        if (!data) return { days: 0, date: null };
+        const kpi = data.obra.kpi || {}; // Assumindo que o back preenche isso ou calculamos aqui
+        // Fallback se kpi não vier pronto (depende do seu controller)
+        const saldo = (data.contract?.total_hours_contracted || 0) - (kpi.horas_executadas || 0);
+        
+        // Contar máquinas pesadas ativas
+        const heavyMachines = data.vehicles.filter(v => 
+            ['Escavadeira', 'Motoniveladora', 'Trator', 'Rolo', 'Retroescavadeira'].includes(v.tipo)
+        ).length || 1;
+        
+        const dailyCap = heavyMachines * 8;
+        const days = Math.ceil(saldo > 0 ? saldo / dailyCap : 0);
+        
+        const date = new Date();
+        // Adicionar dias úteis simplificado
+        let added = 0;
+        while(added < days){
+            date.setDate(date.getDate()+1);
+            if(date.getDay() !== 0 && date.getDay() !== 6) added++;
+        }
+        return { days, date };
+    };
+
+    const handleSaveCRM = async (type = interactionType) => {
+        setSubmitting(true);
         try {
             await apiClient.post('/supervisor/crm', {
                 obra_id: obraId,
-                tipo_interacao: interactionType,
-                resumo_conversa: crmNote,
-                data_proximo_contato: null
+                interaction_type: type,
+                notes: crmNote || (type.includes('call_') ? `Marco ${type} registrado` : 'Registro manual'),
+                agreed_action: agreedAction
             });
             setCrmNote('');
-            fetchDetails(); 
-        } catch (error) {
-            alert('Erro ao salvar registro CRM');
+            setAgreedAction('');
+            fetchDetails();
+        } catch (err) {
+            alert('Erro ao salvar');
         } finally {
-            setSubmittingCrm(false);
+            setSubmitting(false);
         }
     };
 
-    if (loading) return (
-        <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-            <Loader size={40} className="text-blue-600 animate-spin mb-4" />
-            <span className="text-slate-600 font-medium">Carregando dados da obra...</span>
-        </div>
-    );
+    const generatePDF = () => {
+        const doc = new jsPDF();
+        const { obra, contract, vehicles, crm } = data;
+        
+        doc.setFontSize(18);
+        doc.text(`Relatório de Acompanhamento: ${obra.nome}`, 14, 20);
+        
+        doc.setFontSize(12);
+        doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 30);
+        doc.text(`Responsável: ${obra.responsavel || 'N/A'}`, 14, 38);
+        doc.text(`Fiscal: ${contract?.fiscal_nome || 'N/A'}`, 14, 46);
 
-    if (error) return (
-        <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6">
-            <div className="bg-red-50 text-red-600 p-6 rounded-xl border border-red-100 max-w-md text-center">
-                <AlertTriangle size={48} className="mx-auto mb-4" />
-                <h3 className="text-lg font-bold mb-2">Erro ao acessar Obra</h3>
-                <p>{error}</p>
-                <button onClick={onBack} className="mt-6 px-4 py-2 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
-                    Voltar para o Dashboard
-                </button>
-            </div>
-        </div>
-    );
+        // Tabela de Saldos
+        const saldo = (contract?.total_hours_contracted || 0) - (obra.kpi?.horas_executadas || 0);
+        doc.autoTable({
+            startY: 55,
+            head: [['Item', 'Valor']],
+            body: [
+                ['Total Contratado', `${contract?.total_hours_contracted || 0} h`],
+                ['Total Executado', `${obra.kpi?.horas_executadas || 0} h`],
+                ['Saldo Restante', `${saldo.toFixed(1)} h`],
+                ['Previsão Término', calculatePrediction().date.toLocaleDateString()]
+            ]
+        });
 
-    const { obra, vehicles, employees, crm_history } = data;
-    const { kpi, previsao } = obra;
+        // Tabela de Equipamentos
+        doc.text("Equipamentos Alocados", 14, doc.lastAutoTable.finalY + 10);
+        doc.autoTable({
+            startY: doc.lastAutoTable.finalY + 15,
+            head: [['Equipamento', 'Placa', 'Operador', 'Desde']],
+            body: vehicles.map(v => [
+                v.modelo, v.placa, v.operador_nome || 'N/A', 
+                new Date(v.data_alocacao).toLocaleDateString()
+            ])
+        });
 
-    const getStatusColor = (percent) => {
-        if (percent >= 90) return 'bg-red-500';
-        if (percent >= 70) return 'bg-purple-500';
-        if (percent >= 30) return 'bg-yellow-400';
-        return 'bg-emerald-500';
+        // Espaço para Anotações
+        doc.text("Anotações do Fiscal / Observações:", 14, doc.lastAutoTable.finalY + 20);
+        doc.rect(14, doc.lastAutoTable.finalY + 25, 180, 40);
+
+        doc.save(`Relatorio_Obra_${obraId}.pdf`);
     };
 
-    const statusColor = getStatusColor(kpi.percentual_conclusao);
+    if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin text-blue-600" /></div>;
+
+    const { obra, contract, burnup, vehicles, crm } = data;
+    const prediction = calculatePrediction();
+    const percentual = contract?.total_hours_contracted ? ((obra.kpi?.horas_executadas || 0) / contract.total_hours_contracted * 100) : 0;
+
+    // Verificar Marcos CRM
+    const has30 = crm.some(l => l.interaction_type === 'call_30');
+    const has70 = crm.some(l => l.interaction_type === 'call_70');
+    const hasFinal = crm.some(l => l.interaction_type === 'call_final');
 
     return (
-        <div className="bg-slate-50 min-h-screen pb-20">
+        <div className="bg-slate-100 min-h-screen pb-20">
             {/* Header Fixo */}
-            <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500">
-                            <ArrowLeft size={20} />
-                        </button>
-                        <div>
-                            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                                {obra.nome}
-                                <span className="text-xs font-normal px-2 py-0.5 bg-slate-100 text-slate-500 rounded border border-slate-200">
-                                    ID: {obra.id.substring(0,6)}...
-                                </span>
-                            </h1>
-                            <div className="flex items-center gap-3 text-xs text-slate-500">
-                                <span className="flex items-center gap-1"><Clock size={12}/> Atualizado: {lastUpdate.toLocaleTimeString()}</span>
-                                <span className="flex items-center gap-1"><CheckSquare size={12}/> Status: {obra.status || 'Ativa'}</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                        <div className="text-right hidden sm:block">
-                            <p className="text-xs text-slate-400">Progresso Geral</p>
-                            <p className="text-lg font-bold text-slate-700">{kpi.percentual_conclusao}%</p>
-                        </div>
-                        <div className="w-12 h-12 rounded-full border-4 border-slate-100 flex items-center justify-center relative">
-                             <div className={`absolute inset-0 rounded-full opacity-20 ${statusColor}`}></div>
-                             <TrendingUp size={20} className={kpi.percentual_conclusao > 90 ? 'text-red-500' : 'text-blue-600'} />
-                        </div>
+            <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><ArrowLeft size={20}/></button>
+                    <div>
+                        <h1 className="text-xl font-bold text-slate-800">{obra.nome}</h1>
+                        <p className="text-xs text-slate-500">Contrato: {contract?.id ? `#${contract.id}` : 'Não configurado'}</p>
                     </div>
                 </div>
+                <button onClick={generatePDF} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                    <Printer size={18} /> Relatório PDF
+                </button>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    
-                    {/* COLUNA ESQUERDA: KPIs e Recursos */}
-                    <div className="space-y-6 lg:col-span-2">
-                        {/* Cards de Resumo */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                                <p className="text-xs font-semibold text-slate-400 uppercase mb-1">Financeiro</p>
-                                <div className="flex justify-between items-end">
-                                    <div>
-                                        <p className="text-2xl font-bold text-slate-700">
-                                            R$ {(kpi.total_gasto/1000).toFixed(1)}k
-                                        </p>
-                                        <p className="text-xs text-slate-400">de R$ {(kpi.valor_total_contrato/1000).toFixed(1)}k</p>
-                                    </div>
-                                    <div className="h-10 w-10 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
-                                        <TrendingUp size={20} />
-                                    </div>
-                                </div>
-                                <div className="mt-3 w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                    <div className="bg-emerald-500 h-full rounded-full" style={{width: `${(kpi.total_gasto / kpi.valor_total_contrato * 100) || 0}%`}}></div>
-                                </div>
+            <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* COLUNA ESQUERDA: KPIs e Burnup */}
+                <div className="lg:col-span-2 space-y-6">
+                    {/* Cards Topo */}
+                    <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
+                            <p className="text-xs text-slate-400 uppercase font-bold">Saldo de Horas</p>
+                            <p className="text-2xl font-bold text-slate-700">
+                                {((contract?.total_hours_contracted || 0) - (obra.kpi?.horas_executadas || 0)).toFixed(0)}h
+                            </p>
+                            <div className="w-full bg-slate-100 h-1.5 mt-2 rounded-full overflow-hidden">
+                                <div className="bg-blue-500 h-full" style={{width: `${percentual}%`}}></div>
                             </div>
-
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                                <p className="text-xs font-semibold text-slate-400 uppercase mb-1">Horas Máquina</p>
-                                <div className="flex justify-between items-end">
-                                    <div>
-                                        <p className="text-2xl font-bold text-slate-700">
-                                            {kpi.horas_realizadas.toFixed(0)}h
-                                        </p>
-                                        <p className="text-xs text-slate-400">de {kpi.horas_contratadas.toFixed(0)}h</p>
-                                    </div>
-                                    <div className="h-10 w-10 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600">
-                                        <Clock size={20} />
-                                    </div>
-                                </div>
-                                <div className="mt-3 w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                    <div className="bg-blue-500 h-full rounded-full" style={{width: `${(kpi.horas_realizadas / kpi.horas_contratadas * 100) || 0}%`}}></div>
-                                </div>
-                            </div>
-
-                            <div className={`p-4 rounded-xl shadow-sm border ${previsao.status === 'atrasado' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100'}`}>
-                                <p className={`text-xs font-semibold uppercase mb-1 ${previsao.status === 'atrasado' ? 'text-red-400' : 'text-slate-400'}`}>Previsão Término</p>
-                                <div className="flex justify-between items-end">
-                                    <div>
-                                        <p className={`text-xl font-bold ${previsao.status === 'atrasado' ? 'text-red-700' : 'text-slate-700'}`}>
-                                            {previsao.data_termino_estimada ? new Date(previsao.data_termino_estimada).toLocaleDateString() : '--/--'}
-                                        </p>
-                                        <p className={`text-xs ${previsao.status === 'atrasado' ? 'text-red-500' : 'text-slate-400'}`}>
-                                            Prazo: {obra.data_fim_contratual ? new Date(obra.data_fim_contratual).toLocaleDateString() : 'N/A'}
-                                        </p>
-                                    </div>
-                                    <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${previsao.status === 'atrasado' ? 'bg-white text-red-500' : 'bg-indigo-50 text-indigo-600'}`}>
-                                        <Calendar size={20} />
-                                    </div>
-                                </div>
-                            </div>
+                            <p className="text-[10px] text-right mt-1 text-slate-400">{percentual.toFixed(1)}% Executado</p>
+                        </div>
+                        
+                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-purple-500">
+                            <p className="text-xs text-slate-400 uppercase font-bold">Previsão Término</p>
+                            <p className="text-xl font-bold text-slate-700 flex items-center gap-2">
+                                {prediction.date.toLocaleDateString()}
+                            </p>
+                            <p className="text-xs text-purple-600 mt-1">
+                                {prediction.days} dias úteis restantes
+                            </p>
                         </div>
 
-                        {/* Lista de Equipamentos (Veículos) */}
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                    <Truck size={18} className="text-slate-400" />
-                                    Equipamentos Alocados
-                                </h3>
-                                <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                                    {vehicles?.length || 0} Ativos
-                                </span>
-                            </div>
-                            <div className="divide-y divide-slate-100">
-                                {vehicles?.map(v => (
-                                    <div key={v.id} className="px-6 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-8 w-8 rounded bg-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
-                                                {v.plate ? v.plate.slice(-3) : '---'}
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-700">{v.model}</p>
-                                                <p className="text-xs text-slate-400 uppercase">
-                                                    {v.plate} • Desde {v.data_alocacao ? new Date(v.data_alocacao).toLocaleDateString() : 'N/A'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                                            Operando
-                                        </span>
-                                    </div>
-                                ))}
-                                {(!vehicles || vehicles.length === 0) && (
-                                    <div className="p-8 text-center text-slate-400 text-sm">
-                                        Nenhum veículo alocado nesta obra.
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                         {/* Lista de Funcionários */}
-                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                    <Users size={18} className="text-slate-400" />
-                                    Equipe Alocada
-                                </h3>
-                                <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-                                    {employees?.length || 0} Pessoas
-                                </span>
-                            </div>
-                            <div className="divide-y divide-slate-100">
-                                {employees?.map(e => (
-                                    <div key={e.id} className="px-6 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-8 w-8 rounded bg-orange-100 flex items-center justify-center text-orange-600 font-bold">
-                                                <HardHat size={16} />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-700">{e.nome}</p>
-                                                <p className="text-xs text-slate-400 uppercase">
-                                                    {e.cargo || 'Funcionario'} • Desde {e.data_alocacao ? new Date(e.data_alocacao).toLocaleDateString() : 'N/A'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                                {(!employees || employees.length === 0) && (
-                                    <div className="p-8 text-center text-slate-400 text-sm">
-                                        Nenhum funcionário encontrado nos registros de alocação.
-                                    </div>
-                                )}
-                            </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500">
+                            <p className="text-xs text-slate-400 uppercase font-bold">Ritmo Atual</p>
+                            <p className="text-xl font-bold text-slate-700">
+                                {data.vehicles.filter(v => ['Escavadeira','Motoniveladora'].includes(v.tipo)).length} Máq.
+                            </p>
+                            <p className="text-xs text-orange-600 mt-1">
+                                ~{(data.vehicles.length * 8)}h produção/dia
+                            </p>
                         </div>
                     </div>
 
-                    {/* COLUNA DIREITA: CRM / Diário */}
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[800px]">
-                            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                    <FileText size={18} className="text-slate-400" />
-                                    Diário de Obra (CRM)
-                                </h3>
-                            </div>
-                            
-                            {/* Input Area */}
-                            <div className="p-4 bg-slate-50 border-b border-slate-100">
-                                <textarea 
-                                    className="w-full text-sm p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
-                                    rows="3"
-                                    placeholder="Registrar ocorrência, visita ou observação..."
-                                    value={crmNote}
-                                    onChange={(e) => setCrmNote(e.target.value)}
-                                ></textarea>
-                                <div className="flex justify-between items-center mt-2">
-                                    <select 
-                                        className="text-xs bg-white border border-slate-200 rounded px-2 py-1 text-slate-600 outline-none"
-                                        value={interactionType}
-                                        onChange={(e) => setInteractionType(e.target.value)}
-                                    >
-                                        <option value="daily_check">Rotina Diária</option>
-                                        <option value="incident">Incidente</option>
-                                        <option value="client_request">Solicitação Cliente</option>
-                                        <option value="weather">Condição Climática</option>
-                                    </select>
-                                    <button 
-                                        onClick={handleSaveCRM}
-                                        disabled={!crmNote.trim() || submittingCrm}
-                                        className="bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                                    >
-                                        {submittingCrm ? <Loader size={12} className="animate-spin" /> : <Save size={12} />}
-                                        Salvar
-                                    </button>
-                                </div>
-                            </div>
+                    {/* Gráfico Burnup (Simulado com CSS/SVG para não depender de libs externas pesadas) */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                            <TrendingUp size={20} /> Queima de Horas (Burnup)
+                        </h3>
+                        <div className="h-64 flex items-end justify-between gap-1 border-b border-l border-slate-200 p-2 relative">
+                            {/* Linha de Meta (Contrato) */}
+                            <div className="absolute top-0 left-0 w-full border-t border-dashed border-red-300 z-0"></div>
+                            <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {contract?.total_hours_contracted}h</span>
 
-                            {/* Timeline List */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                                {crm_history.map((log) => (
-                                    <div key={log.id} className="relative pl-4 border-l-2 border-slate-100 last:border-0 pb-4">
-                                        <div className="absolute -left-[5px] top-0 h-2.5 w-2.5 rounded-full bg-blue-400 ring-4 ring-white"></div>
-                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 hover:border-blue-100 transition-colors">
-                                            <div className="flex justify-between items-start mb-1">
-                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                                                    log.tipo_interacao === 'incident' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
-                                                }`}>
-                                                    {log.tipo_interacao}
-                                                </span>
-                                                <span className="text-[10px] text-slate-400">
-                                                    {new Date(log.created_at).toLocaleDateString()} {new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                </span>
-                                            </div>
-                                            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                                                {log.resumo_conversa}
-                                            </p>
-                                            <div className="mt-2 pt-2 border-t border-slate-200/50 flex items-center gap-1 text-[10px] text-slate-400">
-                                                <CheckCircle size={10} />
-                                                <span>Registrado por: {log.supervisor_name}</span>
-                                            </div>
+                            {burnup?.map((point, i) => {
+                                const height = (point.horas_dia / (contract?.total_hours_contracted || 1000)) * 100; // Simplificado
+                                return (
+                                    <div key={i} className="flex-1 bg-blue-100 hover:bg-blue-200 transition-colors relative group rounded-t" style={{height: `${Math.min(height * 5, 100)}%`}}> 
+                                        {/* Multiplicador *5 apenas para visualização se valores forem baixos dia a dia */}
+                                        <div className="hidden group-hover:block absolute bottom-full mb-1 bg-black text-white text-xs p-1 rounded z-10 w-max">
+                                            {new Date(point.data).toLocaleDateString()}: {point.horas_dia}h
                                         </div>
                                     </div>
-                                ))}
-                                {crm_history.length === 0 && (
-                                    <div className="text-center py-10 text-slate-400 italic text-sm">
-                                        Nenhum registro encontrado.<br/>Inicie o acompanhamento acima.
-                                    </div>
-                                )}
-                            </div>
+                                )
+                            })}
+                            {(!burnup || burnup.length === 0) && <div className="w-full h-full flex items-center justify-center text-slate-400">Sem dados de produção ainda.</div>}
+                        </div>
+                    </div>
+
+                    {/* Tabela de Recursos com Equivalência */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+                        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                <Scale size={18} /> Recursos & Equivalência
+                            </h3>
+                            <span className="text-xs bg-slate-200 px-2 py-1 rounded text-slate-600">Fator Padrão: 1.0</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 text-slate-500 uppercase text-xs">
+                                    <tr>
+                                        <th className="px-4 py-3">Equipamento Real</th>
+                                        <th className="px-4 py-3">Contratado Como</th>
+                                        <th className="px-4 py-3 text-center">Fator</th>
+                                        <th className="px-4 py-3">Operador</th>
+                                        <th className="px-4 py-3">Próx. Alocação</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {vehicles.map(v => (
+                                        <tr key={v.id} className="hover:bg-slate-50">
+                                            <td className="px-4 py-3 font-medium text-slate-700">
+                                                {v.modelo} <span className="text-slate-400 font-normal">({v.placa})</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-500">{v.grupo_contratado || v.tipo}</td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${v.fator_conversao < 1 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                                    {v.fator_conversao || '1.0'}x
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-600">{v.operador_nome || '---'}</td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-1 text-slate-400 text-xs border border-dashed border-slate-300 rounded px-2 py-1 cursor-text hover:border-blue-400">
+                                                    <MapPin size={12}/> Definir...
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
+
+                {/* COLUNA DIREITA: CRM & Marcos */}
+                <div className="space-y-6">
+                    {/* Marcos Críticos */}
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><ShieldCheck size={18}/> Marcos de Cobrança</h3>
+                        <div className="space-y-3">
+                            <button 
+                                disabled={has30 || submitting}
+                                onClick={() => handleSaveCRM('call_30')}
+                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${has30 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 hover:border-blue-300'}`}
+                            >
+                                <span className="flex items-center gap-2 text-sm font-semibold">
+                                    {has30 ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
+                                    Contato 30%
+                                </span>
+                                {has30 && <span className="text-[10px]">Concluído</span>}
+                            </button>
+
+                            <button 
+                                disabled={has70 || submitting}
+                                onClick={() => handleSaveCRM('call_70')}
+                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${has70 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 hover:border-blue-300'}`}
+                            >
+                                <span className="flex items-center gap-2 text-sm font-semibold">
+                                    {has70 ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
+                                    Contato 70%
+                                </span>
+                            </button>
+
+                            <button 
+                                disabled={hasFinal || submitting}
+                                onClick={() => handleSaveCRM('call_final')}
+                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${hasFinal ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 hover:border-blue-300'}`}
+                            >
+                                <span className="flex items-center gap-2 text-sm font-semibold">
+                                    {hasFinal ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
+                                    Finalização
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* CRM Diário */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                <Phone size={18} /> Diário de Bordo
+                            </h3>
+                        </div>
+                        
+                        <div className="p-4 bg-white border-b border-slate-100 space-y-3">
+                            <select 
+                                className="w-full text-sm border rounded p-2 bg-slate-50 outline-none"
+                                value={interactionType}
+                                onChange={e => setInteractionType(e.target.value)}
+                            >
+                                <option value="daily_check">Rotina Diária</option>
+                                <option value="issue">Problema / Quebra</option>
+                                <option value="agreement">Acordo Verbal</option>
+                            </select>
+                            <textarea 
+                                className="w-full text-sm p-3 rounded border border-slate-200 focus:ring-2 focus:ring-blue-100 outline-none resize-none"
+                                rows="3"
+                                placeholder="Descreva a ocorrência..."
+                                value={crmNote}
+                                onChange={e => setCrmNote(e.target.value)}
+                            />
+                            <input 
+                                className="w-full text-sm p-2 rounded border border-slate-200 placeholder:text-slate-400"
+                                placeholder="Ação Acordada (Ex: Assinará amanhã)"
+                                value={agreedAction}
+                                onChange={e => setAgreedAction(e.target.value)}
+                            />
+                            <button 
+                                onClick={() => handleSaveCRM()}
+                                disabled={submitting || !crmNote}
+                                className="w-full bg-slate-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-slate-700 flex justify-center items-center gap-2"
+                            >
+                                {submitting ? <Loader size={14} className="animate-spin"/> : <Save size={14} />} Salvar Registro
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+                            {crm.map(log => (
+                                <div key={log.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${log.interaction_type === 'issue' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                            {log.interaction_type.replace('call_', 'Marco ')}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">{new Date(log.created_at).toLocaleString()}</span>
+                                    </div>
+                                    <p className="text-sm text-slate-700">{log.notes}</p>
+                                    {log.agreed_action && (
+                                        <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-orange-600 font-medium flex items-center gap-1">
+                                            <AlertTriangle size={10} /> Acordo: {log.agreed_action}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     );
