@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
     ArrowLeft, Clock, Calendar, TrendingUp, AlertTriangle, 
-    Truck, Save, Loader, CheckSquare, FileText, CheckCircle
+    Truck, Save, Loader, CheckSquare, FileText, CheckCircle, Users, HardHat
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
-    const [data, setData] = useState(null); // Agora armazena { obra, vehicles, crm_history }
+    const [data, setData] = useState(null); // Agora armazena { obra, vehicles, employees, crm_history }
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -16,16 +16,12 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [interactionType, setInteractionType] = useState('daily_check'); 
     const [submittingCrm, setSubmittingCrm] = useState(false);
 
-    // Fetch simplificado e robusto
-    // Usamos useCallback para estabilizar a função e incluir no array de dependências do useEffect
     const fetchDetails = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            // Busca tudo em uma única chamada otimizada
             const response = await apiClient.get('/supervisor/obra/' + obraId);
             
-            // O backend agora retorna { obra, vehicles, crm_history }
             if (!response || !response.obra) {
                 throw new Error("Dados da obra não retornados pelo servidor.");
             }
@@ -34,16 +30,14 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             setLastUpdate(new Date());
         } catch (error) {
             console.error("Erro ao carregar detalhes:", error);
-            setError("Não foi possível carregar os dados da obra. Verifique se o ID está correto ou se a obra está ativa.");
+            setError("Não foi possível carregar os dados. Tente recarregar a página.");
         } finally {
             setLoading(false);
         }
     }, [obraId]);
 
     useEffect(() => {
-        if (obraId) {
-            fetchDetails();
-        }
+        if (obraId) fetchDetails();
     }, [obraId, fetchDetails]);
 
     const handleSaveCRM = async () => {
@@ -57,7 +51,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                 data_proximo_contato: null
             });
             setCrmNote('');
-            fetchDetails(); // Recarrega para mostrar o novo log
+            fetchDetails(); 
         } catch (error) {
             alert('Erro ao salvar registro CRM');
         } finally {
@@ -85,11 +79,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         </div>
     );
 
-    // Desestruturação segura
-    const { obra, vehicles, crm_history } = data;
+    const { obra, vehicles, employees, crm_history } = data;
     const { kpi, previsao } = obra;
 
-    // Cores dinâmicas
     const getStatusColor = (percent) => {
         if (percent >= 90) return 'bg-red-500';
         if (percent >= 70) return 'bg-purple-500';
@@ -138,7 +130,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     
-                    {/* COLUNA ESQUERDA: KPIs e Burnup */}
+                    {/* COLUNA ESQUERDA: KPIs e Recursos */}
                     <div className="space-y-6 lg:col-span-2">
                         {/* Cards de Resumo */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -193,11 +185,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                         <Calendar size={20} />
                                     </div>
                                 </div>
-                                {previsao.status === 'atrasado' && (
-                                    <div className="mt-2 flex items-center gap-1 text-[10px] text-red-600 font-bold bg-white/50 px-2 py-1 rounded">
-                                        <AlertTriangle size={10} /> Risco de Atraso Detectado
-                                    </div>
-                                )}
                             </div>
                         </div>
 
@@ -209,19 +196,21 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                     Equipamentos Alocados
                                 </h3>
                                 <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                                    {vehicles.length} Ativos
+                                    {vehicles?.length || 0} Ativos
                                 </span>
                             </div>
                             <div className="divide-y divide-slate-100">
-                                {vehicles.map(v => (
+                                {vehicles?.map(v => (
                                     <div key={v.id} className="px-6 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
                                         <div className="flex items-center gap-3">
                                             <div className="h-8 w-8 rounded bg-slate-200 flex items-center justify-center text-slate-500 font-bold text-xs">
-                                                {v.plate.slice(-3)}
+                                                {v.plate ? v.plate.slice(-3) : '---'}
                                             </div>
                                             <div>
                                                 <p className="text-sm font-semibold text-slate-700">{v.model}</p>
-                                                <p className="text-xs text-slate-400 uppercase">{v.plate}</p>
+                                                <p className="text-xs text-slate-400 uppercase">
+                                                    {v.plate} • Desde {v.data_alocacao ? new Date(v.data_alocacao).toLocaleDateString() : 'N/A'}
+                                                </p>
                                             </div>
                                         </div>
                                         <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
@@ -229,9 +218,44 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                         </span>
                                     </div>
                                 ))}
-                                {vehicles.length === 0 && (
+                                {(!vehicles || vehicles.length === 0) && (
                                     <div className="p-8 text-center text-slate-400 text-sm">
-                                        Nenhum veículo alocado atualmente nesta obra.
+                                        Nenhum veículo alocado nesta obra.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                         {/* Lista de Funcionários */}
+                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                    <Users size={18} className="text-slate-400" />
+                                    Equipe Alocada
+                                </h3>
+                                <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+                                    {employees?.length || 0} Pessoas
+                                </span>
+                            </div>
+                            <div className="divide-y divide-slate-100">
+                                {employees?.map(e => (
+                                    <div key={e.id} className="px-6 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-8 w-8 rounded bg-orange-100 flex items-center justify-center text-orange-600 font-bold">
+                                                <HardHat size={16} />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-700">{e.nome}</p>
+                                                <p className="text-xs text-slate-400 uppercase">
+                                                    {e.cargo || 'Funcionario'} • Desde {e.data_alocacao ? new Date(e.data_alocacao).toLocaleDateString() : 'N/A'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(!employees || employees.length === 0) && (
+                                    <div className="p-8 text-center text-slate-400 text-sm">
+                                        Nenhum funcionário encontrado nos registros de alocação.
                                     </div>
                                 )}
                             </div>
@@ -240,7 +264,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
                     {/* COLUNA DIREITA: CRM / Diário */}
                     <div className="space-y-6">
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[800px]">
                             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
                                     <FileText size={18} className="text-slate-400" />
