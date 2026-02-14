@@ -36,27 +36,34 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     useEffect(() => { if (obraId) fetchDetails(); }, [obraId, fetchDetails]);
 
+    // Helpers de conversão para evitar o crash do toFixed
+    const safeNumber = (val) => {
+        const num = parseFloat(val);
+        return isNaN(num) ? 0 : num;
+    };
+
     // Cálculo dinâmico de previsão
     const calculatePrediction = () => {
-        if (!data || !data.obra) return { days: 0, date: new Date() };
+        if (!data || !data.obra) return { days: 0, date: new Date(), activeCount: 0 };
 
         const { obra, contract, vehicles = [] } = data;
         
-        // CORREÇÃO 1: Usa o total de horas vindo do backend (que já considera o legado se necessário)
-        const totalHours = contract?.total_hours_contracted || obra.kpi?.horas_contratadas || 0;
-        const execHours = obra.kpi?.horas_executadas || 0;
+        // Garante números
+        const totalHours = safeNumber(contract?.total_hours_contracted || obra.kpi?.horas_contratadas);
+        const execHours = safeNumber(obra.kpi?.horas_executadas);
         const saldo = totalHours - execHours;
         
         // CORREÇÃO 2: Filtra Máquinas e Caminhões para o ritmo (ignora leves)
-        // Lista expandida de tipos
+        // Lista expandida de tipos conforme solicitado
         const productiveVehicles = (vehicles || []).filter(v => {
             const tipo = (v.tipo || '').toLowerCase();
             const modelo = (v.modelo || '').toLowerCase();
-            return (
-                ['escavadeira', 'motoniveladora', 'trator', 'rolo', 'retroescavadeira', 'pá carregadeira'].some(t => tipo.includes(t)) ||
-                tipo.includes('caminhão') || 
-                modelo.includes('caminhão')
-            );
+            
+            // Verifica se é máquina ou caminhão
+            const isMachine = ['escavadeira', 'motoniveladora', 'trator', 'rolo', 'retroescavadeira', 'pá carregadeira', 'patrol', 'retro'].some(t => tipo.includes(t));
+            const isTruck = tipo.includes('caminhão') || modelo.includes('caminhão') || tipo.includes('basculante') || tipo.includes('pipa') || tipo.includes('munck');
+            
+            return isMachine || isTruck;
         });
 
         const activeCount = productiveVehicles.length || 1; // Mínimo 1 para não dividir por zero
@@ -67,7 +74,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         
         const date = new Date();
         let added = 0;
-        const safetyLimit = 365 * 5; 
+        const safetyLimit = 365 * 5; // Limite de segurança de 5 anos
         while(added < days && added < safetyLimit){
             date.setDate(date.getDate()+1);
             if(date.getDay() !== 0 && date.getDay() !== 6) added++;
@@ -101,7 +108,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         const vehicles = data.vehicles || [];
         const obra = data.obra || {};
         const contract = data.contract || {};
-        const totalHours = contract.total_hours_contracted || obra.kpi?.horas_contratadas || 0;
+        
+        const totalHours = safeNumber(contract.total_hours_contracted || obra.kpi?.horas_contratadas);
+        const execHours = safeNumber(obra.kpi?.horas_executadas);
         
         doc.setFontSize(18);
         doc.text(`Relatório: ${obra.nome || 'Obra'}`, 14, 20);
@@ -111,15 +120,15 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         doc.text(`Responsável: ${obra.responsavel || 'N/A'}`, 14, 38);
         doc.text(`Fiscal: ${contract.fiscal_nome || 'N/A'}`, 14, 46);
 
-        const saldo = totalHours - (obra.kpi?.horas_executadas || 0);
+        const saldo = totalHours - execHours;
         const prev = calculatePrediction();
 
         autoTable(doc, {
             startY: 55,
             head: [['Item', 'Valor']],
             body: [
-                ['Total Contratado', `${totalHours} h`],
-                ['Total Executado', `${obra.kpi?.horas_executadas || 0} h`],
+                ['Total Contratado', `${totalHours.toFixed(1)} h`],
+                ['Total Executado', `${execHours.toFixed(1)} h`],
                 ['Saldo Restante', `${saldo.toFixed(1)} h`],
                 ['Ritmo Atual', `${prev.activeCount} Máq/Caminhões (~${prev.activeCount * 8}h/dia)`],
                 ['Previsão Término', prev.date.toLocaleDateString()]
@@ -160,9 +169,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     const prediction = calculatePrediction();
     
-    // Cálculo do Percentual
-    const totalContratado = contract?.total_hours_contracted || obra.kpi?.horas_contratadas || 0;
-    const totalExecutado = obra.kpi?.horas_executadas || 0;
+    // CORREÇÃO CRÍTICA: Conversão explícita para Number antes de usar .toFixed()
+    const totalContratado = safeNumber(contract?.total_hours_contracted || obra.kpi?.horas_contratadas);
+    const totalExecutado = safeNumber(obra.kpi?.horas_executadas);
     const saldoHoras = totalContratado - totalExecutado;
     const percentual = totalContratado > 0 ? (totalExecutado / totalContratado * 100) : 0;
 
@@ -236,7 +245,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </h3>
                         <div className="h-64 flex items-end justify-between gap-1 border-b border-l border-slate-200 p-2 relative">
                             <div className="absolute top-0 left-0 w-full border-t border-dashed border-red-300 z-0"></div>
-                            <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {totalContratado}h</span>
+                            <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {totalContratado.toFixed(0)}h</span>
                             {burnup.map((point, i) => {
                                 const height = (point.horas_dia / (totalContratado || 1000)) * 100; 
                                 return (
@@ -281,7 +290,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                                     {v.fator_conversao || '1.0'}x
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-slate-600">{v.operador_nome}</td>
+                                            <td className="px-4 py-3 text-slate-600">{v.operador_nome || '---'}</td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-1 text-slate-400 text-xs border border-dashed border-slate-300 rounded px-2 py-1 cursor-text hover:border-blue-400">
                                                     <MapPin size={12}/> Definir...
