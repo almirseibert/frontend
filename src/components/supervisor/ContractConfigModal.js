@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, FileText, Calendar, DollarSign, Clock, User, AlertCircle } from 'lucide-react';
+import { X, Save, FileText, Calendar, DollarSign, Clock, User, AlertCircle, HardHat } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 
 const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
@@ -8,31 +8,53 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
         horas_totais: '',
         data_inicio: '',
         data_fim_contratual: '',
-        fiscal_nome: ''
+        fiscal_nome: '',
+        responsavel_nome: ''
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
         if (isOpen && obra) {
-            // Lógica de Prioridade: Dados do Contrato > Dados da Obra > Vazio
-            // Isso atende ao requisito: "caso nao esteja preenchido buscar a informação inicial na coluna da tabela obras"
-            const kpi = obra.kpi || {};
+            // 1. Lógica para Horas Contratadas (Soma do JSON se não tiver no contrato)
+            let horasIniciais = '';
             
-            // Tenta pegar do contrato (se existir no objeto obra ou kpi) ou faz fallback para obra
-            const valorInicial = kpi.valor_total_contrato || obra.valorTotalContrato || '';
-            const horasIniciais = kpi.horas_contratadas || obra.horasContratadasTotal || ''; // Assumindo que o back mande a soma se não tiver contrato
-            
-            // Datas
-            const dataInicioRaw = obra.data_inicio_contratual || obra.dataInicio;
-            const dataFimRaw = obra.data_fim_contratual || obra.dataFimPrevisto;
+            // Se já tem no contrato (KPI), usa.
+            if (obra.kpi?.horas_contratadas > 0) {
+                horasIniciais = obra.kpi.horas_contratadas;
+            } 
+            // Se não, tenta somar do JSON legado da tabela obras
+            else if (obra.legacy_data?.horas_json) {
+                try {
+                    const jsonHoras = typeof obra.legacy_data.horas_json === 'string' 
+                        ? JSON.parse(obra.legacy_data.horas_json) 
+                        : obra.legacy_data.horas_json;
+                    
+                    if (jsonHoras && typeof jsonHoras === 'object') {
+                        // Soma todos os valores do objeto (ex: {"Rolo": 300, "Caminhao": 200} => 500)
+                        const totalCalculado = Object.values(jsonHoras).reduce((acc, curr) => acc + Number(curr), 0);
+                        if (totalCalculado > 0) horasIniciais = totalCalculado;
+                    }
+                } catch (e) {
+                    console.warn("Erro ao processar JSON de horas:", e);
+                }
+            }
 
+            // 2. Preenchimento do Form
             setFormData({
-                valor_total: valorInicial,
+                // Valor: Contrato (KPI) ou Legado
+                valor_total: obra.kpi?.valor_total_contrato || obra.legacy_data?.valor_total || '',
+                
                 horas_totais: horasIniciais,
-                data_inicio: dataInicioRaw ? dataInicioRaw.split('T')[0] : '',
-                data_fim_contratual: dataFimRaw ? dataFimRaw.split('T')[0] : '',
-                fiscal_nome: obra.fiscal_nome || obra.fiscal || ''
+                
+                // Data Início: Contrato ou Legado
+                data_inicio: (obra.data_inicio || obra.legacy_data?.data_inicio || '').split('T')[0],
+                
+                data_fim_contratual: (obra.data_fim_contratual || '').split('T')[0],
+                
+                // Nomes: Tenta pegar do contrato, senão do legado
+                fiscal_nome: obra.fiscal_nome !== 'A Definir' ? obra.fiscal_nome : (obra.legacy_data?.fiscal || ''),
+                responsavel_nome: obra.responsavel !== 'A Definir' ? obra.responsavel : (obra.legacy_data?.responsavel || '')
             });
             setError('');
         }
@@ -56,7 +78,8 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                 horas_totais: parseFloat(formData.horas_totais),
                 data_inicio: formData.data_inicio,
                 data_fim_contratual: formData.data_fim_contratual,
-                fiscal_nome: formData.fiscal_nome
+                fiscal_nome: formData.fiscal_nome,
+                responsavel_nome: formData.responsavel_nome
             });
             
             onSuccess();
@@ -88,10 +111,6 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                             {error}
                         </div>
                     )}
-
-                    <p className="text-xs text-slate-500 bg-blue-50 p-2 rounded border border-blue-100">
-                        <b>Nota:</b> O sistema importou dados do cadastro da obra. Confirme ou ajuste para oficializar o contrato.
-                    </p>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -148,17 +167,32 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Nome do Fiscal</label>
-                        <div className="relative">
-                            <User size={16} className="absolute left-3 top-3 text-slate-400" />
-                            <input
-                                type="text"
-                                value={formData.fiscal_nome}
-                                onChange={e => setFormData({...formData, fiscal_nome: e.target.value})}
-                                className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
-                                placeholder="Fiscal ou Eng. Responsável"
-                            />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Responsável Obra</label>
+                            <div className="relative">
+                                <HardHat size={16} className="absolute left-3 top-3 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={formData.responsavel_nome}
+                                    onChange={e => setFormData({...formData, responsavel_nome: e.target.value})}
+                                    className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
+                                    placeholder="Eng. ou Mestre"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Fiscal da Obra</label>
+                            <div className="relative">
+                                <User size={16} className="absolute left-3 top-3 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={formData.fiscal_nome}
+                                    onChange={e => setFormData({...formData, fiscal_nome: e.target.value})}
+                                    className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
+                                    placeholder="Quem fiscaliza"
+                                />
+                            </div>
                         </div>
                     </div>
 
