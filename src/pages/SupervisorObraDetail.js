@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable'; // Importação corrigida para V3+
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
@@ -28,8 +28,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             setData(res);
         } catch (error) {
             console.error("Erro:", error);
-            // Mostra a mensagem real do erro vinda da API (ex: "Obra não encontrada") ou mensagem genérica
-            setError(error.message || "Não foi possível carregar os detalhes da obra. Tente novamente.");
+            setError(error.message || "Não foi possível carregar os detalhes da obra.");
         } finally {
             setLoading(false);
         }
@@ -39,7 +38,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     // Cálculo dinâmico de previsão
     const calculatePrediction = () => {
-        // Blindagem contra data null
         if (!data || !data.obra) return { days: 0, date: new Date() };
 
         const { obra, contract, vehicles = [] } = data;
@@ -47,7 +45,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         const execHours = obra.kpi?.horas_executadas || 0;
         const saldo = totalHours - execHours;
         
-        // Contar máquinas pesadas ativas (com fallback de array vazio)
         const heavyMachines = (vehicles || []).filter(v => 
             ['Escavadeira', 'Motoniveladora', 'Trator', 'Rolo', 'Retroescavadeira'].includes(v.tipo)
         ).length || 1;
@@ -56,7 +53,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         const days = Math.ceil(saldo > 0 ? saldo / dailyCap : 0);
         
         const date = new Date();
-        // Adicionar dias úteis simplificado
         let added = 0;
         const safetyLimit = 365 * 5; 
         while(added < days && added < safetyLimit){
@@ -79,7 +75,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             setAgreedAction('');
             fetchDetails();
         } catch (err) {
-            alert('Erro ao salvar registro.');
+            // Mostra o erro real do backend se disponível
+            alert(err.response?.data?.error || 'Erro ao salvar registro.');
         } finally {
             setSubmitting(false);
         }
@@ -88,7 +85,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const generatePDF = () => {
         if (!data) return;
         const doc = new jsPDF();
-        // Fallbacks para garantir que não exploda se array for null
+        
         const vehicles = data.vehicles || [];
         const obra = data.obra || {};
         const contract = data.contract || {};
@@ -101,9 +98,10 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         doc.text(`Responsável: ${obra.responsavel || 'N/A'}`, 14, 38);
         doc.text(`Fiscal: ${contract.fiscal_nome || 'N/A'}`, 14, 46);
 
-        // Tabela de Saldos
         const saldo = (contract.total_hours_contracted || 0) - (obra.kpi?.horas_executadas || 0);
-        doc.autoTable({
+        
+        // Uso corrigido do autoTable (Chamada como função importada)
+        autoTable(doc, {
             startY: 55,
             head: [['Item', 'Valor']],
             body: [
@@ -114,9 +112,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             ]
         });
 
-        // Tabela de Equipamentos
         doc.text("Equipamentos Alocados", 14, doc.lastAutoTable.finalY + 10);
-        doc.autoTable({
+        
+        autoTable(doc, {
             startY: doc.lastAutoTable.finalY + 15,
             head: [['Equipamento', 'Placa', 'Operador', 'Desde']],
             body: vehicles.map(v => [
@@ -140,11 +138,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         );
     }
 
-    // =========================================================================================
-    // CORREÇÃO CRÍTICA: Desestruturação com Fallback para NULL
-    // =========================================================================================
-    // Se data for null, usa {}. 
-    // Se data.crm_history for null, usa [] (o operador || garante isso, default param = só funciona para undefined)
     const obra = data?.obra || {};
     const contract = data?.contract || {};
     const burnup = data?.burnup || [];
@@ -154,14 +147,12 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const prediction = calculatePrediction();
     const percentual = contract?.total_hours_contracted ? ((obra.kpi?.horas_executadas || 0) / contract.total_hours_contracted * 100) : 0;
 
-    // Verificar Marcos CRM com segurança (Optional Chaining ?.some para garantia final)
     const has30 = crm_history?.some(l => l.interaction_type === 'call_30');
     const has70 = crm_history?.some(l => l.interaction_type === 'call_70');
     const hasFinal = crm_history?.some(l => l.interaction_type === 'call_final');
 
     return (
         <div className="bg-slate-100 min-h-screen pb-20">
-            {/* Header Fixo */}
             <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><ArrowLeft size={20}/></button>
@@ -176,10 +167,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             </div>
 
             <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
                 {/* COLUNA ESQUERDA: KPIs e Burnup */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* Cards Topo */}
                     <div className="grid grid-cols-3 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
                             <p className="text-xs text-slate-400 uppercase font-bold">Saldo de Horas</p>
@@ -213,16 +202,13 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </div>
                     </div>
 
-                    {/* Gráfico Burnup */}
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                         <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                             <TrendingUp size={20} /> Queima de Horas (Burnup)
                         </h3>
                         <div className="h-64 flex items-end justify-between gap-1 border-b border-l border-slate-200 p-2 relative">
-                            {/* Linha de Meta (Contrato) */}
                             <div className="absolute top-0 left-0 w-full border-t border-dashed border-red-300 z-0"></div>
                             <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {contract?.total_hours_contracted}h</span>
-
                             {burnup.map((point, i) => {
                                 const height = (point.horas_dia / (contract?.total_hours_contracted || 1000)) * 100; 
                                 return (
@@ -237,7 +223,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </div>
                     </div>
 
-                    {/* Tabela de Recursos */}
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200">
                         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -287,7 +272,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
                 {/* COLUNA DIREITA: CRM & Marcos */}
                 <div className="space-y-6">
-                    {/* Marcos Críticos */}
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                         <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><ShieldCheck size={18}/> Marcos de Cobrança</h3>
                         <div className="space-y-3">
@@ -327,7 +311,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </div>
                     </div>
 
-                    {/* CRM Diário */}
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
                         <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -391,7 +374,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </div>
                     </div>
                 </div>
-
             </div>
         </div>
     );
