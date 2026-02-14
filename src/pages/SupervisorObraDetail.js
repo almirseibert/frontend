@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
-    ArrowLeft, Clock, Calendar, Phone, TrendingUp, AlertTriangle, 
-    Truck, Save, Loader, CheckSquare, FileText, Share2, Printer, CheckCircle
+    ArrowLeft, Clock, Calendar, TrendingUp, AlertTriangle, 
+    Truck, Save, Loader, CheckSquare, FileText, CheckCircle
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
@@ -17,7 +17,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [submittingCrm, setSubmittingCrm] = useState(false);
 
     // Fetch simplificado e robusto
-    const fetchDetails = async () => {
+    // Usamos useCallback para estabilizar a função e incluir no array de dependências do useEffect
+    const fetchDetails = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -25,7 +26,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             const response = await apiClient.get('/supervisor/obra/' + obraId);
             
             // O backend agora retorna { obra, vehicles, crm_history }
-            // Não precisamos mais buscar o dashboard e filtrar manualmente
             if (!response || !response.obra) {
                 throw new Error("Dados da obra não retornados pelo servidor.");
             }
@@ -38,11 +38,13 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [obraId]);
 
     useEffect(() => {
-        if (obraId) fetchDetails();
-    }, [obraId]);
+        if (obraId) {
+            fetchDetails();
+        }
+    }, [obraId, fetchDetails]);
 
     const handleSaveCRM = async () => {
         if (!crmNote.trim()) return;
