@@ -40,8 +40,10 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                 }
             }
 
-            // CORREÇÃO DATA: Usa legado se contrato não tiver
-            const dataInicioBase = obra.data_inicio || obra.legacy_data?.data_inicio || '';
+            // CORREÇÃO DATA: Usa legado (dataInicio da tabela obras) se contrato não tiver
+            // Preferência: Dados do Contrato (se existir) > Dados da Obra (data_inicio) > Dados Legados
+            const dataInicioRaw = obra.data_inicio || obra.legacy_data?.data_inicio || '';
+            const dataInicioValue = dataInicioRaw ? dataInicioRaw.split('T')[0] : '';
 
             // 2. Preenchimento do Form
             setFormData({
@@ -51,7 +53,7 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                 horas_totais: horasIniciais,
                 
                 // Data Início: Contrato ou Legado
-                data_inicio: dataInicioBase.split('T')[0],
+                data_inicio: dataInicioValue,
                 
                 data_fim_contratual: (obra.data_fim_contratual || '').split('T')[0],
                 

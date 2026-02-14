@@ -42,19 +42,27 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
         const { obra, contract, vehicles = [] } = data;
         
-        // CORREÇÃO: Usa o total de horas calculado no backend (contract ou legado)
+        // CORREÇÃO 1: Usa o total de horas vindo do backend (que já considera o legado se necessário)
         const totalHours = contract?.total_hours_contracted || obra.kpi?.horas_contratadas || 0;
         const execHours = obra.kpi?.horas_executadas || 0;
         const saldo = totalHours - execHours;
         
-        // CORREÇÃO: Filtra Máquinas e Caminhões
-        const heavyMachines = (vehicles || []).filter(v => {
-            const tipo = v.tipo || '';
-            return ['Escavadeira', 'Motoniveladora', 'Trator', 'Rolo', 'Retroescavadeira', 'Pá Carregadeira'].includes(tipo) 
-                || tipo.includes('Caminhão');
-        }).length || 1;
+        // CORREÇÃO 2: Filtra Máquinas e Caminhões para o ritmo (ignora leves)
+        // Lista expandida de tipos
+        const productiveVehicles = (vehicles || []).filter(v => {
+            const tipo = (v.tipo || '').toLowerCase();
+            const modelo = (v.modelo || '').toLowerCase();
+            return (
+                ['escavadeira', 'motoniveladora', 'trator', 'rolo', 'retroescavadeira', 'pá carregadeira'].some(t => tipo.includes(t)) ||
+                tipo.includes('caminhão') || 
+                modelo.includes('caminhão')
+            );
+        });
+
+        const activeCount = productiveVehicles.length || 1; // Mínimo 1 para não dividir por zero
+        const dailyCap = activeCount * 8; // 8h por máquina/dia
         
-        const dailyCap = heavyMachines * 8;
+        // Se saldo for negativo ou zero, dias = 0
         const days = Math.ceil(saldo > 0 ? saldo / dailyCap : 0);
         
         const date = new Date();
@@ -64,7 +72,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             date.setDate(date.getDate()+1);
             if(date.getDay() !== 0 && date.getDay() !== 6) added++;
         }
-        return { days, date };
+        return { days, date, activeCount };
     };
 
     const handleSaveCRM = async (type = interactionType) => {
@@ -104,7 +112,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         doc.text(`Fiscal: ${contract.fiscal_nome || 'N/A'}`, 14, 46);
 
         const saldo = totalHours - (obra.kpi?.horas_executadas || 0);
-        
+        const prev = calculatePrediction();
+
         autoTable(doc, {
             startY: 55,
             head: [['Item', 'Valor']],
@@ -112,7 +121,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                 ['Total Contratado', `${totalHours} h`],
                 ['Total Executado', `${obra.kpi?.horas_executadas || 0} h`],
                 ['Saldo Restante', `${saldo.toFixed(1)} h`],
-                ['Previsão Término', calculatePrediction().date.toLocaleDateString()]
+                ['Ritmo Atual', `${prev.activeCount} Máq/Caminhões (~${prev.activeCount * 8}h/dia)`],
+                ['Previsão Término', prev.date.toLocaleDateString()]
             ]
         });
 
@@ -150,9 +160,14 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     const prediction = calculatePrediction();
     
-    // Percentual corrigido usando a base correta (contrato ou legado)
-    const baseHoras = contract?.total_hours_contracted || obra.kpi?.horas_contratadas || 0;
-    const percentual = baseHoras > 0 ? ((obra.kpi?.horas_executadas || 0) / baseHoras * 100) : 0;
+    // Cálculo do Percentual
+    const totalContratado = contract?.total_hours_contracted || obra.kpi?.horas_contratadas || 0;
+    const totalExecutado = obra.kpi?.horas_executadas || 0;
+    const saldoHoras = totalContratado - totalExecutado;
+    const percentual = totalContratado > 0 ? (totalExecutado / totalContratado * 100) : 0;
+
+    // Formatação segura de datas
+    const formatDate = (d) => d ? new Date(d).toLocaleDateString() : 'N/A';
 
     const has30 = crm_history?.some(l => l.interaction_type === 'call_30');
     const has70 = crm_history?.some(l => l.interaction_type === 'call_70');
@@ -166,8 +181,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                     <div>
                         <h1 className="text-xl font-bold text-slate-800">{obra.nome || 'Carregando...'}</h1>
                         <p className="text-xs text-slate-500">
-                            Início: {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : 'N/A'} • 
-                            Fim Previsto: {contract.expected_end_date ? new Date(contract.expected_end_date).toLocaleDateString() : 'N/A'}
+                            {/* Mostra data de início real da obra ou contrato */}
+                            Início: {formatDate(contract.start_date || obra.data_inicio_real)} • 
+                            Fim Previsto: {formatDate(contract.expected_end_date)}
                         </p>
                     </div>
                 </div>
@@ -182,15 +198,14 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                     <div className="grid grid-cols-3 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
                             <p className="text-xs text-slate-400 uppercase font-bold">Saldo de Horas</p>
-                            <p className="text-2xl font-bold text-slate-700">
-                                {/* CORREÇÃO: Saldo = (Contratado ou Legado) - Executado */}
-                                {(baseHoras - (obra.kpi?.horas_executadas || 0)).toFixed(0)}h
+                            <p className={`text-2xl font-bold ${saldoHoras < 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                                {saldoHoras.toFixed(0)}h
                             </p>
                             <div className="w-full bg-slate-100 h-1.5 mt-2 rounded-full overflow-hidden">
-                                <div className="bg-blue-500 h-full" style={{width: `${Math.min(percentual, 100)}%`}}></div>
+                                <div className={`h-full ${percentual > 100 ? 'bg-red-500' : 'bg-blue-500'}`} style={{width: `${Math.min(percentual, 100)}%`}}></div>
                             </div>
                             <p className="text-[10px] text-right mt-1 text-slate-400">
-                                {percentual.toFixed(1)}% ({obra.kpi?.horas_executadas}h de {baseHoras}h)
+                                {percentual.toFixed(1)}% ({totalExecutado.toFixed(0)}h de {totalContratado.toFixed(0)}h)
                             </p>
                         </div>
                         
@@ -200,22 +215,17 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                 {prediction.date.toLocaleDateString()}
                             </p>
                             <p className="text-xs text-purple-600 mt-1">
-                                {prediction.days} dias úteis restantes
+                                {saldoHoras > 0 ? `${prediction.days} dias úteis restantes` : 'Obra excedida/concluída'}
                             </p>
                         </div>
 
                         <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500">
                             <p className="text-xs text-slate-400 uppercase font-bold">Ritmo Atual</p>
                             <p className="text-xl font-bold text-slate-700">
-                                {/* CORREÇÃO: Conta Máquinas + Caminhões */}
-                                {vehicles.filter(v => {
-                                    const tipo = v.tipo || '';
-                                    return ['Escavadeira', 'Motoniveladora', 'Trator', 'Retroescavadeira', 'Rolo', 'Pá Carregadeira'].includes(tipo) 
-                                        || tipo.includes('Caminhão');
-                                }).length} Máq.
+                                {prediction.activeCount} Máq/Cam.
                             </p>
                             <p className="text-xs text-orange-600 mt-1">
-                                ~{(vehicles.length * 8)}h produção/dia
+                                ~{(prediction.activeCount * 8)}h produção/dia
                             </p>
                         </div>
                     </div>
@@ -226,9 +236,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </h3>
                         <div className="h-64 flex items-end justify-between gap-1 border-b border-l border-slate-200 p-2 relative">
                             <div className="absolute top-0 left-0 w-full border-t border-dashed border-red-300 z-0"></div>
-                            <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {baseHoras}h</span>
+                            <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {totalContratado}h</span>
                             {burnup.map((point, i) => {
-                                const height = (point.horas_dia / (baseHoras || 1000)) * 100; 
+                                const height = (point.horas_dia / (totalContratado || 1000)) * 100; 
                                 return (
                                     <div key={i} className="flex-1 bg-blue-100 hover:bg-blue-200 transition-colors relative group rounded-t" style={{height: `${Math.min(height * 5, 100)}%`}}> 
                                         <div className="hidden group-hover:block absolute bottom-full mb-1 bg-black text-white text-xs p-1 rounded z-10 w-max">
@@ -253,7 +263,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                 <thead className="bg-slate-50 text-slate-500 uppercase text-xs">
                                     <tr>
                                         <th className="px-4 py-3">Equipamento Real</th>
-                                        <th className="px-4 py-3">Contratado Como</th>
+                                        <th className="px-4 py-3">Tipo</th>
                                         <th className="px-4 py-3 text-center">Fator</th>
                                         <th className="px-4 py-3">Operador</th>
                                         <th className="px-4 py-3">Próx. Alocação</th>
@@ -265,7 +275,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                             <td className="px-4 py-3 font-medium text-slate-700">
                                                 {v.modelo} <span className="text-slate-400 font-normal">({v.placa})</span>
                                             </td>
-                                            <td className="px-4 py-3 text-slate-500">{v.grupo_contratado || v.tipo}</td>
+                                            <td className="px-4 py-3 text-slate-500">{v.tipo}</td>
                                             <td className="px-4 py-3 text-center">
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${v.fator_conversao < 1 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                                                     {v.fator_conversao || '1.0'}x
