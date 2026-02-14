@@ -28,7 +28,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             setData(res);
         } catch (error) {
             console.error("Erro:", error);
-            setError("Não foi possível carregar os detalhes da obra. Tente novamente.");
+            // Mostra a mensagem real do erro vinda da API (ex: "Obra não encontrada") ou mensagem genérica
+            setError(error.message || "Não foi possível carregar os detalhes da obra. Tente novamente.");
         } finally {
             setLoading(false);
         }
