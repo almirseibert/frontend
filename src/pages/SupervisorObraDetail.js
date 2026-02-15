@@ -3,7 +3,7 @@ import {
     ArrowLeft, TrendingUp, DollarSign, Calendar, 
     Truck, MapPin, Save, Loader, PieChart, AlertCircle
 } from 'lucide-react';
-// Ajuste na importação: subindo dois níveis para tentar localizar a pasta services
+// Correção: Ajustando para dois níveis (../../) pois o arquivo parece estar em subpasta (ex: src/pages/supervisor/)
 import apiClient from '../../services/apiClient';
 
 // Componente de Gráfico de Pizza SVG Nativo (Sem dependências externas)
