@@ -1,24 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Tv, RefreshCw, Loader, AlertCircle } from 'lucide-react';
+import { LayoutDashboard, Tv, RefreshCw, Loader, AlertCircle, Truck } from 'lucide-react';
 import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
 import ContractConfigModal from '../components/supervisor/ContractConfigModal';
+// Importação da nova página para navegação interna
+import AllocationForecastPage from './AllocationForecastPage';
 
 const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
     const [obras, setObras] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(new Date());
-    const [isTvMode, setIsTvMode] = useState(false);
+    const [viewMode, setViewMode] = useState('dashboard'); // 'dashboard' or 'allocations'
     
-    // Estados para o Modal de Configuração
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [selectedObraForConfig, setSelectedObraForConfig] = useState(null);
 
     const fetchDashboardData = async () => {
         try {
-            // Se for o primeiro load, mostra spinner. Nos updates silenciosos (setInterval), não.
             if (obras.length === 0) setLoading(true);
-            const data = await apiClient.getSupervisorDashboard();
+            const data = await apiClient.get('/supervisor/dashboard');
+            // O Backend já entrega ordenado por data de término (menor data primeiro)
             setObras(data);
             setLastUpdate(new Date());
         } catch (error) {
@@ -29,81 +30,65 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
     };
 
     useEffect(() => {
-        fetchDashboardData();
-        // Atualiza a cada 5 minutos (Modo TV/Quiosque)
-        const interval = setInterval(() => {
+        if (viewMode === 'dashboard') {
             fetchDashboardData();
-        }, 300000); 
-        return () => clearInterval(interval);
-    }, []);
+            const interval = setInterval(fetchDashboardData, 300000); // 5 min
+            return () => clearInterval(interval);
+        }
+    }, [viewMode]);
 
-    const handleConfigClick = (obra) => {
+    const handleConfigClick = (obra, e) => {
+        e.stopPropagation();
         setSelectedObraForConfig(obra);
         setIsConfigModalOpen(true);
     };
 
     const handleCardClick = (obraId) => {
-        // No modo TV, bloqueamos navegação acidental ou implementamos o "explodir detalhe" em modal
-        if (!isTvMode && onNavigateToDetail) {
+        if (onNavigateToDetail) {
             onNavigateToDetail(obraId);
         }
     };
 
-    const toggleTvMode = () => {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch((e) => console.error(e));
-            setIsTvMode(true);
-        } else {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-                setIsTvMode(false);
-            }
-        }
-    };
+    if (viewMode === 'allocations') {
+        return <AllocationForecastPage onBack={() => setViewMode('dashboard')} />;
+    }
 
     return (
-        <div className={`p-6 min-h-screen bg-slate-100 ${isTvMode ? 'overflow-hidden' : ''}`}>
-            
+        <div className="bg-slate-100 min-h-screen p-6 animate-fade-in">
+            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-2">
-                        <LayoutDashboard className="text-blue-600" size={32} />
+                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <LayoutDashboard className="text-blue-600" />
                         Gestão de Obras
                     </h1>
-                    <p className="text-slate-500 mt-1 flex items-center text-sm">
-                        <RefreshCw size={12} className="mr-1" />
-                        Atualizado: {lastUpdate.toLocaleTimeString()}
-                        {isTvMode && <span className="ml-2 text-red-500 font-bold animate-pulse">• AO VIVO</span>}
+                    <p className="text-slate-500 text-sm mt-1">
+                        Atualizado em: {lastUpdate.toLocaleTimeString()}
                     </p>
                 </div>
                 
                 <div className="flex gap-3">
                     <button 
-                        onClick={fetchDashboardData}
-                        className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                        title="Atualizar Agora"
+                        onClick={() => setViewMode('allocations')}
+                        className="bg-white text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-lg font-bold shadow-sm border border-slate-200 flex items-center gap-2 transition-all"
                     >
-                        <RefreshCw size={24} />
+                        <Truck size={18} /> Previsão de Desmobilização
                     </button>
                     <button 
-                        onClick={toggleTvMode}
-                        className={`
-                            flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all shadow-sm
-                            ${isTvMode 
-                                ? 'bg-red-500 text-white hover:bg-red-600' 
-                                : 'bg-slate-800 text-white hover:bg-slate-700'}
-                        `}
+                        onClick={fetchDashboardData}
+                        className="bg-white p-2 rounded-lg text-slate-600 hover:text-blue-600 shadow-sm border border-slate-200"
+                        title="Atualizar Agora"
                     >
-                        <Tv size={20} />
-                        {isTvMode ? 'Sair Modo TV' : 'Modo TV'}
+                        <RefreshCw size={20} />
                     </button>
                 </div>
             </div>
 
-            {loading && obras.length === 0 ? (
-                <div className="flex h-96 items-center justify-center flex-col">
+            {/* Grid de Obras */}
+            {loading ? (
+                <div className="flex flex-col items-center justify-center h-64">
                     <Loader size={48} className="animate-spin text-blue-600 mb-4" />
-                    <span className="text-xl text-slate-600">Calculando previsões de término...</span>
+                    <span className="text-xl text-slate-600">Calculando previsões...</span>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
@@ -111,8 +96,8 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                         <div key={obra.id} className="h-full transform transition-all hover:-translate-y-1">
                             <ObraCard 
                                 obra={obra} 
-                                onClick={handleCardClick}
-                                onConfig={handleConfigClick}
+                                onClick={() => handleCardClick(obra.id)}
+                                onConfig={(e) => handleConfigClick(obra, e)}
                             />
                         </div>
                     ))}
