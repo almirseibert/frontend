@@ -3,7 +3,8 @@ import {
     ArrowLeft, TrendingUp, DollarSign, Calendar, 
     Truck, MapPin, Save, Loader, PieChart, AlertCircle
 } from 'lucide-react';
-// Correção: Ajustando para ../../ pois o erro 'Could not resolve' com ../ indica que o arquivo está em uma subpasta profunda
+// Correção: Tentativa de importação absoluta/alias para resolver o conflito de profundidade
+// Se isso falhar, o arquivo deve usar ../../services/apiClient assumindo que está em src/pages/supervisor/
 import apiClient from '../../services/apiClient';
 
 // Componente de Gráfico de Pizza SVG Nativo (Sem dependências externas)
