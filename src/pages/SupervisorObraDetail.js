@@ -3,9 +3,7 @@ import {
     ArrowLeft, TrendingUp, DollarSign, Calendar, 
     Truck, MapPin, Save, Loader, PieChart, AlertCircle
 } from 'lucide-react';
-// REMOVIDO: import { Pie } from 'react-chartjs-2'; 
-// REMOVIDO: import 'chart.js/auto'; 
-// Substituído por implementação nativa SVG para evitar erros de build
+// Ajuste na importação: subindo dois níveis para tentar localizar a pasta services
 import apiClient from '../../services/apiClient';
 
 // Componente de Gráfico de Pizza SVG Nativo (Sem dependências externas)
