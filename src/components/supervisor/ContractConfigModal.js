@@ -13,19 +13,27 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
     });
     const [loading, setLoading] = useState(false);
     
+    // Função segura para extrair YYYY-MM-DD
+    const formatDateForInput = (dateStr) => {
+        if (!dateStr) return '';
+        try {
+            return new Date(dateStr).toISOString().split('T')[0];
+        } catch (e) { return ''; }
+    };
+
     useEffect(() => {
         if (isOpen && obra) {
-            // Lógica de Preenchimento Inicial
+            // Lógica de Prioridade: Contrato > Obra > Vazio
             setFormData({
                 valor_total: obra.kpi?.valor_total_contrato || obra.valorTotalContrato || '',
                 horas_totais: obra.kpi?.horas_contratadas || '',
                 
-                // CORREÇÃO AQUI: Prioriza o que está salvo no contrato, senão pega da tabela obra
+                // DATA INÍCIO: Pega do contrato se existir, senão da obra
                 data_inicio: obra.kpi?.start_date 
-                    ? obra.kpi.start_date.split('T')[0] 
-                    : (obra.dataInicio ? obra.dataInicio.split('T')[0] : ''),
+                    ? formatDateForInput(obra.kpi.start_date)
+                    : formatDateForInput(obra.dataInicio),
                     
-                data_fim_contratual: obra.kpi?.expected_end_date ? obra.kpi.expected_end_date.split('T')[0] : '',
+                data_fim_contratual: formatDateForInput(obra.kpi?.expected_end_date),
                 fiscal_nome: obra.kpi?.fiscal_nome || '',
                 responsavel_nome: obra.kpi?.responsavel_nome || obra.responsavel || ''
             });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Tv, RefreshCw, Loader, AlertCircle, Truck } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, Loader, AlertCircle, Truck } from 'lucide-react';
 import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
 import ContractConfigModal from '../components/supervisor/ContractConfigModal';
@@ -18,6 +18,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         try {
             if (obras.length === 0) setLoading(true);
             const data = await apiClient.get('/supervisor/dashboard');
+            // O backend já faz a ordenação por criticidade e data
             setObras(data);
             setLastUpdate(new Date());
         } catch (error) {
@@ -35,7 +36,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         }
     }, [viewMode]);
 
-    // CORREÇÃO: Garante que recebe (event, obra) e previne propagação
+    // Handler seguro para evitar erros de propagação
     const handleConfigClick = (e, obra) => {
         if (e && typeof e.stopPropagation === 'function') {
             e.stopPropagation();
@@ -56,7 +57,6 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
 
     return (
         <div className="bg-slate-100 min-h-screen p-6 animate-fade-in">
-            {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -85,7 +85,6 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                 </div>
             </div>
 
-            {/* Grid de Obras */}
             {loading ? (
                 <div className="flex flex-col items-center justify-center h-64">
                     <Loader size={48} className="animate-spin text-blue-600 mb-4" />
@@ -98,7 +97,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                             <ObraCard 
                                 obra={obra} 
                                 onClick={() => handleCardClick(obra.id)}
-                                // CORREÇÃO: Passa o evento explicitamente para o handler
+                                // Passa o evento explicitamente para o handler do pai
                                 onConfig={(e) => handleConfigClick(e, obra)}
                             />
                         </div>
