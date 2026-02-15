@@ -1,10 +1,9 @@
 import React from 'react';
-import { Clock, Calendar, AlertTriangle, User, TrendingUp, FileSignature, Settings, BarChart2 } from 'lucide-react';
+import { Clock, Calendar, AlertTriangle, User, TrendingUp, Settings } from 'lucide-react';
 
 const ObraCard = ({ obra, onClick, onConfig }) => {
     const { kpi, nome, responsavel, fiscal_nome, previsao } = obra;
     
-    // Mapa de cores (mantido)
     const colorMap = {
         green: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', bar: 'bg-emerald-500', icon: 'text-emerald-600' },
         yellow: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-800', bar: 'bg-yellow-400', icon: 'text-yellow-600' },
@@ -16,7 +15,7 @@ const ObraCard = ({ obra, onClick, onConfig }) => {
     const styles = colorMap[status] || colorMap.green;
     const percentual = kpi?.percentual_conclusao || 0;
     
-    // Formatação da Data de Previsão
+    // Data de previsão (Vem do backend já calculada)
     const dataTermino = previsao?.data_termino_estimada 
         ? new Date(previsao.data_termino_estimada).toLocaleDateString('pt-BR') 
         : '--/--/----';
@@ -28,10 +27,9 @@ const ObraCard = ({ obra, onClick, onConfig }) => {
             onClick={onClick}
             className={`bg-white rounded-xl shadow-sm border border-slate-200 p-5 cursor-pointer relative flex flex-col h-full hover:shadow-md transition-shadow group`}
         >
-            {/* Botão de Configuração (Engrenagem) - CORRIGIDO para passar evento */}
             <button 
                 onClick={(e) => {
-                    e.stopPropagation();
+                    if(e && e.stopPropagation) e.stopPropagation();
                     if (onConfig) onConfig(e);
                 }}
                 className="absolute top-4 right-4 text-slate-300 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors z-10"
@@ -40,22 +38,20 @@ const ObraCard = ({ obra, onClick, onConfig }) => {
                 <Settings size={16} />
             </button>
 
-            {/* Cabeçalho */}
             <div className="mb-4 pr-6">
-                <h3 className="font-bold text-lg text-slate-800 leading-tight line-clamp-2">{nome}</h3>
+                <h3 className="font-bold text-lg text-slate-800 leading-tight line-clamp-2 min-h-[3.5rem]">{nome}</h3>
                 <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
                     <User size={12} />
                     <span>Resp: {responsavel}</span>
-                    {fiscal_nome && (
-                        <>
-                            <span className="text-slate-300">|</span>
-                            <span>Fiscal: {fiscal_nome}</span>
-                        </>
-                    )}
                 </div>
+                {fiscal_nome && (
+                    <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
+                        <span className="text-slate-300">|</span>
+                        <span>Fiscal: {fiscal_nome}</span>
+                    </div>
+                )}
             </div>
 
-            {/* Barra de Progresso */}
             <div className="mb-4">
                 <div className="flex justify-between items-end mb-1">
                     <span className="text-xs font-bold text-slate-500 uppercase">Progresso Físico</span>
@@ -69,17 +65,23 @@ const ObraCard = ({ obra, onClick, onConfig }) => {
                 </div>
             </div>
 
-            {/* KPIs Principais (PREVISÃO ADICIONADA) */}
+            {/* KPIs Principais */}
             <div className="grid grid-cols-2 gap-3 mb-4">
+                {/* HORAS: Contratadas / Executadas */}
                 <div className={`p-2 rounded-lg border ${styles.bg} ${styles.border}`}>
                     <div className="flex items-center gap-1.5 mb-1">
                         <Clock size={14} className={styles.icon} />
-                        <span className={`text-[10px] font-bold uppercase ${styles.text}`}>Executado</span>
+                        <span className={`text-[10px] font-bold uppercase ${styles.text}`}>Horas</span>
                     </div>
-                    <span className={`text-sm font-bold ${styles.text}`}>{kpi?.horas_executadas?.toFixed(0) || 0}h</span>
+                    <div className="flex flex-col">
+                        <span className={`text-xs font-bold ${styles.text}`}>
+                            {kpi?.horas_contratadas?.toFixed(0) || 0} / {kpi?.horas_executadas?.toFixed(0) || 0}
+                        </span>
+                        <span className="text-[10px] opacity-70">Cont. / Exec.</span>
+                    </div>
                 </div>
                 
-                {/* Cartão de Previsão */}
+                {/* Previsão */}
                 <div className="p-2 rounded-lg border bg-slate-50 border-slate-200">
                     <div className="flex items-center gap-1.5 mb-1">
                         <Calendar size={14} className="text-slate-500" />
@@ -87,12 +89,11 @@ const ObraCard = ({ obra, onClick, onConfig }) => {
                     </div>
                     <div className="flex flex-col">
                         <span className="text-sm font-bold text-slate-700">{dataTermino}</span>
-                        <span className="text-[10px] text-slate-400">{diasRestantes} dias úteis</span>
+                        <span className="text-[10px] text-slate-400">{diasRestantes > 0 ? `${diasRestantes} dias úteis` : 'Concluído'}</span>
                     </div>
                 </div>
             </div>
 
-            {/* Alertas Rodapé */}
             <div className="mt-auto flex flex-wrap gap-2">
                 {percentual > 90 && (
                     <div className="flex items-center bg-red-50 text-red-700 px-2 py-1 rounded border border-red-100 text-[10px] font-bold animate-pulse">

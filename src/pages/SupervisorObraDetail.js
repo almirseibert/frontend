@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-    ArrowLeft, TrendingUp, Truck, MapPin, Save, Loader, AlertTriangle, 
-    CheckCircle, MessageSquare, Calendar, DollarSign, FileText
+    ArrowLeft, TrendingUp, DollarSign, Calendar, 
+    Truck, MapPin, Save, Loader, AlertTriangle, MessageSquare, FileText, Printer
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     
-    // Estados do CRM (Diário de Bordo / Marcos)
+    // Estados do CRM
     const [crmNote, setCrmNote] = useState('');
-    const [interactionType, setInteractionType] = useState('daily_log'); // daily_log, billing_milestone, routine
+    const [interactionType, setInteractionType] = useState('daily_log'); 
     const [agreedAction, setAgreedAction] = useState('');
     const [submittingCrm, setSubmittingCrm] = useState(false);
 
@@ -41,7 +43,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             });
             setCrmNote('');
             setAgreedAction('');
-            fetchDetails(); // Recarrega para mostrar o novo log
+            fetchDetails(); 
         } catch (error) {
             alert('Erro ao salvar registro.');
         } finally {
@@ -61,12 +63,69 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                 btn.innerHTML = "Salvo!";
                 btn.className = "text-green-600 font-bold text-xs";
                 setTimeout(() => { 
-                    btn.innerHTML = ""; // Icon returns via render
+                    btn.innerHTML = "";
                     btn.className = "text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors";
                     fetchDetails();
                 }, 1000);
             }
         } catch (e) { alert("Erro ao salvar destino."); }
+    };
+
+    // --- GERAÇÃO DE PDF ---
+    const generatePDF = () => {
+        if (!data) return;
+        const { obra, contract, financeiro, producao, veiculos } = data;
+        const doc = new jsPDF();
+
+        // Cabeçalho
+        doc.setFontSize(18);
+        doc.text("Relatório de Gestão da Obra", 14, 20);
+        
+        doc.setFontSize(12);
+        doc.text(`Obra: ${obra.nome}`, 14, 30);
+        doc.setFontSize(10);
+        doc.text(`Gerado em: ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}`, 14, 36);
+
+        // Dados Gerais
+        doc.autoTable({
+            startY: 45,
+            head: [['Informação', 'Detalhe']],
+            body: [
+                ['Responsável', contract.responsavel_nome || obra.responsavel || '-'],
+                ['Fiscal', contract.fiscal_nome || obra.fiscal_nome || '-'],
+                ['Valor Contrato', formatCurrency(financeiro.total_contrato)],
+                ['Valor Medido', formatCurrency(financeiro.valor_produzido)],
+                ['Total Despesas', formatCurrency(financeiro.total_despesas)],
+                ['Horas Contratadas', producao.saldo_horas + producao.horas_executadas],
+                ['Horas Executadas', producao.horas_executadas],
+                ['Saldo de Horas', producao.saldo_horas],
+                ['Previsão Término', calculateEndDate().date.toLocaleDateString()]
+            ],
+            theme: 'grid',
+            headStyles: { fillColor: [41, 128, 185] },
+        });
+
+        // Tabela de Veículos
+        doc.text("Equipamentos Alocados e Produção", 14, doc.lastAutoTable.finalY + 15);
+        
+        const vehicleRows = veiculos.map(v => [
+            v.tipo,
+            v.modelo,
+            v.marca || '-',
+            v.placa || v.re || 'N/A', // Exibe RE se não tiver placa (assumindo que RE pode estar no campo placa ou ID)
+            v.total_executado?.toFixed(1) || '0.0', // Total acumulado na obra (novo campo do backend)
+            v.media_diaria?.toFixed(1) || '0.0'
+        ]);
+
+        doc.autoTable({
+            startY: doc.lastAutoTable.finalY + 20,
+            head: [['Tipo', 'Modelo', 'Marca', 'Placa/ID', 'Total Executado (h)', 'Média Diária (h)']],
+            body: vehicleRows,
+            theme: 'striped',
+            headStyles: { fillColor: [52, 73, 94] },
+        });
+
+        doc.save(`Relatorio_Obra_${obra.nome.replace(/\s+/g, '_')}.pdf`);
     };
 
     // Cálculos de Data
@@ -106,6 +165,12 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         <p className="text-xs text-slate-500">Contrato: {formatCurrency(contract?.total_value)}</p>
                     </div>
                 </div>
+                <button 
+                    onClick={generatePDF}
+                    className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-900 transition-colors text-sm font-bold"
+                >
+                    <Printer size={16} /> Gerar PDF
+                </button>
             </div>
 
             <div className="max-w-7xl mx-auto p-6 space-y-6">
@@ -227,7 +292,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase">Tipo</label>
                                 <select 
-                                    className="w-full mt-1 border rounded p-2 text-sm bg-slate-50"
+                                    className="w-full mt-1 border rounded p-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-100"
                                     value={interactionType}
                                     onChange={e => setInteractionType(e.target.value)}
                                 >
@@ -252,7 +317,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                 <label className="text-xs font-bold text-slate-500 uppercase">Ação Acordada (Opcional)</label>
                                 <input 
                                     type="text"
-                                    className="w-full mt-1 border rounded p-2 text-sm"
+                                    className="w-full mt-1 border rounded p-2 text-sm focus:ring-2 ring-blue-100 outline-none"
                                     placeholder="Ex: Enviar medição dia 15"
                                     value={agreedAction}
                                     onChange={e => setAgreedAction(e.target.value)}
@@ -315,7 +380,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     );
 };
 
-// Componente de Linha de Máquina (Mantido simples e funcional)
+// Componente de Linha de Máquina
 const MachineRow = ({ vehicle, globalEndDate, onSave }) => {
     const [location, setLocation] = useState(vehicle.proximo_destino || '');
     const [date, setDate] = useState(
@@ -335,7 +400,7 @@ const MachineRow = ({ vehicle, globalEndDate, onSave }) => {
                     type="date" 
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    className="border border-slate-300 rounded p-1 text-slate-600 text-xs w-full"
+                    className="border border-slate-300 rounded p-1 text-slate-600 text-xs w-full focus:border-blue-500 outline-none"
                 />
             </td>
             <td className="px-4 py-3">
@@ -344,14 +409,14 @@ const MachineRow = ({ vehicle, globalEndDate, onSave }) => {
                     placeholder="Destino..." 
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    className="border-b border-slate-300 bg-transparent py-1 w-full text-xs outline-none focus:border-blue-500"
+                    className="border-b border-slate-300 bg-transparent py-1 w-full text-xs outline-none focus:border-blue-500 placeholder:text-slate-300"
                 />
             </td>
             <td className="px-4 py-3 text-right">
                 <button 
                     id={`btn-save-${vehicle.id}`}
                     onClick={() => onSave(vehicle.id, location, date)}
-                    className="text-blue-600 hover:bg-blue-50 p-2 rounded"
+                    className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors"
                 >
                     <Save size={16} />
                 </button>
