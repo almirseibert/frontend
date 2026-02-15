@@ -3,14 +3,13 @@ import { LayoutDashboard, Tv, RefreshCw, Loader, AlertCircle, Truck } from 'luci
 import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
 import ContractConfigModal from '../components/supervisor/ContractConfigModal';
-// Importação da nova página para navegação interna
 import AllocationForecastPage from './AllocationForecastPage';
 
 const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
     const [obras, setObras] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(new Date());
-    const [viewMode, setViewMode] = useState('dashboard'); // 'dashboard' or 'allocations'
+    const [viewMode, setViewMode] = useState('dashboard'); 
     
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [selectedObraForConfig, setSelectedObraForConfig] = useState(null);
@@ -19,7 +18,6 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         try {
             if (obras.length === 0) setLoading(true);
             const data = await apiClient.get('/supervisor/dashboard');
-            // O Backend já entrega ordenado por data de término (menor data primeiro)
             setObras(data);
             setLastUpdate(new Date());
         } catch (error) {
@@ -32,13 +30,16 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
     useEffect(() => {
         if (viewMode === 'dashboard') {
             fetchDashboardData();
-            const interval = setInterval(fetchDashboardData, 300000); // 5 min
+            const interval = setInterval(fetchDashboardData, 300000); 
             return () => clearInterval(interval);
         }
     }, [viewMode]);
 
-    const handleConfigClick = (obra, e) => {
-        e.stopPropagation();
+    // CORREÇÃO: Garante que recebe (event, obra) e previne propagação
+    const handleConfigClick = (e, obra) => {
+        if (e && typeof e.stopPropagation === 'function') {
+            e.stopPropagation();
+        }
         setSelectedObraForConfig(obra);
         setIsConfigModalOpen(true);
     };
@@ -97,7 +98,8 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                             <ObraCard 
                                 obra={obra} 
                                 onClick={() => handleCardClick(obra.id)}
-                                onConfig={(e) => handleConfigClick(obra, e)}
+                                // CORREÇÃO: Passa o evento explicitamente para o handler
+                                onConfig={(e) => handleConfigClick(e, obra)}
                             />
                         </div>
                     ))}
