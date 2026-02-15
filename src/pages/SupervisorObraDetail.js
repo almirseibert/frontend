@@ -1,34 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-    ArrowLeft, TrendingUp, AlertTriangle, 
-    Save, Loader, CheckCircle, 
-    Printer, Phone, ShieldCheck, Scale, MapPin, XCircle
+    ArrowLeft, TrendingUp, DollarSign, Calendar, 
+    Truck, MapPin, Save, Loader, PieChart, AlertCircle
 } from 'lucide-react';
+import { Pie } from 'react-chartjs-2'; // Assumindo que você tem chart.js instalado ou usará HTML simples
+import 'chart.js/auto'; // Registro automático do Chart.js
 import apiClient from '../services/apiClient';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable'; 
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    
-    // CRM States
-    const [crmNote, setCrmNote] = useState('');
-    const [interactionType, setInteractionType] = useState('daily_check');
-    const [agreedAction, setAgreedAction] = useState('');
-    const [submitting, setSubmitting] = useState(false);
+    const [activeTab, setActiveTab] = useState('overview'); // overview, financial, demobilization
 
     const fetchDetails = useCallback(async () => {
         setLoading(true);
-        setError(null);
         try {
             const res = await apiClient.get('/supervisor/obra/' + obraId);
-            if (!res || !res.obra) throw new Error("Dados incompletos retornados.");
             setData(res);
         } catch (error) {
             console.error("Erro:", error);
-            setError(error.message || "Não foi possível carregar os detalhes da obra.");
         } finally {
             setLoading(false);
         }
@@ -36,383 +26,326 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     useEffect(() => { if (obraId) fetchDetails(); }, [obraId, fetchDetails]);
 
-    // Helpers de conversão para evitar o crash do toFixed
-    const safeNumber = (val) => {
-        const num = parseFloat(val);
-        return isNaN(num) ? 0 : num;
-    };
+    // Cálculo da Data Final baseado no "Cérebro"
+    const calculateEndDate = () => {
+        if (!data) return new Date();
+        const { producao } = data;
+        const saldo = producao.saldo_horas || 0;
+        const ritmo = producao.media_diaria_atual || 1; // Evita div por 0
 
-    // Cálculo dinâmico de previsão
-    const calculatePrediction = () => {
-        if (!data || !data.obra) return { days: 0, date: new Date(), activeCount: 0 };
+        if (saldo <= 0) return new Date(); // Obra concluída
 
-        const { obra, contract, vehicles = [] } = data;
+        const diasRestantes = Math.ceil(saldo / ritmo);
         
-        // Garante números
-        const totalHours = safeNumber(contract?.total_hours_contracted || obra.kpi?.horas_contratadas);
-        const execHours = safeNumber(obra.kpi?.horas_executadas);
-        const saldo = totalHours - execHours;
-        
-        // CORREÇÃO 2: Filtra Máquinas e Caminhões para o ritmo (ignora leves)
-        // Lista expandida de tipos conforme solicitado
-        const productiveVehicles = (vehicles || []).filter(v => {
-            const tipo = (v.tipo || '').toLowerCase();
-            const modelo = (v.modelo || '').toLowerCase();
-            
-            // Verifica se é máquina ou caminhão
-            const isMachine = ['escavadeira', 'motoniveladora', 'trator', 'rolo', 'retroescavadeira', 'pá carregadeira', 'patrol', 'retro'].some(t => tipo.includes(t));
-            const isTruck = tipo.includes('caminhão') || modelo.includes('caminhão') || tipo.includes('basculante') || tipo.includes('pipa') || tipo.includes('munck');
-            
-            return isMachine || isTruck;
-        });
-
-        const activeCount = productiveVehicles.length || 1; // Mínimo 1 para não dividir por zero
-        const dailyCap = activeCount * 8; // 8h por máquina/dia
-        
-        // Se saldo for negativo ou zero, dias = 0
-        const days = Math.ceil(saldo > 0 ? saldo / dailyCap : 0);
-        
-        const date = new Date();
+        let date = new Date();
         let added = 0;
-        const safetyLimit = 365 * 5; // Limite de segurança de 5 anos
-        while(added < days && added < safetyLimit){
-            date.setDate(date.getDate()+1);
+        while(added < diasRestantes) {
+            date.setDate(date.getDate() + 1);
             if(date.getDay() !== 0 && date.getDay() !== 6) added++;
         }
-        return { days, date, activeCount };
+        return { date, diasRestantes };
     };
 
-    const handleSaveCRM = async (type = interactionType) => {
-        setSubmitting(true);
+    const handleUpdateMission = async (vehicleId, location, date) => {
         try {
-            await apiClient.post('/supervisor/crm', {
-                obra_id: obraId,
-                interaction_type: type,
-                notes: crmNote || (type.includes('call_') ? `Marco ${type} registrado` : 'Registro manual'),
-                agreed_action: agreedAction
+            await apiClient.post('/supervisor/vehicle-mission', {
+                vehicle_id: vehicleId,
+                next_location: location,
+                release_date: date
             });
-            setCrmNote('');
-            setAgreedAction('');
-            fetchDetails();
-        } catch (err) {
-            alert(err.response?.data?.error || 'Erro ao salvar registro.');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    const generatePDF = () => {
-        if (!data) return;
-        const doc = new jsPDF();
-        
-        const vehicles = data.vehicles || [];
-        const obra = data.obra || {};
-        const contract = data.contract || {};
-        
-        const totalHours = safeNumber(contract.total_hours_contracted || obra.kpi?.horas_contratadas);
-        const execHours = safeNumber(obra.kpi?.horas_executadas);
-        
-        doc.setFontSize(18);
-        doc.text(`Relatório: ${obra.nome || 'Obra'}`, 14, 20);
-        
-        doc.setFontSize(12);
-        doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 30);
-        doc.text(`Responsável: ${obra.responsavel || 'N/A'}`, 14, 38);
-        doc.text(`Fiscal: ${contract.fiscal_nome || 'N/A'}`, 14, 46);
-
-        const saldo = totalHours - execHours;
-        const prev = calculatePrediction();
-
-        autoTable(doc, {
-            startY: 55,
-            head: [['Item', 'Valor']],
-            body: [
-                ['Total Contratado', `${totalHours.toFixed(1)} h`],
-                ['Total Executado', `${execHours.toFixed(1)} h`],
-                ['Saldo Restante', `${saldo.toFixed(1)} h`],
-                ['Ritmo Atual', `${prev.activeCount} Máq/Caminhões (~${prev.activeCount * 8}h/dia)`],
-                ['Previsão Término', prev.date.toLocaleDateString()]
-            ]
-        });
-
-        doc.text("Equipamentos Alocados", 14, doc.lastAutoTable.finalY + 10);
-        
-        autoTable(doc, {
-            startY: doc.lastAutoTable.finalY + 15,
-            head: [['Equipamento', 'Placa', 'Operador', 'Desde']],
-            body: vehicles.map(v => [
-                v.modelo, v.placa, v.operador_nome || 'N/A', 
-                v.data_alocacao ? new Date(v.data_alocacao).toLocaleDateString() : '-'
-            ])
-        });
-
-        doc.save(`Relatorio_Obra_${obraId}.pdf`);
+            // Feedback visual simples
+            const btn = document.getElementById(`btn-save-${vehicleId}`);
+            if(btn) {
+                const originalText = btn.innerHTML;
+                btn.innerHTML = "Salvo!";
+                btn.className = "text-green-600 font-bold text-xs";
+                setTimeout(() => { 
+                    btn.innerHTML = originalText;
+                    btn.className = "text-blue-600 hover:bg-blue-50 p-1 rounded";
+                }, 2000);
+            }
+        } catch (e) { alert("Erro ao salvar destino."); }
     };
 
     if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin text-blue-600" /></div>;
+    if (!data) return <div className="p-10 text-center">Erro ao carregar dados.</div>;
 
-    if (error) {
-        return (
-            <div className="flex flex-col h-screen items-center justify-center text-slate-500 gap-4">
-                <XCircle size={48} className="text-red-400"/>
-                <p>{error}</p>
-                <button onClick={onBack} className="text-blue-600 underline">Voltar para Dashboard</button>
-            </div>
-        );
-    }
+    const { obra, contract, financeiro, producao, veiculos } = data;
+    const previsao = calculateEndDate();
 
-    const obra = data?.obra || {};
-    const contract = data?.contract || {};
-    const burnup = data?.burnup || [];
-    const vehicles = data?.vehicles || [];
-    const crm_history = data?.crm_history || [];
+    // Dados Gráfico Financeiro
+    const pieData = {
+        labels: financeiro.categorias.map(c => c.category || 'Outros'),
+        datasets: [{
+            data: financeiro.categorias.map(c => c.total),
+            backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#64748B'],
+            borderWidth: 1
+        }]
+    };
 
-    const prediction = calculatePrediction();
-    
-    // CORREÇÃO CRÍTICA: Conversão explícita para Number antes de usar .toFixed()
-    const totalContratado = safeNumber(contract?.total_hours_contracted || obra.kpi?.horas_contratadas);
-    const totalExecutado = safeNumber(obra.kpi?.horas_executadas);
-    const saldoHoras = totalContratado - totalExecutado;
-    const percentual = totalContratado > 0 ? (totalExecutado / totalContratado * 100) : 0;
-
-    // Formatação segura de datas
-    const formatDate = (d) => d ? new Date(d).toLocaleDateString() : 'N/A';
-
-    const has30 = crm_history?.some(l => l.interaction_type === 'call_30');
-    const has70 = crm_history?.some(l => l.interaction_type === 'call_70');
-    const hasFinal = crm_history?.some(l => l.interaction_type === 'call_final');
+    const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
     return (
         <div className="bg-slate-100 min-h-screen pb-20">
+            {/* Header */}
             <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><ArrowLeft size={20}/></button>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-800">{obra.nome || 'Carregando...'}</h1>
-                        <p className="text-xs text-slate-500">
-                            {/* Mostra data de início real da obra ou contrato */}
-                            Início: {formatDate(contract.start_date || obra.data_inicio_real)} • 
-                            Fim Previsto: {formatDate(contract.expected_end_date)}
-                        </p>
+                        <h1 className="text-xl font-bold text-slate-800">{obra.nome}</h1>
+                        <p className="text-xs text-slate-500">Contrato: {formatCurrency(contract.total_value)}</p>
                     </div>
                 </div>
-                <button onClick={generatePDF} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                    <Printer size={18} /> Relatório PDF
-                </button>
+                
+                <div className="flex bg-slate-100 p-1 rounded-lg">
+                    {['overview', 'financial', 'demobilization'].map(tab => (
+                        <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab)}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === tab ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            {tab === 'overview' && 'Visão Geral'}
+                            {tab === 'financial' && 'Financeiro'}
+                            {tab === 'demobilization' && 'Desmobilização'}
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* COLUNA ESQUERDA: KPIs e Burnup */}
-                <div className="lg:col-span-2 space-y-6">
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
-                            <p className="text-xs text-slate-400 uppercase font-bold">Saldo de Horas</p>
-                            <p className={`text-2xl font-bold ${saldoHoras < 0 ? 'text-red-600' : 'text-slate-700'}`}>
-                                {saldoHoras.toFixed(0)}h
-                            </p>
-                            <div className="w-full bg-slate-100 h-1.5 mt-2 rounded-full overflow-hidden">
-                                <div className={`h-full ${percentual > 100 ? 'bg-red-500' : 'bg-blue-500'}`} style={{width: `${Math.min(percentual, 100)}%`}}></div>
+            <div className="max-w-7xl mx-auto p-6">
+                
+                {/* --- ABA 1: VISÃO GERAL (PREVISÃO INTELIGENTE) --- */}
+                {activeTab === 'overview' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Cartão de Previsão Principal */}
+                        <div className="lg:col-span-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-8 shadow-lg relative overflow-hidden">
+                            <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <div>
+                                    <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Previsão de Término</h3>
+                                    <div className="text-4xl font-bold text-white mb-1">
+                                        {previsao.date.toLocaleDateString('pt-BR')}
+                                    </div>
+                                    <p className="text-sm text-slate-300">
+                                        Restam aprox. <strong className="text-yellow-400">{previsao.diasRestantes} dias úteis</strong>
+                                    </p>
+                                </div>
+                                <div className="border-l border-slate-700 pl-8">
+                                    <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Ritmo Atual (Últimos {producao.dias_analisados} dias)</h3>
+                                    <div className="text-3xl font-bold text-blue-400 mb-1">
+                                        {producao.media_diaria_atual.toFixed(1)}h <span className="text-sm text-slate-400">/dia</span>
+                                    </div>
+                                    <p className="text-xs text-slate-400">Soma da média individual de {veiculos.length} máquinas ativas.</p>
+                                </div>
+                                <div className="border-l border-slate-700 pl-8">
+                                    <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Saldo Contratual</h3>
+                                    <div className="text-3xl font-bold text-green-400 mb-1">
+                                        {producao.saldo_horas.toFixed(0)}h
+                                    </div>
+                                    <div className="w-full bg-slate-700 h-2 rounded-full mt-2">
+                                        <div 
+                                            className="bg-green-400 h-2 rounded-full" 
+                                            style={{width: `${(1 - (producao.saldo_horas / contract.total_hours_contracted)) * 100}%`}}
+                                        ></div>
+                                    </div>
+                                </div>
                             </div>
-                            <p className="text-[10px] text-right mt-1 text-slate-400">
-                                {percentual.toFixed(1)}% ({totalExecutado.toFixed(0)}h de {totalContratado.toFixed(0)}h)
+                            
+                            <div className="mt-6 bg-white/10 p-4 rounded-lg backdrop-blur-sm border border-white/10">
+                                <p className="text-sm flex items-center gap-2">
+                                    <TrendingUp size={16} className="text-yellow-400" />
+                                    "No ritmo atual de <strong>{producao.media_diaria_atual.toFixed(1)}h/dia</strong>, com os equipamentos alocados, o saldo de horas se esgota em <strong>{previsao.date.toLocaleDateString()}</strong>."
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Status de Faturamento Rápido */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-3 flex justify-between items-center gap-4">
+                            <div className="flex-1">
+                                <p className="text-xs text-slate-500 uppercase font-bold">Valor Medido (Físico)</p>
+                                <p className="text-2xl font-bold text-slate-800">{formatCurrency(financeiro.valor_produzido)}</p>
+                            </div>
+                            <div className="h-10 w-px bg-slate-200"></div>
+                            <div className="flex-1">
+                                <p className="text-xs text-slate-500 uppercase font-bold">Total Gasto (Despesas)</p>
+                                <p className="text-2xl font-bold text-red-600">{formatCurrency(financeiro.total_despesas)}</p>
+                            </div>
+                            <div className="h-10 w-px bg-slate-200"></div>
+                            <div className="flex-1 bg-yellow-50 p-2 rounded-lg border border-yellow-100">
+                                <p className="text-xs text-yellow-700 uppercase font-bold">Pendente Faturamento</p>
+                                <p className="text-xl font-bold text-yellow-800">{formatCurrency(financeiro.pendente_faturamento)}</p>
+                                <p className="text-[10px] text-yellow-600 leading-tight">Trabalho realizado vs Custo lançado</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- ABA 2: FINANCEIRO --- */}
+                {activeTab === 'financial' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
+                                <PieChart size={20}/> Distribuição de Despesas
+                            </h3>
+                            <div className="h-64 flex justify-center">
+                                <Pie data={pieData} />
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="font-bold text-slate-700 mb-4">Resumo do Contrato</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="text-slate-500">Valor Total Contratado</span>
+                                            <span className="font-bold text-slate-800">{formatCurrency(financeiro.total_contrato)}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 h-2 rounded-full">
+                                            <div className="bg-blue-500 h-2 rounded-full w-full opacity-20"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="text-slate-500">Total Despesas Lançadas</span>
+                                            <span className="font-bold text-red-600">{formatCurrency(financeiro.total_despesas)}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 h-2 rounded-full relative">
+                                            <div 
+                                                className="bg-red-500 h-2 rounded-full absolute top-0 left-0"
+                                                style={{width: `${(financeiro.total_despesas / financeiro.total_contrato) * 100}%`}}
+                                            ></div>
+                                        </div>
+                                        <p className="text-xs text-right mt-1 text-slate-400">
+                                            {((financeiro.total_despesas / financeiro.total_contrato) * 100).toFixed(1)}% do contrato consumido em custos
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="font-bold text-slate-700 mb-4">Detalhamento</h3>
+                                <div className="overflow-y-auto max-h-60">
+                                    <table className="w-full text-sm">
+                                        <thead className="text-xs uppercase text-slate-400 bg-slate-50 sticky top-0">
+                                            <tr>
+                                                <th className="p-2 text-left">Categoria</th>
+                                                <th className="p-2 text-right">Valor</th>
+                                                <th className="p-2 text-right">%</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {financeiro.categorias.map((cat, i) => (
+                                                <tr key={i}>
+                                                    <td className="p-2 font-medium text-slate-700">{cat.category || 'Não classificado'}</td>
+                                                    <td className="p-2 text-right text-slate-600">{formatCurrency(cat.total)}</td>
+                                                    <td className="p-2 text-right text-slate-400">
+                                                        {((cat.total / financeiro.total_despesas) * 100).toFixed(1)}%
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- ABA 3: DESMOBILIZAÇÃO --- */}
+                {activeTab === 'demobilization' && (
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 bg-slate-50">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                <Truck size={20} /> Previsão de Desmobilização de Equipamentos
+                            </h3>
+                            <p className="text-sm text-slate-500 mt-1">
+                                Previsão baseada na média individual de cada equipamento nos últimos dias.
                             </p>
                         </div>
                         
-                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-purple-500">
-                            <p className="text-xs text-slate-400 uppercase font-bold">Previsão Término</p>
-                            <p className="text-xl font-bold text-slate-700 flex items-center gap-2">
-                                {prediction.date.toLocaleDateString()}
-                            </p>
-                            <p className="text-xs text-purple-600 mt-1">
-                                {saldoHoras > 0 ? `${prediction.days} dias úteis restantes` : 'Obra excedida/concluída'}
-                            </p>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500">
-                            <p className="text-xs text-slate-400 uppercase font-bold">Ritmo Atual</p>
-                            <p className="text-xl font-bold text-slate-700">
-                                {prediction.activeCount} Máq/Cam.
-                            </p>
-                            <p className="text-xs text-orange-600 mt-1">
-                                ~{(prediction.activeCount * 8)}h produção/dia
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                            <TrendingUp size={20} /> Queima de Horas (Burnup)
-                        </h3>
-                        <div className="h-64 flex items-end justify-between gap-1 border-b border-l border-slate-200 p-2 relative">
-                            <div className="absolute top-0 left-0 w-full border-t border-dashed border-red-300 z-0"></div>
-                            <span className="absolute top-1 right-0 text-xs text-red-400">Meta: {totalContratado.toFixed(0)}h</span>
-                            {burnup.map((point, i) => {
-                                const height = (point.horas_dia / (totalContratado || 1000)) * 100; 
-                                return (
-                                    <div key={i} className="flex-1 bg-blue-100 hover:bg-blue-200 transition-colors relative group rounded-t" style={{height: `${Math.min(height * 5, 100)}%`}}> 
-                                        <div className="hidden group-hover:block absolute bottom-full mb-1 bg-black text-white text-xs p-1 rounded z-10 w-max">
-                                            {new Date(point.data).toLocaleDateString()}: {point.horas_dia}h
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                            {burnup.length === 0 && <div className="w-full h-full flex items-center justify-center text-slate-400">Sem dados de produção ainda.</div>}
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-                        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <Scale size={18} /> Recursos & Equivalência
-                            </h3>
-                            <span className="text-xs bg-slate-200 px-2 py-1 rounded text-slate-600">Fator Padrão: 1.0</span>
-                        </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500 uppercase text-xs">
+                                <thead className="bg-white text-slate-500 uppercase text-xs border-b border-slate-200">
                                     <tr>
-                                        <th className="px-4 py-3">Equipamento Real</th>
-                                        <th className="px-4 py-3">Tipo</th>
-                                        <th className="px-4 py-3 text-center">Fator</th>
-                                        <th className="px-4 py-3">Operador</th>
-                                        <th className="px-4 py-3">Próx. Alocação</th>
+                                        <th className="px-6 py-4">Equipamento</th>
+                                        <th className="px-6 py-4">Média Atual</th>
+                                        <th className="px-6 py-4">Previsão Liberação</th>
+                                        <th className="px-6 py-4">Próximo Destino (Planejamento)</th>
+                                        <th className="px-6 py-4">Ação</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {vehicles.map(v => (
-                                        <tr key={v.id} className="hover:bg-slate-50">
-                                            <td className="px-4 py-3 font-medium text-slate-700">
-                                                {v.modelo} <span className="text-slate-400 font-normal">({v.placa})</span>
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-500">{v.tipo}</td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold ${v.fator_conversao < 1 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                                    {v.fator_conversao || '1.0'}x
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-600">{v.operador_nome || '---'}</td>
-                                            <td className="px-4 py-3">
-                                                <div className="flex items-center gap-1 text-slate-400 text-xs border border-dashed border-slate-300 rounded px-2 py-1 cursor-text hover:border-blue-400">
-                                                    <MapPin size={12}/> Definir...
-                                                </div>
-                                            </td>
-                                        </tr>
+                                    {veiculos.map(v => (
+                                        <MachineRow 
+                                            key={v.id} 
+                                            vehicle={v} 
+                                            globalEndDate={previsao.date}
+                                            onSave={handleUpdateMission} 
+                                        />
                                     ))}
-                                    {vehicles.length === 0 && (
-                                        <tr><td colSpan="5" className="p-4 text-center text-slate-400">Nenhum veículo alocado nesta obra.</td></tr>
-                                    )}
                                 </tbody>
                             </table>
                         </div>
                     </div>
-                </div>
-
-                {/* COLUNA DIREITA: CRM & Marcos */}
-                <div className="space-y-6">
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                        <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><ShieldCheck size={18}/> Marcos de Cobrança</h3>
-                        <div className="space-y-3">
-                            <button 
-                                disabled={has30 || submitting}
-                                onClick={() => handleSaveCRM('call_30')}
-                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${has30 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 hover:border-blue-300'}`}
-                            >
-                                <span className="flex items-center gap-2 text-sm font-semibold">
-                                    {has30 ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
-                                    Contato 30%
-                                </span>
-                                {has30 && <span className="text-[10px]">Concluído</span>}
-                            </button>
-
-                            <button 
-                                disabled={has70 || submitting}
-                                onClick={() => handleSaveCRM('call_70')}
-                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${has70 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 hover:border-blue-300'}`}
-                            >
-                                <span className="flex items-center gap-2 text-sm font-semibold">
-                                    {has70 ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
-                                    Contato 70%
-                                </span>
-                            </button>
-
-                            <button 
-                                disabled={hasFinal || submitting}
-                                onClick={() => handleSaveCRM('call_final')}
-                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${hasFinal ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 hover:border-blue-300'}`}
-                            >
-                                <span className="flex items-center gap-2 text-sm font-semibold">
-                                    {hasFinal ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
-                                    Finalização
-                                </span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <Phone size={18} /> Diário de Bordo
-                            </h3>
-                        </div>
-                        
-                        <div className="p-4 bg-white border-b border-slate-100 space-y-3">
-                            <select 
-                                className="w-full text-sm border rounded p-2 bg-slate-50 outline-none"
-                                value={interactionType}
-                                onChange={e => setInteractionType(e.target.value)}
-                            >
-                                <option value="daily_check">Rotina Diária</option>
-                                <option value="issue">Problema / Quebra</option>
-                                <option value="agreement">Acordo Verbal</option>
-                            </select>
-                            <textarea 
-                                className="w-full text-sm p-3 rounded border border-slate-200 focus:ring-2 focus:ring-blue-100 outline-none resize-none"
-                                rows="3"
-                                placeholder="Descreva a ocorrência..."
-                                value={crmNote}
-                                onChange={e => setCrmNote(e.target.value)}
-                            />
-                            <input 
-                                className="w-full text-sm p-2 rounded border border-slate-200 placeholder:text-slate-400"
-                                placeholder="Ação Acordada (Ex: Assinará amanhã)"
-                                value={agreedAction}
-                                onChange={e => setAgreedAction(e.target.value)}
-                            />
-                            <button 
-                                onClick={() => handleSaveCRM()}
-                                disabled={submitting || !crmNote}
-                                className="w-full bg-slate-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-slate-700 flex justify-center items-center gap-2"
-                            >
-                                {submitting ? <Loader size={14} className="animate-spin"/> : <Save size={14} />} Salvar Registro
-                            </button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-                            {crm_history.map(log => (
-                                <div key={log.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${log.interaction_type === 'issue' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                                            {log.interaction_type.replace('call_', 'Marco ')}
-                                        </span>
-                                        <span className="text-[10px] text-slate-400">{new Date(log.created_at).toLocaleString()}</span>
-                                    </div>
-                                    <p className="text-sm text-slate-700">{log.notes}</p>
-                                    <p className="text-[10px] text-slate-400 mt-1">Por: {log.supervisor_name || 'Desconhecido'}</p>
-                                    {log.agreed_action && (
-                                        <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-orange-600 font-medium flex items-center gap-1">
-                                            <AlertTriangle size={10} /> Acordo: {log.agreed_action}
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                            {crm_history.length === 0 && (
-                                <p className="text-center text-slate-400 text-sm py-4">Nenhum registro encontrado.</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                )}
             </div>
         </div>
+    );
+};
+
+// Componente de Linha para Tabela de Máquinas (para gerenciar estado do input individualmente)
+const MachineRow = ({ vehicle, globalEndDate, onSave }) => {
+    const [location, setLocation] = useState(vehicle.proximo_destino || '');
+    // Se a máquina tem data manual, usa. Senão, usa a data global calculada.
+    const [date, setDate] = useState(
+        vehicle.data_liberacao_manual 
+        ? vehicle.data_liberacao_manual.split('T')[0] 
+        : globalEndDate.toISOString().split('T')[0]
+    );
+
+    return (
+        <tr className="hover:bg-slate-50 transition-colors">
+            <td className="px-6 py-4">
+                <div className="font-bold text-slate-800">{vehicle.modelo}</div>
+                <div className="text-xs text-slate-500">{vehicle.placa} • {vehicle.tipo}</div>
+            </td>
+            <td className="px-6 py-4">
+                <span className={`px-2 py-1 rounded text-xs font-bold ${vehicle.media_diaria < 4 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {vehicle.media_diaria.toFixed(1)}h/dia
+                </span>
+            </td>
+            <td className="px-6 py-4">
+                <input 
+                    type="date" 
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="border border-slate-300 rounded p-1 text-slate-600 text-xs focus:border-blue-500 outline-none"
+                />
+            </td>
+            <td className="px-6 py-4">
+                <div className="flex items-center gap-2">
+                    <MapPin size={14} className="text-slate-400" />
+                    <input 
+                        type="text" 
+                        placeholder="Ex: Obra Shopping, Pátio..." 
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        className="border-b border-slate-300 bg-transparent py-1 px-2 w-full focus:border-blue-500 outline-none placeholder:text-slate-300"
+                    />
+                </div>
+            </td>
+            <td className="px-6 py-4">
+                <button 
+                    id={`btn-save-${vehicle.id}`}
+                    onClick={() => onSave(vehicle.id, location, date)}
+                    className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors"
+                    title="Salvar Planejamento"
+                >
+                    <Save size={18} />
+                </button>
+            </td>
+        </tr>
     );
 };
 
