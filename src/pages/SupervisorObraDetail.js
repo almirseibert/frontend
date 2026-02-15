@@ -3,9 +3,54 @@ import {
     ArrowLeft, TrendingUp, DollarSign, Calendar, 
     Truck, MapPin, Save, Loader, PieChart, AlertCircle
 } from 'lucide-react';
-import { Pie } from 'react-chartjs-2'; // Assumindo que você tem chart.js instalado ou usará HTML simples
-import 'chart.js/auto'; // Registro automático do Chart.js
-import apiClient from '../services/apiClient';
+// REMOVIDO: import { Pie } from 'react-chartjs-2'; 
+// REMOVIDO: import 'chart.js/auto'; 
+// Substituído por implementação nativa SVG para evitar erros de build
+import apiClient from '../../services/apiClient';
+
+// Componente de Gráfico de Pizza SVG Nativo (Sem dependências externas)
+const NativePieChart = ({ data, colors }) => {
+    const total = data.reduce((acc, val) => acc + val, 0);
+    if (total === 0) return <div className="text-slate-400 text-xs">Sem dados</div>;
+
+    let cumulativePercent = 0;
+
+    // Cálculo para SVG: circumference ~ 100. r = 15.9155
+    return (
+        <div className="relative w-48 h-48 flex items-center justify-center">
+             <svg viewBox="0 0 32 32" className="w-full h-full transform -rotate-90">
+                {data.map((value, i) => {
+                    const percent = value / total;
+                    if (percent === 0) return null;
+                    
+                    // Dasharray: comprimento do arco (percent * 100) e espaço restante (100)
+                    // 2 * pi * 15.9155 ≈ 100
+                    const dashArray = `${percent * 100} 100`; 
+                    const dashOffset = -cumulativePercent * 100;
+                    cumulativePercent += percent;
+                    
+                    return (
+                        <circle 
+                            key={i}
+                            r="15.9155" 
+                            cx="16" 
+                            cy="16" 
+                            fill="transparent"
+                            stroke={colors[i % colors.length]}
+                            strokeWidth="32" // Preenche todo o círculo
+                            strokeDasharray={dashArray}
+                            strokeDashoffset={dashOffset}
+                            className="transition-all duration-500 hover:opacity-80"
+                        />
+                    );
+                })}
+            </svg>
+            <div className="absolute w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-inner">
+                <span className="text-xs font-bold text-slate-400">Total</span>
+            </div>
+        </div>
+    );
+};
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
@@ -28,18 +73,19 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     // Cálculo da Data Final baseado no "Cérebro"
     const calculateEndDate = () => {
-        if (!data) return new Date();
+        if (!data) return { date: new Date(), diasRestantes: 0 };
         const { producao } = data;
-        const saldo = producao.saldo_horas || 0;
-        const ritmo = producao.media_diaria_atual || 1; // Evita div por 0
+        const saldo = producao?.saldo_horas || 0;
+        const ritmo = producao?.media_diaria_atual || 1; // Evita div por 0
 
-        if (saldo <= 0) return new Date(); // Obra concluída
+        if (saldo <= 0) return { date: new Date(), diasRestantes: 0 }; // Obra concluída
 
         const diasRestantes = Math.ceil(saldo / ritmo);
         
         let date = new Date();
         let added = 0;
-        while(added < diasRestantes) {
+        // Limite de segurança para loop (ex: 5 anos)
+        while(added < diasRestantes && added < 1825) {
             date.setDate(date.getDate() + 1);
             if(date.getDay() !== 0 && date.getDay() !== 6) added++;
         }
@@ -68,20 +114,21 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     };
 
     if (loading) return <div className="flex h-screen items-center justify-center"><Loader className="animate-spin text-blue-600" /></div>;
-    if (!data) return <div className="p-10 text-center">Erro ao carregar dados.</div>;
+    
+    if (!data) return (
+        <div className="flex flex-col h-screen items-center justify-center text-slate-500 gap-4">
+            <AlertCircle size={48} className="text-red-400"/>
+            <p>Erro ao carregar dados da obra.</p>
+            <button onClick={onBack} className="text-blue-600 underline">Voltar</button>
+        </div>
+    );
 
     const { obra, contract, financeiro, producao, veiculos } = data;
     const previsao = calculateEndDate();
 
-    // Dados Gráfico Financeiro
-    const pieData = {
-        labels: financeiro.categorias.map(c => c.category || 'Outros'),
-        datasets: [{
-            data: financeiro.categorias.map(c => c.total),
-            backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#64748B'],
-            borderWidth: 1
-        }]
-    };
+    // Dados para o Gráfico Nativo
+    const chartDataValues = (financeiro?.categorias || []).map(c => Number(c.total) || 0);
+    const chartColors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#64748B'];
 
     const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
@@ -92,8 +139,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><ArrowLeft size={20}/></button>
                     <div>
-                        <h1 className="text-xl font-bold text-slate-800">{obra.nome}</h1>
-                        <p className="text-xs text-slate-500">Contrato: {formatCurrency(contract.total_value)}</p>
+                        <h1 className="text-xl font-bold text-slate-800">{obra?.nome}</h1>
+                        <p className="text-xs text-slate-500">Contrato: {formatCurrency(contract?.total_value)}</p>
                     </div>
                 </div>
                 
@@ -130,21 +177,21 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                     </p>
                                 </div>
                                 <div className="border-l border-slate-700 pl-8">
-                                    <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Ritmo Atual (Últimos {producao.dias_analisados} dias)</h3>
+                                    <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Ritmo Atual (Últimos {producao?.dias_analisados || 0} dias)</h3>
                                     <div className="text-3xl font-bold text-blue-400 mb-1">
-                                        {producao.media_diaria_atual.toFixed(1)}h <span className="text-sm text-slate-400">/dia</span>
+                                        {producao?.media_diaria_atual?.toFixed(1)}h <span className="text-sm text-slate-400">/dia</span>
                                     </div>
-                                    <p className="text-xs text-slate-400">Soma da média individual de {veiculos.length} máquinas ativas.</p>
+                                    <p className="text-xs text-slate-400">Soma da média individual de {veiculos?.length || 0} máquinas ativas.</p>
                                 </div>
                                 <div className="border-l border-slate-700 pl-8">
                                     <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Saldo Contratual</h3>
                                     <div className="text-3xl font-bold text-green-400 mb-1">
-                                        {producao.saldo_horas.toFixed(0)}h
+                                        {producao?.saldo_horas?.toFixed(0)}h
                                     </div>
                                     <div className="w-full bg-slate-700 h-2 rounded-full mt-2">
                                         <div 
                                             className="bg-green-400 h-2 rounded-full" 
-                                            style={{width: `${(1 - (producao.saldo_horas / contract.total_hours_contracted)) * 100}%`}}
+                                            style={{width: `${(1 - (producao?.saldo_horas / (contract?.total_hours_contracted || 1))) * 100}%`}}
                                         ></div>
                                     </div>
                                 </div>
@@ -153,7 +200,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             <div className="mt-6 bg-white/10 p-4 rounded-lg backdrop-blur-sm border border-white/10">
                                 <p className="text-sm flex items-center gap-2">
                                     <TrendingUp size={16} className="text-yellow-400" />
-                                    "No ritmo atual de <strong>{producao.media_diaria_atual.toFixed(1)}h/dia</strong>, com os equipamentos alocados, o saldo de horas se esgota em <strong>{previsao.date.toLocaleDateString()}</strong>."
+                                    "No ritmo atual de <strong>{producao?.media_diaria_atual?.toFixed(1)}h/dia</strong>, com os equipamentos alocados, o saldo de horas se esgota em <strong>{previsao.date.toLocaleDateString()}</strong>."
                                 </p>
                             </div>
                         </div>
@@ -162,17 +209,17 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-3 flex justify-between items-center gap-4">
                             <div className="flex-1">
                                 <p className="text-xs text-slate-500 uppercase font-bold">Valor Medido (Físico)</p>
-                                <p className="text-2xl font-bold text-slate-800">{formatCurrency(financeiro.valor_produzido)}</p>
+                                <p className="text-2xl font-bold text-slate-800">{formatCurrency(financeiro?.valor_produzido)}</p>
                             </div>
                             <div className="h-10 w-px bg-slate-200"></div>
                             <div className="flex-1">
                                 <p className="text-xs text-slate-500 uppercase font-bold">Total Gasto (Despesas)</p>
-                                <p className="text-2xl font-bold text-red-600">{formatCurrency(financeiro.total_despesas)}</p>
+                                <p className="text-2xl font-bold text-red-600">{formatCurrency(financeiro?.total_despesas)}</p>
                             </div>
                             <div className="h-10 w-px bg-slate-200"></div>
                             <div className="flex-1 bg-yellow-50 p-2 rounded-lg border border-yellow-100">
                                 <p className="text-xs text-yellow-700 uppercase font-bold">Pendente Faturamento</p>
-                                <p className="text-xl font-bold text-yellow-800">{formatCurrency(financeiro.pendente_faturamento)}</p>
+                                <p className="text-xl font-bold text-yellow-800">{formatCurrency(financeiro?.pendente_faturamento)}</p>
                                 <p className="text-[10px] text-yellow-600 leading-tight">Trabalho realizado vs Custo lançado</p>
                             </div>
                         </div>
@@ -186,8 +233,12 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
                                 <PieChart size={20}/> Distribuição de Despesas
                             </h3>
-                            <div className="h-64 flex justify-center">
-                                <Pie data={pieData} />
+                            <div className="h-64 flex justify-center items-center">
+                                {financeiro?.categorias?.length > 0 ? (
+                                    <NativePieChart data={chartDataValues} colors={chartColors} />
+                                ) : (
+                                    <div className="flex items-center text-slate-400">Sem despesas lançadas.</div>
+                                )}
                             </div>
                         </div>
 
@@ -198,7 +249,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                     <div>
                                         <div className="flex justify-between text-sm mb-1">
                                             <span className="text-slate-500">Valor Total Contratado</span>
-                                            <span className="font-bold text-slate-800">{formatCurrency(financeiro.total_contrato)}</span>
+                                            <span className="font-bold text-slate-800">{formatCurrency(financeiro?.total_contrato)}</span>
                                         </div>
                                         <div className="w-full bg-slate-100 h-2 rounded-full">
                                             <div className="bg-blue-500 h-2 rounded-full w-full opacity-20"></div>
@@ -208,16 +259,16 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                     <div>
                                         <div className="flex justify-between text-sm mb-1">
                                             <span className="text-slate-500">Total Despesas Lançadas</span>
-                                            <span className="font-bold text-red-600">{formatCurrency(financeiro.total_despesas)}</span>
+                                            <span className="font-bold text-red-600">{formatCurrency(financeiro?.total_despesas)}</span>
                                         </div>
                                         <div className="w-full bg-slate-100 h-2 rounded-full relative">
                                             <div 
                                                 className="bg-red-500 h-2 rounded-full absolute top-0 left-0"
-                                                style={{width: `${(financeiro.total_despesas / financeiro.total_contrato) * 100}%`}}
+                                                style={{width: `${Math.min(((financeiro?.total_despesas || 0) / (financeiro?.total_contrato || 1)) * 100, 100)}%`}}
                                             ></div>
                                         </div>
                                         <p className="text-xs text-right mt-1 text-slate-400">
-                                            {((financeiro.total_despesas / financeiro.total_contrato) * 100).toFixed(1)}% do contrato consumido em custos
+                                            {((financeiro?.total_despesas / (financeiro?.total_contrato || 1)) * 100).toFixed(1)}% do contrato consumido em custos
                                         </p>
                                     </div>
                                 </div>
@@ -235,15 +286,23 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
-                                            {financeiro.categorias.map((cat, i) => (
+                                            {(financeiro?.categorias || []).map((cat, i) => (
                                                 <tr key={i}>
-                                                    <td className="p-2 font-medium text-slate-700">{cat.category || 'Não classificado'}</td>
+                                                    <td className="p-2 font-medium text-slate-700">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-3 h-3 rounded-full" style={{backgroundColor: chartColors[i % chartColors.length]}}></div>
+                                                            {cat.category || 'Não classificado'}
+                                                        </div>
+                                                    </td>
                                                     <td className="p-2 text-right text-slate-600">{formatCurrency(cat.total)}</td>
                                                     <td className="p-2 text-right text-slate-400">
-                                                        {((cat.total / financeiro.total_despesas) * 100).toFixed(1)}%
+                                                        {((cat.total / (financeiro?.total_despesas || 1)) * 100).toFixed(1)}%
                                                     </td>
                                                 </tr>
                                             ))}
+                                            {(financeiro?.categorias || []).length === 0 && (
+                                                <tr><td colSpan="3" className="p-4 text-center text-slate-400">Nenhum dado.</td></tr>
+                                            )}
                                         </tbody>
                                     </table>
                                 </div>
@@ -276,7 +335,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {veiculos.map(v => (
+                                    {(veiculos || []).map(v => (
                                         <MachineRow 
                                             key={v.id} 
                                             vehicle={v} 
@@ -284,6 +343,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                             onSave={handleUpdateMission} 
                                         />
                                     ))}
+                                    {(veiculos || []).length === 0 && (
+                                        <tr><td colSpan="5" className="p-6 text-center text-slate-400">Nenhum veículo alocado.</td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
