@@ -3,9 +3,9 @@ import {
     ArrowLeft, TrendingUp, DollarSign, Calendar, 
     Truck, MapPin, Save, Loader, PieChart, AlertCircle
 } from 'lucide-react';
-// Correção: Tentativa de importação absoluta/alias para resolver o conflito de profundidade
-// Se isso falhar, o arquivo deve usar ../../services/apiClient assumindo que está em src/pages/supervisor/
-import apiClient from '../../services/apiClient';
+// Correção Final: O arquivo está em src/pages/, logo ../ acessa src/ e ../services/apiClient acessa src/services/apiClient.
+// Isso resolve o erro 'falls outside src' do build.
+import apiClient from '../services/apiClient';
 
 // Componente de Gráfico de Pizza SVG Nativo (Sem dependências externas)
 const NativePieChart = ({ data, colors }) => {
@@ -228,6 +228,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                 {/* --- ABA 2: FINANCEIRO --- */}
                 {activeTab === 'financial' && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Gráfico SVG Nativo */}
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                             <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
                                 <PieChart size={20}/> Distribuição de Despesas
