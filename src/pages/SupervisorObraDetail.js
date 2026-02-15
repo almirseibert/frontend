@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-    ArrowLeft, TrendingUp, DollarSign, Calendar, 
-    Truck, MapPin, Save, Loader, AlertTriangle, MessageSquare, FileText, Printer
+    ArrowLeft, DollarSign, Calendar, Truck, MapPin, Save, Loader, 
+    AlertTriangle, MessageSquare, FileText, Printer, FileDown
 } from 'lucide-react';
-// Caminho correto relativo a src/pages/
 import apiClient from '../services/apiClient';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
@@ -15,6 +14,25 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [interactionType, setInteractionType] = useState('daily_log'); 
     const [agreedAction, setAgreedAction] = useState('');
     const [submittingCrm, setSubmittingCrm] = useState(false);
+
+    // Carregar Scripts do jsPDF dinamicamente (Bypass build error)
+    useEffect(() => {
+        const loadScript = (src) => {
+            return new Promise((resolve, reject) => {
+                if (document.querySelector(`script[src="${src}"]`)) return resolve();
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.body.appendChild(script);
+            });
+        };
+
+        Promise.all([
+            loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
+            loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js")
+        ]).then(() => console.log("PDF Libs Loaded")).catch(e => console.error("Failed to load PDF libs", e));
+    }, []);
 
     const fetchDetails = useCallback(async () => {
         setLoading(true);
@@ -59,7 +77,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             });
             const btn = document.getElementById(`btn-save-${vehicleId}`);
             if(btn) {
-                btn.innerHTML = "Salvo!";
+                btn.innerHTML = "OK";
                 btn.className = "text-green-600 font-bold text-xs";
                 setTimeout(() => { 
                     btn.innerHTML = "";
@@ -70,17 +88,73 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         } catch (e) { alert("Erro ao salvar destino."); }
     };
 
-    // Função de Impressão Nativa (Substitui jsPDF para evitar erros de build)
-    const handlePrint = () => {
-        window.print();
+    const generateRealPDF = () => {
+        if (!window.jspdf || !data) {
+            alert("Biblioteca PDF carregando... tente novamente em instantes.");
+            return;
+        }
+        
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const { obra, contract, financeiro, producao, veiculos } = data;
+
+        // Cabeçalho
+        doc.setFillColor(41, 128, 185);
+        doc.rect(0, 0, 210, 24, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(18);
+        doc.text("Relatório de Gestão da Obra", 14, 16);
+        
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(12);
+        doc.text(`Obra: ${obra.nome}`, 14, 35);
+        doc.setFontSize(10);
+        doc.text(`Emitido em: ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}`, 14, 42);
+
+        // Seção 1: Resumo Executivo
+        doc.autoTable({
+            startY: 50,
+            head: [['Indicador', 'Valor', 'Indicador', 'Valor']],
+            body: [
+                ['Responsável', contract.responsavel_nome || '-', 'Fiscal', contract.fiscal_nome || '-'],
+                ['Total Contrato', formatCurrency(financeiro.total_contrato), 'Total Despesas', formatCurrency(financeiro.total_despesas)],
+                ['Hrs Contratadas', (producao.saldo_horas + producao.horas_executadas).toFixed(0), 'Hrs Executadas', producao.horas_executadas.toFixed(0)],
+                ['Saldo Horas', producao.saldo_horas.toFixed(0), 'Previsão Término', calculateEndDate().date.toLocaleDateString()]
+            ],
+            theme: 'grid',
+            headStyles: { fillColor: [52, 73, 94] },
+            styles: { fontSize: 9 }
+        });
+
+        // Seção 2: Veículos
+        doc.text("Frota Alocada e Produtividade", 14, doc.lastAutoTable.finalY + 15);
+        
+        const rows = veiculos.map(v => [
+            v.placa || v.re || '-',
+            v.tipo,
+            `${v.marca || ''} ${v.modelo || ''}`,
+            v.total_executado?.toFixed(1) || '0.0',
+            v.media_diaria?.toFixed(1) || '0.0',
+            v.proximo_destino || '-'
+        ]);
+
+        doc.autoTable({
+            startY: doc.lastAutoTable.finalY + 18,
+            head: [['RE/Placa', 'Tipo', 'Equipamento', 'Total Hrs (Obra)', 'Média/Dia', 'Próx. Destino']],
+            body: rows,
+            theme: 'striped',
+            headStyles: { fillColor: [41, 128, 185] },
+            styles: { fontSize: 8 }
+        });
+
+        doc.save(`Relatorio_${obra.nome.substring(0, 15).replace(/\s/g, '_')}.pdf`);
     };
 
-    // Cálculos de Data
     const calculateEndDate = () => {
         if (!data) return { date: new Date(), diasRestantes: 0 };
         const { producao } = data;
         const saldo = producao?.saldo_horas || 0;
-        const ritmo = producao?.media_diaria_atual || 1;
+        const ritmo = producao?.media_diaria_atual || 1; // Usando ritmo que vem do backend (agora ajustado para 8h * maquinas)
 
         if (saldo <= 0) return { date: new Date(), diasRestantes: 0 };
 
@@ -102,20 +176,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
     return (
-        <div className="bg-slate-100 min-h-screen pb-20 print:bg-white print:pb-0">
-            {/* Estilos específicos para Impressão */}
-            <style>{`
-                @media print {
-                    .no-print { display: none !important; }
-                    .print-only { display: block !important; }
-                    body { background: white; font-size: 12px; }
-                    .card-print { border: 1px solid #ddd; box-shadow: none; break-inside: avoid; }
-                    .page-break { page-break-before: always; }
-                }
-            `}</style>
-
-            {/* Header (Escondido na impressão) */}
-            <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center no-print">
+        <div className="bg-slate-100 min-h-screen pb-20">
+            {/* Header */}
+            <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><ArrowLeft size={20}/></button>
                     <div>
@@ -124,50 +187,39 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                     </div>
                 </div>
                 <button 
-                    onClick={handlePrint}
+                    onClick={generateRealPDF}
                     className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-900 transition-colors text-sm font-bold shadow-sm"
                 >
-                    <Printer size={16} /> Imprimir / Salvar PDF
+                    <FileDown size={16} /> Baixar PDF
                 </button>
             </div>
 
-            {/* Cabeçalho APENAS para Impressão */}
-            <div className="hidden print:block p-6 border-b border-slate-300 mb-4">
-                <h1 className="text-2xl font-bold text-slate-800">Relatório de Gestão da Obra</h1>
-                <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
-                    <p><strong>Obra:</strong> {obra?.nome}</p>
-                    <p><strong>Responsável:</strong> {contract.responsavel_nome || obra.responsavel || '-'}</p>
-                    <p><strong>Fiscal:</strong> {contract.fiscal_nome || obra.fiscal_nome || '-'}</p>
-                    <p><strong>Data Emissão:</strong> {new Date().toLocaleDateString()}</p>
-                </div>
-            </div>
-
-            <div className="max-w-7xl mx-auto p-6 space-y-6 print:p-0 print:max-w-none">
+            <div className="max-w-7xl mx-auto p-6 space-y-6">
                 
                 {/* 1. CARTÃO PRINCIPAL DE PREVISÃO */}
-                <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-8 shadow-lg relative overflow-hidden card-print print:bg-none print:text-black print:border-slate-300 print:p-4">
-                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8 print:gap-4 print:grid-cols-3">
+                <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-8 shadow-lg relative overflow-hidden">
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8">
                         <div>
-                            <h3 className="text-slate-400 font-bold uppercase text-xs mb-2 print:text-slate-600">Previsão de Término</h3>
-                            <div className="text-4xl font-bold text-white mb-1 print:text-black print:text-2xl">
+                            <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Previsão de Término</h3>
+                            <div className="text-4xl font-bold text-white mb-1">
                                 {previsao.date.toLocaleDateString('pt-BR')}
                             </div>
-                            <p className="text-sm text-slate-300 print:text-slate-600">
-                                Restam aprox. <strong className="text-yellow-400 print:text-black">{previsao.diasRestantes} dias úteis</strong>
+                            <p className="text-sm text-slate-300">
+                                Restam aprox. <strong className="text-yellow-400">{previsao.diasRestantes} dias úteis</strong>
                             </p>
                         </div>
-                        <div className="border-l border-slate-700 pl-8 print:border-slate-300">
-                            <h3 className="text-slate-400 font-bold uppercase text-xs mb-2 print:text-slate-600">Ritmo Atual (Últimos {producao?.dias_analisados || 0} dias)</h3>
-                            <div className="text-3xl font-bold text-blue-400 mb-1 print:text-black print:text-2xl">
-                                {producao?.media_diaria_atual?.toFixed(1)}h <span className="text-sm text-slate-400 print:text-slate-600">/dia</span>
+                        <div className="border-l border-slate-700 pl-8">
+                            <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Ritmo Teórico (8h/Máq)</h3>
+                            <div className="text-3xl font-bold text-blue-400 mb-1">
+                                {producao?.media_diaria_atual?.toFixed(0)}h <span className="text-sm text-slate-400">/dia</span>
                             </div>
                         </div>
-                        <div className="border-l border-slate-700 pl-8 print:border-slate-300">
-                            <h3 className="text-slate-400 font-bold uppercase text-xs mb-2 print:text-slate-600">Saldo Contratual</h3>
-                            <div className="text-3xl font-bold text-green-400 mb-1 print:text-black print:text-2xl">
+                        <div className="border-l border-slate-700 pl-8">
+                            <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Saldo Contratual</h3>
+                            <div className="text-3xl font-bold text-green-400 mb-1">
                                 {producao?.saldo_horas?.toFixed(0)}h
                             </div>
-                            <div className="w-full bg-slate-700 h-2 rounded-full mt-2 print:hidden">
+                            <div className="w-full bg-slate-700 h-2 rounded-full mt-2">
                                 <div 
                                     className="bg-green-400 h-2 rounded-full" 
                                     style={{width: `${(1 - (producao?.saldo_horas / (contract?.total_hours_contracted || 1))) * 100}%`}}
@@ -177,63 +229,24 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                     </div>
                 </div>
 
-                {/* 2. GRID UNIFICADO: FINANCEIRO E DESMOBILIZAÇÃO */}
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 print:grid-cols-1 print:gap-4">
-                    
-                    {/* Coluna Direita (Financeiro) - Movida para cima na impressão se desejar, mas mantendo ordem */}
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col card-print">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50 print:bg-slate-100">
+                {/* 2. GRID UNIFICADO */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    {/* Veículos */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <DollarSign size={18} className="print:hidden"/> Resumo Financeiro
-                            </h3>
-                        </div>
-                        <div className="p-4 space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-blue-50 p-3 rounded-lg print:border print:border-slate-200">
-                                    <p className="text-xs text-blue-600 uppercase font-bold print:text-black">Medido (Físico)</p>
-                                    <p className="text-lg font-bold text-blue-800 print:text-black">{formatCurrency(financeiro?.valor_produzido)}</p>
-                                </div>
-                                <div className="bg-red-50 p-3 rounded-lg print:border print:border-slate-200">
-                                    <p className="text-xs text-red-600 uppercase font-bold print:text-black">Despesas</p>
-                                    <p className="text-lg font-bold text-red-800 print:text-black">{formatCurrency(financeiro?.total_despesas)}</p>
-                                </div>
-                            </div>
-                            
-                            <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center print:border-slate-200">
-                                <p className="text-xs text-yellow-700 uppercase font-bold print:text-black">Pendente Faturamento</p>
-                                <p className="text-2xl font-bold text-yellow-800 print:text-black">{formatCurrency(financeiro?.pendente_faturamento)}</p>
-                            </div>
-
-                            <div className="mt-4">
-                                <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Por Categoria</h4>
-                                <div className="space-y-2 max-h-40 overflow-y-auto pr-2 print:max-h-none print:overflow-visible">
-                                    {(financeiro?.categorias || []).map((cat, i) => (
-                                        <div key={i} className="flex justify-between text-xs border-b border-slate-50 pb-1">
-                                            <span className="text-slate-600">{cat.category || 'Outros'}</span>
-                                            <span className="font-medium text-slate-800">{formatCurrency(cat.total)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Coluna Esquerda: Desmobilização (Tabela de Veículos) */}
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col card-print">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50 print:bg-slate-100">
-                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <Truck size={18} className="print:hidden"/> Detalhamento de Equipamentos
+                                <Truck size={18} /> Equipamentos Alocados
                             </h3>
                         </div>
                         <div className="overflow-x-auto flex-1">
                             <table className="w-full text-xs text-left">
-                                <thead className="bg-slate-50 text-slate-500 uppercase font-bold print:bg-slate-100 print:text-black">
+                                <thead className="bg-slate-50 text-slate-500 uppercase font-bold">
                                     <tr>
-                                        <th className="px-4 py-2">Veículo/RE</th>
+                                        <th className="px-4 py-2">Veículo</th>
                                         <th className="px-4 py-2">Total Exec.</th>
                                         <th className="px-4 py-2">Previsão</th>
                                         <th className="px-4 py-2">Próximo Destino</th>
-                                        <th className="px-4 py-2 no-print"></th>
+                                        <th className="px-4 py-2"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -249,12 +262,49 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             </table>
                         </div>
                     </div>
+
+                    {/* Financeiro */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                <DollarSign size={18} /> Resumo Financeiro
+                            </h3>
+                        </div>
+                        <div className="p-4 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-blue-50 p-3 rounded-lg">
+                                    <p className="text-xs text-blue-600 uppercase font-bold">Medido (Físico)</p>
+                                    <p className="text-lg font-bold text-blue-800">{formatCurrency(financeiro?.valor_produzido)}</p>
+                                </div>
+                                <div className="bg-red-50 p-3 rounded-lg">
+                                    <p className="text-xs text-red-600 uppercase font-bold">Despesas</p>
+                                    <p className="text-lg font-bold text-red-800">{formatCurrency(financeiro?.total_despesas)}</p>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-center">
+                                <p className="text-xs text-yellow-700 uppercase font-bold">Pendente Faturamento</p>
+                                <p className="text-2xl font-bold text-yellow-800">{formatCurrency(financeiro?.pendente_faturamento)}</p>
+                            </div>
+
+                            <div className="mt-4">
+                                <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Por Categoria</h4>
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                                    {(financeiro?.categorias || []).map((cat, i) => (
+                                        <div key={i} className="flex justify-between text-xs border-b border-slate-50 pb-1">
+                                            <span className="text-slate-600">{cat.category || 'Outros'}</span>
+                                            <span className="font-medium text-slate-800">{formatCurrency(cat.total)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                {/* 3. DIÁRIO DE BORDO E REGISTROS */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block">
-                    {/* Formulário (Escondido na impressão) */}
-                    <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-slate-200 no-print">
+                {/* 3. DIÁRIO */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                         <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                             <MessageSquare size={18}/> Novo Registro
                         </h3>
@@ -262,7 +312,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase">Tipo</label>
                                 <select 
-                                    className="w-full mt-1 border rounded p-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-100"
+                                    className="w-full mt-1 border rounded p-2 text-sm bg-slate-50 outline-none"
                                     value={interactionType}
                                     onChange={e => setInteractionType(e.target.value)}
                                 >
@@ -275,7 +325,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase">Descrição</label>
                                 <textarea 
-                                    className="w-full mt-1 border rounded p-2 text-sm focus:ring-2 ring-blue-100 outline-none"
+                                    className="w-full mt-1 border rounded p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                                     rows="4"
                                     placeholder="Descreva o acontecimento..."
                                     value={crmNote}
@@ -284,11 +334,11 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                                 ></textarea>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Ação Acordada (Opcional)</label>
+                                <label className="text-xs font-bold text-slate-500 uppercase">Ação Acordada</label>
                                 <input 
                                     type="text"
-                                    className="w-full mt-1 border rounded p-2 text-sm focus:ring-2 ring-blue-100 outline-none"
-                                    placeholder="Ex: Enviar medição dia 15"
+                                    className="w-full mt-1 border rounded p-2 text-sm"
+                                    placeholder="Ex: Enviar medição..."
                                     value={agreedAction}
                                     onChange={e => setAgreedAction(e.target.value)}
                                 />
@@ -304,36 +354,28 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         </form>
                     </div>
 
-                    {/* Linha do Tempo / Histórico */}
-                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200 card-print print:mt-4">
+                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                         <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                            <FileText size={18} className="print:hidden"/> Histórico de Registros e Diário
+                            <FileText size={18}/> Histórico de Registros
                         </h3>
-                        <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 print:max-h-none print:overflow-visible">
+                        <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
                             {(crm_history || []).map((log) => (
-                                <div key={log.id} className="relative pl-6 border-l-2 border-slate-200 pb-4 last:pb-0 print:border-l print:border-slate-300">
-                                    <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white print:border-slate-300 ${
+                                <div key={log.id} className="relative pl-6 border-l-2 border-slate-200 pb-4 last:pb-0">
+                                    <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white ${
                                         log.interaction_type === 'billing_milestone' ? 'bg-green-500' :
-                                        log.interaction_type === 'issue' ? 'bg-red-500' :
-                                        'bg-blue-400'
+                                        log.interaction_type === 'issue' ? 'bg-red-500' : 'bg-blue-400'
                                     }`}></div>
                                     <div className="flex justify-between items-start mb-1">
-                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded print:border print:border-slate-200 print:bg-white print:text-black ${
-                                            log.interaction_type === 'billing_milestone' ? 'bg-green-100 text-green-700' :
-                                            log.interaction_type === 'issue' ? 'bg-red-100 text-red-700' :
-                                            'bg-blue-50 text-blue-700'
-                                        }`}>
-                                            {log.interaction_type === 'daily_log' ? 'Diário' : 
-                                             log.interaction_type === 'billing_milestone' ? 'Cobrança' :
-                                             log.interaction_type === 'routine' ? 'Rotina' : 'Problema'}
+                                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                                            {log.interaction_type}
                                         </span>
-                                        <span className="text-xs text-slate-400 print:text-slate-600">{new Date(log.created_at).toLocaleString('pt-BR')}</span>
+                                        <span className="text-xs text-slate-400">{new Date(log.created_at).toLocaleString('pt-BR')}</span>
                                     </div>
-                                    <p className="text-sm text-slate-700 mb-1 print:text-black">{log.notes}</p>
+                                    <p className="text-sm text-slate-700 mb-1">{log.notes}</p>
                                     <div className="flex justify-between items-center mt-2">
                                         <span className="text-xs text-slate-400 italic">Por: {log.supervisor_name || 'Sistema'}</span>
                                         {log.agreed_action && (
-                                            <span className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded border border-orange-100 flex items-center gap-1 print:border-black print:text-black print:bg-white">
+                                            <span className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded border border-orange-100 flex items-center gap-1">
                                                 <AlertTriangle size={10} /> {log.agreed_action}
                                             </span>
                                         )}
@@ -360,34 +402,32 @@ const MachineRow = ({ vehicle, globalEndDate, onSave }) => {
     );
 
     return (
-        <tr className="hover:bg-slate-50 print:hover:bg-transparent">
-            <td className="px-4 py-3 align-top">
+        <tr className="hover:bg-slate-50">
+            <td className="px-4 py-3">
                 <div className="font-bold text-slate-700">{vehicle.modelo}</div>
-                <div className="text-[10px] text-slate-400 print:text-slate-600">{vehicle.placa || vehicle.re || '-'}</div>
+                <div className="text-[10px] text-slate-400">{vehicle.placa || vehicle.re || '-'}</div>
             </td>
-            <td className="px-4 py-3 align-top">
+            <td className="px-4 py-3">
                 <span className="text-xs font-bold text-slate-700">{vehicle.total_executado?.toFixed(1) || '0.0'}h</span>
             </td>
-            <td className="px-4 py-3 align-top">
+            <td className="px-4 py-3">
                 <input 
                     type="date" 
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    className="border border-slate-300 rounded p-1 text-slate-600 text-xs w-full focus:border-blue-500 outline-none print:hidden"
+                    className="border border-slate-300 rounded p-1 text-slate-600 text-xs w-full focus:border-blue-500 outline-none"
                 />
-                <span className="hidden print:block text-xs">{new Date(date).toLocaleDateString()}</span>
             </td>
-            <td className="px-4 py-3 align-top">
+            <td className="px-4 py-3">
                 <input 
                     type="text" 
                     placeholder="Destino..." 
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    className="border-b border-slate-300 bg-transparent py-1 w-full text-xs outline-none focus:border-blue-500 placeholder:text-slate-300 print:hidden"
+                    className="border-b border-slate-300 bg-transparent py-1 w-full text-xs outline-none focus:border-blue-500 placeholder:text-slate-300"
                 />
-                <span className="hidden print:block text-xs">{location || '-'}</span>
             </td>
-            <td className="px-4 py-3 text-right no-print">
+            <td className="px-4 py-3 text-right">
                 <button 
                     id={`btn-save-${vehicle.id}`}
                     onClick={() => onSave(vehicle.id, location, date)}
