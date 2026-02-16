@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, Info, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp } from 'lucide-react';
+import { X, Loader, Info, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp, Mail, Send } from 'lucide-react';
 import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 const RefuelingOrderModal = ({
@@ -357,121 +357,132 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- FUNÇÃO DE ENVIO + UPLOAD (CORRIGIDA COM FETCH NATIVO) ---
-    const sendToWhatsApp = async (orderData) => {
-        console.log(">>> [DEBUG] Iniciando sendToWhatsApp. Dados da Ordem:", orderData);
+    // --- LÓGICA DE DISTRIBUIÇÃO INTELIGENTE (EMAIL vs WHATSAPP) ---
+    const processDistribution = async (orderData) => {
+        console.log(">>> [DEBUG] Iniciando Distribuição. Dados da Ordem:", orderData);
 
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
+        // 1. Dados Finais Formatados
         const finalData = orderData || {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
             authNumber: orderToEdit?.authNumber || 'NOVA',
-            partnerName: partner?.razaoSocial
+            partnerName: partner?.razaoSocial,
+            vehicleInfo: `${vehicle?.modelo || ''} - ${vehicle?.placa || ''}`
         };
 
-        const phone = partner?.whatsapp || partner?.telefone;
-        if (!phone) {
-            console.log(">>> [DEBUG] Posto sem telefone/whatsapp.");
-            setAlertMessage("Ordem salva! Posto sem WhatsApp (PDF baixado).");
-            if (onGeneratePDF) onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
+        // 2. Verificar se tem email
+        const partnerEmail = partner?.email;
+        const hasEmail = partnerEmail && partnerEmail.includes('@');
+
+        if (!onGeneratePDF) {
+            console.error("Função onGeneratePDF não fornecida.");
             return;
         }
 
-        let pdfLink = '';
-        
-        if (onGeneratePDF) {
-            try {
-                const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+        try {
+            // 3. Gerar PDF Blob
+            const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
+            
+            // Nome do Arquivo
+            const emissionDateStr = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
+            const safeDate = emissionDateStr.replace(/\//g, '-');
+            const reCode = vehicle?.registroInterno || 'SN';
+            const pdfFileName = `Autorizacao_${finalData.authNumber}_RE${reCode}_${safeDate}.pdf`;
+
+            // 4. Upload do PDF
+            const formDataUpload = new FormData();
+            formDataUpload.append('file', pdfBlob, pdfFileName);
+
+            const getToken = () => {
+                const t = localStorage.getItem('token') || localStorage.getItem('authToken');
+                if (t) return t;
+                const u = localStorage.getItem('user');
+                if (u) try { return JSON.parse(u).token; } catch {}
+                return '';
+            };
+            
+            // Ajustar URL base da API
+            let baseUrl = '';
+            if (apiClient.defaults.baseURL) {
+                baseUrl = apiClient.defaults.baseURL.replace(/\/$/, '');
+            } else if (process.env.REACT_APP_API_URL) {
+                baseUrl = process.env.REACT_APP_API_URL;
+            }
+
+            const uploadUrl = `${baseUrl}/refuelings/upload-pdf`;
+            
+            const response = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${getToken()}` },
+                body: formDataUpload
+            });
+
+            if (!response.ok) throw new Error("Falha no upload do PDF");
+            
+            const uploadResult = await response.json();
+            const pdfUrl = uploadResult.url;
+            const pdfFilename = uploadResult.filename; // Nome salvo no servidor
+
+            // 5. Decisão: Email ou WhatsApp
+            if (hasEmail) {
+                // Tenta enviar por email
+                setAlertMessage(`Enviando por E-mail para ${partnerEmail}...`);
                 
-                // Constrói nome do arquivo padronizado
-                const emissionDateStr = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-                const safeDate = emissionDateStr.replace(/\//g, '-');
-                const reCode = vehicle?.registroInterno || 'SN';
-                const pdfFileName = `Autorizacao_${finalData.authNumber}_RE${reCode}_${safeDate}.pdf`;
-
-                // Backup Download
-                const downloadUrl = window.URL.createObjectURL(pdfBlob);
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = pdfFileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // UPLOAD VIA FETCH (Garante Boundary Correto)
-                const formDataUpload = new FormData();
-                formDataUpload.append('file', pdfBlob, pdfFileName);
-
-                // Recupera token manualmente para o fetch
-                const getToken = () => {
-                    const t = localStorage.getItem('token') || localStorage.getItem('authToken');
-                    if (t) return t;
-                    const u = localStorage.getItem('user');
-                    if (u) try { return JSON.parse(u).token; } catch {}
-                    return '';
-                };
-                
-                const token = getToken();
-
-                // Define a URL base corretamente (compatível com apiClient)
-                let uploadUrl = '/api/refuelings/upload-pdf';
-                if (apiClient.defaults.baseURL) {
-                    // Remove barra final se houver
-                    const base = apiClient.defaults.baseURL.replace(/\/$/, '');
-                    // Se a base já tiver /api, não duplica. Se for só o host, adiciona /api
-                    // Assumindo que apiClient.baseURL já é a rota correta (ex: https://api.com/api)
-                    uploadUrl = `${base}/refuelings/upload-pdf`;
-                } else if (process.env.REACT_APP_API_URL) {
-                    uploadUrl = `${process.env.REACT_APP_API_URL}/refuelings/upload-pdf`;
-                }
-
-                console.log(">>> [DEBUG] Fetch URL:", uploadUrl);
-
-                const response = await fetch(uploadUrl, {
+                const emailUrl = `${baseUrl}/refuelings/send-email`;
+                const emailRes = await fetch(emailUrl, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                        // IMPORTANTE: NÃO definir Content-Type aqui. O browser define multipart/form-data + boundary
+                    headers: { 
+                        'Authorization': `Bearer ${getToken()}`,
+                        'Content-Type': 'application/json'
                     },
-                    body: formDataUpload
+                    body: JSON.stringify({
+                        orderData: finalData,
+                        partnerEmail: partnerEmail,
+                        pdfFilename: pdfFilename,
+                        pdfUrl: pdfUrl
+                    })
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log(">>> [DEBUG] Sucesso Upload:", data);
-                    
-                    if (data.url) {
-                        const returnedUrl = data.url;
-                        if (returnedUrl.startsWith('http')) {
-                            pdfLink = returnedUrl;
-                        } else {
-                            // Reconstrói URL absoluta para o link
-                            let origin = window.location.origin;
-                            // Se a API estiver em outro domínio, precisamos da base da API, não da origem do front
-                            if (uploadUrl.startsWith('http')) {
-                                const urlObj = new URL(uploadUrl);
-                                origin = urlObj.origin;
-                            }
-                            
-                            // Remove /api ou similar da URL retornada se duplicado, mas geralmente vem /uploads/...
-                            const finalPath = returnedUrl.startsWith('/') ? returnedUrl : `/${returnedUrl}`;
-                            pdfLink = `${origin}${finalPath}`;
-                        }
-                    }
+                if (emailRes.ok) {
+                    setAlertMessage(`Sucesso! E-mail enviado para ${partnerEmail}.`);
+                    // Não abrimos o WhatsApp se foi por e-mail com sucesso
+                    return; 
                 } else {
-                    console.error(">>> [DEBUG] Erro Fetch:", response.status, await response.text());
+                    console.warn("Falha no envio de email, fallback para WhatsApp.");
+                    setAlertMessage("Erro no envio de e-mail. Abrindo WhatsApp...");
                 }
-
-            } catch (err) {
-                console.error(">>> [DEBUG] Erro FATAL no Upload:", err);
-                setAlertMessage("Ordem salva, mas falha ao gerar link do PDF.");
+            } else {
+                 setAlertMessage("Posto sem e-mail. Abrindo WhatsApp...");
             }
+
+            // 6. Fallback para WhatsApp (se não tiver email ou falhar)
+            triggerWhatsApp(finalData, partner, vehicle, employee, pdfUrl);
+
+        } catch (err) {
+            console.error(">>> [DEBUG] Erro na Distribuição:", err);
+            setAlertMessage("Erro ao processar envio. PDF gerado localmente.");
+            // Backup: Download direto se der erro
+            onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
+        }
+    };
+
+    const triggerWhatsApp = (finalData, partner, vehicle, employee, pdfLink) => {
+        const phone = partner?.whatsapp || partner?.telefone;
+        if (!phone) {
+            setAlertMessage("Ordem salva! Posto sem WhatsApp/Email.");
+            return;
         }
 
-        // --- MENSAGEM WHATSAPP ---
+        // Reconstrói URL absoluta para o link se necessário
+        let absoluteLink = pdfLink;
+        if (pdfLink && !pdfLink.startsWith('http')) {
+            absoluteLink = `${window.location.origin}${pdfLink.startsWith('/') ? '' : '/'}${pdfLink}`;
+        }
+
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
         let readingMsg = '';
         if (allowedReadings.includes('odometro')) {
@@ -481,45 +492,26 @@ const RefuelingOrderModal = ({
         }
         
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-        
         const arlaMsg = formData.needsArla 
             ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
             : '';
 
-        let msg = '';
-        
-        if (pdfLink) {
-            msg = 
+        let msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-Segue link para a Autorização Oficial (PDF):
-${pdfLink}
+${absoluteLink ? `Baixe aqui: ${absoluteLink}` : '(PDF indisponível)'}
 
-*Resumo:*
 *Nº Ordem:* ${finalData.authNumber}
 *Data:* ${emissionDate}
 *Posto:* ${partner?.razaoSocial || 'N/A'}
 *Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
 *Combustível:* ${finalData.fuelType}
-*Quantidade:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
-*Motorista:* ${employee?.nome || 'N/A'}`;
-        } else {
-            msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-(Link PDF indisponível, verifique sistema)
-
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa}
-${readingMsg}
+*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
 *Motorista:* ${employee?.nome || 'N/A'}
-*Combustível:* ${finalData.fuelType}
-*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}`;
-        }
+${readingMsg}`;
 
         setTimeout(() => {
             window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }, 1000);
+        }, 500);
     };
 
     const handleSaveClick = (e) => {
@@ -592,7 +584,8 @@ ${readingMsg}
                     authNumber: res.authNumber || orderToEdit?.authNumber,
                     createdBy: user 
                  };
-                 await sendToWhatsApp(fullOrderData);
+                 // CHAMA O PROCESSO DE DISTRIBUIÇÃO INTELIGENTE
+                 await processDistribution(fullOrderData);
             }
             onClose();
         } catch (error) {
@@ -808,7 +801,9 @@ ${readingMsg}
                         </button>
                     ) : (
                         <button onClick={handleSaveClick} disabled={isSaving} className="px-3 py-1.5 bg-yellow-400 text-gray-900 font-bold text-xs rounded shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-1">
-                            {isSaving ? <Loader className="animate-spin" size={12}/> : 'Salvar & PDF'}
+                            {isSaving ? <Loader className="animate-spin" size={12}/> : (
+                                <><Send size={12} /> Salvar & Enviar</>
+                            )}
                         </button>
                     )}
                 </div>

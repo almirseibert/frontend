@@ -111,7 +111,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         
         doc.setFontSize(10);
         doc.setTextColor(100, 100, 100);
-        doc.text("MAK ENGENHARIA E CONSTRUÇÕES", 200, 26, { align: 'right' });
+        doc.text("MAK SERVIÇOS E PAVIMENTAÇÕES LTDA", 200, 26, { align: 'right' });
         
         // Linha divisória amarela
         doc.setDrawColor(...colors.secondary);
