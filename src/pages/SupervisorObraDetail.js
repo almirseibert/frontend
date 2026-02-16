@@ -6,8 +6,9 @@ import {
 import apiClient from '../services/apiClient';
 
 // IMPORTANTE: Importando as bibliotecas instaladas no package.json
+// Ajuste: Importamos 'autoTable' como uma função nomeada/default para evitar erro de protótipo
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
@@ -73,7 +74,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             return;
         }
         
-        // Instancia diretamente (o plugin autoTable é anexado automaticamente pelo import 'jspdf-autotable')
+        // Instancia diretamente
         const doc = new jsPDF();
         const { obra, contract, financeiro, producao, veiculos } = data;
 
@@ -91,7 +92,8 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         doc.text(`Emitido em: ${new Date().toLocaleDateString()} às ${new Date().toLocaleTimeString()}`, 14, 42);
 
         // Seção 1: Resumo Executivo
-        doc.autoTable({
+        // Correção: Chamando autoTable como função e passando 'doc'
+        autoTable(doc, {
             startY: 50,
             head: [['Indicador', 'Valor', 'Indicador', 'Valor']],
             body: [
@@ -106,6 +108,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         });
 
         // Seção 2: Veículos e Funcionários
+        // doc.lastAutoTable é preenchido pela função autoTable(doc, ...)
         doc.text("Frota Alocada e Produtividade", 14, doc.lastAutoTable.finalY + 15);
         
         const rows = veiculos.map(v => [
@@ -117,7 +120,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             v.proximo_destino || '-'
         ]);
 
-        doc.autoTable({
+        autoTable(doc, {
             startY: doc.lastAutoTable.finalY + 18,
             head: [['RE/Placa', 'Equipamento', 'Operador/Motorista', 'Total Hrs', 'Média/Dia', 'Próx. Destino']],
             body: rows,
