@@ -1,21 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
     ArrowLeft, DollarSign, Calendar, Truck, MapPin, Save, Loader, 
-    AlertTriangle, MessageSquare, FileText, Printer, FileDown
+    AlertTriangle, MessageSquare, FileText, FileDown
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    
-    // Estados do CRM
     const [crmNote, setCrmNote] = useState('');
     const [interactionType, setInteractionType] = useState('daily_log'); 
     const [agreedAction, setAgreedAction] = useState('');
     const [submittingCrm, setSubmittingCrm] = useState(false);
 
-    // Carregar Scripts do jsPDF dinamicamente (Bypass build error)
+    // Carregar Scripts do jsPDF dinamicamente (Bypass de erro de build)
     useEffect(() => {
         const loadScript = (src) => {
             return new Promise((resolve, reject) => {
@@ -31,7 +29,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         Promise.all([
             loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
             loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js")
-        ]).then(() => console.log("PDF Libs Loaded")).catch(e => console.error("Failed to load PDF libs", e));
+        ]).then(() => console.log("PDF Libs Loaded")).catch(e => console.error("PDF Libs Error", e));
     }, []);
 
     const fetchDetails = useCallback(async () => {
@@ -61,11 +59,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
             setCrmNote('');
             setAgreedAction('');
             fetchDetails(); 
-        } catch (error) {
-            alert('Erro ao salvar registro.');
-        } finally {
-            setSubmittingCrm(false);
-        }
+        } catch (error) { alert('Erro ao salvar registro.'); } finally { setSubmittingCrm(false); }
     };
 
     const handleUpdateMission = async (vehicleId, location, date) => {
@@ -90,7 +84,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     const generateRealPDF = () => {
         if (!window.jspdf || !data) {
-            alert("Biblioteca PDF carregando... tente novamente em instantes.");
+            alert("A biblioteca de PDF ainda está carregando ou não há dados. Aguarde instantes.");
             return;
         }
         
@@ -103,7 +97,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         doc.rect(0, 0, 210, 24, 'F');
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(18);
-        doc.text("Relatório de Gestão da Obra", 14, 16);
+        doc.text("Relatório Detalhado de Obra", 14, 16);
         
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(12);
@@ -119,20 +113,20 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                 ['Responsável', contract.responsavel_nome || '-', 'Fiscal', contract.fiscal_nome || '-'],
                 ['Total Contrato', formatCurrency(financeiro.total_contrato), 'Total Despesas', formatCurrency(financeiro.total_despesas)],
                 ['Hrs Contratadas', (producao.saldo_horas + producao.horas_executadas).toFixed(0), 'Hrs Executadas', producao.horas_executadas.toFixed(0)],
-                ['Saldo Horas', producao.saldo_horas.toFixed(0), 'Previsão Término', calculateEndDate().date.toLocaleDateString()]
+                ['Saldo Horas', producao.saldo_horas.toFixed(0), 'Conclusão', `${((producao.horas_executadas / (producao.saldo_horas + producao.horas_executadas || 1)) * 100).toFixed(1)}%`]
             ],
             theme: 'grid',
             headStyles: { fillColor: [52, 73, 94] },
             styles: { fontSize: 9 }
         });
 
-        // Seção 2: Veículos
+        // Seção 2: Veículos e Funcionários
         doc.text("Frota Alocada e Produtividade", 14, doc.lastAutoTable.finalY + 15);
         
         const rows = veiculos.map(v => [
             v.placa || v.re || '-',
-            v.tipo,
-            `${v.marca || ''} ${v.modelo || ''}`,
+            `${v.marca || ''} ${v.modelo || ''} (${v.tipo})`,
+            v.operador_atual || 'A Definir',
             v.total_executado?.toFixed(1) || '0.0',
             v.media_diaria?.toFixed(1) || '0.0',
             v.proximo_destino || '-'
@@ -140,12 +134,19 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
         doc.autoTable({
             startY: doc.lastAutoTable.finalY + 18,
-            head: [['RE/Placa', 'Tipo', 'Equipamento', 'Total Hrs (Obra)', 'Média/Dia', 'Próx. Destino']],
+            head: [['RE/Placa', 'Equipamento', 'Operador/Motorista', 'Total Hrs', 'Média/Dia', 'Próx. Destino']],
             body: rows,
             theme: 'striped',
             headStyles: { fillColor: [41, 128, 185] },
             styles: { fontSize: 8 }
         });
+
+        // Seção 3: Notas e Registros Recentes
+        if (crmNote) {
+            doc.text("Anotações da Sessão Atual", 14, doc.lastAutoTable.finalY + 15);
+            doc.setFontSize(9);
+            doc.text(crmNote, 14, doc.lastAutoTable.finalY + 22, { maxWidth: 180 });
+        }
 
         doc.save(`Relatorio_${obra.nome.substring(0, 15).replace(/\s/g, '_')}.pdf`);
     };
@@ -154,7 +155,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
         if (!data) return { date: new Date(), diasRestantes: 0 };
         const { producao } = data;
         const saldo = producao?.saldo_horas || 0;
-        const ritmo = producao?.media_diaria_atual || 1; // Usando ritmo que vem do backend (agora ajustado para 8h * maquinas)
+        const ritmo = producao?.media_diaria_atual || 1;
 
         if (saldo <= 0) return { date: new Date(), diasRestantes: 0 };
 
@@ -177,7 +178,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
 
     return (
         <div className="bg-slate-100 min-h-screen pb-20">
-            {/* Header */}
             <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full"><ArrowLeft size={20}/></button>
@@ -190,13 +190,12 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                     onClick={generateRealPDF}
                     className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-900 transition-colors text-sm font-bold shadow-sm"
                 >
-                    <FileDown size={16} /> Baixar PDF
+                    <FileDown size={16} /> Baixar PDF Detalhado
                 </button>
             </div>
 
             <div className="max-w-7xl mx-auto p-6 space-y-6">
-                
-                {/* 1. CARTÃO PRINCIPAL DE PREVISÃO */}
+                {/* 1. CARTÃO DE PREVISÃO */}
                 <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-8 shadow-lg relative overflow-hidden">
                     <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8">
                         <div>
@@ -211,7 +210,7 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                         <div className="border-l border-slate-700 pl-8">
                             <h3 className="text-slate-400 font-bold uppercase text-xs mb-2">Ritmo Teórico (8h/Máq)</h3>
                             <div className="text-3xl font-bold text-blue-400 mb-1">
-                                {producao?.media_diaria_atual?.toFixed(0)}h <span className="text-sm text-slate-400">/dia</span>
+                                {contract.is_hidden ? '-' : `${producao?.media_diaria_atual?.toFixed(0)}h`} <span className="text-sm text-slate-400">/dia</span>
                             </div>
                         </div>
                         <div className="border-l border-slate-700 pl-8">
@@ -392,7 +391,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     );
 };
 
-// Componente de Linha de Máquina
 const MachineRow = ({ vehicle, globalEndDate, onSave }) => {
     const [location, setLocation] = useState(vehicle.proximo_destino || '');
     const [date, setDate] = useState(

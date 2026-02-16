@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, FileText, Calendar, DollarSign, Clock, User, AlertCircle, HardHat, EyeOff } from 'lucide-react';
+// IMPORTAÇÃO CORRIGIDA: Usa o caminho relativo correto para src/services/apiClient
 import apiClient from '../../services/apiClient';
 
 const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
@@ -65,7 +66,6 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                 </div>
                 
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                    {/* Campos Existentes */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Valor Total</label>
@@ -138,9 +138,12 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                         </div>
                     </div>
 
-                    {/* Checkbox para Ocultar/Despriorizar */}
-                    <div className="bg-slate-100 p-3 rounded-lg flex items-center gap-3 cursor-pointer" onClick={() => setFormData({...formData, is_hidden: !formData.is_hidden})}>
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${formData.is_hidden ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-400'}`}>
+                    {/* Botão de Ocultar/Centro de Custo */}
+                    <div 
+                        className="bg-slate-100 p-3 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-slate-200 transition-colors" 
+                        onClick={() => setFormData({...formData, is_hidden: !formData.is_hidden})}
+                    >
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${formData.is_hidden ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-400'}`}>
                             {formData.is_hidden && <div className="w-2.5 h-2.5 bg-white rounded-sm"></div>}
                         </div>
                         <div className="flex-1">
