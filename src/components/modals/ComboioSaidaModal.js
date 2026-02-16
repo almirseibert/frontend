@@ -156,7 +156,6 @@ const ComboioSaidaModal = ({
             const current = parseFloat(formData.horimetro);
             // Busca o último valor unificado, ou fallback para legados se ainda existirem
             let last = parseFloat(selectedVehicle.horimetro || 0);
-            if (last === 0) last = parseFloat(selectedVehicle.horimetroDigital || 0);
 
             if (!isNaN(current) && last > 0) {
                 if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
@@ -216,7 +215,6 @@ const ComboioSaidaModal = ({
                 id: isEditing ? transactionData.id : undefined,
                 comboioVehicleId: comboioVehicle.id,
                 receivingVehicleId: data.receivingVehicleId,
-                // CORREÇÃO: Removemos campos legados horimetroDigital/Analogico
                 odometro: parseFloat(data.odometro) || null,
                 horimetro: parseFloat(data.horimetro) || null,
                 liters: parseFloat(data.liters),
@@ -273,7 +271,7 @@ const ComboioSaidaModal = ({
             return (
                 <div>
                     <label className="block font-medium mb-1">Horímetro Final (Hr) *</label>
-                    <input name="horimetro" type="number" step="0.1" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || selectedVehicle.horimetroDigital || 0}`} />
+                    <input name="horimetro" type="number" step="0.1" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || 0}`} />
                     <p className="text-[10px] text-gray-400 mt-0.5">Unificado (Substitui Digital/Analógico)</p>
                 </div>
             );

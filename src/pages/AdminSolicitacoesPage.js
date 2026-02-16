@@ -127,10 +127,7 @@ const AdminSolicitacoesPage = ({
                     } else if (order.odometro && order.odometro > 0) {
                         leituraLabel = 'Odômetro';
                         leituraValue = order.odometro;
-                    } else if (order.horimetroDigital) {
-                        leituraLabel = 'Horímetro';
-                        leituraValue = order.horimetroDigital;
-                    }
+                    } 
 
                     const body = [
                         ['Data de Emissão', emissionDateStr],
@@ -340,7 +337,7 @@ const AdminSolicitacoesPage = ({
                 litrosArla: order.litrosLiberadosArla || '',
                 price: currentPrice || '',
                 nf: order.invoiceNumber || '',
-                reading: order.horimetro || order.horimetroDigital || order.odometro || modalData.odometro_informado || modalData.horimetro_informado || '',
+                reading: order.horimetro || order.odometro || modalData.odometro_informado || modalData.horimetro_informado || '',
                 outrosValor: order.outrosGeraValor ? (order.outrosValor || '') : ''
             });
 
@@ -369,7 +366,6 @@ const AdminSolicitacoesPage = ({
             if (isKm) last = parseFloat(vehicle.odometro || 0);
             else {
                 last = parseFloat(vehicle.horimetro || 0);
-                if (last === 0) last = parseFloat(vehicle.horimetroDigital || 0);
             }
 
             const current = parseFloat(confirmForm.reading);
@@ -394,7 +390,7 @@ const AdminSolicitacoesPage = ({
             if (history.length > 0) {
                 const currentReading = parseFloat(confirmForm.reading);
                 const lastRefuel = history[0];
-                const lastReading = parseFloat(lastRefuel.horimetro || lastRefuel.horimetroDigital || lastRefuel.odometro || 0);
+                const lastReading = parseFloat(lastRefuel.horimetro || lastRefuel.odometro || 0);
 
                 if (currentReading > lastReading) {
                     const diff = currentReading - lastReading;
@@ -407,8 +403,8 @@ const AdminSolicitacoesPage = ({
                         const rCurrent = history[i];
                         const rPrev = history[i+1];
                         const l = parseFloat(rCurrent.litrosAbastecidos || 0);
-                        const valCurr = parseFloat(rCurrent.horimetro || rCurrent.horimetroDigital || rCurrent.odometro || 0);
-                        const valPrev = parseFloat(rPrev.horimetro || rPrev.horimetroDigital || rPrev.odometro || 0);
+                        const valCurr = parseFloat(rCurrent.horimetro || rCurrent.odometro || 0);
+                        const valPrev = parseFloat(rPrev.horimetro || rPrev.odometro || 0);
                         
                         if (l > 0 && valCurr > valPrev) {
                             sumAvgs += (valCurr - valPrev) / l;
@@ -575,8 +571,8 @@ const AdminSolicitacoesPage = ({
 
             const allowed = getAllowedReadingTypes(vehicle.tipo);
             if (allowed.includes('horimetro')) {
-                const lastHr = parseFloat(last.horimetro || last.horimetroDigital || 0); 
-                const prevHr = parseFloat(penultimo.horimetro || penultimo.horimetroDigital || 0);
+                const lastHr = parseFloat(last.horimetro || 0); 
+                const prevHr = parseFloat(penultimo.horimetro || 0);
                 diff = lastHr - prevHr;
                 unit = 'L/h';
             } else {
@@ -599,7 +595,7 @@ const AdminSolicitacoesPage = ({
         
         const allowedReadings = getAllowedReadingTypes(vehicle.tipo);
         const isKm = allowedReadings.includes('odometro');
-        const readVal = isKm ? (last.odometro || 0) : (last.horimetro || last.horimetroDigital || 0);
+        const readVal = isKm ? (last.odometro || 0) : (last.horimetro || 0);
         const litrosVal = last.litrosAbastecidos || last.litrosLiberados || 0;
 
         return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;

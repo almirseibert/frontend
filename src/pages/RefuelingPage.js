@@ -144,9 +144,6 @@ const RefuelingPage = ({
                     } else if (order.odometro && order.odometro > 0) {
                         leituraLabel = 'Odômetro';
                         leituraValue = order.odometro;
-                    } else if (order.horimetroDigital) {
-                        leituraLabel = 'Horímetro';
-                        leituraValue = order.horimetroDigital;
                     }
 
                     const body = [

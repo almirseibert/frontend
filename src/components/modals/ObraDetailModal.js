@@ -401,8 +401,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                      const updateData = {};
                      
                      if (vehicleGroup === 'Máquinas Pesadas') {
-                         if (vehicle.possuiHorimetroAnalogico) updateData.horimetroAnalogico = newReading;
-                         else updateData.horimetroDigital = newReading;
+                         updateData.horimetro = newReading;
                      } else if (vehicleGroup === 'Caminhões') {
                          updateData.horimetro = newReading;
                      } else if (vehicleGroup === 'Veículos Leves') {
@@ -662,7 +661,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                         let readingLabel = 'Leitura';
                                         
                                         if (vehicleGroup === 'Máquinas Pesadas') {
-                                            currentReading = parseFloat(vehicle.possuiHorimetroAnalogico ? vehicle.horimetroAnalogico : vehicle.horimetroDigital) || 0;
+                                            currentReading = parseFloat(vehicle.horimetro) || 0;
                                             readingLabel = 'Horímetro';
                                         } else if (vehicleGroup === 'Caminhões') {
                                             currentReading = parseFloat(vehicle.horimetro) || 0;

@@ -68,7 +68,7 @@ const ConstructionReport = ({ obras, vehicles, dailyWorkLogs, vehicleGroups }) =
                         current = parseFloat(v.odometro || 0);
                     } else {
                         start = parseFloat(entry.horimetroEntrada || entry.odometroEntrada || 0);
-                        current = parseFloat(v.horimetro ?? v.horimetroDigital ?? v.horimetroAnalogico ?? 0);
+                        current = parseFloat(v.horimetro || 0);
                     }
                 }
                 const worked = Math.max(0, current - start);

@@ -72,9 +72,9 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                         endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
                     } else {
                          if (vehicleGroup === 'Máquinas Pesadas') {
-                            endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                            endReading = parseFloat(vehicle.horimetro || 0);
                         } else if (vehicleGroup === 'Caminhões') {
-                            endReading = parseFloat(vehicle.horimetro ?? 0);
+                            endReading = parseFloat(vehicle.horimetro || 0);
                         }
                     }
 
@@ -142,7 +142,7 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                         if (h.dataSaida) {
                             endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
                         } else {
-                            endReading = parseFloat(vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 0);
+                            endReading = parseFloat(vehicle.horimetro || 0);
                         }
                     } else if (vehicleGroup === 'Caminhões') {
                         readingLabel = 'Horas';

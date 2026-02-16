@@ -27,7 +27,7 @@ const ConfirmRefuelingModal = ({
     const [invoiceNumber, setInvoiceNumber] = useState(order.invoiceNumber || '');
 
     // Sugestão de leitura (Unificada)
-    const suggestedReading = order.horimetro || order.horimetroDigital || order.odometro || '';
+    const suggestedReading = order.horimetro ||  order.odometro || '';
     const [kmOuHrConfirmado, setKmOuHrConfirmado] = useState(suggestedReading);
     
     const [outrosValorConfirmado, setOutrosValorConfirmado] = useState('');
@@ -142,7 +142,7 @@ const ConfirmRefuelingModal = ({
         const currentReading = parseFloat(kmOuHrConfirmado);
         const lastRefuel = history[0];
         // Leitura anterior unificada
-        const lastReading = parseFloat(lastRefuel.horimetro || lastRefuel.horimetroDigital || lastRefuel.odometro || 0);
+        const lastReading = parseFloat(lastRefuel.horimetro || lastRefuel.odometro || 0);
 
         if (currentReading <= lastReading) return;
 
@@ -157,8 +157,8 @@ const ConfirmRefuelingModal = ({
             const rCurrent = history[i];
             const rPrev = history[i+1];
             const l = parseFloat(rCurrent.litrosAbastecidos || 0);
-            const valCurr = parseFloat(rCurrent.horimetro || rCurrent.horimetroDigital || rCurrent.odometro || 0);
-            const valPrev = parseFloat(rPrev.horimetro || rPrev.horimetroDigital || rPrev.odometro || 0);
+            const valCurr = parseFloat(rCurrent.horimetro || rCurrent.odometro || 0);
+            const valPrev = parseFloat(rPrev.horimetro || rPrev.odometro || 0);
             
             if (l > 0 && valCurr > valPrev) {
                 sumAvgs += (valCurr - valPrev) / l;

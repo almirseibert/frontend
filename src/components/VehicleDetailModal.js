@@ -25,11 +25,11 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
 
     if (vehicleGroup === 'Máquinas Pesadas') {
          readingLabel = 'Horímetro';
-         readingValue = `${vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? vehicle.horimetro ?? 'N/A'} Hr`;
+         readingValue = `${vehicle.horimetro || 'N/A'} Hr`;
          consumptionUnit = 'L/Hr';
     } else if (vehicleGroup === 'Caminhões') {
         readingLabel = 'Odômetro / Horímetro';
-        readingValue = `${vehicle.odometro ?? 'N/A'} Km / ${vehicle.horimetro ?? 'N/A'} Hr`;
+        readingValue = `${vehicle.odometro || 'N/A'} Km / ${vehicle.horimetro || 'N/A'} Hr`;
         
         if (vehicle.tipo === 'Caminhões Prancha') {
             consumptionUnit = 'Km/L'; 

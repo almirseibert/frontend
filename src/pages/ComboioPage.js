@@ -96,7 +96,7 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
                 leituraValue = vehicle.odometro || 'N/A';
             } else {
                 leituraLabel = 'Horímetro';
-                leituraValue = vehicle.horimetro || vehicle.horimetroDigital || 'N/A';
+                leituraValue = vehicle.horimetro || 'N/A';
             }
         }
 

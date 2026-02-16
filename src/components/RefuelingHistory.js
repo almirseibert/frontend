@@ -82,11 +82,11 @@ const RefuelingHistory = ({
             let diff = 0;
             
             const getReading = (item) => {
-                if (unit === 'L/Hr') return parseFloat(item.horimetro || item.horimetroDigital || item.horimetroAnalogico || 0);
+                if (unit === 'L/Hr') return parseFloat(item.horimetro || 0);
                 return parseFloat(item.odometro || 0);
             };
             
-            const displayReading = unit === 'L/Hr' ? (current.horimetro || current.horimetroDigital || '-') : (current.odometro || '-');
+            const displayReading = unit === 'L/Hr' ? (current.horimetro || '-') : (current.odometro || '-');
             const displayPartner = current.partnerName || partners.find(p => p.id === current.partnerId)?.razaoSocial || 'N/A';
 
             if (previous) {

@@ -46,7 +46,7 @@ export const getVehicleMainReading = (vehicle) => {
     } else {
         // Regra unificada: Usa apenas a coluna 'horimetro'
         // Tenta pegar horimetro, se não tiver tenta o digital, se não o analógico
-        const val = vehicle.horimetro ?? vehicle.horimetroDigital ?? vehicle.horimetroAnalogico ?? 0;
+        const val = vehicle.horimetro || 0;
         return { value: val, unit: 'Hr', label: 'Horímetro', raw: parseFloat(val) };
     }
 };
@@ -75,7 +75,7 @@ export const checkReadingConsistency = (vehicle, newValueStr, fieldType) => {
     } 
     // Se o campo editado for horímetro (unificado)
     else if (fieldType === 'horimetro') {
-        currentValue = parseFloat(vehicle.horimetro || vehicle.horimetroDigital || 0);
+        currentValue = parseFloat(vehicle.horimetro || 0);
         unit = 'Hr';
         limit = 50;   // Regra 3: Trava 50h de salto
     } else {

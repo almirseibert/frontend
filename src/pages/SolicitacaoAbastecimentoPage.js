@@ -72,7 +72,7 @@ const checkVehicleRestrictions = (vehicle) => {
     // Pega o valor atual correto baseado no tipo
     const currentReading = isKm 
         ? parseFloat(vehicle.odometro || 0) 
-        : parseFloat(vehicle.horimetro || vehicle.horimetroDigital || 0);
+        : parseFloat(vehicle.horimetro || 0);
 
     // Pega a meta correta
     let proximaLeitura = 0;
@@ -611,7 +611,7 @@ const SolicitacaoAbastecimentoPage = ({
         if (readingType === 'horimetro') {
             if (!formData.horimetro) errors.push("É obrigatório informar o HORÍMETRO (Hr).");
             if (veiculoSelecionado) {
-                const currentHr = parseFloat(veiculoSelecionado.horimetro || veiculoSelecionado.horimetroDigital || 0);
+                const currentHr = parseFloat(veiculoSelecionado.horimetro || 0);
                 const inputHr = parseFloat(formData.horimetro);
                 if (inputHr <= currentHr) {
                     errors.push(`Horímetro inválido: O valor informado (${inputHr} h) deve ser maior que o atual (${currentHr} h).`);

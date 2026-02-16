@@ -262,8 +262,8 @@ const RefuelingOrderModal = ({
 
                 const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
                 if (allowed.includes('horimetro')) {
-                    const lastHr = parseFloat(last.horimetro || last.horimetroDigital || 0); 
-                    const prevHr = parseFloat(prev.horimetro || prev.horimetroDigital || 0);
+                    const lastHr = parseFloat(last.horimetro || 0); 
+                    const prevHr = parseFloat(prev.horimetro || 0);
                     diff = lastHr - prevHr;
                     unit = 'L/Hr';
                 } else {
@@ -307,7 +307,6 @@ const RefuelingOrderModal = ({
         if (isHr && formData.horimetro) {
             const current = parseFloat(formData.horimetro);
             let last = parseFloat(selectedVehicle.horimetro || 0);
-            if (last === 0) last = parseFloat(selectedVehicle.horimetroDigital || 0);
 
             if (!isNaN(current) && last > 0) {
                 if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
@@ -557,8 +556,6 @@ ${readingMsg}
             ...formData,
             odometro: safeFloat(formData.odometro),
             horimetro: safeFloat(formData.horimetro),
-            horimetroDigital: null,
-            horimetroAnalogico: null,
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
@@ -621,7 +618,7 @@ ${readingMsg}
             return (
                 <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-gray-700">Horímetro (Hr) *</label>
-                    <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || selectedVehicle.horimetroDigital || 0}`}/>
+                    <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || 0}`}/>
                     <p className="text-[9px] text-gray-400 mt-0.5">Campo Unificado</p>
                 </div>
             );
@@ -676,7 +673,7 @@ ${readingMsg}
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
                                     
                                     <div className="mt-0.5 pt-0.5 border-t border-gray-300 flex gap-2">
-                                        <p>Leitura: <strong>{lastRefuelData.horimetro || lastRefuelData.horimetroDigital || lastRefuelData.odometro || 'N/A'}</strong></p>
+                                        <p>Leitura: <strong>{lastRefuelData.horimetro || lastRefuelData.odometro || 'N/A'}</strong></p>
                                     </div>
                                 </div>
                                 <div className="text-right">
