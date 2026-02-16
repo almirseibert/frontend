@@ -452,16 +452,21 @@ const RefuelingOrderModal = ({
 Segue a autorização de abastecimento emitida pelo sistema Frotas MAK.
 
 --- RESUMO ---
-Número: #${finalData.authNumber}
-Veículo: ${finalData.vehicleInfo || 'N/A'}
+
+Nº Ordem: ${finalData.authNumber}
+Data: ${emissionDate}
+Posto: ${partner?.razaoSocial || 'N/A'}
+Veículo: ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
 Combustível: ${finalData.fuelType}
-Quantidade: ${finalData.isFillUp ? 'COMPLETAR TANQUE' : (finalData.litrosLiberados + ' Litros')}
+Qtd: ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
+Motorista: ${employee?.nome || 'N/A'}
 
 --- DOWNLOAD DA AUTORIZAÇÃO (PDF) ---
 Clique no link abaixo para baixar o documento oficial:
 ${absoluteLink}
 
-Por favor, realize o abastecimento conforme autorizado.
+A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.
+Estão autorizados somente os itens discriminados na ordem de abastecimento. Qualquer divergência deve ser comunicada imediatamente à administração de Frotas MAK.
 
 Att,
 Equipe Frotas MAK`;
