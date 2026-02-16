@@ -357,7 +357,7 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- LÓGICA DE DISTRIBUIÇÃO INTELIGENTE (EMAIL vs WHATSAPP) ---
+    // --- LÓGICA DE DISTRIBUIÇÃO INTELIGENTE (AGORA COM MAILTO) ---
     const processDistribution = async (orderData) => {
         console.log(">>> [DEBUG] Iniciando Distribuição. Dados da Ordem:", orderData);
 
@@ -384,7 +384,7 @@ const RefuelingOrderModal = ({
         }
 
         try {
-            // 3. Gerar PDF Blob
+            // 3. Gerar PDF Blob e Fazer Upload (Para obter Link)
             const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
             
             // Nome do Arquivo
@@ -393,7 +393,7 @@ const RefuelingOrderModal = ({
             const reCode = vehicle?.registroInterno || 'SN';
             const pdfFileName = `Autorizacao_${finalData.authNumber}_RE${reCode}_${safeDate}.pdf`;
 
-            // 4. Upload do PDF
+            // 4. Upload do PDF (Necessário para gerar o link que vai no email)
             const formDataUpload = new FormData();
             formDataUpload.append('file', pdfBlob, pdfFileName);
 
@@ -425,47 +425,63 @@ const RefuelingOrderModal = ({
             
             const uploadResult = await response.json();
             const pdfUrl = uploadResult.url;
-            const pdfFilename = uploadResult.filename; // Nome salvo no servidor
-
-            // 5. Decisão: Email ou WhatsApp
-            if (hasEmail) {
-                // Tenta enviar por email
-                setAlertMessage(`Enviando por E-mail para ${partnerEmail}...`);
-                
-                const emailUrl = `${baseUrl}/refuelings/send-email`;
-                const emailRes = await fetch(emailUrl, {
-                    method: 'POST',
-                    headers: { 
-                        'Authorization': `Bearer ${getToken()}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        orderData: finalData,
-                        partnerEmail: partnerEmail,
-                        pdfFilename: pdfFilename,
-                        pdfUrl: pdfUrl
-                    })
-                });
-
-                if (emailRes.ok) {
-                    setAlertMessage(`Sucesso! E-mail enviado para ${partnerEmail}.`);
-                    // Não abrimos o WhatsApp se foi por e-mail com sucesso
-                    return; 
-                } else {
-                    console.warn("Falha no envio de email, fallback para WhatsApp.");
-                    setAlertMessage("Erro no envio de e-mail. Abrindo WhatsApp...");
+            
+            // Construir Link Absoluto (Importante para o email externo)
+            let absoluteLink = pdfUrl;
+            if (pdfUrl && !pdfUrl.startsWith('http')) {
+                // Tenta pegar a base da URL da API ou da janela atual
+                let urlDomain = window.location.origin;
+                // Se a API estiver em outro domínio, idealmente usamos o domínio da API
+                if (baseUrl.startsWith('http')) {
+                    urlDomain = baseUrl;
                 }
+                
+                // Remove /api ou duplicatas se necessário, mas geralmente uploads ficam na raiz pública
+                // Se pdfUrl já vier com /uploads/orders/..., apenas concatenamos
+                absoluteLink = `${urlDomain.replace('/api', '')}${pdfUrl.startsWith('/') ? '' : '/'}${pdfUrl}`;
+            }
+
+            // 5. Decisão: Email (Cliente Local) ou WhatsApp
+            if (hasEmail) {
+                setAlertMessage(`Abrindo E-mail para ${partnerEmail}...`);
+                
+                // Monta o corpo do email para o cliente local (Outlook/Thunderbird/Mail)
+                const subject = `Autorização de Abastecimento #${finalData.authNumber} - ${finalData.partnerName || 'Frotas MAK'}`;
+                const body = `Olá,
+
+Segue a autorização de abastecimento emitida pelo sistema Frotas MAK.
+
+--- RESUMO ---
+Número: #${finalData.authNumber}
+Veículo: ${finalData.vehicleInfo || 'N/A'}
+Combustível: ${finalData.fuelType}
+Quantidade: ${finalData.isFillUp ? 'COMPLETAR TANQUE' : (finalData.litrosLiberados + ' Litros')}
+
+--- DOWNLOAD DA AUTORIZAÇÃO (PDF) ---
+Clique no link abaixo para baixar o documento oficial:
+${absoluteLink}
+
+Por favor, realize o abastecimento conforme autorizado.
+
+Att,
+Equipe Frotas MAK`;
+
+                // Abre o cliente de email
+                window.location.href = `mailto:${partnerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                
+                // Não abrimos o WhatsApp se foi por e-mail
+                return; 
             } else {
                  setAlertMessage("Posto sem e-mail. Abrindo WhatsApp...");
             }
 
-            // 6. Fallback para WhatsApp (se não tiver email ou falhar)
-            triggerWhatsApp(finalData, partner, vehicle, employee, pdfUrl);
+            // 6. Fallback para WhatsApp (se não tiver email)
+            triggerWhatsApp(finalData, partner, vehicle, employee, absoluteLink);
 
         } catch (err) {
             console.error(">>> [DEBUG] Erro na Distribuição:", err);
             setAlertMessage("Erro ao processar envio. PDF gerado localmente.");
-            // Backup: Download direto se der erro
+            // Backup: Download direto se der erro no upload
             onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
         }
     };
@@ -475,12 +491,6 @@ const RefuelingOrderModal = ({
         if (!phone) {
             setAlertMessage("Ordem salva! Posto sem WhatsApp/Email.");
             return;
-        }
-
-        // Reconstrói URL absoluta para o link se necessário
-        let absoluteLink = pdfLink;
-        if (pdfLink && !pdfLink.startsWith('http')) {
-            absoluteLink = `${window.location.origin}${pdfLink.startsWith('/') ? '' : '/'}${pdfLink}`;
         }
 
         const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
@@ -498,8 +508,9 @@ const RefuelingOrderModal = ({
 
         let msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-${absoluteLink ? `Baixe aqui: ${absoluteLink}` : '(PDF indisponível)'}
+${pdfLink ? `Baixe a Autorização (PDF): ${pdfLink}` : '(PDF indisponível)'}
 
+*Resumo:*
 *Nº Ordem:* ${finalData.authNumber}
 *Data:* ${emissionDate}
 *Posto:* ${partner?.razaoSocial || 'N/A'}
