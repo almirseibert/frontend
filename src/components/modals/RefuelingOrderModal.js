@@ -446,6 +446,8 @@ const RefuelingOrderModal = ({
                 setAlertMessage(`Abrindo E-mail para ${partnerEmail}...`);
                 
                 // Monta o corpo do email para o cliente local (Outlook/Thunderbird/Mail)
+                const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
+                const arlaMsg = formData.needsArla 
                 const subject = `Autorização de Abastecimento #${finalData.authNumber} - ${finalData.partnerName || 'Frotas MAK'}`;
                 const body = `Olá,
 
