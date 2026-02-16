@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-    ArrowLeft, DollarSign, Calendar, Truck, MapPin, Save, Loader, 
+    ArrowLeft, DollarSign, Truck, Save, Loader, 
     AlertTriangle, MessageSquare, FileText, FileDown
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+
+// IMPORTANTE: Importando as bibliotecas instaladas no package.json
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [data, setData] = useState(null);
@@ -12,25 +16,6 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     const [interactionType, setInteractionType] = useState('daily_log'); 
     const [agreedAction, setAgreedAction] = useState('');
     const [submittingCrm, setSubmittingCrm] = useState(false);
-
-    // Carregar Scripts do jsPDF dinamicamente (Bypass de erro de build)
-    useEffect(() => {
-        const loadScript = (src) => {
-            return new Promise((resolve, reject) => {
-                if (document.querySelector(`script[src="${src}"]`)) return resolve();
-                const script = document.createElement('script');
-                script.src = src;
-                script.onload = resolve;
-                script.onerror = reject;
-                document.body.appendChild(script);
-            });
-        };
-
-        Promise.all([
-            loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
-            loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js")
-        ]).then(() => console.log("PDF Libs Loaded")).catch(e => console.error("PDF Libs Error", e));
-    }, []);
 
     const fetchDetails = useCallback(async () => {
         setLoading(true);
@@ -83,12 +68,12 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
     };
 
     const generateRealPDF = () => {
-        if (!window.jspdf || !data) {
-            alert("A biblioteca de PDF ainda está carregando ou não há dados. Aguarde instantes.");
+        if (!data) {
+            alert("Aguarde o carregamento dos dados.");
             return;
         }
         
-        const { jsPDF } = window.jspdf;
+        // Instancia diretamente (o plugin autoTable é anexado automaticamente pelo import 'jspdf-autotable')
         const doc = new jsPDF();
         const { obra, contract, financeiro, producao, veiculos } = data;
 
