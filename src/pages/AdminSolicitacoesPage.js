@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
     Check, X, AlertTriangle, MapPin, Eye, Fuel, 
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
-    ExternalLink, BarChart3, Clock, TrendingUp, TrendingDown, Lock
+    ExternalLink, BarChart3, Clock, TrendingUp, TrendingDown, Lock,
+    RotateCw, RotateCcw, ZoomIn, ZoomOut, Maximize
 } from 'lucide-react';
 import { jsPDF } from 'jspdf'; 
 import autoTable from 'jspdf-autotable'; 
@@ -58,6 +59,9 @@ const AdminSolicitacoesPage = ({
     });
     const [showPriceUpdateConfirm, setShowPriceUpdateConfirm] = useState(false);
     const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+
+    // --- ESTADOS DE MANIPULAÇÃO DE IMAGEM ---
+    const [imgTransform, setImgTransform] = useState({ rotate: 0, scale: 1 });
 
     // Controle do Modal de Emissão (Aprovação - PENDENTE)
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
@@ -284,8 +288,13 @@ const AdminSolicitacoesPage = ({
     // === LÓGICA DE BAIXA / CONFIRMAÇÃO (MIGRADA E UNIFICADA) ===
     // ==================================================================================
 
-    // 1. Efeito: Quando o Modal Abre (Status: AGUARDANDO_BAIXA), prepara os dados
+    // 1. Efeito: Quando o Modal Abre (Status: AGUARDANDO_BAIXA), prepara os dados e reseta imagem
     useEffect(() => {
+        if (modalData) {
+            // Reset de Imagem ao abrir modal
+            setImgTransform({ rotate: 0, scale: 1 });
+        }
+
         if (modalData && modalData.status === 'AGUARDANDO_BAIXA') {
             
             // Tenta encontrar a ordem vinculada na lista de refuelings carregada
@@ -682,31 +691,84 @@ const AdminSolicitacoesPage = ({
         const leituraInformada = parseFloat(s.odometro_informado || s.horimetro_informado || 0);
         const diferenca = leituraInformada - leituraAtualSistema;
 
+        // Verifica se precisa de Arla (Regra combinada: dados da solicitação OU dados da ordem)
+        const needsArlaInput = 
+            (s.observacao && s.observacao.toUpperCase().includes('ARLA')) || 
+            (s.tipo_combustivel && s.tipo_combustivel.toUpperCase().includes('ARLA')) ||
+            (relatedOrder && relatedOrder.needsArla);
+
+        // Verifica se precisa de Outros (checkbox marcado na solicitação)
+        const needsOutrosInput = s.flag_outros || (relatedOrder && relatedOrder.outrosGeraValor);
+
         return (
             <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-2 animate-fadeIn">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[95vh] flex flex-col md:flex-row overflow-hidden">
                     
-                    {/* COLUNA ESQUERDA: EVIDÊNCIAS */}
-                    <div className="md:w-1/2 bg-gray-900 flex flex-col relative">
-                        <div className="absolute top-0 left-0 right-0 p-2 bg-gradient-to-b from-black/70 to-transparent z-10 flex justify-between items-center text-white">
-                            <h4 className="font-bold flex items-center gap-2 text-sm">
+                    {/* COLUNA ESQUERDA: EVIDÊNCIAS COM CONTROLES */}
+                    <div className="md:w-1/2 bg-gray-900 flex flex-col relative overflow-hidden">
+                        <div className="absolute top-0 left-0 right-0 p-2 bg-gradient-to-b from-black/70 to-transparent z-10 flex justify-between items-center text-white pointer-events-none">
+                            <h4 className="font-bold flex items-center gap-2 text-sm pointer-events-auto">
                                 <ImageIcon size={16}/> {isApproval ? 'Evidência do Painel' : 'Comprovante Fiscal (Cupom/NF)'}
                             </h4>
                             {s.latitude && (
-                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded-full flex items-center gap-1 transition">
+                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded-full flex items-center gap-1 transition pointer-events-auto">
                                     <MapPin size={10}/> Ver Localização GPS
                                 </a>
                             )}
                         </div>
-                        <div className="flex-1 flex items-center justify-center p-2 bg-black">
+                        
+                        <div className="flex-1 flex items-center justify-center p-2 bg-black overflow-hidden relative">
                             {isApproval && urlPainel ? (
-                                <img src={urlPainel} alt="Painel" className="max-w-full max-h-full object-contain" />
+                                <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+                                    <img 
+                                        src={urlPainel} 
+                                        alt="Painel" 
+                                        style={{ 
+                                            transform: `rotate(${imgTransform.rotate}deg) scale(${imgTransform.scale})`,
+                                            transition: 'transform 0.2s ease-out'
+                                        }}
+                                        className="max-w-full max-h-full object-contain cursor-move" 
+                                    />
+                                </div>
                             ) : isBaixa && urlCupom ? (
-                                <img src={urlCupom} alt="Cupom" className="max-w-full max-h-full object-contain" />
+                                <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+                                    <img 
+                                        src={urlCupom} 
+                                        alt="Cupom" 
+                                        style={{ 
+                                            transform: `rotate(${imgTransform.rotate}deg) scale(${imgTransform.scale})`,
+                                            transition: 'transform 0.2s ease-out'
+                                        }}
+                                        className="max-w-full max-h-full object-contain cursor-move" 
+                                    />
+                                </div>
                             ) : (
                                 <div className="text-gray-500 flex flex-col items-center">
                                     <AlertTriangle size={32} className="mb-2"/>
                                     <p className="text-xs">Imagem indisponível</p>
+                                </div>
+                            )}
+
+                            {/* CONTROLES FLUTUANTES DA IMAGEM */}
+                            {(urlPainel || urlCupom) && (
+                                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 bg-black/60 backdrop-blur-sm p-2 rounded-full shadow-lg z-20">
+                                    <button onClick={() => setImgTransform(prev => ({...prev, rotate: prev.rotate - 90}))} className="p-2 text-white hover:bg-white/20 rounded-full transition" title="Girar Esq.">
+                                        <RotateCcw size={20}/>
+                                    </button>
+                                    <button onClick={() => setImgTransform(prev => ({...prev, rotate: prev.rotate + 90}))} className="p-2 text-white hover:bg-white/20 rounded-full transition" title="Girar Dir.">
+                                        <RotateCw size={20}/>
+                                    </button>
+                                    <div className="w-px bg-white/20 mx-1"></div>
+                                    <button onClick={() => setImgTransform(prev => ({...prev, scale: Math.max(0.5, prev.scale - 0.25)}))} className="p-2 text-white hover:bg-white/20 rounded-full transition" title="Zoom Out">
+                                        <ZoomOut size={20}/>
+                                    </button>
+                                    <button onClick={() => setImgTransform(prev => ({...prev, scale: Math.min(3, prev.scale + 0.25)}))} className="p-2 text-white hover:bg-white/20 rounded-full transition" title="Zoom In">
+                                        <ZoomIn size={20}/>
+                                    </button>
+                                    <div className="w-px bg-white/20 mx-1"></div>
+                                    <button onClick={() => setImgTransform({ rotate: 0, scale: 1 })} className="p-2 text-white hover:bg-white/20 rounded-full transition" title="Resetar">
+                                        <Maximize size={20}/>
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -761,6 +823,7 @@ const AdminSolicitacoesPage = ({
                                             <div><span className="text-[9px] text-gray-500 block">Quantidade</span><span className="font-bold text-gray-800">{s.flag_tanque_cheio ? 'COMPLETAR' : `${s.litragem_solicitada} L`}</span></div>
                                             <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Posto</span><span className="font-medium text-gray-800">{getPostoNome(s.posto_id)}</span></div>
                                             <div className="col-span-2"><span className="text-[9px] text-gray-500 block">Obra</span><span className="font-medium text-gray-800">{getObraNome(s.obra_id)}</span></div>
+                                            {s.observacao && <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Obs:</span><span className="text-gray-800 italic">{s.observacao}</span></div>}
                                         </div>
                                     </div>
                                 </>
@@ -824,10 +887,38 @@ const AdminSolicitacoesPage = ({
                                         </div>
                                     </div>
 
-                                    {relatedOrder?.needsArla && (
-                                        <div className="mb-3">
-                                            <label className="block text-[10px] font-bold text-gray-600 mb-0.5">Litros Arla 32</label>
-                                            <input type="number" step="0.01" value={confirmForm.litrosArla} onChange={e => setConfirmForm({...confirmForm, litrosArla: e.target.value})} className="w-full p-2 border rounded text-sm"/>
+                                    {/* CAMPO CONDICIONAL: ARLA 32 */}
+                                    {needsArlaInput && (
+                                        <div className="mb-3 animate-fadeIn bg-blue-100 p-2 rounded border border-blue-200">
+                                            <label className="block text-[10px] font-bold text-blue-800 mb-0.5">Litros Arla 32 (Opcional)</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.01" 
+                                                value={confirmForm.litrosArla} 
+                                                onChange={e => setConfirmForm({...confirmForm, litrosArla: e.target.value})} 
+                                                className="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-400 outline-none"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* CAMPO CONDICIONAL: OUTROS VALOR */}
+                                    {needsOutrosInput && (
+                                        <div className="mb-3 animate-fadeIn bg-yellow-100 p-2 rounded border border-yellow-200">
+                                            <label className="block text-[10px] font-bold text-yellow-800 mb-0.5">
+                                                Valor "Outros" (R$) - {s.descricao_outros || 'Itens Adicionais'}
+                                            </label>
+                                            <div className="relative">
+                                                <span className="absolute left-2 top-2 text-gray-500 text-xs">R$</span>
+                                                <input 
+                                                    type="number" 
+                                                    step="0.01" 
+                                                    value={confirmForm.outrosValor} 
+                                                    onChange={e => setConfirmForm({...confirmForm, outrosValor: e.target.value})} 
+                                                    className="w-full p-2 pl-7 border border-yellow-300 rounded text-sm font-bold text-yellow-900 focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                                    placeholder="0.00"
+                                                />
+                                            </div>
                                         </div>
                                     )}
 

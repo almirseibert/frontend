@@ -391,7 +391,7 @@ const RefuelingOrderModal = ({
             const emissionDateStr = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
             const safeDate = emissionDateStr.replace(/\//g, '-');
             const reCode = vehicle?.registroInterno || 'SN';
-            const pdfFileName = `Autorizacao_${finalData.authNumber}_RE${reCode}_${safeDate}.pdf`;
+            const pdfFileName = `Autorizacao_${finalData.authNumber}_${reCode}_${safeDate}.pdf`;
 
             // 4. Upload do PDF (Necessário para gerar o link que vai no email)
             const formDataUpload = new FormData();
