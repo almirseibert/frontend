@@ -997,7 +997,10 @@ const SolicitacaoAbastecimentoPage = ({
                                 onChange={e => setFormData({...formData, postoId: e.target.value})}
                             >
                                 <option value="">Selecione o Posto...</option>
-                                {partners.map(p => (
+                                {partners
+                                    // --- FILTRO DE BLOQUEIO AQUI ---
+                                    .filter(p => p.status_operacional !== 'BLOQUEADO')
+                                    .map(p => (
                                     <option key={p.id} value={p.id}>{p.razaoSocial}</option>
                                 ))}
                             </select>
