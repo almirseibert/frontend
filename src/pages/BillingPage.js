@@ -215,18 +215,24 @@ const BillingPage = ({
 
 
     const getDefaultOperator = () => {
-        if (dailyLogs.length > 0) {
-            const lastLog = dailyLogs.find(l => l.employeeId);
-            if (lastLog) return lastLog.employeeId;
-        }
-        
-        const obra = obras.find(o => o.id === selectedObraId);
-        if (!obra) return '';
-        const allocation = obra.historicoVeiculos.find(h => 
-            h.veiculoId === controlVehicleId && !h.dataSaida
-        );
-        return allocation ? allocation.employeeId : '';
-    };
+    // 1. Tenta pegar do último log preenchido nesta tela (comportamento atual)
+    if (dailyLogs.length > 0) {
+        const lastLog = dailyLogs.find(l => l.employeeId);
+        if (lastLog) return lastLog.employeeId;
+    }
+    
+    const obra = obras.find(o => o.id === selectedObraId);
+    if (!obra) return '';
+
+    // 2. MODIFICAÇÃO: Busca no histórico de veículos da obra, 
+    // mesmo que já tenha data de saída (dataSaida)
+    const allocations = obra.historicoVeiculos
+        .filter(h => h.veiculoId === controlVehicleId)
+        .sort((a, b) => new Date(b.dataEntrada) - new Date(a.dataEntrada));
+
+    // Retorna o operador da alocação mais recente encontrada
+    return allocations.length > 0 ? allocations[0].employeeId : '';
+};
 
     // --- API CALLS ---
 
@@ -284,17 +290,17 @@ const BillingPage = ({
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
             
             const payload = {
-                // Passa o ID se já existir no frontend, para facilitar para o backend
                 id: existingLog ? existingLog.id : null,
                 obraId: selectedObraId,
                 vehicleId: controlVehicleId, 
                 date: dateKey,
-                employeeId: changes.employeeId !== undefined ? changes.employeeId : (existingLog?.employeeId || getDefaultOperator()),
-                morningStart: changes.morningStart !== undefined ? changes.morningStart : existingLog?.morningStart,
-                morningEnd: changes.morningEnd !== undefined ? changes.morningEnd : existingLog?.morningEnd,
-                afternoonStart: changes.afternoonStart !== undefined ? changes.afternoonStart : existingLog?.afternoonStart,
-                afternoonEnd: changes.afternoonEnd !== undefined ? changes.afternoonEnd : existingLog?.afternoonEnd,
-                observation: changes.observation !== undefined ? changes.observation : existingLog?.observation,
+                // Garante que pegamos o operador atual se não houver mudança local
+                employeeId: changes.employeeId || existingLog?.employeeId || getDefaultOperator(),
+                morningStart: changes.morningStart !== undefined ? changes.morningStart : (existingLog?.morningStart || null),
+                morningEnd: changes.morningEnd !== undefined ? changes.morningEnd : (existingLog?.morningEnd || null),
+                afternoonStart: changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog?.afternoonStart || null),
+                afternoonEnd: changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog?.afternoonEnd || null),
+                observation: changes.observation !== undefined ? changes.observation : (existingLog?.observation || null),
             };
 
             const morning = calculateTimeDiffDecimal(payload.morningStart, payload.morningEnd);
