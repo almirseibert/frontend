@@ -3,14 +3,12 @@ import {
     Check, X, AlertTriangle, MapPin, Eye, Fuel, 
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
     ExternalLink, BarChart3, Clock, TrendingUp, TrendingDown, Lock,
-    RotateCw, RotateCcw, ZoomIn, ZoomOut, Maximize
+    RotateCw, RotateCcw, ZoomIn, ZoomOut, Maximize, AlertCircle, Unlock
 } from 'lucide-react';
 import { jsPDF } from 'jspdf'; 
 import autoTable from 'jspdf-autotable'; 
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
-
-// NOTA: O ConfirmRefuelingModal foi removido pois a lógica foi integrada diretamente nesta página.
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 
@@ -32,17 +30,13 @@ const AdminSolicitacoesPage = ({
     const [filteredSolicitacoes, setFilteredSolicitacoes] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // --- ESTADO PARA CONSISTÊNCIA DE INTERFACE ---
-    // IDs que foram processados localmente e devem ser ignorados nas próximas requisições
-    // para evitar que o delay do backend os faça reaparecer na tela.
     const [ignoreIds, setIgnoreIds] = useState(new Set());
     
-    // Controle do Modal Geral
     const [modalData, setModalData] = useState(null); 
     const [rejectReason, setRejectReason] = useState('');
+    const [imageTab, setImageTab] = useState('painel'); // NOVO: Controle de aba de imagem
     
-    // --- ESTADOS DO FORMULÁRIO DE BAIXA (Unificado) ---
-    const [relatedOrder, setRelatedOrder] = useState(null); // A ordem vinculada à solicitação
+    const [relatedOrder, setRelatedOrder] = useState(null); 
     const [confirmForm, setConfirmForm] = useState({
         litros: '',
         litrosArla: '',
@@ -60,23 +54,17 @@ const AdminSolicitacoesPage = ({
     const [showPriceUpdateConfirm, setShowPriceUpdateConfirm] = useState(false);
     const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
 
-    // --- ESTADOS DE MANIPULAÇÃO DE IMAGEM ---
     const [imgTransform, setImgTransform] = useState({ rotate: 0, scale: 1 });
 
-    // Controle do Modal de Emissão (Aprovação - PENDENTE)
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [solicitacaoToApprove, setSolicitacaoToApprove] = useState(null);
 
-    // Filtros
     const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
     const [searchTerm, setSearchTerm] = useState('');
 
-    // --- FUNÇÃO DE GERAÇÃO DE PDF (PADRONIZADO / ANTIGO) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, returnBlob = false) => {
-        // setIsGeneratingPdf(true); // Estado local removido para compatibilidade
         return new Promise((resolve, reject) => {
             try {
-                // Helpers internos para garantir funcionamento autônomo da função
                 const isValidDbDate = (dateString) => {
                     if (!dateString) return false;
                     const str = String(dateString);
@@ -96,7 +84,7 @@ const AdminSolicitacoesPage = ({
                 const buildPdf = (logoDataUrl) => {
                     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                     const pageWidth = doc.internal.pageSize.getWidth();
-                    const effectivePageHeight = 148.5; // Meia página A4 (formato econômico)
+                    const effectivePageHeight = 148.5; 
                     const margin = 10;
 
                     const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
@@ -112,9 +100,7 @@ const AdminSolicitacoesPage = ({
                     if (logoDataUrl) {
                         try {
                             doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875);
-                        } catch (e) {
-                            console.error("Erro ao adicionar logo ao PDF:", e);
-                        }
+                        } catch (e) { }
                     }
 
                     doc.setFontSize(16);
@@ -172,7 +158,6 @@ const AdminSolicitacoesPage = ({
                         }
                     });
 
-                    // Rodapé / Avisos
                     let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
                     const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
                     
@@ -181,7 +166,6 @@ const AdminSolicitacoesPage = ({
                     doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
                     doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
 
-                    // Frase Solicitada
                     doc.setFontSize(7);
                     doc.setFont('helvetica', 'normal');
                     doc.text("Sistema de Gestão de Frotas MAK - Documento Gerado Eletronicamente", pageWidth / 2, footerStartY + 10, { align: 'center' });
@@ -190,7 +174,6 @@ const AdminSolicitacoesPage = ({
                     doc.setDrawColor(180, 180, 180);
                     doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                    // LÓGICA DE RETORNO (Salvar ou Blob)
                     if (returnBlob) {
                         const blob = doc.output('blob');
                         resolve(blob);
@@ -234,12 +217,10 @@ const AdminSolicitacoesPage = ({
         });
     };
 
-    // --- CARREGAMENTO INICIAL E POLLING ---
     const fetchSolicitacoes = async () => {
         setLoading(true);
         try {
             const res = await apiClient.get('/solicitacoes');
-            // Filtra localmente os IDs que marcamos como "recém concluídos" para evitar flicker
             const rawList = Array.isArray(res) ? res : [];
             const cleanList = rawList.filter(s => !ignoreIds.has(s.id));
             setSolicitacoes(cleanList);
@@ -255,9 +236,8 @@ const AdminSolicitacoesPage = ({
         fetchSolicitacoes();
         const interval = setInterval(fetchSolicitacoes, 30000);
         return () => clearInterval(interval);
-    }, [ignoreIds]); // Reexecuta se ignoreIds mudar, mas a lógica interna protege
+    }, [ignoreIds]); 
 
-    // --- FILTROS ---
     useEffect(() => {
         let list = [...solicitacoes];
         
@@ -285,19 +265,22 @@ const AdminSolicitacoesPage = ({
 
 
     // ==================================================================================
-    // === LÓGICA DE BAIXA / CONFIRMAÇÃO (MIGRADA E UNIFICADA) ===
+    // === LÓGICA DE BAIXA / CONFIRMAÇÃO  ===
     // ==================================================================================
 
-    // 1. Efeito: Quando o Modal Abre (Status: AGUARDANDO_BAIXA), prepara os dados e reseta imagem
     useEffect(() => {
         if (modalData) {
-            // Reset de Imagem ao abrir modal
             setImgTransform({ rotate: 0, scale: 1 });
+            
+            // Define a aba inicial dependendo se já tem cupom ou não
+            if (modalData.status === 'AGUARDANDO_BAIXA' || modalData.status === 'CONCLUIDO') {
+                setImageTab(modalData.foto_cupom_path ? 'cupom' : 'painel');
+            } else {
+                setImageTab('painel');
+            }
         }
 
         if (modalData && modalData.status === 'AGUARDANDO_BAIXA') {
-            
-            // Tenta encontrar a ordem vinculada na lista de refuelings carregada
             let order = refuelings.find(r => {
                 if (r.createdFromSolicitacaoId && String(r.createdFromSolicitacaoId) === String(modalData.id)) return true;
                 if (r.createdBy) {
@@ -310,12 +293,9 @@ const AdminSolicitacoesPage = ({
                 return false;
             });
 
-            // Se não achar na lista (pode ser paginação ou delay), tenta inferir dados para não travar
             if (!order) {
-                console.warn(`Ordem vinculada à solicitação #${modalData.id} não encontrada na lista local.`);
-                // Cria um objeto temporário para permitir o preenchimento dos dados enquanto tenta resolver
                 order = {
-                    id: null, // Sem ID real, vamos depender do ID da solicitação no submit
+                    id: null, 
                     vehicleId: modalData.veiculo_id,
                     fuelType: modalData.tipo_combustivel,
                     partnerId: modalData.posto_id,
@@ -330,7 +310,6 @@ const AdminSolicitacoesPage = ({
 
             setRelatedOrder(order);
 
-            // Busca preço do parceiro
             let currentPrice = '';
             if (order.partnerId && partners.length > 0) {
                 const partner = partners.find(p => String(p.id) === String(order.partnerId));
@@ -340,7 +319,6 @@ const AdminSolicitacoesPage = ({
                 }
             }
 
-            // Preenche o formulário
             setConfirmForm({
                 litros: order.litrosLiberados || '',
                 litrosArla: order.litrosLiberadosArla || '',
@@ -350,21 +328,18 @@ const AdminSolicitacoesPage = ({
                 outrosValor: order.outrosGeraValor ? (order.outrosValor || '') : ''
             });
 
-            // Limpa estados de validação
             setValidationState({ blockReason: null, averageAlert: null, isSaving: false });
             setShowPriceUpdateConfirm(false);
             setShowPasswordPrompt(false);
         }
     }, [modalData, refuelings, partners]);
 
-    // 2. Efeito: Validações em Tempo Real (Ocorre sempre que o form muda)
     useEffect(() => {
         if (!modalData || modalData.status !== 'AGUARDANDO_BAIXA' || !relatedOrder) return;
 
         let block = null;
         let avgWarning = null;
 
-        // --- Validação 1: Regressão e Saltos ---
         const vehicle = vehicles.find(v => String(v.id) === String(modalData.veiculo_id));
         if (vehicle && confirmForm.reading) {
             const allowedTypes = getAllowedReadingTypes(vehicle.tipo);
@@ -390,7 +365,6 @@ const AdminSolicitacoesPage = ({
             }
         }
 
-        // --- Validação 2: Média de Consumo ---
         if (confirmForm.litros && confirmForm.reading && parseFloat(confirmForm.litros) > 0) {
             const history = refuelings
                 .filter(r => String(r.vehicleId) === String(modalData.veiculo_id) && r.status === 'Concluída')
@@ -405,7 +379,6 @@ const AdminSolicitacoesPage = ({
                     const diff = currentReading - lastReading;
                     const currentAverage = diff / parseFloat(confirmForm.litros); 
 
-                    // Média histórica (últimos 3)
                     let sumAvgs = 0;
                     let count = 0;
                     for (let i = 0; i < Math.min(history.length - 1, 3); i++) {
@@ -435,28 +408,23 @@ const AdminSolicitacoesPage = ({
 
     }, [confirmForm, modalData, relatedOrder, vehicles, refuelings]);
 
-    // 3. Ação: Submeter Formulário
     const handleFinalizeBaixa = (forcePriceUpdate = false) => {
-        // Validações Básicas
         if (!confirmForm.litros || !confirmForm.price || !confirmForm.reading || !confirmForm.nf) {
             setAlertMessage("Preencha todos os campos obrigatórios (NF, Litros, Preço, Leitura).");
             return;
         }
 
-        // Verifica Bloqueio (Senha)
         if (validationState.blockReason && !showPasswordPrompt) {
             setShowPasswordPrompt(true);
             return;
         }
 
-        // Verifica Preço (Confirmação)
         const inputPrice = parseFloat(confirmForm.price);
         if (!forcePriceUpdate && !showPriceUpdateConfirm && initialPartnerPrice > 0 && inputPrice > 0 && Math.abs(inputPrice - initialPartnerPrice) > 0.01) {
             setShowPriceUpdateConfirm(true);
             return;
         }
 
-        // Executar
         submitBaixa(forcePriceUpdate);
     };
 
@@ -474,7 +442,6 @@ const AdminSolicitacoesPage = ({
                 outrosValor: parseFloat(confirmForm.outrosValor) || 0,
                 invoiceNumber: confirmForm.nf,
                 updatePartnerPrice: updatePartnerPrice,
-                // Envia ID da solicitação em múltiplos formatos para garantir compatibilidade com o backend
                 solicitacaoId: idToProcess,
                 solicitacao_id: idToProcess 
             };
@@ -482,37 +449,22 @@ const AdminSolicitacoesPage = ({
             const orderId = relatedOrder?.id;
             
             if (orderId) {
-                // --- AQUI ESTÁ A CORREÇÃO PRINCIPAL ---
-                
-                // 1. Executa a baixa completa da ORDEM (Financeiro, Estoque, Despesa)
-                // Mantém a lógica complexa que funciona.
                 await apiClient.confirmRefuelingOrder(orderId, payload);
 
-                // 2. Executa a baixa de status da SOLICITAÇÃO (Interface/Fluxo)
-                // Adiciona a chamada que existia no arquivo "Old" para garantir que a solicitação
-                // mude de status para CONCLUÍDO/BAIXADO e saia da lista do backend.
                 try {
                     await apiClient.put(`/solicitacoes/${idToProcess}/confirmar-baixa`, {});
                 } catch (statusError) {
-                    console.warn("Ordem baixada, mas houve falha ao atualizar status da solicitação na API específica.", statusError);
-                    // Não lançamos erro aqui para não travar a UI, já que a parte financeira (mais crítica) funcionou.
+                    console.warn("Ordem baixada, mas houve falha ao atualizar status da solicitação na API.", statusError);
                 }
-
             } else {
-                // Fallback: Se não temos ID da ordem, tentamos enviar mas provavelmente falhará se a API for estrita.
                 throw new Error("Ordem de abastecimento não localizada na lista. Atualize a página e tente novamente.");
             }
             
-            // --- ATUALIZAÇÃO OTIMISTA E ROBUSTA DA INTERFACE ---
-            // 1. Removemos imediatamente da lista local
             setSolicitacoes(prev => prev.filter(s => s.id !== idToProcess));
             setFilteredSolicitacoes(prev => prev.filter(s => s.id !== idToProcess));
 
-            // 2. Adicionamos o ID à lista de ignorados para que o polling/fetch não traga esse item de volta
-            // enquanto o backend processa a transição de status.
             setIgnoreIds(prev => new Set(prev).add(idToProcess));
             
-            // 3. Define um timeout para remover da lista de ignorados após 10s (tempo seguro para consistência)
             setTimeout(() => {
                 setIgnoreIds(prev => {
                     const newSet = new Set(prev);
@@ -524,9 +476,7 @@ const AdminSolicitacoesPage = ({
             setAlertMessage("Baixa confirmada com sucesso!");
             setModalData(null);
             
-            // Atualiza dados globais
             reloadData(); 
-            // Delay seguro para refetch
             setTimeout(() => {
                 fetchSolicitacoes(); 
             }, 2000);
@@ -540,6 +490,19 @@ const AdminSolicitacoesPage = ({
         }
     };
 
+    // --- CORREÇÃO DE TRAVAMENTO: FORÇAR CONCLUSÃO DIRETO NA TABELA SOLICITAÇÕES ---
+    const handleForceConclude = async (id) => {
+        if (!window.confirm("Isso marcará a solicitação como CONCLUIDA para destravar o app do motorista. Use apenas se a ordem já foi lançada no financeiro e ficou travada aqui. Continuar?")) return;
+        
+        try {
+            await apiClient.put(`/solicitacoes/${id}/confirmar-baixa`, {});
+            setAlertMessage("Solicitação forçada para Concluído com sucesso.");
+            setModalData(null);
+            fetchSolicitacoes();
+        } catch (error) {
+            setAlertMessage("Erro ao forçar conclusão: " + (error.response?.data?.error || error.message));
+        }
+    };
 
     // --- HELPERS AUXILIARES ---
     const getFuncionarioNome = (id) => employees.find(e => String(e.id) === String(id))?.nome || 'Não informado';
@@ -556,7 +519,6 @@ const AdminSolicitacoesPage = ({
         } catch { return new Date(0); }
     };
 
-    // --- CÁLCULO DE ÚLTIMO ABASTECIMENTO E MÉDIA (VISUAL) ---
     const getLastFuelingInfo = (veiculoId) => {
         if (!refuelings || refuelings.length === 0) return "Histórico indisponível (Lista vazia).";
 
@@ -610,7 +572,6 @@ const AdminSolicitacoesPage = ({
         return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
     };
 
-    // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
     const getFinancialProgress = (obraId) => {
         if (!obras || obras.length === 0) return "Dados de obras não carregados.";
         
@@ -632,7 +593,6 @@ const AdminSolicitacoesPage = ({
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
     };
 
-    // --- AÇÕES ---
     const handleOpenApprovalModal = (s) => {
         setSolicitacaoToApprove(s);
         setModalData(null); 
@@ -680,24 +640,24 @@ const AdminSolicitacoesPage = ({
         const s = modalData;
         const isApproval = s.status === 'PENDENTE';
         const isBaixa = s.status === 'AGUARDANDO_BAIXA';
+        const isReadOnly = !isApproval && !isBaixa; // NOVO: Estado de visualização para concluídos/liberados
 
         const baseURL = getBaseURL();
         const urlPainel = s.foto_painel_path ? `${baseURL}${s.foto_painel_path}` : null;
         const urlCupom = s.foto_cupom_path ? `${baseURL}${s.foto_cupom_path}` : null;
 
-        // Dados para PENDENTE (Visualização apenas)
+        const currentImgUrl = imageTab === 'painel' ? urlPainel : urlCupom;
+
         const vehicleCurrent = vehicles.find(v => v.id === s.veiculo_id) || {};
         const leituraAtualSistema = parseFloat(s.odometro_informado ? (vehicleCurrent.odometro || 0) : (vehicleCurrent.horimetro || 0));
         const leituraInformada = parseFloat(s.odometro_informado || s.horimetro_informado || 0);
         const diferenca = leituraInformada - leituraAtualSistema;
 
-        // Verifica se precisa de Arla (Regra combinada: dados da solicitação OU dados da ordem)
         const needsArlaInput = 
             (s.observacao && s.observacao.toUpperCase().includes('ARLA')) || 
             (s.tipo_combustivel && s.tipo_combustivel.toUpperCase().includes('ARLA')) ||
             (relatedOrder && relatedOrder.needsArla);
 
-        // Verifica se precisa de Outros (checkbox marcado na solicitação)
         const needsOutrosInput = s.flag_outros || (relatedOrder && relatedOrder.outrosGeraValor);
 
         return (
@@ -706,35 +666,36 @@ const AdminSolicitacoesPage = ({
                     
                     {/* COLUNA ESQUERDA: EVIDÊNCIAS COM CONTROLES */}
                     <div className="md:w-1/2 bg-gray-900 flex flex-col relative overflow-hidden">
-                        <div className="absolute top-0 left-0 right-0 p-2 bg-gradient-to-b from-black/70 to-transparent z-10 flex justify-between items-center text-white pointer-events-none">
-                            <h4 className="font-bold flex items-center gap-2 text-sm pointer-events-auto">
-                                <ImageIcon size={16}/> {isApproval ? 'Evidência do Painel' : 'Comprovante Fiscal (Cupom/NF)'}
-                            </h4>
+                        
+                        {/* ABAS DE IMAGEM */}
+                        <div className="absolute top-0 left-0 right-0 p-2 bg-gradient-to-b from-black/80 to-transparent z-10 flex justify-between items-center text-white">
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setImageTab('painel')} 
+                                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 ${imageTab === 'painel' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'} ${!urlPainel && 'opacity-50'}`}
+                                >
+                                    <ImageIcon size={14}/> Painel
+                                </button>
+                                <button 
+                                    onClick={() => setImageTab('cupom')} 
+                                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 ${imageTab === 'cupom' ? 'bg-green-600' : 'bg-gray-700 hover:bg-gray-600'} ${!urlCupom && 'opacity-50'}`}
+                                >
+                                    <ImageIcon size={14}/> Cupom Fiscal
+                                </button>
+                            </div>
                             {s.latitude && (
-                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded-full flex items-center gap-1 transition pointer-events-auto">
-                                    <MapPin size={10}/> Ver Localização GPS
+                                <a href={`https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`} target="_blank" rel="noreferrer" className="text-[10px] bg-white/20 hover:bg-white/30 px-2 py-1 rounded-full flex items-center gap-1 transition">
+                                    <MapPin size={10}/> Mapa
                                 </a>
                             )}
                         </div>
                         
                         <div className="flex-1 flex items-center justify-center p-2 bg-black overflow-hidden relative">
-                            {isApproval && urlPainel ? (
+                            {currentImgUrl ? (
                                 <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
                                     <img 
-                                        src={urlPainel} 
-                                        alt="Painel" 
-                                        style={{ 
-                                            transform: `rotate(${imgTransform.rotate}deg) scale(${imgTransform.scale})`,
-                                            transition: 'transform 0.2s ease-out'
-                                        }}
-                                        className="max-w-full max-h-full object-contain cursor-move" 
-                                    />
-                                </div>
-                            ) : isBaixa && urlCupom ? (
-                                <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-                                    <img 
-                                        src={urlCupom} 
-                                        alt="Cupom" 
+                                        src={currentImgUrl} 
+                                        alt={imageTab} 
                                         style={{ 
                                             transform: `rotate(${imgTransform.rotate}deg) scale(${imgTransform.scale})`,
                                             transition: 'transform 0.2s ease-out'
@@ -743,14 +704,14 @@ const AdminSolicitacoesPage = ({
                                     />
                                 </div>
                             ) : (
-                                <div className="text-gray-500 flex flex-col items-center">
+                                <div className="text-gray-500 flex flex-col items-center mt-10">
                                     <AlertTriangle size={32} className="mb-2"/>
-                                    <p className="text-xs">Imagem indisponível</p>
+                                    <p className="text-xs">Imagem de {imageTab} não enviada / indisponível.</p>
                                 </div>
                             )}
 
                             {/* CONTROLES FLUTUANTES DA IMAGEM */}
-                            {(urlPainel || urlCupom) && (
+                            {currentImgUrl && (
                                 <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 bg-black/60 backdrop-blur-sm p-2 rounded-full shadow-lg z-20">
                                     <button onClick={() => setImgTransform(prev => ({...prev, rotate: prev.rotate - 90}))} className="p-2 text-white hover:bg-white/20 rounded-full transition" title="Girar Esq.">
                                         <RotateCcw size={20}/>
@@ -780,53 +741,88 @@ const AdminSolicitacoesPage = ({
                             <div className="flex justify-between items-start mb-1">
                                 <div>
                                     <h2 className="text-base font-bold text-gray-800 leading-tight">
-                                        {isApproval ? 'Análise de Solicitação' : 'Conferência de Baixa (Valores Reais)'}
+                                        {isApproval ? 'Análise de Solicitação' : isBaixa ? 'Conferência de Baixa' : 'Detalhes da Solicitação'}
                                     </h2>
-                                    <p className="text-[10px] text-gray-500">#{s.id} • {new Date(s.data_solicitacao).toLocaleString()}</p>
+                                    <p className="text-[10px] text-gray-500 flex items-center gap-2">
+                                        <span>#{s.id}</span>
+                                        <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] ${s.status === 'CONCLUIDO' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                                            Status Atual: {s.status}
+                                        </span>
+                                    </p>
                                 </div>
                                 <button onClick={() => setModalData(null)} className="p-1 hover:bg-gray-100 rounded-full text-gray-500"><X size={20}/></button>
                             </div>
                             
                             <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
                                 <p className="font-bold text-gray-800 text-sm leading-tight">{s.veiculo_nome}</p>
-                                <p className="text-xs text-gray-600 leading-tight">{s.placa} • {s.solicitante_nome}</p>
+                                <p className="text-xs text-gray-600 leading-tight">{s.placa} • Solicitante: {s.solicitante_nome}</p>
                             </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
                             
-                            {/* --- SEÇÃO PENDENTE: VISUALIZAÇÃO APENAS --- */}
+                            {/* --- DADOS BÁSICOS (APARECE EM TODOS) --- */}
+                            <div className="bg-white p-2 rounded border shadow-sm">
+                                <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-1 flex justify-between">
+                                    <span>Detalhes do Pedido</span>
+                                    <span className="text-gray-500">{new Date(s.data_solicitacao).toLocaleDateString()}</span>
+                                </h5>
+                                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                                    <div><span className="text-[9px] text-gray-500 block">Combustível</span><span className="font-bold text-gray-800">{s.tipo_combustivel}</span></div>
+                                    <div><span className="text-[9px] text-gray-500 block">Quantidade Solicitada</span><span className="font-bold text-gray-800">{s.flag_tanque_cheio ? 'COMPLETAR' : `${s.litragem_solicitada} L`}</span></div>
+                                    <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Posto</span><span className="font-medium text-gray-800">{getPostoNome(s.posto_id)}</span></div>
+                                    <div className="col-span-2"><span className="text-[9px] text-gray-500 block">Obra</span><span className="font-medium text-gray-800">{getObraNome(s.obra_id)}</span></div>
+                                    <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Leitura Informada no App</span><span className="font-medium text-blue-700">{leituraInformada} {s.odometro_informado ? 'Km' : 'h'}</span></div>
+                                    {s.observacao && <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Obs:</span><span className="text-gray-800 italic">{s.observacao}</span></div>}
+                                </div>
+                            </div>
+
+                            {/* --- SEÇÃO PENDENTE: VALIDAÇÃO DE LEITURA --- */}
                             {isApproval && (
-                                <>
-                                    <div className="bg-white p-2 rounded border shadow-sm">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <h5 className="text-[10px] font-bold text-gray-400 uppercase">Validar Leitura</h5>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                                Dif: {diferenca > 0 ? '+' : ''}{diferenca.toFixed(1)}
-                                            </span>
+                                <div className="bg-white p-2 rounded border shadow-sm">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <h5 className="text-[10px] font-bold text-gray-400 uppercase">Validar Leitura c/ Sistema</h5>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${diferenca < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                            Dif: {diferenca > 0 ? '+' : ''}{diferenca.toFixed(1)}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                            <p className="text-[10px] text-gray-500">Informado pelo Motorista</p>
+                                            <p className="font-bold text-blue-600">{leituraInformada} {s.odometro_informado ? 'Km' : 'h'}</p>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-2 text-xs">
-                                            <div>
-                                                <p className="text-[10px] text-gray-500">Informado</p>
-                                                <p className="font-bold text-blue-600">{leituraInformada} {s.odometro_informado ? 'Km' : 'h'}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] text-gray-500">Sistema</p>
-                                                <p className="font-bold text-gray-700">{leituraAtualSistema}</p>
-                                            </div>
+                                        <div>
+                                            <p className="text-[10px] text-gray-500">Última no Sistema</p>
+                                            <p className="font-bold text-gray-700">{leituraAtualSistema}</p>
                                         </div>
                                     </div>
-                                    <div className="bg-white p-2 rounded border shadow-sm">
-                                        <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-1">Detalhes do Pedido</h5>
-                                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                                            <div><span className="text-[9px] text-gray-500 block">Combustível</span><span className="font-bold text-gray-800">{s.tipo_combustivel}</span></div>
-                                            <div><span className="text-[9px] text-gray-500 block">Quantidade</span><span className="font-bold text-gray-800">{s.flag_tanque_cheio ? 'COMPLETAR' : `${s.litragem_solicitada} L`}</span></div>
-                                            <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Posto</span><span className="font-medium text-gray-800">{getPostoNome(s.posto_id)}</span></div>
-                                            <div className="col-span-2"><span className="text-[9px] text-gray-500 block">Obra</span><span className="font-medium text-gray-800">{getObraNome(s.obra_id)}</span></div>
-                                            {s.observacao && <div className="col-span-2 pt-1 border-t border-gray-100"><span className="text-[9px] text-gray-500 block">Obs:</span><span className="text-gray-800 italic">{s.observacao}</span></div>}
-                                        </div>
+                                </div>
+                            )}
+
+                            {/* --- SEÇÃO READ ONLY: DADOS DA CONFIRMAÇÃO SE EXISTIR (Para Histórico) --- */}
+                            {isReadOnly && (
+                                <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 shadow-inner">
+                                    <h5 className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">
+                                        <Clock size={14}/> Informações de Processamento
+                                    </h5>
+                                    <div className="space-y-2 text-xs">
+                                        <p><span className="font-bold text-gray-500">Data de Aprovação:</span> {s.data_aprovacao ? new Date(s.data_aprovacao).toLocaleString() : 'Não registrado'}</p>
+                                        <p><span className="font-bold text-gray-500">Data de Baixa/Fim:</span> {s.data_baixa ? new Date(s.data_baixa).toLocaleString() : 'Aguardando'}</p>
+                                        {s.motivo_negativa && (
+                                            <p className="text-red-600 bg-red-50 p-2 rounded border border-red-200 mt-2">
+                                                <span className="font-bold">Motivo da Negativa:</span><br/>{s.motivo_negativa}
+                                            </p>
+                                        )}
+                                        {s.status === 'LIBERADO' && (
+                                            <div className="bg-yellow-50 text-yellow-800 p-2 rounded border border-yellow-200 mt-2 flex items-start gap-2">
+                                                <AlertCircle size={16} className="shrink-0 mt-0.5"/>
+                                                <p className="text-[10px] leading-tight">
+                                                    A Ordem foi gerada, mas o motorista ainda não enviou a foto do cupom pelo App. Se você já fez o lançamento financeiro manual, use o botão "Forçar Conclusão" abaixo para destravar o veículo no App do motorista.
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
-                                </>
+                                </div>
                             )}
 
                             {/* --- SEÇÃO AGUARDANDO_BAIXA: FORMULÁRIO EDITÁVEL --- */}
@@ -887,7 +883,6 @@ const AdminSolicitacoesPage = ({
                                         </div>
                                     </div>
 
-                                    {/* CAMPO CONDICIONAL: ARLA 32 */}
                                     {needsArlaInput && (
                                         <div className="mb-3 animate-fadeIn bg-blue-100 p-2 rounded border border-blue-200">
                                             <label className="block text-[10px] font-bold text-blue-800 mb-0.5">Litros Arla 32 (Opcional)</label>
@@ -902,7 +897,6 @@ const AdminSolicitacoesPage = ({
                                         </div>
                                     )}
 
-                                    {/* CAMPO CONDICIONAL: OUTROS VALOR */}
                                     {needsOutrosInput && (
                                         <div className="mb-3 animate-fadeIn bg-yellow-100 p-2 rounded border border-yellow-200">
                                             <label className="block text-[10px] font-bold text-yellow-800 mb-0.5">
@@ -922,21 +916,18 @@ const AdminSolicitacoesPage = ({
                                         </div>
                                     )}
 
-                                    {/* ALERTA DE BLOQUEIO */}
                                     {validationState.blockReason && (
                                         <div className="bg-red-100 text-red-800 p-2 rounded text-xs font-bold border border-red-300 flex items-center gap-2 mb-2 animate-pulse">
                                             <Lock size={14} /> {validationState.blockReason}
                                         </div>
                                     )}
 
-                                    {/* ALERTA DE MÉDIA */}
                                     {validationState.averageAlert && (
                                         <div className="bg-orange-100 text-orange-800 p-2 rounded text-xs font-bold border border-orange-300 flex items-center gap-2 mb-2">
                                             <TrendingDown size={14} /> {validationState.averageAlert}
                                         </div>
                                     )}
 
-                                    {/* MENSAGEM DE VALOR DIFERENTE */}
                                     {showPriceUpdateConfirm && (
                                         <div className="bg-yellow-100 p-2 rounded text-xs border border-yellow-300 mb-2">
                                             <p className="font-bold text-yellow-800 mb-1 flex items-center gap-1"><AlertTriangle size={12}/> Preço diferente do cadastro!</p>
@@ -953,7 +944,7 @@ const AdminSolicitacoesPage = ({
                             {/* INFO GERAL DE RODAPÉ (COMUM PARA AMBOS) */}
                             <div className="space-y-1.5 pt-1">
                                 <div className="bg-gray-100 p-2 rounded border border-gray-200">
-                                    <p className="text-[9px] text-gray-500 uppercase font-bold mb-0.5 flex items-center gap-1"><Clock size={10}/> Último Abastecimento</p>
+                                    <p className="text-[9px] text-gray-500 uppercase font-bold mb-0.5 flex items-center gap-1"><Clock size={10}/> Último Abastecimento Informado</p>
                                     <p className="text-[10px] text-gray-800 font-mono leading-tight whitespace-pre-wrap">
                                         {getLastFuelingInfo(s.veiculo_id)}
                                     </p>
@@ -1003,17 +994,29 @@ const AdminSolicitacoesPage = ({
                                     <button onClick={() => handleRejeitarComprovante(s.id)} className="px-4 py-3 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold rounded border border-orange-200 text-xs flex items-center justify-center gap-1 transition">
                                         <X size={16}/> Rejeitar Foto
                                     </button>
+                                    
+                                    {/* BOTÃO DE CORREÇÃO (Opcional na aba de baixa) */}
+                                    <button onClick={() => handleForceConclude(s.id)} className="px-2 py-3 bg-gray-800 text-white hover:bg-gray-700 font-bold rounded text-[10px] flex items-center justify-center gap-1 transition" title="Destravar Veículo sem Salvar Dados">
+                                        <Unlock size={14}/>
+                                    </button>
                                 </div>
                             ) : (
-                                <div className="text-center text-[10px] text-gray-400 py-1">
-                                    Solicitação finalizada ({s.status})
+                                <div className="flex items-center justify-between">
+                                    <div className="text-[10px] text-gray-400">
+                                        Apenas visualização ({s.status})
+                                    </div>
+                                    {/* BOTÃO DE CORREÇÃO DE STATUS (Destravar App) */}
+                                    {(s.status === 'LIBERADO' || s.status === 'AGUARDANDO_BAIXA') && (
+                                        <button onClick={() => handleForceConclude(s.id)} className="px-3 py-1.5 bg-gray-800 text-white hover:bg-gray-700 rounded-lg text-xs font-bold flex items-center gap-2 shadow transition">
+                                            <Unlock size={14}/> Forçar Conclusão (Destravar)
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
                 </div>
                 
-                {/* Modal de Senha para Bloqueios */}
                 {showPasswordPrompt && (
                     <PasswordConfirmationModal
                         message={`BLOQUEIO DE SEGURANÇA:\n${validationState.blockReason}\nInsira senha para autorizar a baixa.`}
@@ -1101,7 +1104,8 @@ const AdminSolicitacoesPage = ({
                     }
 
                     return (
-                        <div key={s.id} className={`bg-white rounded-xl shadow-sm border-2 hover:shadow-md transition p-4 relative overflow-hidden group flex flex-col ${borderColor}`}>
+                        // NOVO: Div inteira transformou-se em clicável para acionar a modal independente do status
+                        <div key={s.id} onClick={() => setModalData(s)} className={`bg-white rounded-xl shadow-sm border-2 hover:shadow-md hover:border-blue-300 cursor-pointer transition p-4 relative overflow-hidden group flex flex-col ${borderColor}`}>
                             <div className="flex justify-between items-start mb-2">
                                 <span className="text-xs font-bold text-gray-400">#{s.id}</span>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${statusColor}`}>
@@ -1129,15 +1133,9 @@ const AdminSolicitacoesPage = ({
                                 </div>
                             </div>
                             <div className="mt-2 pt-2 border-t">
-                                {(s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA') ? (
-                                    <button onClick={() => setModalData(s)} className="w-full bg-gray-900 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-gray-800 flex items-center justify-center gap-2 transition">
-                                        <Eye size={16}/> {s.status === 'PENDENTE' ? 'AVALIAR' : 'CONFERIR & BAIXAR'}
-                                    </button>
-                                ) : (
-                                    <div className="text-center text-xs text-gray-400 py-1">
-                                        Processado em {s.data_aprovacao ? new Date(s.data_aprovacao).toLocaleDateString() : '-'}\r
-                                    </div>
-                                )}
+                                <div className="w-full bg-gray-50 text-gray-600 border border-gray-200 group-hover:bg-gray-100 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition">
+                                    <Eye size={16}/> VER DETALHES
+                                </div>
                             </div>
                         </div>
                     );
@@ -1146,7 +1144,6 @@ const AdminSolicitacoesPage = ({
 
             {renderModal()}
 
-            {/* MODAL DE ORDEM UNIFICADO (ABERTO APÓS APROVAÇÃO) */}
             {isOrderModalOpen && solicitacaoToApprove && (
                 <RefuelingOrderModal
                     user={user}
