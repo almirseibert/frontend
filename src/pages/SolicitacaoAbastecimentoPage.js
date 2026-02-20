@@ -160,6 +160,7 @@ const SolicitacaoAbastecimentoPage = ({
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
     const [selectedRequest, setSelectedRequest] = useState(null);
+    const [syncTrigger, setSyncTrigger] = useState(0); // NOVO: Gatilho infalível para o Socket
     
     // --- FORMULÁRIO ---
     const [formData, setFormData] = useState({
@@ -207,14 +208,7 @@ const SolicitacaoAbastecimentoPage = ({
             .trim();
     };
 
-    // --- CARREGAMENTO DE DADOS ---
-    useEffect(() => {
-        if (user) {
-            checkUserStatus();
-            fetchMyRequests();
-        }
-    }, [user]); 
-
+    // --- CARREGAMENTO DE DADOS (AGORA ATRELADO AO SYNCTRIGGER) ---
     const fetchMyRequests = async () => {
         try {
             const res = await apiClient.get('/solicitacoes');
@@ -224,13 +218,14 @@ const SolicitacaoAbastecimentoPage = ({
         }
     };
 
-    // --- REFERÊNCIA MUTÁVEL PARA FUNÇÃO DE BUSCA (EVITA STALE CLOSURE NO SOCKET) ---
-    const fetchMyRequestsRef = useRef(null);
     useEffect(() => {
-        fetchMyRequestsRef.current = fetchMyRequests;
-    }, [fetchMyRequests]);
+        if (user) {
+            checkUserStatus();
+            fetchMyRequests();
+        }
+    }, [user, syncTrigger]); // syncTrigger garante que quando o socket avisa, este useEffect roda fresco
 
-    // --- LÓGICA DE SOCKET.IO (TEMPO REAL CORRIGIDO) ---
+    // --- LÓGICA DE SOCKET.IO (REFEITA PARA GARANTIR ATUALIZAÇÃO IMEDIATA) ---
     useEffect(() => {
         if (!socket) {
             console.warn("Aviso: Prop 'socket' não recebida na SolicitacaoAbastecimentoPage.");
@@ -238,30 +233,31 @@ const SolicitacaoAbastecimentoPage = ({
         }
 
         const handleSync = (data) => {
-            // Se o evento server:sync tiver como alvo 'solicitacoes', recarregamos a lista
-            if (data && data.targets && data.targets.includes('solicitacoes')) {
-                // Pequeno delay para garantir que o BD já comitou a alteração
-                setTimeout(() => {
-                    if (fetchMyRequestsRef.current) fetchMyRequestsRef.current();
-                }, 500);
-            }
+            console.log("⚡ [Motorista App] Sinal Socket de Sincronização:", data);
+            
+            // Incrementa o trigger para forçar o React a fazer o fetch novamente com o estado mais fresco.
+            // Timeout de 800ms é vital para permitir que as transações no banco de dados do Gestor 
+            // sejam comitadas completamente antes do motorista buscar a lista.
+            setTimeout(() => {
+                setSyncTrigger(prev => prev + 1);
+            }, 800);
         };
 
         socket.on('server:sync', handleSync);
+        socket.on('admin:notificacao', handleSync); // Ouve também notificações genéricas do admin
 
-        // Cleanup ao desmontar
         return () => {
             socket.off('server:sync', handleSync);
+            socket.off('admin:notificacao', handleSync);
         };
     }, [socket]);
 
     // --- ATUALIZAÇÃO AUTOMÁTICA DO MODAL ABERTO ---
-    // Sincroniza o `selectedRequest` com a lista fresca vinda do socket
     useEffect(() => {
         if (selectedRequest && myRequests.length > 0) {
             const updatedReq = myRequests.find(r => r.id === selectedRequest.id);
-            // Se encontrou a solicitação e o status mudou na API, atualiza o modal na mesma hora
-            if (updatedReq && updatedReq.status !== selectedRequest.status) {
+            // Verifica se o status mudou OU se algum motivo de negativa foi preenchido
+            if (updatedReq && (updatedReq.status !== selectedRequest.status || updatedReq.motivo_negativa !== selectedRequest.motivo_negativa)) {
                 setSelectedRequest(updatedReq);
             }
         }
