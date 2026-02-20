@@ -160,7 +160,7 @@ const SolicitacaoAbastecimentoPage = ({
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
     const [selectedRequest, setSelectedRequest] = useState(null);
-    const [syncTrigger, setSyncTrigger] = useState(0); // NOVO: Gatilho infalível para o Socket
+    const [syncTrigger, setSyncTrigger] = useState(0); 
     
     // --- FORMULÁRIO ---
     const [formData, setFormData] = useState({
@@ -208,43 +208,59 @@ const SolicitacaoAbastecimentoPage = ({
             .trim();
     };
 
-    // --- CARREGAMENTO DE DADOS (AGORA ATRELADO AO SYNCTRIGGER) ---
+    // --- CARREGAMENTO DE DADOS (COM CACHE BUSTING AGRESSIVO) ---
     const fetchMyRequests = async () => {
         try {
-            const res = await apiClient.get('/solicitacoes');
+            // ?_t= forca o navegador a nao usar cache da requisição (Problema comum em mobile)
+            const res = await apiClient.get(`/solicitacoes?_t=${new Date().getTime()}`);
             setMyRequests(Array.isArray(res) ? res : []);
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
         }
     };
 
+    // --- ESTRATÉGIA TRIPLA DE ATUALIZAÇÃO: SOCKET + POLLING + VISIBILITY ---
     useEffect(() => {
-        if (user) {
-            checkUserStatus();
-            fetchMyRequests();
-        }
-    }, [user, syncTrigger]); // syncTrigger garante que quando o socket avisa, este useEffect roda fresco
+        if (!user) return;
 
-    // --- LÓGICA DE SOCKET.IO (REFEITA PARA GARANTIR ATUALIZAÇÃO IMEDIATA) ---
+        // 1. Busca Inicial
+        checkUserStatus();
+        fetchMyRequests();
+
+        // 2. Polling Silencioso de Backup (A cada 15s)
+        // Isso resolve quando o celular bloqueia a tela e derruba o Socket.io
+        const intervalId = setInterval(() => {
+            fetchMyRequests();
+        }, 15000);
+
+        // 3. Listener de Foco da Página (Visibility API)
+        // Assim que o motorista voltar pro app, recarrega a lista
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                console.log("⚡ [Motorista App] App voltou ao foco. Atualizando dados...");
+                fetchMyRequests();
+                checkUserStatus();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [user, syncTrigger]); 
+
+    // --- LÓGICA DE SOCKET.IO ---
     useEffect(() => {
-        if (!socket) {
-            console.warn("Aviso: Prop 'socket' não recebida na SolicitacaoAbastecimentoPage.");
-            return;
-        }
+        if (!socket) return;
 
         const handleSync = (data) => {
-            console.log("⚡ [Motorista App] Sinal Socket de Sincronização:", data);
-            
-            // Incrementa o trigger para forçar o React a fazer o fetch novamente com o estado mais fresco.
-            // Timeout de 800ms é vital para permitir que as transações no banco de dados do Gestor 
-            // sejam comitadas completamente antes do motorista buscar a lista.
-            setTimeout(() => {
-                setSyncTrigger(prev => prev + 1);
-            }, 800);
+            console.log("⚡ [Motorista App] Sinal Socket recebido!", data);
+            setTimeout(() => setSyncTrigger(prev => prev + 1), 500);
         };
 
         socket.on('server:sync', handleSync);
-        socket.on('admin:notificacao', handleSync); // Ouve também notificações genéricas do admin
+        socket.on('admin:notificacao', handleSync); 
 
         return () => {
             socket.off('server:sync', handleSync);
@@ -256,12 +272,12 @@ const SolicitacaoAbastecimentoPage = ({
     useEffect(() => {
         if (selectedRequest && myRequests.length > 0) {
             const updatedReq = myRequests.find(r => r.id === selectedRequest.id);
-            // Verifica se o status mudou OU se algum motivo de negativa foi preenchido
-            if (updatedReq && (updatedReq.status !== selectedRequest.status || updatedReq.motivo_negativa !== selectedRequest.motivo_negativa)) {
+            // Deep check stringify garante que QUALQUER alteração no item forçará a tela a re-renderizar
+            if (updatedReq && JSON.stringify(updatedReq) !== JSON.stringify(selectedRequest)) {
                 setSelectedRequest(updatedReq);
             }
         }
-    }, [myRequests]);
+    }, [myRequests, selectedRequest]);
 
     // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
     const myEmployeeId = useMemo(() => {
@@ -474,7 +490,7 @@ const SolicitacaoAbastecimentoPage = ({
 
     const checkUserStatus = async () => {
         try {
-            const res = await apiClient.get('/solicitacoes/meus-status'); 
+            const res = await apiClient.get(`/solicitacoes/meus-status?_t=${Date.now()}`); 
             setUserStatus({
                 blocked: res.bloqueado_abastecimento === 1,
                 attempts: res.tentativas_falhas_abastecimento
