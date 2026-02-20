@@ -8,7 +8,7 @@ import {
 
 import ChangePasswordModal from '../components/ChangePasswordModal';
 
-// --- INÍCIO DA LÓGICA DE REGRAS (Mantida idêntica para estabilidade) ---
+// --- INÍCIO DA LÓGICA DE REGRAS ---
 const vehicleGroups = {
     'Veículos Leves': ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
     'Caminhões': ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo', 'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
@@ -143,7 +143,7 @@ const SolicitacaoAbastecimentoPage = ({
     setAlertMessage,
     user,
     onLogout,
-    socket // NOVO: Prop socket adicionada para tempo real
+    socket 
 }) => {
     
     // --- ESTADOS DE CONTROLE ---
@@ -154,10 +154,7 @@ const SolicitacaoAbastecimentoPage = ({
     const [gpsError, setGpsError] = useState(false);
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     
-    // Estado para o Popup de Erro Customizado
     const [errorPopup, setErrorPopup] = useState({ open: false, title: '', messages: [] });
-
-    // Estado interno mantido para compatibilidade
     const [internalEmployees, setInternalEmployees] = useState([]);
     
     // --- DADOS ---
@@ -218,16 +215,34 @@ const SolicitacaoAbastecimentoPage = ({
         }
     }, [user]); 
 
-    // --- LÓGICA DE SOCKET.IO (TEMPO REAL) ---
+    const fetchMyRequests = async () => {
+        try {
+            const res = await apiClient.get('/solicitacoes');
+            setMyRequests(Array.isArray(res) ? res : []);
+        } catch (error) {
+            console.error("Erro ao buscar solicitações", error);
+        }
+    };
+
+    // --- REFERÊNCIA MUTÁVEL PARA FUNÇÃO DE BUSCA (EVITA STALE CLOSURE NO SOCKET) ---
+    const fetchMyRequestsRef = useRef(null);
     useEffect(() => {
-        if (!socket) return;
+        fetchMyRequestsRef.current = fetchMyRequests;
+    }, [fetchMyRequests]);
+
+    // --- LÓGICA DE SOCKET.IO (TEMPO REAL CORRIGIDO) ---
+    useEffect(() => {
+        if (!socket) {
+            console.warn("Aviso: Prop 'socket' não recebida na SolicitacaoAbastecimentoPage.");
+            return;
+        }
 
         const handleSync = (data) => {
             // Se o evento server:sync tiver como alvo 'solicitacoes', recarregamos a lista
             if (data && data.targets && data.targets.includes('solicitacoes')) {
-                // Pequeno delay para garantir que o BD já commitor
+                // Pequeno delay para garantir que o BD já comitou a alteração
                 setTimeout(() => {
-                    fetchMyRequests();
+                    if (fetchMyRequestsRef.current) fetchMyRequestsRef.current();
                 }, 500);
             }
         };
@@ -239,6 +254,18 @@ const SolicitacaoAbastecimentoPage = ({
             socket.off('server:sync', handleSync);
         };
     }, [socket]);
+
+    // --- ATUALIZAÇÃO AUTOMÁTICA DO MODAL ABERTO ---
+    // Sincroniza o `selectedRequest` com a lista fresca vinda do socket
+    useEffect(() => {
+        if (selectedRequest && myRequests.length > 0) {
+            const updatedReq = myRequests.find(r => r.id === selectedRequest.id);
+            // Se encontrou a solicitação e o status mudou na API, atualiza o modal na mesma hora
+            if (updatedReq && updatedReq.status !== selectedRequest.status) {
+                setSelectedRequest(updatedReq);
+            }
+        }
+    }, [myRequests]);
 
     // --- LÓGICA DE IDENTIFICAÇÃO DO FUNCIONÁRIO ---
     const myEmployeeId = useMemo(() => {
@@ -295,24 +322,18 @@ const SolicitacaoAbastecimentoPage = ({
         const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
         return myRequests.filter(req => {
-            // 1. Filtro de Obra
             if (!myObraIds.has(String(req.obra_id))) return false;
 
-            // 2. Filtro de Tempo (Remover concluídas/canceladas há +12h)
-            // Solicitações PENDENTES e LIBERADAS permanecem.
             const statusUpper = (req.status || '').toUpperCase();
-            
-            // Lista de status que devem passar pela verificação de tempo (expirar da lista)
             const statusesToTimeFilter = ['CONCLUIDA', 'BAIXADA', 'NEGADO', 'CONCLUIDO', 'CANCELADA'];
 
             if (statusesToTimeFilter.includes(statusUpper)) {
-                // Tenta pegar a data mais recente de atualização ou usa a data de criação
                 const dataRefStr = req.updated_at || req.data_baixa || req.data_aprovacao || req.data_solicitacao;
                 const dataRef = new Date(dataRefStr).getTime();
                 
                 if (!isNaN(dataRef)) {
                     if ((now - dataRef) > TWELVE_HOURS) {
-                        return false; // Esconde se passou de 12h
+                        return false; 
                     }
                 }
             }
@@ -469,15 +490,6 @@ const SolicitacaoAbastecimentoPage = ({
         }
     };
 
-    const fetchMyRequests = async () => {
-        try {
-            const res = await apiClient.get('/solicitacoes');
-            setMyRequests(Array.isArray(res) ? res : []);
-        } catch (error) {
-            console.error("Erro ao buscar solicitações", error);
-        }
-    };
-
     const getLocation = () => {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
@@ -500,9 +512,7 @@ const SolicitacaoAbastecimentoPage = ({
         }
     };
 
-    // --- LOGOUT FORÇADO E ROBUSTO ---
     const handleLogout = () => {
-        // Tenta limpar tudo que pode estar segurando a sessão
         localStorage.removeItem('token');
         localStorage.removeItem('authToken');
         localStorage.removeItem('user');
@@ -510,7 +520,6 @@ const SolicitacaoAbastecimentoPage = ({
         if (onLogout) {
             onLogout();
         } else {
-            // Fallback: Força reload para a raiz, o que deve disparar o redirecionamento de login
             window.location.href = '/'; 
         }
     };
@@ -744,17 +753,13 @@ const SolicitacaoAbastecimentoPage = ({
         );
     }
 
-    // --- RENDERIZAÇÃO PRINCIPAL ---
     return (
-        // Wrapper principal ajustado para evitar quebra de layout externo
         <div className="w-full bg-gray-100 pb-24 relative">
-            {/* Modal de Alteração de Senha */}
             <ChangePasswordModal 
                 isOpen={isPasswordModalOpen} 
                 onClose={() => setIsPasswordModalOpen(false)} 
             />
 
-            {/* Popup de Erro Customizado */}
             {errorPopup.open && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4 backdrop-blur-sm animate-fadeIn">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-slide-up">
@@ -850,7 +855,6 @@ const SolicitacaoAbastecimentoPage = ({
                                 ))}
                             </select>
                             
-                            {/* --- ÁREA DE ALERTAS E STATUS DO VEÍCULO --- */}
                             {veiculoSelecionado && (
                                 <div className="space-y-2 mt-2 px-1">
                                     {vehicleAlerts.map((alert, idx) => (
@@ -881,7 +885,6 @@ const SolicitacaoAbastecimentoPage = ({
                             )}
                         </div>
 
-                        {/* --- CAMPO DE DATA DO ABASTECIMENTO --- */}
                         <div className="space-y-1">
                              <label className="text-xs font-bold text-gray-500 uppercase ml-1 flex items-center gap-1">
                                 <Calendar size={14}/> Data do Abastecimento
@@ -998,7 +1001,6 @@ const SolicitacaoAbastecimentoPage = ({
                             >
                                 <option value="">Selecione o Posto...</option>
                                 {partners
-                                    // --- FILTRO DE BLOQUEIO AQUI ---
                                     .filter(p => p.status_operacional !== 'BLOQUEADO')
                                     .map(p => (
                                     <option key={p.id} value={p.id}>{p.razaoSocial}</option>
@@ -1151,7 +1153,6 @@ const SolicitacaoAbastecimentoPage = ({
                                 <button onClick={fetchMyRequests} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition active:rotate-180" title="Atualizar">
                                     <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
                                 </button>
-                                {/* BOTÃO DE LOGOUT EXPLÍCITO */}
                                 <button onClick={handleLogout} className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-2 shadow-sm" title="Sair">
                                     <LogOut size={18} />
                                     <span className="text-xs font-bold hidden sm:inline">SAIR</span>
@@ -1180,7 +1181,6 @@ const SolicitacaoAbastecimentoPage = ({
                         ) : (
                             <div className="space-y-3">
                                 {visibleRequests.map(req => {
-                                    // Determina se sou o dono
                                     const isMine = String(req.usuario_id) === String(user.id);
                                     
                                     return (
@@ -1238,7 +1238,6 @@ const SolicitacaoAbastecimentoPage = ({
                                         </div>
                                         <h4 className="font-bold text-green-800 text-lg">Aprovado! Envie o Cupom.</h4>
                                         
-                                        {/* Apenas o dono pode enviar o comprovante */}
                                         {String(selectedRequest.usuario_id) === String(user.id) ? (
                                             <>
                                                 <div className="border-2 border-dashed border-green-300 rounded-xl p-4 bg-green-50 relative h-40 flex flex-col items-center justify-center">
