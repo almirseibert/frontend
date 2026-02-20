@@ -456,6 +456,9 @@ const SolicitacaoAbastecimentoPage = ({
 
     const initializedVehicleRef = useRef(null);
 
+    // CORREÇÃO CRÍTICA: Removido `myRequests` da lista de dependências!
+    // Isso garante que se houver atualização em segundo plano pelo Socket,
+    // o formulário NÃO vai reprocessar e apagar a quilometragem que o motorista estava digitando.
     useEffect(() => {
         if (veiculoSelecionado) {
             // Só reseta os campos se for um veículo diferente do que já estávamos editando
@@ -490,7 +493,7 @@ const SolicitacaoAbastecimentoPage = ({
         } else {
             initializedVehicleRef.current = null;
         }
-    }, [veiculoSelecionado, myRequests]);
+    }, [veiculoSelecionado]); // <-- myRequests Removido daqui
 
     const readingType = useMemo(() => getFormReadingType(veiculoSelecionado), [veiculoSelecionado]);
     const showArlaSection = useMemo(() => needsArla(veiculoSelecionado), [veiculoSelecionado]);
@@ -970,9 +973,12 @@ const SolicitacaoAbastecimentoPage = ({
                                     <p className="text-[10px] text-red-600 mt-1 font-semibold">
                                         Informe as horas de uso da máquina. Não informe a quilometragem.
                                     </p>
-                                    <p className="text-xs text-gray-400 text-right">
-                                        Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
-                                    </p>
+                                    {/* CORREÇÃO CRÍTICA: Protegido contra crash caso veiculoSelecionado fique undefined */}
+                                    {veiculoSelecionado && (
+                                        <p className="text-xs text-gray-400 text-right mt-1">
+                                            Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
