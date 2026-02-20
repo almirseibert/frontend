@@ -454,32 +454,41 @@ const SolicitacaoAbastecimentoPage = ({
         return vehicleAlerts.some(a => a.type === 'block' || a.category === 'status');
     }, [vehicleAlerts]);
 
+    const initializedVehicleRef = useRef(null);
+
     useEffect(() => {
         if (veiculoSelecionado) {
-            const now = new Date();
-            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-            const defaultDate = now.toISOString().slice(0, 10);
+            // Só reseta os campos se for um veículo diferente do que já estávamos editando
+            if (initializedVehicleRef.current !== veiculoSelecionado.id) {
+                initializedVehicleRef.current = veiculoSelecionado.id;
 
-            setFormData(prev => ({ 
-                ...prev, 
-                odometro: '', 
-                horimetro: '',
-                dataAbastecimento: defaultDate 
-            }));
-            
-            let lastPartnerId = null;
-            const lastReq = myRequests.find(r => 
-                String(r.veiculo_id) === String(veiculoSelecionado.id) && 
-                (r.status === 'CONCLUIDO' || r.status === 'LIBERADO')
-            );
-            if (lastReq && lastReq.posto_id) {
-                lastPartnerId = lastReq.posto_id;
-            } else {
-                lastPartnerId = veiculoSelecionado.lastPartnerId;
+                const now = new Date();
+                now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                const defaultDate = now.toISOString().slice(0, 10);
+
+                setFormData(prev => ({ 
+                    ...prev, 
+                    odometro: '', 
+                    horimetro: '',
+                    dataAbastecimento: defaultDate 
+                }));
+                
+                let lastPartnerId = null;
+                const lastReq = myRequests.find(r => 
+                    String(r.veiculo_id) === String(veiculoSelecionado.id) && 
+                    (r.status === 'CONCLUIDO' || r.status === 'LIBERADO')
+                );
+                if (lastReq && lastReq.posto_id) {
+                    lastPartnerId = lastReq.posto_id;
+                } else {
+                    lastPartnerId = veiculoSelecionado.lastPartnerId;
+                }
+                if (lastPartnerId) {
+                    setFormData(prev => ({ ...prev, postoId: lastPartnerId }));
+                }
             }
-            if (lastPartnerId) {
-                setFormData(prev => ({ ...prev, postoId: lastPartnerId }));
-            }
+        } else {
+            initializedVehicleRef.current = null;
         }
     }, [veiculoSelecionado, myRequests]);
 
@@ -890,9 +899,6 @@ const SolicitacaoAbastecimentoPage = ({
                                         </div>
                                     ))}
                                     
-                                    <p className="text-xs text-gray-400 text-right">
-                                        Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
-                                    </p>
                                 </div>
                             )}
                         </div>
@@ -921,7 +927,7 @@ const SolicitacaoAbastecimentoPage = ({
                                 {formData.funcionarioId && filteredEmployees.length === 0 && (
                                     <option value={formData.funcionarioId}>{user.name} (Auto-selecionado)</option>
                                 )}
-                                <option value="">Selecione quem está abastecendo...</option>
+                                <option value="">Selecione quem está trabalhando com o Veículo/Máquina...</option>
                                 {filteredEmployees.map(e => (
                                     <option key={e.id} value={e.id}>{e.nome}</option>
                                 ))}
@@ -963,6 +969,9 @@ const SolicitacaoAbastecimentoPage = ({
                                     />
                                     <p className="text-[10px] text-red-600 mt-1 font-semibold">
                                         Informe as horas de uso da máquina. Não informe a quilometragem.
+                                    </p>
+                                    <p className="text-xs text-gray-400 text-right">
+                                        Último: {veiculoSelecionado.odometro > 0 ? `${veiculoSelecionado.odometro} Km` : `${veiculoSelecionado.horimetro || 0} h`}
                                     </p>
                                 </div>
                             )}
