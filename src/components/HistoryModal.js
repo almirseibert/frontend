@@ -117,8 +117,8 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
                         </div>
                         
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                            <p className="text-gray-700 truncate" title={obraNome}>Obra: <strong>{obraNome}</strong></p>
-                            <p className="text-gray-600 flex items-center gap-1 truncate" title={employeeName}><User size={10} /> {employeeName}</p>
+                            <p className="text-gray-700 break-words" title={obraNome}>Obra: <strong>{obraNome}</strong></p>
+                            <p className="text-gray-600 flex items-center gap-1 break-words" title={employeeName}><User size={10} className="shrink-0" /> {employeeName}</p>
                         </div>
                         
                         <div className="flex items-center gap-2 text-[11px] text-gray-600 bg-gray-50 p-1.5 rounded border border-gray-100 mt-0.5">
@@ -129,7 +129,7 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
                         </div>
                         
                         {details.observacoes && (
-                            <p className="text-[10px] text-gray-500 italic mt-0.5 border-l-2 border-green-200 pl-1.5">
+                            <p className="text-[10px] text-gray-500 italic mt-0.5 border-l-2 border-green-200 pl-1.5 break-words">
                                 "{details.observacoes}"
                             </p>
                         )}
@@ -144,7 +144,7 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
                         </div>
                         <p className="text-xs text-gray-600">Grupo: {details.subGroup}</p>
                         {details.observacoes && (
-                             <p className="text-[10px] text-gray-500 italic truncate max-w-[200px]">Obs: {details.observacoes}</p>
+                             <p className="text-[10px] text-gray-500 italic break-words">Obs: {details.observacoes}</p>
                         )}
                     </div>
                 );
@@ -205,7 +205,8 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[85vh] flex flex-col animate-scale-in">
+            {/* O modal foi ajustado de max-w-md para max-w-3xl para dar mais largura horizontal */}
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col animate-scale-in">
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
                     <div>
                         <h3 className="text-base font-bold text-gray-800">Histórico de Eventos</h3>
@@ -218,7 +219,7 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
                     {loading ? (
                         <div className="flex flex-col justify-center items-center h-20 text-xs">
                             <Loader className="animate-spin text-yellow-500 mb-2" size={20} />
-                            <span className="text-gray-500">Buscando histórico completo...</span>
+                            <span className="text-gray-500">A procurar histórico completo...</span>
                         </div>
                     ) : history.length > 0 ? (
                         <ul className="space-y-2">

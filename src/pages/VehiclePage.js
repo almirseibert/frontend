@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle, 
     Upload, Download, ChevronsUpDown, Info, AlertTriangle, Briefcase, Truck,
-    FileText, Ban, ClipboardCheck // Adicionado ClipboardCheck
+    FileText, Ban, ClipboardCheck, Power // Adicionado Power para Inativar/Ativar
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -13,7 +13,7 @@ import VehicleDetailModal from '../components/VehicleDetailModal';
 import OperationalAssignmentModal from '../components/OperationalAssignmentModal';
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
-import ChecklistModal from '../components/ChecklistModal'; // Novo Import
+import ChecklistModal from '../components/ChecklistModal'; 
 
 import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
 
@@ -35,16 +35,23 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
-    const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false); // Novo Estado
+    const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
+    
+    // Novo estado para inativação
+    const [vehicleToToggleStatus, setVehicleToToggleStatus] = useState(null);
 
     const [selectedVehicle, setSelectedVehicle] = useState(null);
-    const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos' });
+    const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos', showInactive: false });
     
     // Regra 5: Ordenação Padrão Alfabética
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
 
     useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
-    const handleFilterChange = (e) => { const { name, value } = e.target; setFilters(prev => ({ ...prev, [name]: value })); };
+    
+    const handleFilterChange = (e) => { 
+        const { name, value, type, checked } = e.target; 
+        setFilters(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); 
+    };
 
     // --- Processamento de Dados (Regra 4: Alertas e Status) ---
     const processedVehicles = useMemo(() => {
@@ -71,7 +78,8 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                 obra, // Anexa o objeto obra para uso no display
                 vehicleReading: `${readingData.value ?? 'N/A'} ${readingData.unit}`,
                 vehicleReadingRaw: readingData.raw,
-                restrictions: restrictions // Array de problemas
+                restrictions: restrictions, // Array de problemas
+                ativo: v.ativo === undefined ? true : Boolean(v.ativo) // Normaliza o booleano (para os antigos que eram NULL)
             };
         });
     }, [vehicles, revisions, obras]); 
@@ -90,8 +98,9 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             const typeMatch = filters.type === 'todos' || v.tipo === filters.type;
             const statusMatch = filters.status === 'todos' || v.computedStatus === filters.status;
             const groupMatch = filters.group === 'todos' || (groups[filters.group] && groups[filters.group].includes(v.tipo));
+            const activeMatch = filters.showInactive ? true : v.ativo;
             
-            return searchMatch && typeMatch && statusMatch && groupMatch;
+            return searchMatch && typeMatch && statusMatch && groupMatch && activeMatch;
         });
 
         // Ordenação
@@ -128,6 +137,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
     // --- Helpers Visuais ---
     const getRowStyle = (vehicle) => {
+        if (!vehicle.ativo) return 'bg-gray-100 opacity-60 hover:opacity-100 grayscale hover:grayscale-0 border-l-4 border-gray-400';
         if (vehicle.isOutsourced) return 'bg-purple-50 hover:bg-purple-100 border-l-4 border-purple-500';
         // Prioridade para bloqueios manuais ou críticos
         if (vehicle.restrictions.some(r => r.category === 'bloqueio' || r.type === 'bloqueio')) return 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500';
@@ -135,8 +145,16 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         return 'bg-white hover:bg-gray-50 border-l-4 border-transparent';
     };
 
-    // --- Renderização dos Badges de Alerta (NOVO) ---
-    const renderAlertBadges = (restrictions) => {
+    // --- Renderização dos Badges de Alerta ---
+    const renderAlertBadges = (restrictions, isInactive) => {
+        if (isInactive) return (
+             <div className="flex gap-1 flex-wrap mt-1">
+                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-500 text-white cursor-help">
+                    <Ban size={10}/> VEÍCULO INATIVO
+                </span>
+             </div>
+        );
+
         if (!restrictions || !restrictions.length) return null;
 
         const manuntencao = restrictions.filter(r => r.category === 'manutencao');
@@ -167,6 +185,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     // --- Ações ---
     const handleEdit = (v) => { setSelectedVehicle(v); setIsModalOpen(true); };
     const handleNew = () => { setSelectedVehicle(null); setIsModalOpen(true); };
+    
     const handleDelete = async () => {
         try {
             await apiClient.deleteVehicle(selectedVehicle.id);
@@ -178,12 +197,27 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             setIsDeleteModalOpen(false);
         }
     };
+
+    const handleToggleStatus = async () => {
+        if (!vehicleToToggleStatus) return;
+        try {
+            // Usa o update existente para enviar apenas o campo ativo invertido
+            const novoStatus = vehicleToToggleStatus.ativo ? 0 : 1;
+            await apiClient.updateVehicle(vehicleToToggleStatus.id, { ativo: novoStatus });
+            setAlertMessage(`Veículo ${novoStatus === 1 ? 'ativado' : 'inativado'} com sucesso.`);
+            reloadData();
+        } catch (error) {
+            setAlertMessage('Erro ao alterar status: ' + error.message);
+        } finally {
+            setVehicleToToggleStatus(null);
+        }
+    };
     
     // Exportar CSV
     const exportToCSV = () => {
-        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?'];
+        const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?', 'Ativo'];
         const rows = filteredVehicles.map(v => [
-            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO'
+            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO', v.ativo ? 'SIM' : 'NÃO'
         ]);
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(","))].join("\n");
         const link = document.createElement("a");
@@ -224,7 +258,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             </div>
 
              {/* Filtros */}
-            <div className="mb-6 p-4 bg-white rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+            <div className="mb-6 p-4 bg-white rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-4 text-sm items-center">
                 <input type="text" name="search" placeholder="🔍 Buscar Placa, Registro..." value={filters.search} onChange={handleFilterChange} className="w-full px-4 py-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 outline-none transition" />
                 <select name="group" value={filters.group} onChange={handleFilterChange} className="w-full px-4 py-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 outline-none cursor-pointer">
                     <option value="todos">📂 Todos os Grupos</option>
@@ -238,6 +272,15 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     <option value="todos">📊 Todos os Status</option>
                     {['Disponível', 'Em Obra', 'Em Operação', 'Em Manutenção'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
+                
+                {/* Toggle de Inativos */}
+                <div className="flex items-center gap-2 px-2">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="showInactive" checked={filters.showInactive} onChange={handleFilterChange} className="sr-only peer" />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                        <span className="ml-3 text-sm font-medium text-gray-700">Mostrar Inativos</span>
+                    </label>
+                </div>
             </div>
 
             {/* Tabela Restaurada */}
@@ -257,13 +300,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                     ) : filteredVehicles.map(vehicle => {
                         const statusColors = {
                             'Em Manutenção': 'bg-red-100 text-red-800',
-                            'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse', // Restaurado
+                            'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse', 
                             'Em Obra': 'bg-green-100 text-green-800',
                             'Em Operação': 'bg-blue-100 text-blue-800',
                             'Disponível': 'bg-gray-100 text-gray-800'
                         };
                         
-                        // Lógica restaurada para texto de status com localização
                         const statusText = vehicle.computedStatus === 'Disponível'
                             ? `${vehicle.computedStatus} - ${vehicle.localizacaoAtual || 'Pátio'}`
                             : vehicle.computedStatus === 'Em Obra' && vehicle.obra
@@ -272,12 +314,10 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
                         const hasCritical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'vencido');
                         
-                        // Define cor do botão checklist (Cinza se 0, Roxo se > 0)
-                        // TODO: Backend deve retornar 'checklistCount' no futuro.
                         const hasChecklists = vehicle.checklistCount > 0;
                         const checklistBtnClass = hasChecklists
                             ? "p-1.5 text-purple-600 hover:text-purple-800 hover:bg-purple-100 rounded-md transition"
-                            : "p-1.5 text-gray-300 hover:text-purple-600 hover:bg-gray-100 rounded-md transition";
+                            : "p-1.5 text-gray-400 hover:text-purple-600 hover:bg-gray-100 rounded-md transition";
 
                         return (
                             <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 transition-all ${getRowStyle(vehicle)}`}>
@@ -288,7 +328,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                             <img src={vehicle.fotoURL ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${(process.env.REACT_APP_API_URL || '').replace('/api','')}${vehicle.fotoURL}`) : 'https://placehold.co/100?text=Foto'} 
                                                  alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform"/>
                                         </div>
-                                        {hasCritical && (
+                                        {hasCritical && vehicle.ativo && (
                                             <div className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 shadow-lg animate-bounce" title="Atenção Necessária">
                                                 <AlertTriangle size={12} fill="white" />
                                             </div>
@@ -303,8 +343,7 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                         
                                         <div className="flex justify-between items-center">
                                             <p className="text-xs text-gray-400">{vehicle.tipo}</p>
-                                            {/* --- INSERÇÃO DOS BADGES DE ALERTA --- */}
-                                            {renderAlertBadges(vehicle.restrictions)}
+                                            {renderAlertBadges(vehicle.restrictions, !vehicle.ativo)}
                                         </div>
                                     </div>
                                 </div>
@@ -323,14 +362,14 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
                                 <div className="md:col-span-2 flex justify-center md:justify-center justify-between items-center">
                                     <span className="md:hidden font-bold text-gray-500 text-sm">Status:</span>
-                                    <div className={`px-2 py-0.5 rounded-full text-xs font-semibold inline-block whitespace-nowrap max-w-full truncate ${statusColors[vehicle.computedStatus] || 'bg-gray-100 text-gray-800'}`} title={statusText}>
-                                        {truncateText(statusText, 25)}
+                                    <div className={`px-2 py-0.5 rounded-full text-xs font-semibold inline-block whitespace-nowrap max-w-full truncate ${vehicle.ativo ? (statusColors[vehicle.computedStatus] || 'bg-gray-100 text-gray-800') : 'bg-gray-300 text-gray-600'}`} title={statusText}>
+                                        {vehicle.ativo ? truncateText(statusText, 25) : 'Inativo'}
                                     </div>
                                 </div>
 
                                 {/* Botões de Ação */}
                                 <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
-                                    {/* Botão Checklist - NOVO */}
+                                    
                                     <button onClick={() => { setSelectedVehicle(vehicle); setIsChecklistModalOpen(true); }} className={checklistBtnClass} title="Checklists">
                                         <ClipboardCheck size={14}/>
                                     </button>
@@ -341,23 +380,37 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
                                     <ProtectedComponent requiredPermission="editor">
                                         <button onClick={() => handleEdit(vehicle)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition" title="Editar"><Edit size={14}/></button>
                                         
-                                        {/* Ações Dinâmicas */}
-                                        {vehicle.computedStatus === 'Disponível' && (
+                                        {/* Ações Dinâmicas - Só exibe se ativo */}
+                                        {vehicle.ativo && vehicle.computedStatus === 'Disponível' && (
                                             <>
                                                 <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition" title="Alocar Obra"><HardHat size={14}/></button>
                                                 <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-md transition" title="Alocar Operação"><Users size={14}/></button>
                                                 <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Manutenção"><Wrench size={14}/></button>
                                             </>
                                         )}
-                                        {vehicle.computedStatus === 'Em Obra' && (
+                                        {vehicle.ativo && vehicle.computedStatus === 'Em Obra' && (
                                             <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-md transition border border-red-200" title="Desalocar"><HardHat size={14}/></button>
                                         )}
-                                        {vehicle.computedStatus === 'Em Operação' && (
+                                        {vehicle.ativo && vehicle.computedStatus === 'Em Operação' && (
                                             <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-md transition border border-red-200" title="Desalocar"><Users size={14}/></button>
                                         )}
-                                        {(vehicle.computedStatus === 'Em Manutenção' || vehicle.computedStatus === 'Aguardando Manutenção') && (
+                                        {vehicle.ativo && (vehicle.computedStatus === 'Em Manutenção' || vehicle.computedStatus === 'Aguardando Manutenção') && (
                                             <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-md transition border border-green-200" title="Finalizar"><Wrench size={14}/></button>
                                         )}
+
+                                        {/* Botão de Ativar/Inativar (Substitui o Delete de exclusão dura para o usuário comum) */}
+                                        <button 
+                                            onClick={() => setVehicleToToggleStatus(vehicle)} 
+                                            className={`p-1.5 rounded-md transition ${vehicle.ativo ? 'text-gray-400 hover:text-red-600 hover:bg-red-50' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`} 
+                                            title={vehicle.ativo ? "Inativar Veículo" : "Reativar Veículo"}
+                                        >
+                                            <Power size={14}/>
+                                        </button>
+                                        
+                                        {/* Lixeira mantida apenas por precaução, idealmente poderia ser protegida por admin */}
+                                        <ProtectedComponent requiredPermission="admin">
+                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsDeleteModalOpen(true); }} className="p-1.5 text-gray-300 hover:text-red-700 hover:bg-red-100 rounded-md transition" title="Exclusão Permanente"><Trash2 size={14}/></button>
+                                        </ProtectedComponent>
                                     </ProtectedComponent>
                                 </div>
                             </div>
@@ -368,34 +421,11 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
             {/* --- Modais --- */}
             {isModalOpen && (
-                <VehicleModal 
-                    user={user} 
-                    vehicle={selectedVehicle} 
-                    vehicles={vehicles} 
-                    vehicleTypes={vehicleTypes} 
-                    vehicleGroups={vehicleGroups} 
-                    onClose={() => setIsModalOpen(false)} 
-                    setAlertMessage={setAlertMessage} 
-                    apiClient={apiClient} 
-                    reloadData={reloadData} 
-                    PasswordConfirmationModal={PasswordConfirmationModal} 
-                />
+                <VehicleModal user={user} vehicle={selectedVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} vehicleGroups={vehicleGroups} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />
             )}
             
             {isObraAllocationModalOpen && (
-                <ObraAllocationModal 
-                    user={user} 
-                    vehicle={selectedVehicle} 
-                    obras={obras} 
-                    employees={employees} 
-                    revisions={revisions} 
-                    onClose={() => setIsObraAllocationModalOpen(false)} 
-                    setAlertMessage={setAlertMessage} 
-                    apiClient={apiClient} 
-                    reloadData={reloadData} 
-                    vehicles={vehicles} 
-                    PasswordConfirmationModal={PasswordConfirmationModal} 
-                />
+                <ObraAllocationModal user={user} vehicle={selectedVehicle} obras={obras} employees={employees} revisions={revisions} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} PasswordConfirmationModal={PasswordConfirmationModal} />
             )}
             
             {isOperationalModalOpen && (
@@ -404,7 +434,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
             {isHistoryModalOpen && <HistoryModal vehicle={selectedVehicle} onClose={() => setIsHistoryModalOpen(false)} obras={obras} apiClient={apiClient} employees={employees} />}
             
-            {/* Modal de Checklist - NOVO */}
             {isChecklistModalOpen && <ChecklistModal vehicle={selectedVehicle} onClose={() => setIsChecklistModalOpen(false)} apiClient={apiClient} />}
 
             {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} />}
@@ -412,10 +441,14 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={selectedVehicle} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData} />}
             
             {isDeleteModalOpen && (
+                <PasswordConfirmationModal message={`Tem certeza que deseja excluir PERMANENTEMENTE o veículo ${selectedVehicle?.registroInterno}?`} onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />
+            )}
+
+            {vehicleToToggleStatus && (
                 <PasswordConfirmationModal 
-                    message={`Tem certeza que deseja excluir o veículo ${selectedVehicle?.registroInterno}? Esta ação é irreversível.`} 
-                    onConfirm={handleDelete} 
-                    onClose={() => setIsDeleteModalOpen(false)} 
+                    message={`Tem certeza que deseja ${vehicleToToggleStatus.ativo ? 'INATIVAR' : 'ATIVAR'} o veículo ${vehicleToToggleStatus.registroInterno}? ${vehicleToToggleStatus.ativo ? 'Ele não aparecerá mais nas listas ativas.' : ''}`} 
+                    onConfirm={handleToggleStatus} 
+                    onClose={() => setVehicleToToggleStatus(null)} 
                     apiClient={apiClient} 
                 />
             )}
