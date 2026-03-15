@@ -355,8 +355,9 @@ const AdminSolicitacoesPage = ({
             const current = parseFloat(confirmForm.reading);
             
             if (!isNaN(current) && last > 0) {
-                if (current <= last) {
-                    block = `Leitura (${current}) menor/igual à atual (${last}).`;
+                // Alterado: Libera se current === last. Apenas bloqueia se for ESTRITAMENTE menor.
+                if (current < last) {
+                    block = `Leitura (${current}) menor que a atual do sistema (${last}).`;
                 } else if (isHr && (current - last) > 50) {
                     block = `Salto excessivo de Horímetro (> 50h). Dif: ${(current - last).toFixed(1)}h.`;
                 } else if (isKm && (current - last) > 1000) {

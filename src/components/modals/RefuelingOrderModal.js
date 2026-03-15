@@ -299,7 +299,8 @@ const RefuelingOrderModal = ({
             const last = parseFloat(selectedVehicle.odometro || 0);
 
             if (!isNaN(current) && last > 0) {
-                 if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual (${last}).`;
+                 // Permitimos valores IGUAIS sem bloqueio (caso o valor sugerido e real sejam o mesmo do sistema)
+                 if (current < last) reason = `Odômetro (${current}) menor que o atual (${last}).`;
                  else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
             }
         }
@@ -309,7 +310,8 @@ const RefuelingOrderModal = ({
             let last = parseFloat(selectedVehicle.horimetro || 0);
 
             if (!isNaN(current) && last > 0) {
-                if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
+                // Permitimos valores IGUAIS sem bloqueio
+                if (current < last) reason = `Horímetro (${current}) menor que o atual (${last}).`;
                 else if (current - last > 50) reason = `Salto excessivo (> 50h).`;
             }
         }
@@ -447,7 +449,9 @@ const RefuelingOrderModal = ({
                 
                 // Monta o corpo do email para o cliente local (Outlook/Thunderbird/Mail)
                 const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-                const arlaMsg = formData.needsArla 
+                const arlaMsg = formData.needsArla ? `\nArla 32: ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` : '';
+                const outrosMsgEmail = finalData.outros ? `\nOutros/Obs: ${finalData.outros}` : '';
+
                 const subject = `Autorização de Abastecimento #${finalData.authNumber} - ${finalData.partnerName || 'Frotas MAK'}`;
                 const body = `Olá,
 
@@ -460,7 +464,7 @@ Data: ${emissionDate}
 Posto: ${partner?.razaoSocial || 'N/A'}
 Veículo: ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
 Combustível: ${finalData.fuelType}
-Qtd: ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
+Qtd: ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}${outrosMsgEmail}
 Motorista: ${employee?.nome || 'N/A'}
 
 --- DOWNLOAD DA AUTORIZAÇÃO (PDF) ---
@@ -512,6 +516,7 @@ Equipe Frotas MAK`;
         const arlaMsg = formData.needsArla 
             ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
             : '';
+        const outrosMsg = finalData.outros ? `\n*Outros/Obs:* ${finalData.outros}` : '';
 
         let msg = 
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
@@ -523,7 +528,7 @@ ${pdfLink ? `Baixe a Autorização (PDF): ${pdfLink}` : '(PDF indisponível)'}
 *Posto:* ${partner?.razaoSocial || 'N/A'}
 *Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
 *Combustível:* ${finalData.fuelType}
-*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}
+*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}${outrosMsg}
 *Motorista:* ${employee?.nome || 'N/A'}
 ${readingMsg}`;
 

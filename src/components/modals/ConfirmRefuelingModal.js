@@ -113,9 +113,9 @@ const ConfirmRefuelingModal = ({
         const current = parseFloat(kmOuHrConfirmado);
         
         if (!isNaN(current) && last > 0) {
-            // Regra: Bloqueio de Regressão
-            if (current <= last) {
-                setBlockReason(`Leitura (${current}) menor/igual à atual (${last}).`);
+            // Regra: Bloqueio de Regressão (Somente se for ESTRITAMENTE menor. Valores iguais passam direto sem senha)
+            if (current < last) {
+                setBlockReason(`Leitura (${current}) menor que a atual do sistema (${last}).`);
             }
             // Regra: Saltos
             else if (isHr && (current - last) > 50) {
