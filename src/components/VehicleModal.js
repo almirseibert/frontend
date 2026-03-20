@@ -355,10 +355,9 @@ const VehicleModal = ({
                                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
                                         <label className="block text-sm font-bold text-blue-900 uppercase mb-1 flex justify-between">
                                             Horímetro Atual (Hr) *
-                                            <span className="text-[10px] font-normal text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Campo Unificado</span>
                                         </label>
                                         <input name="horimetro" value={formData.horimetro} onChange={handleChange} type="number" step="0.1" className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none text-lg font-mono text-blue-900" />
-                                        <p className="text-[10px] text-blue-500 mt-1">Para Caminhões Pesados e Máquinas. Substitui digital/analógico.</p>
+                                        <p className="text-[10px] text-blue-500 mt-1">Para Caminhões Caçamba e Máquinas.</p>
                                     </div>
                                 )}
 

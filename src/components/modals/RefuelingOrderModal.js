@@ -438,8 +438,7 @@ const RefuelingOrderModal = ({
                     urlDomain = baseUrl;
                 }
                 
-                // Remove /api ou duplicatas se necessário, mas geralmente uploads ficam na raiz pública
-                // Se pdfUrl já vier com /uploads/orders/..., apenas concatenamos
+                
                 absoluteLink = `${urlDomain.replace('/api', '')}${pdfUrl.startsWith('/') ? '' : '/'}${pdfUrl}`;
             }
 
@@ -452,7 +451,7 @@ const RefuelingOrderModal = ({
                 const arlaMsg = formData.needsArla ? `\nArla 32: ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` : '';
                 const outrosMsgEmail = finalData.outros ? `\nOutros/Obs: ${finalData.outros}` : '';
 
-                const subject = `Autorização de Abastecimento #${finalData.authNumber} - ${finalData.partnerName || 'Frotas MAK'}`;
+                const subject = `Autorização de Abastecimento #${finalData.authNumber} - ${vehicle?.registroInterno} - ${finalData.partnerName || 'Frotas MAK'}`;
                 const body = `Olá,
 
 Segue a autorização de abastecimento emitida pelo sistema Frotas MAK.
@@ -635,8 +634,7 @@ ${readingMsg}`;
                 <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-gray-700">Horímetro (Hr) *</label>
                     <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || 0}`}/>
-                    <p className="text-[9px] text-gray-400 mt-0.5">Campo Unificado</p>
-                </div>
+                    </div>
             );
         }
     };

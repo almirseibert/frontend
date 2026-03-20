@@ -214,10 +214,19 @@ const EmployeeModal = ({
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Função / Cargo</label>
                                 <select name="funcao" value={formData.funcao} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none bg-white">
                                     <option value="">Selecione...</option>
+                                    <option value="Administrativo">Administrativo</option>
+                                    <option value="Auxiliar de Mecânico">Auxiliar de Mecânico</option>
+                                    <option value="Auxiliar de Pavimentação">Auxiliar de Pavimentação</option>
+                                    <option value="Borracheiro">Borracheiro</option>
+                                    <option value="Eletricista Automotivo">Eletricista Automotivo</option>
+                                    <option value="Encarregado de Obras">Encarregado de Obras</option>
+                                    <option value="Lavador">Lavador</option>
+                                    <option value="Mecânico">Mecânico</option>
                                     <option value="Motorista">Motorista</option>
                                     <option value="Operador de Máquina">Operador de Máquina</option>
-                                    <option value="Mecânico">Mecânico</option>
-                                    <option value="Administrativo">Administrativo</option>
+                                    <option value="Pintor">Pintor</option>
+                                    <option value="Soldador">Soldador</option>
+                                    <option value="Supervisor de Obras">Supervisor de Obras</option>
                                     <option value="Outro">Outro</option>
                                 </select>
                             </div>

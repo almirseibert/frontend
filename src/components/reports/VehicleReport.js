@@ -37,7 +37,7 @@ const VehicleReport = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
                 // Formata leitura
                 let leituraPrincipal = '';
                 if (vehicleGroup === 'Máquinas Pesadas') leituraPrincipal = `${v.horimetro ?? 'N/A'} Hr`;
-                else if (vehicleGroup === 'Caminhões') leituraPrincipal = `${v.odometro ?? 'N/A'} Km / ${v.horimetro ?? 'N/A'} Hr`;
+                else if (vehicleGroup === 'Caminhões') leituraPrincipal = `${v.horimetro ?? 'N/A'} Hr`;
                 else leituraPrincipal = `${v.odometro ?? 'N/A'} Km`;
 
                 const obra = obras.find(o => o.id === v.obraAtualId);

@@ -28,8 +28,8 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
          readingValue = `${vehicle.horimetro || 'N/A'} Hr`;
          consumptionUnit = 'L/Hr';
     } else if (vehicleGroup === 'Caminhões') {
-        readingLabel = 'Odômetro / Horímetro';
-        readingValue = `${vehicle.odometro || 'N/A'} Km / ${vehicle.horimetro || 'N/A'} Hr`;
+        readingLabel = 'Horímetro';
+        readingValue = `${vehicle.horimetro || 'N/A'} Hr`;
         
         if (vehicle.tipo === 'Caminhões Prancha') {
             consumptionUnit = 'Km/L'; 

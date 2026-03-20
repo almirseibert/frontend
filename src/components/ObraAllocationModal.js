@@ -53,7 +53,7 @@ const ObraAllocationModal = ({
     const activeObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const availableEmployees = useMemo(() =>
         (employees || [])
-            .filter(e => e.status !== 'inativo' && (e.funcao === 'Operador de Máquina' || e.funcao === 'Motorista'))
+            .filter(e => e.status !== 'inativo')
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
@@ -103,9 +103,6 @@ const ObraAllocationModal = ({
         const val = parseFloat(readingValue);
 
         try {
-            // CORREÇÃO CRÍTICA (Erro 400/500):
-            // Não usamos parseInt nos IDs pois podem ser UUIDs (strings alfanuméricas).
-            // Enviamos os dados crus e deixamos o backend (SQL) lidar.
             const payload = {
                 obraId: obraId, 
                 employeeId: employeeId,
@@ -115,12 +112,9 @@ const ObraAllocationModal = ({
                 readingValue: val,
                 observacoes: observacoes || '',
                 
-                // Mapeamento específico para a tabela 'obras_historico_veiculos'
-                // Enviamos 0 para campos numéricos não usados (SQL strict mode)
                 horimetroEntrada: readingType === 'horimetro' ? val : 0, 
                 odometroEntrada: readingType === 'odometro' ? val : 0, 
                 
-                // Compatibilidade com lógica legada
                 horimetro: readingType === 'horimetro' ? val : 0,
                 odometro: readingType === 'odometro' ? val : 0
             };
