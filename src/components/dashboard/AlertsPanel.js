@@ -6,7 +6,7 @@ import { checkVehicleRestrictions } from '../../utils/vehicleRules';
 const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [], refuelings = [] }) => {
     const [activeTab, setActiveTab] = useState('todos');
 
-    // Processamento centralizado de alertas (Unificado)
+    // Processamento centralizado de alertas (Unificado e em Tempo Real)
     const alerts = useMemo(() => {
         const list = [];
         const now = new Date();
@@ -23,7 +23,6 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
 
             restrictions.forEach((issue, index) => {
                 let category = 'manutencao'; 
-                // Mantém documentos do veículo separados da CNH
                 if (issue.category === 'documento') category = 'docs_veiculo';
                 if (issue.category === 'bloqueio') category = 'manutencao';
 
@@ -40,95 +39,109 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             });
         });
 
-        // 2. Alertas de Inatividade (Operacional)
-        inactivityAlerts.forEach(alert => {
-            // Se o alerta já foi tratado, ignoramos
-            if (['Resolvido', 'Observado'].includes(alert.status)) return;
-            
-            // Identificação robusta do ID do veículo
-            const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
+        // 2. Alertas de Inatividade (Operacional) - CÁLCULO 100% DINÂMICO
+        const DIAS_LIMITE = 7; // Define com quantos dias sem abastecer o alerta é gerado
 
-            // Resolução do Veículo
-            let veiculoNome = alert.vehicle?.registroInterno;
-            if (vehId && vehicles.length > 0) {
-                 const foundVeh = vehicles.find(v => String(v.id) === String(vehId));
-                 if (foundVeh && foundVeh.registroInterno) veiculoNome = foundVeh.registroInterno;
-            }
+        vehicles.forEach(v => {
+            // Regra 1: O veículo deve estar estritamente 'Em Obra'
+            if (v.status !== 'Em Obra') return;
 
-            // --- VALIDAÇÃO DE DADOS (Sem ocultação forçada) ---
-            let realRefuelDate = null;
-            let daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || 0);
-            let dateStr = 'Data desc.';
+            // Regra 2: O registro de inatividade deve ser referente à obra atual
+            if (!v.obraAtualId) return;
 
-            // Cruzamos com o histórico de abastecimentos para mostrar a data e os dias mais precisos possíveis
-            if (refuelings && refuelings.length > 0 && vehId) {
-                 const vehRefuels = refuelings
-                    .filter(r => String(r.vehicleId) === String(vehId) && r.status === 'Concluída')
-                    .sort((a,b) => {
-                        const dA = new Date(a.data || a.date || a.created_at || 0);
-                        const dB = new Date(b.data || b.date || b.created_at || 0);
-                        return dB - dA; // Mais recente primeiro
-                    });
+            // Regra 4: Analisar juntamente com a obra atual quando foi o último abastecimento
+            const vehRefuels = refuelings
+                .filter(r => String(r.vehicleId) === String(v.id) && String(r.obraId) === String(v.obraAtualId) && r.status === 'Concluída')
+                .sort((a,b) => {
+                    const dA = new Date(a.data || a.date || a.created_at || 0);
+                    const dB = new Date(b.data || b.date || b.created_at || 0);
+                    return dB - dA; // O mais recente primeiro
+                });
+
+            let lastRefuelDate = null;
+            let daysInactive = null;
+            let isBasedOnAllocation = false;
+
+            if (vehRefuels.length > 0) {
+                // Pegamos a data do abastecimento mais recente NESSA obra
+                const latest = vehRefuels[0];
+                const dRaw = latest.data || latest.date || latest.created_at;
+                const dObj = new Date(dRaw);
                 
-                if (vehRefuels.length > 0) {
-                    const latest = vehRefuels[0];
-                    const dRaw = latest.data || latest.date || latest.created_at;
-                    const dObj = new Date(dRaw);
-                    
-                    if (!isNaN(dObj.getTime())) {
-                         realRefuelDate = dObj;
+                if (!isNaN(dObj.getTime())) {
+                    lastRefuelDate = dObj;
+                    const diffTime = Math.abs(now - dObj);
+                    daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                }
+            } else {
+                // Se o veículo está na obra mas NUNCA abasteceu lá, verificamos a data em que ele foi alocado
+                const obra = obras.find(o => String(o.id) === String(v.obraAtualId));
+                if (obra && obra.historicoVeiculos) {
+                    const alocacao = obra.historicoVeiculos.find(h => String(h.veiculoId) === String(v.id) && !h.dataSaida);
+                    if (alocacao && alocacao.dataEntrada) {
+                        const dObj = new Date(alocacao.dataEntrada);
+                        if (!isNaN(dObj.getTime())) {
+                            lastRefuelDate = dObj;
+                            const diffTime = Math.abs(now - dObj);
+                            daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                            isBasedOnAllocation = true;
+                        }
                     }
                 }
             }
 
-            const baseDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
+            // Se não foi possível rastrear uma data base (sem alocação formal e sem abastecimento), pulamos para não gerar falso positivo.
+            if (daysInactive === null || lastRefuelDate === null) return;
 
-            // Define a string de exibição baseada na melhor data disponível
-            if (realRefuelDate) {
-                dateStr = realRefuelDate.toLocaleDateString('pt-BR');
-                const diffTime = Math.abs(now - realRefuelDate);
-                daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            } else if (baseDateRaw) {
-                const aDate = new Date(baseDateRaw);
-                if (!isNaN(aDate.getTime())) {
-                    dateStr = aDate.toLocaleDateString('pt-BR');
-                    const diffTime = Math.abs(now - aDate);
-                    daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                }
+            // Regra 3 e 5: Se passar do limite, exibe o alerta. Se ele tiver sido abastecido, os dias caem (ex: 0) e ele é ignorado.
+            if (daysInactive >= DIAS_LIMITE) {
+                // Consultamos se já existe um card "Observado" salvo no banco para não sobrepor a ação do usuário
+                const backendAlert = inactivityAlerts.find(a => 
+                    String(a.vehicleId || a.vehicle_id || a.vehicle?.id) === String(v.id) && 
+                    String(a.obraId || a.obra_id || a.obra?.id) === String(v.obraAtualId) &&
+                    ['Ativo', 'Pendente', 'Observado'].includes(a.status)
+                );
+
+                // Ocultamos apenas se o gestor já tratou (Observou)
+                if (backendAlert && backendAlert.status === 'Observado') return;
+
+                let obraNome = 'Obra Desconhecida';
+                const foundObra = obras.find(o => String(o.id) === String(v.obraAtualId));
+                if (foundObra) obraNome = foundObra.nome;
+
+                const msgContext = isBasedOnAllocation ? 'desde a chegada na obra' : 'sem abastecer na obra';
+
+                list.push({
+                    // ID Dinâmico ou acoplado ao backend se existir
+                    id: backendAlert ? `inat-${backendAlert.id}` : `inat-dyn-${v.id}`,
+                    category: 'inatividade', 
+                    type: 'danger', 
+                    title: `${v.registroInterno} - Inatividade`,
+                    subtitle: obraNome,
+                    message: `Parado há ${daysInactive} dias ${msgContext}. Último registro: ${lastRefuelDate.toLocaleDateString('pt-BR')}`,
+                    date: lastRefuelDate.toLocaleDateString('pt-BR'),
+                    action: () => {
+                        // Se o alerta for gerado dinamicamente, criamos um mock compatível com o Modal
+                        const alertToPass = backendAlert || {
+                            id: 'novo',
+                            vehicleId: v.id,
+                            obraId: v.obraAtualId,
+                            vehicle: v,
+                            obra: foundObra,
+                            lastRefuelingDate: lastRefuelDate.toISOString(),
+                            daysSinceLastRefuel: daysInactive,
+                            status: 'Ativo'
+                        };
+                        setSelectedInactivityAlert(alertToPass);
+                    }
+                });
             }
-
-            // Resolução do Nome da Obra
-            let obraNome = alert.obra?.nome || alert.obra_nome;
-            if (!obraNome) {
-                const targetId = alert.obraId || alert.obra_id;
-                if (targetId && obras.length > 0) {
-                    const foundObra = obras.find(o => String(o.id) === String(targetId));
-                    if (foundObra) obraNome = foundObra.nome;
-                }
-            }
-            if (!obraNome) obraNome = 'Obra Desconhecida';
-            if (!veiculoNome) veiculoNome = 'Veículo';
-
-            // Segurança extra para evitar "NaN dias"
-            if (isNaN(daysDisplay)) daysDisplay = '?';
-
-            list.push({
-                id: `inat-${alert.id}`,
-                category: 'inatividade', 
-                type: 'danger', 
-                title: `${veiculoNome} - Inatividade`,
-                subtitle: obraNome,
-                message: `Parado há ${daysDisplay} dias sem abastecer. Último: ${dateStr}`,
-                date: dateStr,
-                action: () => setSelectedInactivityAlert(alert)
-            });
         });
 
         // 3. Alertas de Funcionários (CNH)
         if (Array.isArray(employees)) {
             employees.forEach(emp => {
-                // --- REGRA DE ATIVOS ---
-                // Filtra para exibir alertas apenas de funcionários com status 'Ativo'
+                // Filtro para apresentar APENAS funcionários Ativos
                 if (emp.status && emp.status.toUpperCase() !== 'ATIVO') return;
 
                 const cnhDateRaw = emp.cnhVencimento || emp.validadeCNH;
@@ -189,7 +202,6 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
 
     const filteredAlerts = activeTab === 'todos' ? alerts : alerts.filter(a => a.category === activeTab);
 
-    // Contagem atualizada
     const counts = {
         todos: alerts.length,
         manutencao: alerts.filter(a => a.category === 'manutencao').length,
