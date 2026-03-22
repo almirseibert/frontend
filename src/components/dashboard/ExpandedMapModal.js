@@ -103,7 +103,7 @@ const AllocationMap = ({ obras = [], vehicles = [], vehicleGroups = {}, isExpand
     const mapCenter = [-29.6914, -53.8008]; // RS Center
 
     return (
-        <MapContainer center={mapCenter} zoom={isExpanded ? 8 : 7} style={{ height: '100%', width: '100%' }}>
+        <MapContainer center={mapCenter} zoom={isExpanded ? 8 : 6} style={{ height: '100%', width: '100%' }}>
             <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {validObras.map(obra => {
                 const activeVehiclesList = getActiveVehiclesList(obra.id);

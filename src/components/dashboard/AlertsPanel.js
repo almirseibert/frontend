@@ -44,12 +44,26 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         inactivityAlerts.forEach(alert => {
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
             
+            // Identificação robusta do ID do veículo
+            const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
+
+            // Resolução do Veículo
+            let veiculoNome = alert.vehicle?.registroInterno;
+            let foundVeh = null;
+            if (vehId && vehicles.length > 0) {
+                 foundVeh = vehicles.find(v => String(v.id) === String(vehId));
+                 if (foundVeh) veiculoNome = foundVeh.registroInterno;
+            }
+
+            // --- REGRA 1: FILTRO DE DESALOCAÇÃO (NOVO) ---
+            // Se o veículo não estiver mais "Em Obra" ou não tiver obra atual, oculta o alerta.
+            if (foundVeh && (foundVeh.status !== 'Em Obra' || !foundVeh.obraAtualId)) {
+                return; // Oculta visualmente
+            }
+
             // --- VALIDAÇÃO EM TEMPO REAL ---
             let realRefuelDate = null;
             let realDaysInactive = null;
-
-            // Identificação robusta do ID do veículo
-            const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
 
             // Se tivermos a lista de abastecimentos, cruzamos os dados
             if (refuelings && refuelings.length > 0 && vehId) {
@@ -75,10 +89,18 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                 }
             }
 
-            // --- FILTRO DE FALSO POSITIVO ---
-            // Se calculamos dias reais e é menor que 7, o veículo já abasteceu. Esconde o alerta.
+            // --- REGRA 2: FILTRO DE FALSO POSITIVO (ABASTECEU) ---
+            // Se calculamos dias reais e é menor que 7, o veículo já abasteceu.
             if (realDaysInactive !== null && realDaysInactive < 7) {
                 return; // Pula este alerta (Auto-Resolvido visualmente)
+            }
+
+            // Se a data do último abastecimento no histórico for MAIOR (mais recente) que a data que originou o alerta
+            const baseDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
+            if (realRefuelDate && baseDateRaw) {
+                if (realRefuelDate > new Date(baseDateRaw)) {
+                    return; // Pula, pois o abastecimento mais recente sobrepõe o alerta
+                }
             }
 
             // --- PREPARAÇÃO PARA EXIBIÇÃO ---
@@ -91,10 +113,8 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                 daysDisplay = realDaysInactive;
             } else {
                 // Prioridade 2: Dados do snapshot do alerta (Backend)
-                // Recalculamos os dias baseados na data do alerta para evitar dados estáticos antigos (ex: 122 dias)
-                const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
-                if (alertDateRaw) {
-                    const aDate = new Date(alertDateRaw);
+                if (baseDateRaw) {
+                    const aDate = new Date(baseDateRaw);
                     if (!isNaN(aDate.getTime())) {
                         dateStr = aDate.toLocaleDateString('pt-BR');
                         const diffTime = Math.abs(now - aDate);
@@ -119,14 +139,6 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             }
             if (!obraNome) obraNome = 'Obra Desconhecida';
 
-            // Resolução do Veículo
-            let veiculoNome = alert.vehicle?.registroInterno;
-            if (!veiculoNome) {
-                 if (vehId && vehicles.length > 0) {
-                     const foundVeh = vehicles.find(v => String(v.id) === String(vehId));
-                     if (foundVeh) veiculoNome = foundVeh.registroInterno;
-                 }
-            }
             if (!veiculoNome) veiculoNome = 'Veículo';
 
             list.push({
@@ -144,6 +156,10 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
         // 3. Alertas de Funcionários (CNH)
         if (Array.isArray(employees)) {
             employees.forEach(emp => {
+                // --- REGRA DE ATIVOS ---
+                // Filtra para exibir alertas apenas de funcionários com status 'Ativo'
+                if (emp.status && emp.status.toUpperCase() !== 'ATIVO') return;
+
                 const cnhDateRaw = emp.cnhVencimento || emp.validadeCNH;
 
                 if (cnhDateRaw) {
