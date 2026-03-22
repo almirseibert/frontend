@@ -42,6 +42,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
 
         // 2. Alertas de Inatividade (Operacional)
         inactivityAlerts.forEach(alert => {
+            // Se o alerta já foi tratado, ignoramos
             if (['Resolvido', 'Observado'].includes(alert.status)) return;
             
             // Identificação robusta do ID do veículo
@@ -49,92 +50,50 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
 
             // Resolução do Veículo
             let veiculoNome = alert.vehicle?.registroInterno;
-            let foundVeh = null;
             if (vehId && vehicles.length > 0) {
-                 foundVeh = vehicles.find(v => String(v.id) === String(vehId));
-                 if (foundVeh) veiculoNome = foundVeh.registroInterno;
+                 const foundVeh = vehicles.find(v => String(v.id) === String(vehId));
+                 if (foundVeh && foundVeh.registroInterno) veiculoNome = foundVeh.registroInterno;
             }
 
-            // --- REGRA 1: FILTRO DE DESALOCAÇÃO (CORRIGIDO) ---
-            // Se o veículo for devolvido ao pátio/disponível ou não tiver obra, ocultamos o alerta.
-            if (foundVeh) {
-                const isAlocado = foundVeh.obraAtualId && foundVeh.obraAtualId !== '';
-                // Considera inativo/disponível como motivo para não mostrar inatividade de obra
-                const isStatusInativo = ['Disponível', 'Inativo', 'Em Manutenção', 'Patio'].includes(foundVeh.status);
-                
-                if (!isAlocado || isStatusInativo) {
-                    return; // Oculta visualmente
-                }
-            }
-
-            // --- VALIDAÇÃO EM TEMPO REAL ---
+            // --- VALIDAÇÃO DE DADOS (Sem ocultação forçada) ---
             let realRefuelDate = null;
-            let realDaysInactive = null;
+            let daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || 0);
+            let dateStr = 'Data desc.';
 
-            // Se tivermos a lista de abastecimentos, cruzamos os dados
+            // Cruzamos com o histórico de abastecimentos para mostrar a data e os dias mais precisos possíveis
             if (refuelings && refuelings.length > 0 && vehId) {
                  const vehRefuels = refuelings
                     .filter(r => String(r.vehicleId) === String(vehId) && r.status === 'Concluída')
                     .sort((a,b) => {
-                        const dA = new Date(a.date || a.created_at || a.data || 0);
-                        const dB = new Date(b.date || b.created_at || b.data || 0);
+                        const dA = new Date(a.data || a.date || a.created_at || 0);
+                        const dB = new Date(b.data || b.date || b.created_at || 0);
                         return dB - dA; // Mais recente primeiro
                     });
                 
                 if (vehRefuels.length > 0) {
                     const latest = vehRefuels[0];
-                    // Tenta múltiplos campos de data
                     const dRaw = latest.data || latest.date || latest.created_at;
                     const dObj = new Date(dRaw);
                     
                     if (!isNaN(dObj.getTime())) {
                          realRefuelDate = dObj;
-                         const diffTime = Math.abs(now - dObj);
-                         realDaysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
                     }
                 }
             }
 
-            // --- REGRA 2: FILTRO DE FALSO POSITIVO ABASTECIDO (CORRIGIDO) ---
-            // Removemos a checagem manual de `< 7` dias que estava escondendo os alertas.
-            // Ocultamos apenas se a data de abastecimento detectada agora for MAIOR
-            // que a data salva no próprio alerta. Isso significa que ele abasteceu *depois*.
             const baseDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
-            
-            if (realRefuelDate && baseDateRaw) {
-                const aDate = new Date(baseDateRaw);
-                aDate.setHours(0,0,0,0);
-                
-                const rDate = new Date(realRefuelDate);
-                rDate.setHours(0,0,0,0);
 
-                if (rDate > aDate) {
-                    return; // Pula, pois o abastecimento mais recente sobrepõe/invalida este alerta
-                }
-            }
-
-            // --- PREPARAÇÃO PARA EXIBIÇÃO ---
-            let dateStr = 'Data desc.';
-            let daysDisplay = 0;
-
+            // Define a string de exibição baseada na melhor data disponível
             if (realRefuelDate) {
-                // Prioridade 1: Dados frescos calculados agora
                 dateStr = realRefuelDate.toLocaleDateString('pt-BR');
-                daysDisplay = realDaysInactive;
-            } else {
-                // Prioridade 2: Dados do snapshot do alerta (Backend)
-                if (baseDateRaw) {
-                    const aDate = new Date(baseDateRaw);
-                    if (!isNaN(aDate.getTime())) {
-                        dateStr = aDate.toLocaleDateString('pt-BR');
-                        const diffTime = Math.abs(now - aDate);
-                        daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                    }
-                }
-                
-                // Prioridade 3: Se tudo falhar, usa o número estático salvo no banco
-                if (daysDisplay === 0 && (alert.daysSinceLastRefuel || alert.daysSinceLastRefueling)) {
-                    daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling);
+                const diffTime = Math.abs(now - realRefuelDate);
+                daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            } else if (baseDateRaw) {
+                const aDate = new Date(baseDateRaw);
+                if (!isNaN(aDate.getTime())) {
+                    dateStr = aDate.toLocaleDateString('pt-BR');
+                    const diffTime = Math.abs(now - aDate);
+                    daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
                 }
             }
 
@@ -148,8 +107,10 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                 }
             }
             if (!obraNome) obraNome = 'Obra Desconhecida';
-
             if (!veiculoNome) veiculoNome = 'Veículo';
+
+            // Segurança extra para evitar "NaN dias"
+            if (isNaN(daysDisplay)) daysDisplay = '?';
 
             list.push({
                 id: `inat-${alert.id}`,
