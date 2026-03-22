@@ -55,10 +55,16 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                  if (foundVeh) veiculoNome = foundVeh.registroInterno;
             }
 
-            // --- REGRA 1: FILTRO DE DESALOCAÇÃO (NOVO) ---
-            // Se o veículo não estiver mais "Em Obra" ou não tiver obra atual, oculta o alerta.
-            if (foundVeh && (foundVeh.status !== 'Em Obra' || !foundVeh.obraAtualId)) {
-                return; // Oculta visualmente
+            // --- REGRA 1: FILTRO DE DESALOCAÇÃO (CORRIGIDO) ---
+            // Se o veículo for devolvido ao pátio/disponível ou não tiver obra, ocultamos o alerta.
+            if (foundVeh) {
+                const isAlocado = foundVeh.obraAtualId && foundVeh.obraAtualId !== '';
+                // Considera inativo/disponível como motivo para não mostrar inatividade de obra
+                const isStatusInativo = ['Disponível', 'Inativo', 'Em Manutenção', 'Patio'].includes(foundVeh.status);
+                
+                if (!isAlocado || isStatusInativo) {
+                    return; // Oculta visualmente
+                }
             }
 
             // --- VALIDAÇÃO EM TEMPO REAL ---
@@ -78,7 +84,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                 if (vehRefuels.length > 0) {
                     const latest = vehRefuels[0];
                     // Tenta múltiplos campos de data
-                    const dRaw = latest.date || latest.created_at || latest.data;
+                    const dRaw = latest.data || latest.date || latest.created_at;
                     const dObj = new Date(dRaw);
                     
                     if (!isNaN(dObj.getTime())) {
@@ -89,17 +95,21 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
                 }
             }
 
-            // --- REGRA 2: FILTRO DE FALSO POSITIVO (ABASTECEU) ---
-            // Se calculamos dias reais e é menor que 7, o veículo já abasteceu.
-            if (realDaysInactive !== null && realDaysInactive < 7) {
-                return; // Pula este alerta (Auto-Resolvido visualmente)
-            }
-
-            // Se a data do último abastecimento no histórico for MAIOR (mais recente) que a data que originou o alerta
+            // --- REGRA 2: FILTRO DE FALSO POSITIVO ABASTECIDO (CORRIGIDO) ---
+            // Removemos a checagem manual de `< 7` dias que estava escondendo os alertas.
+            // Ocultamos apenas se a data de abastecimento detectada agora for MAIOR
+            // que a data salva no próprio alerta. Isso significa que ele abasteceu *depois*.
             const baseDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
+            
             if (realRefuelDate && baseDateRaw) {
-                if (realRefuelDate > new Date(baseDateRaw)) {
-                    return; // Pula, pois o abastecimento mais recente sobrepõe o alerta
+                const aDate = new Date(baseDateRaw);
+                aDate.setHours(0,0,0,0);
+                
+                const rDate = new Date(realRefuelDate);
+                rDate.setHours(0,0,0,0);
+
+                if (rDate > aDate) {
+                    return; // Pula, pois o abastecimento mais recente sobrepõe/invalida este alerta
                 }
             }
 
