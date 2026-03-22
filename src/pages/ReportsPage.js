@@ -28,7 +28,8 @@ const ReportsPage = ({
     refuelings = [],
     // Novos dados necessários (passar via props ou buscar na API aqui dentro se preferir)
     supplyOrders = [], 
-    gasStations = [] 
+    gasStations = [], 
+    revisions = []
 }) => {
     const [reportType, setReportType] = useState(null);
     const [inactivityAlerts, setInactivityAlerts] = useState([]);
