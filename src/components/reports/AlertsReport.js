@@ -3,8 +3,9 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AlertTriangle, Download } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
+import { checkVehicleRestrictions } from '../../utils/vehicleRules'; 
 
-const AlertsReport = ({ vehicles, employees, inactivityAlerts = [], obras = [], refuelings = [] }) => {
+const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], refuelings = [], revisions = [] }) => {
     const [filterType, setFilterType] = useState('Todos');
 
     const alerts = useMemo(() => {
@@ -14,39 +15,48 @@ const AlertsReport = ({ vehicles, employees, inactivityAlerts = [], obras = [], 
         const thirtyDays = new Date(now);
         thirtyDays.setDate(now.getDate() + 30);
 
-        // 1. Alertas de Veículos
+        // 1. Alertas de Veículos (Manutenção e Documentação - Sincronizado com Dashboard)
         vehicles.forEach(v => {
-            if (v.possuiAviso) {
-                const text = (v.avisoTexto || '').toLowerCase();
+            const vehicleRevisions = revisions.filter(r => r.vehicleId === v.id);
+            const restrictions = checkVehicleRestrictions(v, vehicleRevisions);
+
+            restrictions.forEach(issue => {
                 let type = 'Manutenção';
-                if (text.includes('documento') || text.includes('aet') || text.includes('tacógrafo')) type = 'Documentação';
-                else if (text.includes('bloqueio')) type = 'Bloqueio';
+                if (issue.category === 'documento') type = 'Documentação';
+                else if (issue.category === 'bloqueio') type = 'Bloqueio';
 
                 const obraNome = obras.find(o => o.id === v.obraAtualId)?.nome || 'Local N/A';
 
                 list.push({
-                    entity: `${v.registroInterno} - ${v.modelo}`,
+                    entity: `${v.registroInterno} - ${v.placa}`,
                     type,
                     location: obraNome,
                     days: '-', 
-                    message: v.avisoTexto,
+                    message: issue.message,
                     date: new Date().toLocaleDateString('pt-BR'),
-                    isCritical: text.includes('vencid') || text.includes('bloqueio')
+                    isCritical: issue.type === 'error'
                 });
-            }
+            });
         });
 
         // 2. Alertas de Funcionários (CNH)
-        employees.forEach(e => {
-            if (e.cnhVencimento) {
+        employees.forEach(emp => {
+            // Filtro para apresentar APENAS funcionários Ativos
+            if (emp.status && emp.status.toUpperCase() !== 'ATIVO') return;
+
+            const cnhDateRaw = emp.cnhVencimento || emp.validadeCNH;
+
+            if (cnhDateRaw) {
                 let venc;
-                if (e.cnhVencimento.includes('T')) {
-                    venc = new Date(e.cnhVencimento);
-                } else if (e.cnhVencimento.includes('-')) {
-                    const parts = e.cnhVencimento.split('-');
-                    venc = new Date(parts[0], parts[1]-1, parts[2]);
+                if (typeof cnhDateRaw === 'string' && cnhDateRaw.includes('-')) {
+                     const parts = cnhDateRaw.split('T')[0].split('-');
+                     if (parts.length === 3) {
+                         venc = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+                     } else {
+                         venc = new Date(cnhDateRaw);
+                     }
                 } else {
-                    venc = new Date(e.cnhVencimento);
+                    venc = new Date(cnhDateRaw);
                 }
 
                 if (!isNaN(venc.getTime())) {
@@ -57,7 +67,7 @@ const AlertsReport = ({ vehicles, employees, inactivityAlerts = [], obras = [], 
 
                     if (venc < now) {
                         list.push({ 
-                            entity: e.nome, 
+                            entity: emp.nome, 
                             type: 'CNH', 
                             location: 'RH / Pessoal',
                             days: daysLabel,
@@ -67,7 +77,7 @@ const AlertsReport = ({ vehicles, employees, inactivityAlerts = [], obras = [], 
                         });
                     } else if (venc <= thirtyDays) {
                         list.push({ 
-                            entity: e.nome, 
+                            entity: emp.nome, 
                             type: 'CNH', 
                             location: 'RH / Pessoal',
                             days: daysLabel,
@@ -80,77 +90,82 @@ const AlertsReport = ({ vehicles, employees, inactivityAlerts = [], obras = [], 
             }
         });
 
-        // 3. Alertas de Inatividade
-        inactivityAlerts.forEach(alert => {
-            if (['Resolvido', 'Observado'].includes(alert.status)) return;
+        // 3. Alertas de Inatividade (Sincronizado e 100% Dinâmico)
+        const DIAS_LIMITE = 7; 
 
-            const vehId = alert.vehicle?.id || alert.vehicleId || alert.vehicle_id;
-            let vehicleName = alert.vehicle?.registroInterno || 'Veículo';
-            
-            if (!alert.vehicle?.registroInterno && vehId) {
-                const v = vehicles.find(v => String(v.id) === String(vehId));
-                if (v) vehicleName = v.registroInterno;
-            }
+        vehicles.forEach(v => {
+            if (v.status !== 'Em Obra') return;
+            if (!v.obraAtualId) return;
 
-            let obraName = alert.obra?.nome || alert.obra_nome;
-            if (!obraName && alert.obraId) {
-                const o = obras.find(ob => String(ob.id) === String(alert.obraId));
-                if (o) obraName = o.nome;
-            }
-            if (!obraName) obraName = 'Obra Desconhecida';
+            const vehRefuels = refuelings
+                .filter(r => String(r.vehicleId) === String(v.id) && String(r.obraId) === String(v.obraAtualId) && r.status === 'Concluída')
+                .sort((a,b) => {
+                    const dA = new Date(a.data || a.date || a.created_at || 0);
+                    const dB = new Date(b.data || b.date || b.created_at || 0);
+                    return dB - dA; 
+                });
 
-            let realRefuelDate = null;
-            if (refuelings && refuelings.length > 0 && vehId) {
-                const vehRefuels = refuelings
-                    .filter(r => String(r.vehicleId) === String(vehId) && r.status === 'Concluída')
-                    .sort((a,b) => {
-                        const dA = new Date(a.date || a.created_at || 0);
-                        const dB = new Date(b.date || b.created_at || 0);
-                        return dB - dA; 
-                    });
+            let lastRefuelDate = null;
+            let daysInactive = null;
+            let isBasedOnAllocation = false;
+
+            if (vehRefuels.length > 0) {
+                const latest = vehRefuels[0];
+                const dRaw = latest.data || latest.date || latest.created_at;
+                const dObj = new Date(dRaw);
                 
-                if (vehRefuels.length > 0) {
-                    const latest = vehRefuels[0];
-                    const dRaw = latest.date || latest.created_at;
-                    const dObj = new Date(dRaw);
-                    if (!isNaN(dObj.getTime())) realRefuelDate = dObj;
+                if (!isNaN(dObj.getTime())) {
+                    lastRefuelDate = dObj;
+                    const diffTime = Math.abs(now - dObj);
+                    daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
                 }
-            }
-
-            if (!realRefuelDate) {
-                const alertDateRaw = alert.lastRefuelingDate || alert.lastRefuelDate;
-                if (alertDateRaw) {
-                    const d = new Date(alertDateRaw);
-                    if (!isNaN(d.getTime())) realRefuelDate = d;
-                }
-            }
-
-            let dateStr = 'Data desc.';
-            let daysDisplay = 0;
-
-            if (realRefuelDate) {
-                dateStr = realRefuelDate.toLocaleDateString('pt-BR');
-                const diffTime = Math.abs(now - realRefuelDate);
-                daysDisplay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             } else {
-                daysDisplay = parseInt(alert.daysSinceLastRefuel || alert.daysSinceLastRefueling || 0);
+                const obra = obras.find(o => String(o.id) === String(v.obraAtualId));
+                if (obra && obra.historicoVeiculos) {
+                    const alocacao = obra.historicoVeiculos.find(h => String(h.veiculoId) === String(v.id) && !h.dataSaida);
+                    if (alocacao && alocacao.dataEntrada) {
+                        const dObj = new Date(alocacao.dataEntrada);
+                        if (!isNaN(dObj.getTime())) {
+                            lastRefuelDate = dObj;
+                            const diffTime = Math.abs(now - dObj);
+                            daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                            isBasedOnAllocation = true;
+                        }
+                    }
+                }
             }
 
-            if (daysDisplay < 7) return; 
+            if (daysInactive === null || lastRefuelDate === null) return;
 
-            list.push({
-                entity: vehicleName,
-                type: 'Inatividade',
-                location: obraName, 
-                days: `${daysDisplay} dias`, 
-                message: `Sem abastecer desde ${dateStr}.`,
-                date: dateStr, 
-                isCritical: true
-            });
+            if (daysInactive >= DIAS_LIMITE) {
+                const backendAlert = inactivityAlerts.find(a => 
+                    String(a.vehicleId || a.vehicle_id || a.vehicle?.id) === String(v.id) && 
+                    String(a.obraId || a.obra_id || a.obra?.id) === String(v.obraAtualId) &&
+                    ['Ativo', 'Pendente', 'Observado'].includes(a.status)
+                );
+
+                if (backendAlert && backendAlert.status === 'Observado') return;
+
+                let obraNome = 'Obra Desconhecida';
+                const foundObra = obras.find(o => String(o.id) === String(v.obraAtualId));
+                if (foundObra) obraNome = foundObra.nome;
+
+                const msgContext = isBasedOnAllocation ? 'desde a chegada na obra' : 'sem abastecer na obra';
+
+                list.push({
+                    entity: `${v.registroInterno} - ${v.placa}`,
+                    type: 'Inatividade',
+                    location: obraNome,
+                    days: `${daysInactive} dias`,
+                    message: `Parado há ${daysInactive} dias ${msgContext}.`,
+                    date: lastRefuelDate.toLocaleDateString('pt-BR'),
+                    isCritical: true
+                });
+            }
         });
 
         return list.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
-    }, [vehicles, employees, inactivityAlerts, obras, refuelings]);
+    }, [vehicles, employees, inactivityAlerts, obras, refuelings, revisions]);
 
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
 
