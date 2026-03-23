@@ -46,9 +46,19 @@ const Dashboard = ({
     const stats = useMemo(() => {
         const activeVehicles = vehicles.filter(v => v.status !== 'Inativo');
         
-        // Filtra as multas pendentes para extrair a contagem e a soma dos valores
-        const pendingFines = fines.filter(f => f.paymentStatus === 'Pendente');
-        const totalFinesValue = pendingFines.reduce((sum, f) => sum + parseFloat(f.valor || f.amount || f.valor_multa || 0), 0);
+        // Filtra as multas pendentes de forma mais robusta (ignorando maiúsculas/minúsculas e checando outras colunas)
+        const pendingFines = fines.filter(f => {
+            const status = String(f.paymentStatus || f.status || f.statusPagamento || '').toLowerCase().trim();
+            return status === 'pendente' || status === 'não pago' || status === 'nao pago';
+        });
+        
+        // Soma os valores das multas de forma segura
+        const totalFinesValue = pendingFines.reduce((sum, f) => {
+            const rawValue = f.valor || f.amount || f.valor_multa || f.valorMulta || 0;
+            // Substitui vírgula por ponto caso venha formatado como string pt-BR
+            const numValue = parseFloat(String(rawValue).replace(',', '.')); 
+            return sum + (isNaN(numValue) ? 0 : numValue);
+        }, 0);
 
         return {
             total: activeVehicles.length,
@@ -59,7 +69,7 @@ const Dashboard = ({
             // Conta os dois status referentes a manutenção
             manutencao: activeVehicles.filter(v => ['Em Manutenção', 'Aguardando Manutenção'].includes(v.status)).length,
             multas: pendingFines.length,
-            valorMultas: totalFinesValue // Retorna a soma total financeira
+            valorMultas: totalFinesValue // Retorna a soma total financeira segura
         };
     }, [vehicles, obras, fines]);
 
