@@ -1,17 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-    Edit,
-    Clock,
-    CheckCircle,
-    X,
-    Loader,
-    AlertTriangle,
-    Info,
-    History,
-    FileText,
-    Wrench,
-    Calendar,
-    BellRing
+    Edit, Clock, CheckCircle, X, Loader, AlertTriangle, Info, History, FileText, Wrench, Calendar, PlusCircle, Droplet
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -22,15 +11,34 @@ const isValidDbDate = (dateString) => {
     return dateString && dateString.length > 8 && !dateString.startsWith('0000');
 };
 
+// Componente Auxiliar para buscar nomes
+const getVehicleName = (id, vehicles) => {
+    const v = vehicles.find(v => String(v.id) === String(id));
+    return v ? `${v.registroInterno} - ${v.placa}` : 'Não Identificado';
+}
+
 const RevisionsPage = ({
-    user, vehicles = [], revisions = [],
+    user, vehicles = [], revisions = [], partners = [],
     setAlertMessage, vehicleGroups = {}, apiClient, reloadData,
     PasswordConfirmationModal
 }) => {
+    const [activeTab, setActiveTab] = useState('revisoes');
+    
+    // Estados do painel de Revisões (mantidos)
     const [editingRevision, setEditingRevision] = useState(null);
     const [completingRevision, setCompletingRevision] = useState(null);
     const [historyModalVehicle, setHistoryModalVehicle] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Estados locais MOCK para Manutenções e Lavagens (Até integração com backend)
+    const [manutencoesProgramadas, setManutencoesProgramadas] = useState([]);
+    const [manutencoesExecutadas, setManutencoesExecutadas] = useState([]);
+    const [lavagens, setLavagens] = useState([]);
+
+    // Estados Modais Novos
+    const [modalNovaProgramada, setModalNovaProgramada] = useState(false);
+    const [modalNovaExecutada, setModalNovaExecutada] = useState(false);
+    const [modalNovaLavagem, setModalNovaLavagem] = useState(false);
 
     // Combina veículos com seus planos de revisão
     const combinedData = useMemo(() => {
@@ -91,168 +99,320 @@ const RevisionsPage = ({
 
     return (
         <div className="container mx-auto p-2 md:p-4 animate-fadeIn">
-            <h1 className="text-2xl font-bold mb-4 text-gray-800">Revisões e Manutenção</h1>
+            <h1 className="text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+                <Wrench className="text-blue-600" /> Revisões & Manutenções
+            </h1>
             
-            <div className="mb-4 p-3 bg-white rounded-lg shadow-sm border border-gray-200">
-                <input
-                    type="text"
-                    placeholder="Buscar por registro, placa..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-md bg-gray-50 focus:ring-1 focus:ring-blue-500 text-sm outline-none"
-                />
+            {/* NAVEGAÇÃO EM ABAS */}
+            <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-lg pt-2 px-2 overflow-x-auto shadow-sm">
+                <button 
+                    onClick={() => setActiveTab('revisoes')} 
+                    className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'revisoes' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                >
+                    <Calendar size={16} /> Revisões Preventivas
+                </button>
+                <button 
+                    onClick={() => setActiveTab('manutencoes')} 
+                    className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'manutencoes' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                >
+                    <Wrench size={16} /> Manutenções (Prog/Exec)
+                </button>
+                <button 
+                    onClick={() => setActiveTab('lavagens')} 
+                    className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'lavagens' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                >
+                    <Droplet size={16} /> Lavagens
+                </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
-                <div className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-[11px] text-gray-500 border-b bg-gray-50 uppercase tracking-wider">
-                    <div className="col-span-3">Veículo</div>
-                    <div className="col-span-2 text-right">Leitura Atual</div>
-                    <div className="col-span-2 text-center">Próx. Data</div>
-                    <div className="col-span-2 text-right">Próx. Leitura</div>
-                    <div className="col-span-2">Status / Agendamento</div>
-                    <div className="col-span-1 text-center">Ações</div>
-                </div>
+            {/* ABA 1: REVISÕES PREVENTIVAS */}
+            {activeTab === 'revisoes' && (
+                <div className="animate-fadeIn">
+                    <div className="mb-4 p-3 bg-white rounded-lg shadow-sm border border-gray-200">
+                        <input
+                            type="text"
+                            placeholder="Buscar por registro, placa..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md bg-gray-50 focus:ring-1 focus:ring-blue-500 text-sm outline-none"
+                        />
+                    </div>
 
-                {combinedData.map(item => {
-                    if (!item || !item.revision) return null;
-                    
-                    const { revision, ...vehicle } = item;
-                    
-                    // Validação Padrão (Manutenção Vencida e Docs)
-                    const issues = checkVehicleRestrictions(vehicle, [revision]);
-                    
-                    // -------------------------------------------------------------------------
-                    // LÓGICA DE ANTECEDÊNCIA (IMPLANTADA NA PÁGINA)
-                    // -------------------------------------------------------------------------
-                    // Se o veículo NÃO estiver vencido (Red), verificamos se está na zona de aviso (Yellow)
-                    // usando os campos personalizados: avisoAntecedenciaKmHr e avisoAntecedenciaDias
-                    
-                    const readingInfo = getVehicleMainReading(vehicle);
-                    const currentReading = parseFloat(readingInfo.raw || 0);
-                    
-                    const nextReading = readingInfo.unit === 'Km' ? revision.proximaRevisaoOdometro : revision.proximaRevisaoHorimetro;
-                    const nextDate = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-                    const today = new Date();
-                    
-                    // Defaults caso não esteja configurado
-                    const warnLimitReading = revision.avisoAntecedenciaKmHr || (readingInfo.unit === 'Km' ? 1000 : 50);
-                    const warnLimitDays = revision.avisoAntecedenciaDias || 30;
+                    <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
+                        <div className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-[11px] text-gray-500 border-b bg-gray-50 uppercase tracking-wider">
+                            <div className="col-span-3">Veículo</div>
+                            <div className="col-span-2 text-right">Leitura Atual</div>
+                            <div className="col-span-2 text-center">Próx. Data</div>
+                            <div className="col-span-2 text-right">Próx. Leitura</div>
+                            <div className="col-span-2">Status / Agendamento</div>
+                            <div className="col-span-1 text-center">Ações</div>
+                        </div>
 
-                    let isAntecedenceWarning = false;
-                    const warningDetails = [];
+                        {combinedData.map(item => {
+                            if (!item || !item.revision) return null;
+                            const { revision, ...vehicle } = item;
+                            const issues = checkVehicleRestrictions(vehicle, [revision]);
+                            
+                            const readingInfo = getVehicleMainReading(vehicle);
+                            const currentReading = parseFloat(readingInfo.raw || 0);
+                            
+                            const nextReading = readingInfo.unit === 'Km' ? revision.proximaRevisaoOdometro : revision.proximaRevisaoHorimetro;
+                            const nextDate = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
+                            const today = new Date();
+                            
+                            const warnLimitReading = revision.avisoAntecedenciaKmHr || (readingInfo.unit === 'Km' ? 1000 : 50);
+                            const warnLimitDays = revision.avisoAntecedenciaDias || 30;
 
-                    // Checa Leitura
-                    if (nextReading && currentReading < nextReading) {
-                        const remaining = nextReading - currentReading;
-                        if (remaining <= warnLimitReading) {
-                            isAntecedenceWarning = true;
-                            warningDetails.push(`Faltam ${remaining.toFixed(0)} ${readingInfo.unit}`);
-                        }
-                    }
+                            let isAntecedenceWarning = false;
+                            const warningDetails = [];
 
-                    // Checa Dias
-                    if (nextDate && nextDate > today) {
-                        const diffTime = Math.abs(nextDate - today);
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-                        if (diffDays <= warnLimitDays) {
-                            isAntecedenceWarning = true;
-                            warningDetails.push(`Faltam ${diffDays} dias`);
-                        }
-                    }
+                            if (nextReading && currentReading < nextReading) {
+                                const remaining = nextReading - currentReading;
+                                if (remaining <= warnLimitReading) {
+                                    isAntecedenceWarning = true;
+                                    warningDetails.push(`Faltam ${remaining.toFixed(0)} ${readingInfo.unit}`);
+                                }
+                            }
 
-                    // -------------------------------------------------------------------------
+                            if (nextDate && nextDate > today) {
+                                const diffTime = Math.abs(nextDate - today);
+                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                                if (diffDays <= warnLimitDays) {
+                                    isAntecedenceWarning = true;
+                                    warningDetails.push(`Faltam ${diffDays} dias`);
+                                }
+                            }
 
-                    const maintenanceIssues = issues.filter(i => i.category === 'manutencao');
-                    const docIssues = issues.filter(i => i.category === 'documentacao' || i.category === 'legal');
-                    
-                    const isMaintOverdue = maintenanceIssues.some(i => i.type === 'error');
-                    // O Warning agora considera tanto a regra padrão quanto a nossa nova lógica de antecedência
-                    const isMaintWarning = maintenanceIssues.some(i => i.type === 'warning') || isAntecedenceWarning;
-                    
-                    const isDocOverdue = docIssues.some(i => i.type === 'error');
-                    const isDocWarning = docIssues.some(i => i.type === 'warning');
+                            const maintenanceIssues = issues.filter(i => i.category === 'manutencao');
+                            const docIssues = issues.filter(i => i.category === 'documentacao' || i.category === 'legal');
+                            
+                            const isMaintOverdue = maintenanceIssues.some(i => i.type === 'error');
+                            const isMaintWarning = maintenanceIssues.some(i => i.type === 'warning') || isAntecedenceWarning;
+                            
+                            const isDocOverdue = docIssues.some(i => i.type === 'error');
+                            const isDocWarning = docIssues.some(i => i.type === 'warning');
 
-                    let rowBgClass = 'bg-white hover:bg-gray-50'; 
-                    let borderClass = 'border-l-4 border-transparent';
+                            let rowBgClass = 'bg-white hover:bg-gray-50'; 
+                            let borderClass = 'border-l-4 border-transparent';
 
-                    if (isMaintOverdue || isDocOverdue) {
-                        rowBgClass = 'bg-red-50 hover:bg-red-100'; 
-                        borderClass = 'border-l-4 border-red-500';
-                    } else if (isMaintWarning || isDocWarning) {
-                        rowBgClass = 'bg-yellow-50 hover:bg-yellow-100'; 
-                        borderClass = 'border-l-4 border-yellow-400';
-                    }
+                            if (isMaintOverdue || isDocOverdue) {
+                                rowBgClass = 'bg-red-50 hover:bg-red-100'; 
+                                borderClass = 'border-l-4 border-red-500';
+                            } else if (isMaintWarning || isDocWarning) {
+                                rowBgClass = 'bg-yellow-50 hover:bg-yellow-100'; 
+                                borderClass = 'border-l-4 border-yellow-400';
+                            }
 
-                    const currentReadingStr = `${currentReading.toFixed(1)} ${readingInfo.unit}`;
-                    const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
-                    const nextReadingStr = formatNextRevisionReading(revision, vehicle);
-                    const description = revision.descricao || <span className="text-gray-400 italic font-light">Sem agendamento</span>; 
-                    
-                    const hasHistory = revision.historico && revision.historico.length > 0;
-                    const historyIconClass = hasHistory ? 'text-blue-600 hover:text-blue-800' : 'text-gray-300 hover:text-gray-500';
+                            const currentReadingStr = `${currentReading.toFixed(1)} ${readingInfo.unit}`;
+                            const nextDateStr = formatNextRevisionDate(revision.proximaRevisaoData);
+                            const nextReadingStr = formatNextRevisionReading(revision, vehicle);
+                            const description = revision.descricao || <span className="text-gray-400 italic font-light">Sem agendamento</span>; 
+                            
+                            const hasHistory = revision.historico && revision.historico.length > 0;
+                            const historyIconClass = hasHistory ? 'text-blue-600 hover:text-blue-800' : 'text-gray-300 hover:text-gray-500';
 
-                    return (
-                        <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-y-1 gap-x-2 items-center px-3 py-2 border-b last:border-b-0 text-xs relative transition-colors ${rowBgClass} ${borderClass}`}>
-                            <div className="md:col-span-3">
-                                <div className="flex items-center gap-2">
-                                    <div className="flex gap-1 min-w-[36px]">
-                                        {/* Ícone de Manutenção (Overdue ou Warning) */}
-                                        {(isMaintOverdue || isMaintWarning) && (
-                                            <div className="group relative">
-                                                <Wrench size={14} className={isMaintOverdue ? "text-red-600 animate-pulse" : "text-yellow-600"} />
-                                                <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-2 rounded z-10 w-48 shadow-lg">
-                                                    {isMaintOverdue ? "VENCIDA: " : "ALERTA: "}
-                                                    {maintenanceIssues.map(i => i.message).join(', ')}
-                                                    {isAntecedenceWarning && warningDetails.length > 0 && (
-                                                        <div className="mt-1 pt-1 border-t border-gray-600 text-yellow-300">
-                                                            Atenção: {warningDetails.join(' e ')}
-                                                        </div>
-                                                    )}
-                                                </span>
+                            return (
+                                <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-y-1 gap-x-2 items-center px-3 py-2 border-b last:border-b-0 text-xs relative transition-colors ${rowBgClass} ${borderClass}`}>
+                                    <div className="md:col-span-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex gap-1 min-w-[36px]">
+                                                {(isMaintOverdue || isMaintWarning) && (
+                                                    <div className="group relative">
+                                                        <Wrench size={14} className={isMaintOverdue ? "text-red-600 animate-pulse" : "text-yellow-600"} />
+                                                        <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-2 rounded z-10 w-48 shadow-lg">
+                                                            {isMaintOverdue ? "VENCIDA: " : "ALERTA: "}
+                                                            {maintenanceIssues.map(i => i.message).join(', ')}
+                                                            {isAntecedenceWarning && warningDetails.length > 0 && (
+                                                                <div className="mt-1 pt-1 border-t border-gray-600 text-yellow-300">
+                                                                    Atenção: {warningDetails.join(' e ')}
+                                                                </div>
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {(isDocOverdue || isDocWarning) && (
+                                                    <div className="group relative">
+                                                        <FileText size={14} className={isDocOverdue ? "text-red-600" : "text-yellow-600"} />
+                                                        <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-1 rounded z-10 w-40 shadow-lg">
+                                                            {docIssues.map(i => i.message).join(', ')}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                        {/* Ícone de Documentos */}
-                                        {(isDocOverdue || isDocWarning) && (
-                                            <div className="group relative">
-                                                <FileText size={14} className={isDocOverdue ? "text-red-600" : "text-yellow-600"} />
-                                                <span className="absolute left-4 top-0 hidden group-hover:block bg-gray-800 text-white text-[10px] p-1 rounded z-10 w-40 shadow-lg">
-                                                    {docIssues.map(i => i.message).join(', ')}
-                                                </span>
+                                            <div>
+                                                <p className="font-bold text-gray-800 leading-tight">{vehicle.registroInterno}</p>
+                                                <p className="text-[10px] text-gray-500 leading-tight">{vehicle.modelo} ({vehicle.placa})</p>
                                             </div>
-                                        )}
+                                        </div>
                                     </div>
-
-                                    <div>
-                                        <p className="font-bold text-gray-800 leading-tight">{vehicle.registroInterno}</p>
-                                        <p className="text-[10px] text-gray-500 leading-tight">{vehicle.modelo} ({vehicle.placa})</p>
+                                    <div className="md:col-span-2 text-left md:text-right font-mono font-medium text-blue-700">{currentReadingStr}</div>
+                                    <div className="md:col-span-2 text-left md:text-center text-gray-700">{nextDateStr}</div>
+                                    <div className="md:col-span-2 text-left md:text-right text-gray-700">{nextReadingStr}</div>
+                                    <div className="md:col-span-2 text-gray-600 truncate text-[11px]" title={typeof description === 'string' ? description : ''}>{description}</div>
+                                    <div className="md:col-span-1 flex items-center justify-end md:justify-center gap-1 mt-1 md:mt-0">
+                                        <ProtectedComponent requiredPermission="editor">
+                                            <button onClick={() => setEditingRevision(item)} className="p-1 text-gray-500 hover:text-yellow-600 hover:bg-white rounded border border-transparent hover:border-gray-200" title="Agendar">
+                                                <Edit size={14} />
+                                            </button>
+                                            <button onClick={() => setCompletingRevision(item)} className="p-1 text-gray-500 hover:text-green-600 hover:bg-white rounded border border-transparent hover:border-gray-200" title="Concluir">
+                                                <CheckCircle size={14} />
+                                            </button>
+                                        </ProtectedComponent>
+                                        <button onClick={() => setHistoryModalVehicle(item)} className={`p-1 rounded border border-transparent hover:border-gray-200 ${historyIconClass}`} title="Histórico">
+                                            <History size={14} />
+                                        </button>
                                     </div>
                                 </div>
-                            </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
-                            <div className="md:col-span-2 text-left md:text-right font-mono font-medium text-blue-700">{currentReadingStr}</div>
-                            <div className="md:col-span-2 text-left md:text-center text-gray-700">{nextDateStr}</div>
-                            <div className="md:col-span-2 text-left md:text-right text-gray-700">{nextReadingStr}</div>
-                            <div className="md:col-span-2 text-gray-600 truncate text-[11px]" title={typeof description === 'string' ? description : ''}>{description}</div>
-                            
-                            <div className="md:col-span-1 flex items-center justify-end md:justify-center gap-1 mt-1 md:mt-0">
-                                <ProtectedComponent requiredPermission="editor">
-                                    <button onClick={() => setEditingRevision(item)} className="p-1 text-gray-500 hover:text-yellow-600 hover:bg-white rounded border border-transparent hover:border-gray-200" title="Agendar">
-                                        <Edit size={14} />
-                                    </button>
-                                     <button onClick={() => setCompletingRevision(item)} className="p-1 text-gray-500 hover:text-green-600 hover:bg-white rounded border border-transparent hover:border-gray-200" title="Concluir">
-                                        <CheckCircle size={14} />
-                                    </button>
-                                </ProtectedComponent>
-                                <button onClick={() => setHistoryModalVehicle(item)} className={`p-1 rounded border border-transparent hover:border-gray-200 ${historyIconClass}`} title="Histórico">
-                                    <History size={14} />
-                                </button>
+            {/* ABA 2: MANUTENÇÕES (PROGRAMADAS E EXECUTADAS) */}
+            {activeTab === 'manutencoes' && (
+                <div className="animate-fadeIn space-y-6">
+                    {/* Seção Programadas */}
+                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">Manutenções Programadas</h3>
+                                <p className="text-xs text-gray-500">Defeitos, avarias ou quebras relatadas pela equipe.</p>
                             </div>
+                            <ProtectedComponent requiredPermission="editor">
+                                <button onClick={() => setModalNovaProgramada(true)} className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-700 shadow-sm">
+                                    <PlusCircle size={14} /> Novo Relato
+                                </button>
+                            </ProtectedComponent>
                         </div>
-                    );
-                })}
-            </div>
+                        <div className="overflow-x-auto border rounded-lg">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-gray-600 font-bold text-xs uppercase">
+                                    <tr>
+                                        <th className="p-3">Veículo</th>
+                                        <th className="p-3">Data Relato</th>
+                                        <th className="p-3">Descrição / Defeito</th>
+                                        <th className="p-3">Relator</th>
+                                        <th className="p-3 text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {manutencoesProgramadas.map(item => (
+                                        <tr key={item.id} className="hover:bg-gray-50">
+                                            <td className="p-3 font-bold text-gray-800">{getVehicleName(item.vehicleId, vehicles)}</td>
+                                            <td className="p-3">{new Date(item.dataRelato).toLocaleDateString('pt-BR')}</td>
+                                            <td className="p-3 text-gray-700">{item.descricao}</td>
+                                            <td className="p-3 text-gray-500">{item.relator}</td>
+                                            <td className="p-3 text-center">
+                                                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-[10px] font-bold uppercase">{item.status}</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {manutencoesProgramadas.length === 0 && (
+                                        <tr><td colSpan="5" className="p-6 text-center text-gray-400 italic">Nenhum relato programado.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Seção Executadas */}
+                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">Manutenções Executadas</h3>
+                                <p className="text-xs text-gray-500">Histórico de intervenções já realizadas com custo e peças.</p>
+                            </div>
+                            <ProtectedComponent requiredPermission="editor">
+                                <button onClick={() => setModalNovaExecutada(true)} className="bg-green-600 text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-green-700 shadow-sm">
+                                    <PlusCircle size={14} /> Novo Registro
+                                </button>
+                            </ProtectedComponent>
+                        </div>
+                        <div className="overflow-x-auto border rounded-lg">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-gray-600 font-bold text-xs uppercase">
+                                    <tr>
+                                        <th className="p-3">Veículo</th>
+                                        <th className="p-3">Data</th>
+                                        <th className="p-3">Valor</th>
+                                        <th className="p-3">Oficina</th>
+                                        <th className="p-3">O que foi feito / Peças</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {manutencoesExecutadas.map(item => (
+                                        <tr key={item.id} className="hover:bg-gray-50">
+                                            <td className="p-3 font-bold text-gray-800">{getVehicleName(item.vehicleId, vehicles)}</td>
+                                            <td className="p-3">{new Date(item.dataManutencao).toLocaleDateString('pt-BR')}</td>
+                                            <td className="p-3 text-red-600 font-bold">R$ {parseFloat(item.valor || 0).toFixed(2)}</td>
+                                            <td className="p-3 text-gray-700">{item.oficina}</td>
+                                            <td className="p-3">
+                                                <p className="font-medium text-gray-800">{item.descricao}</p>
+                                                {item.pecasTrocadas && <p className="text-xs text-gray-500 mt-1">Peças: {item.pecasTrocadas}</p>}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {manutencoesExecutadas.length === 0 && (
+                                        <tr><td colSpan="5" className="p-6 text-center text-gray-400 italic">Nenhum registro de manutenção executada.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ABA 3: LAVAGENS */}
+            {activeTab === 'lavagens' && (
+                <div className="animate-fadeIn">
+                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">Histórico de Lavagens</h3>
+                                <p className="text-xs text-gray-500">Controle de higienização e limpeza da frota.</p>
+                            </div>
+                            <ProtectedComponent requiredPermission="editor">
+                                <button onClick={() => setModalNovaLavagem(true)} className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-700 shadow-sm">
+                                    <PlusCircle size={14} /> Nova Lavagem
+                                </button>
+                            </ProtectedComponent>
+                        </div>
+                        <div className="overflow-x-auto border rounded-lg">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 text-gray-600 font-bold text-xs uppercase">
+                                    <tr>
+                                        <th className="p-3">Veículo</th>
+                                        <th className="p-3">Data</th>
+                                        <th className="p-3">Valor</th>
+                                        <th className="p-3">Local (Parceiro)</th>
+                                        <th className="p-3">Descrição / Serviço</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {lavagens.map(item => {
+                                        const pName = partners.find(p => String(p.id) === String(item.parceiro))?.razaoSocial || item.parceiro;
+                                        return (
+                                            <tr key={item.id} className="hover:bg-gray-50">
+                                                <td className="p-3 font-bold text-gray-800">{getVehicleName(item.vehicleId, vehicles)}</td>
+                                                <td className="p-3">{new Date(item.dataLavagem).toLocaleDateString('pt-BR')}</td>
+                                                <td className="p-3 text-red-600 font-bold">R$ {parseFloat(item.valor || 0).toFixed(2)}</td>
+                                                <td className="p-3 text-gray-700">{pName}</td>
+                                                <td className="p-3 text-gray-800 font-medium">{item.descricao}</td>
+                                            </tr>
+                                        )
+                                    })}
+                                    {lavagens.length === 0 && (
+                                        <tr><td colSpan="5" className="p-6 text-center text-gray-400 italic">Nenhuma lavagem registrada.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
             
-            {/* Modal de Agendamento (Atualizado com Antecedência) */}
+            {/* MODAIS ANTIGOS (Revisão Preventiva) */}
             {editingRevision && (
                 <ScheduleRevisionModal
                     vehicle={editingRevision}
@@ -263,7 +423,6 @@ const RevisionsPage = ({
                 />
             )}
 
-            {/* Modal de Conclusão */}
             {completingRevision && (
                 <CompleteRevisionModal 
                     user={user} 
@@ -276,13 +435,218 @@ const RevisionsPage = ({
                 />
             )}
             
-            {/* Modal de Histórico */}
             {historyModalVehicle && (
                 <RevisionHistoryModal 
                     vehicle={historyModalVehicle} 
                     onClose={() => setHistoryModalVehicle(null)} 
                 />
             )}
+
+            {/* NOVOS MODAIS DE MANUTENÇÃO E LAVAGEM (MOCKS VISUAIS) */}
+            {modalNovaProgramada && (
+                <NovaProgramadaModal 
+                    vehicles={vehicles} 
+                    onClose={() => setModalNovaProgramada(false)}
+                    onSave={(data) => {
+                        setManutencoesProgramadas([data, ...manutencoesProgramadas]);
+                        setAlertMessage("Relato de manutenção salvo com sucesso!");
+                    }}
+                />
+            )}
+
+            {modalNovaExecutada && (
+                <NovaExecutadaModal 
+                    vehicles={vehicles} 
+                    partners={partners}
+                    onClose={() => setModalNovaExecutada(false)}
+                    onSave={(data) => {
+                        setManutencoesExecutadas([data, ...manutencoesExecutadas]);
+                        setAlertMessage("Manutenção executada salva com sucesso!");
+                    }}
+                />
+            )}
+
+            {modalNovaLavagem && (
+                <NovaLavagemModal 
+                    vehicles={vehicles} 
+                    partners={partners}
+                    onClose={() => setModalNovaLavagem(false)}
+                    onSave={(data) => {
+                        setLavagens([data, ...lavagens]);
+                        setAlertMessage("Lavagem registrada com sucesso!");
+                    }}
+                />
+            )}
+        </div>
+    );
+};
+
+// ============================================================================
+// COMPONENTES MODAIS
+// ============================================================================
+
+// --- Modais de Manutenção (Novos) ---
+const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
+    const [formData, setFormData] = useState({
+        vehicleId: '', dataRelato: new Date().toISOString().split('T')[0], descricao: '', relator: ''
+    });
+    const handleChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
+    const save = () => {
+        if(!formData.vehicleId || !formData.descricao) return alert("Preencha veículo e descrição.");
+        onSave({ id: Date.now(), ...formData, status: 'Pendente' });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
+                <div className="px-4 py-3 border-b bg-blue-50 flex justify-between items-center">
+                    <h2 className="text-sm font-bold text-blue-800">Novo Relato / Defeito</h2>
+                    <button onClick={onClose} className="text-gray-500"><X size={16}/></button>
+                </div>
+                <div className="p-4 space-y-3">
+                    <div>
+                        <label className="block text-xs font-semibold mb-1">Veículo *</label>
+                        <select name="vehicleId" value={formData.vehicleId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required>
+                            <option value="">Selecione...</option>
+                            {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
+                        </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Data Relato *</label>
+                            <input type="date" name="dataRelato" value={formData.dataRelato} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Relator</label>
+                            <input type="text" name="relator" value={formData.relator} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="Nome..."/>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold mb-1">Descrição do Defeito *</label>
+                        <textarea name="descricao" value={formData.descricao} onChange={handleChange} rows="3" className="w-full p-2 border rounded text-sm outline-none resize-none" placeholder="Qual o problema?" required></textarea>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded">Cancelar</button>
+                        <button onClick={save} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded">Salvar Relato</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const NovaExecutadaModal = ({ vehicles, partners, onClose, onSave }) => {
+    const [formData, setFormData] = useState({
+        vehicleId: '', dataManutencao: new Date().toISOString().split('T')[0], valor: '', oficina: '', descricao: '', pecasTrocadas: ''
+    });
+    const handleChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
+    const save = () => {
+        if(!formData.vehicleId || !formData.descricao) return alert("Preencha veículo e descrição.");
+        onSave({ id: Date.now(), ...formData });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+                <div className="px-4 py-3 border-b bg-green-50 flex justify-between items-center">
+                    <h2 className="text-sm font-bold text-green-800">Registrar Manutenção Executada</h2>
+                    <button onClick={onClose} className="text-gray-500"><X size={16}/></button>
+                </div>
+                <div className="p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2">
+                            <label className="block text-xs font-semibold mb-1">Veículo *</label>
+                            <select name="vehicleId" value={formData.vehicleId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required>
+                                <option value="">Selecione...</option>
+                                {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Data *</label>
+                            <input type="date" name="dataManutencao" value={formData.dataManutencao} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Valor (R$)</label>
+                            <input type="number" step="0.01" name="valor" value={formData.valor} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="0.00"/>
+                        </div>
+                        <div className="col-span-2">
+                            <label className="block text-xs font-semibold mb-1">Onde foi feito (Oficina/Mecânico)</label>
+                            <input type="text" name="oficina" value={formData.oficina} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="Nome da oficina"/>
+                        </div>
+                        <div className="col-span-2">
+                            <label className="block text-xs font-semibold mb-1">O que foi feito? *</label>
+                            <textarea name="descricao" value={formData.descricao} onChange={handleChange} rows="2" className="w-full p-2 border rounded text-sm outline-none resize-none" placeholder="Serviço executado..." required></textarea>
+                        </div>
+                        <div className="col-span-2">
+                            <label className="block text-xs font-semibold mb-1">Peças Trocadas</label>
+                            <input type="text" name="pecasTrocadas" value={formData.pecasTrocadas} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="Ex: Filtro de óleo, correia..."/>
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded">Cancelar</button>
+                        <button onClick={save} className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded">Salvar Manutenção</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const NovaLavagemModal = ({ vehicles, partners, onClose, onSave }) => {
+    const [formData, setFormData] = useState({
+        vehicleId: '', dataLavagem: new Date().toISOString().split('T')[0], valor: '', parceiro: '', descricao: ''
+    });
+    const handleChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
+    const save = () => {
+        if(!formData.vehicleId) return alert("Selecione o veículo.");
+        onSave({ id: Date.now(), ...formData });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
+                <div className="px-4 py-3 border-b bg-blue-50 flex justify-between items-center">
+                    <h2 className="text-sm font-bold text-blue-800">Registrar Lavagem</h2>
+                    <button onClick={onClose} className="text-gray-500"><X size={16}/></button>
+                </div>
+                <div className="p-4 space-y-3">
+                    <div>
+                        <label className="block text-xs font-semibold mb-1">Veículo *</label>
+                        <select name="vehicleId" value={formData.vehicleId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required>
+                            <option value="">Selecione...</option>
+                            {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
+                        </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Data *</label>
+                            <input type="date" name="dataLavagem" value={formData.dataLavagem} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required/>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Valor (R$)</label>
+                            <input type="number" step="0.01" name="valor" value={formData.valor} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="0.00"/>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold mb-1">Parceiro / Lavagem</label>
+                        <select name="parceiro" value={formData.parceiro} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none">
+                            <option value="">Selecione (Opcional)...</option>
+                            {partners.map(p => <option key={p.id} value={p.id}>{p.razaoSocial}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold mb-1">Tipo de Serviço</label>
+                        <input type="text" name="descricao" value={formData.descricao} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="Ex: Lavagem Simples, Lubrificação..."/>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 text-xs font-bold rounded">Cancelar</button>
+                        <button onClick={save} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded">Salvar Lavagem</button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
@@ -369,7 +733,7 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
                     {/* SEÇÃO DE AVISOS DE ANTECEDÊNCIA */}
                     <div className="bg-yellow-50 p-3 rounded border border-yellow-200 mt-2">
                         <div className="text-[10px] font-bold text-yellow-700 uppercase border-b border-yellow-200 pb-1 mb-2 flex items-center gap-1">
-                            <BellRing size={12}/> Alertas de Antecedência (Amarelo)
+                            <Wrench size={12}/> Alertas de Antecedência (Amarelo)
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
@@ -395,7 +759,7 @@ const ScheduleRevisionModal = ({ vehicle, onClose, setAlertMessage, apiClient, r
     );
 };
 
-// --- Modal de Conclusão de Revisão (Atualizado com Proxima Descricao) ---
+// --- Modal de Conclusão de Revisão ---
 const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiClient, reloadData, PasswordConfirmationModal }) => {
     const readingInfo = useMemo(() => getVehicleMainReading(vehicle), [vehicle]);
     
