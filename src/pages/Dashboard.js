@@ -45,25 +45,40 @@ const Dashboard = ({
     // Estatísticas Rápidas
     const stats = useMemo(() => {
         const activeVehicles = vehicles.filter(v => v.status !== 'Inativo');
+        
+        // Filtra as multas pendentes para extrair a contagem e a soma dos valores
+        const pendingFines = fines.filter(f => f.paymentStatus === 'Pendente');
+        const totalFinesValue = pendingFines.reduce((sum, f) => sum + parseFloat(f.valor || f.amount || f.valor_multa || 0), 0);
+
         return {
             total: activeVehicles.length,
             obrasAtivas: obras.filter(o => o.status === 'ativa').length,
             emObra: activeVehicles.filter(v => v.status === 'Em Obra').length,
             operacao: activeVehicles.filter(v => v.status === 'Em Operação').length,
             disponivel: activeVehicles.filter(v => v.status === 'Disponível').length,
-            manutencao: activeVehicles.filter(v => v.status === 'Em Manutenção').length,
-            multas: fines.filter(f => f.paymentStatus === 'Pendente').length
+            // Conta os dois status referentes a manutenção
+            manutencao: activeVehicles.filter(v => ['Em Manutenção', 'Aguardando Manutenção'].includes(v.status)).length,
+            multas: pendingFines.length,
+            valorMultas: totalFinesValue // Retorna a soma total financeira
         };
     }, [vehicles, obras, fines]);
 
-    const StatCard = ({ title, value, icon: Icon, color, onClick }) => (
-        <div onClick={onClick} className={`bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md cursor-pointer transition-all hover:-translate-y-0.5 border-l-4 border-l-${color}-500`}>
-            <div className="flex justify-between items-start">
+    const StatCard = ({ title, value, subValue, icon: Icon, color, onClick }) => (
+        <div onClick={onClick} className={`bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md cursor-pointer transition-all hover:-translate-y-0.5 border-l-4 border-l-${color}-500 flex flex-col h-full`}>
+            <div className="flex justify-between items-start flex-1">
                 <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{title}</p>
-                    <h3 className="text-2xl font-bold text-gray-800 mt-1">{value}</h3>
+                    <h3 className="text-2xl font-bold text-gray-800 mt-1 leading-none">{value}</h3>
+                    {/* Renderiza o valor financeiro ou detalhe adicional caso exista */}
+                    {subValue && (
+                        <div className="mt-1.5">
+                            <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
+                                {subValue}
+                            </span>
+                        </div>
+                    )}
                 </div>
-                <div className={`p-2 rounded-lg bg-${color}-50 text-${color}-600`}>
+                <div className={`p-2 rounded-lg bg-${color}-50 text-${color}-600 shrink-0`}>
                     <Icon size={20} />
                 </div>
             </div>
@@ -93,7 +108,16 @@ const Dashboard = ({
                 <StatCard title="Em Operação" value={stats.operacao} icon={Users} color="cyan" onClick={() => navigate('vehicles', { state: { status: 'Em Operação' } })} />
                 <StatCard title="Disponíveis" value={stats.disponivel} icon={CheckCircle} color="green" onClick={() => navigate('vehicles', { state: { status: 'Disponível' } })} />
                 <StatCard title="Manutenção" value={stats.manutencao} icon={Wrench} color="red" onClick={() => navigate('vehicles', { state: { status: 'Em Manutenção' } })} />
-                <StatCard title="Multas Pen." value={stats.multas} icon={ShieldAlert} color="orange" onClick={() => navigate('fines')} />
+                
+                <StatCard 
+                    title="Multas Pen." 
+                    value={stats.multas} 
+                    // Exibe o valor formatado em Reais se houver multas pendentes
+                    subValue={stats.multas > 0 ? stats.valorMultas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : undefined}
+                    icon={ShieldAlert} 
+                    color="orange" 
+                    onClick={() => navigate('fines')} 
+                />
             </div>
 
             {/* Layout Principal - 2 Linhas Principais */}
