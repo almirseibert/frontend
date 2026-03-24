@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
     Home, Truck, Fuel, Settings, Users, AlertTriangle, 
-    FileText, ShoppingCart, Clipboard, LogOut, ChevronRight, ChevronLeft, Droplet, Disc, Bell
+    FileText, ShoppingCart, Clipboard, LogOut, ChevronRight, ChevronLeft, Droplet, Disc, Bell, Wrench
 } from 'lucide-react'; 
 import ChangePasswordModal from './ChangePasswordModal'; // Certifique-se de criar este arquivo
 
@@ -30,7 +30,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
         },
 
         // Gestão
-        { id: 'revisions', label: 'Revisões', icon: <Bell size={18} /> },
+        { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={18} /> },
         { id: 'partners', label: 'Parceiros/Postos', icon: <Droplet size={18} /> },
         
