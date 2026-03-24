@@ -13,18 +13,17 @@ const getObraName = (id, obras) => {
 }
 
 const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) => {
-    // Mocks locais (Até a criação das rotas backend)
     const [manutencoesProgramadas, setManutencoesProgramadas] = useState([]);
     const [manutencoesExecutadas, setManutencoesExecutadas] = useState([]);
 
     const [modalNovaProgramada, setModalNovaProgramada] = useState(false);
-    const [modalNovaExecutada, setModalNovaExecutada] = useState(null); // null = fechado, object = Dados para preencher
+    const [modalNovaExecutada, setModalNovaExecutada] = useState(null); 
 
     const handleExecuteProgramada = (prog) => {
-        // Abre o modal de Execução com os dados do relato preenchidos
+        // AUTO-PREENCHIMENTO: Puxa o Veículo e a Descrição do Defeito automaticamente
         setModalNovaExecutada({
             vehicleId: prog.vehicleId,
-            descricao: prog.descricao,
+            descricao: prog.descricao, 
             programadaId: prog.id
         });
     };
@@ -38,7 +37,6 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
     const onSaveExecutada = (data) => {
         setManutencoesExecutadas([{ id: Date.now(), ...data }, ...manutencoesExecutadas]);
         
-        // Se veio de uma manutenção programada, atualiza o status dela
         if (data.programadaId) {
             setManutencoesProgramadas(prev => prev.map(p => p.id === data.programadaId ? { ...p, status: 'Executado' } : p));
         }
@@ -84,7 +82,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
                                     <td className="p-3 text-gray-500">{item.relator}</td>
                                     <td className="p-3 text-center">
                                         {item.status === 'Pendente' ? (
-                                            <button onClick={() => handleExecuteProgramada(item)} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold flex items-center justify-center gap-1 mx-auto transition">
+                                            <button onClick={() => handleExecuteProgramada(item)} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold flex items-center justify-center gap-1 mx-auto transition shadow-sm">
                                                 <ArrowRight size={12}/> Executar
                                             </button>
                                         ) : (
@@ -113,7 +111,6 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
                         <p className="text-xs text-gray-500">Histórico de intervenções realizadas, com custo alocado à obra.</p>
                     </div>
                     <ProtectedComponent requiredPermission="editor">
-                        {/* Abre modal limpo para registrar manutenção avulsa */}
                         <button onClick={() => setModalNovaExecutada({})} className="bg-green-600 text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-green-700 shadow-sm">
                             <PlusCircle size={14} /> Registrar Avulsa
                         </button>
@@ -151,7 +148,6 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
                 </div>
             </div>
 
-            {/* MODAIS */}
             {modalNovaProgramada && (
                 <NovaProgramadaModal 
                     vehicles={vehicles} 
@@ -164,7 +160,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
                 <NovaExecutadaModal 
                     vehicles={vehicles} 
                     obras={obras}
-                    defaultData={modalNovaExecutada}
+                    defaultData={modalNovaExecutada} // <-- Dados Auto-preenchidos injetados aqui
                     onClose={() => setModalNovaExecutada(null)}
                     onSave={onSaveExecutada}
                 />
@@ -173,7 +169,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
     );
 };
 
-// --- Modal de Programada ---
+// ... (Restante dos modais de Manutenção: NovaProgramadaModal)
 const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         vehicleId: '', dataRelato: new Date().toISOString().split('T')[0], descricao: '', relator: ''
@@ -225,11 +221,11 @@ const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
     );
 };
 
-// --- Modal de Executada (Com Centro de Custo) ---
+// Modal de Manutenção Executada (O botão "Executar" injeta os defaultData aqui)
 const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         vehicleId: defaultData.vehicleId || '', 
-        obraId: '', // Centro de custo
+        obraId: '', 
         dataManutencao: new Date().toISOString().split('T')[0], 
         valor: '', 
         oficina: '', 
@@ -238,7 +234,6 @@ const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave
         programadaId: defaultData.programadaId || null
     });
 
-    // Auto-preenche a obra baseado no veículo selecionado
     React.useEffect(() => {
         if (formData.vehicleId && !formData.obraId) {
             const v = vehicles.find(v => String(v.id) === String(formData.vehicleId));

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlusCircle, Droplet, Users, X, Trash2 } from 'lucide-react';
+import { PlusCircle, Droplet, Users, X, Trash2, Edit2, CheckCircle } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 
 const getVehicleName = (id, vehicles) => {
@@ -13,10 +13,9 @@ const getObraName = (id, obras) => {
 }
 
 const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) => {
-    // Mocks locais (Até a criação das rotas backend)
     const [lavagens, setLavagens] = useState([]);
     const [washingPartners, setWashingPartners] = useState([
-        { id: '1', nome: 'Lava Rápido Expresso', telefone: '(11) 99999-9999' } // Mock inicial
+        { id: '1', nome: 'Lava Rápido Expresso', telefone: '(11) 99999-9999' }
     ]);
 
     const [modalNovaLavagem, setModalNovaLavagem] = useState(false);
@@ -84,7 +83,6 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
                 </div>
             </div>
 
-            {/* Modais */}
             {modalNovaLavagem && (
                 <NovaLavagemModal 
                     vehicles={vehicles} 
@@ -106,7 +104,6 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
     );
 };
 
-// --- Modal: Nova Lavagem ---
 const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         vehicleId: '', obraId: '', dataLavagem: new Date().toISOString().split('T')[0], valor: '', parceiroId: '', descricao: ''
@@ -179,51 +176,85 @@ const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave })
     );
 };
 
-// --- Modal: Cadastro de Parceiros ---
+// Modal Completo de Gestão de Parceiros (CRUD)
 const WashingPartnersModal = ({ partners, setPartners, onClose }) => {
-    const [novoNome, setNovoNome] = useState('');
-    const [novoTel, setNovoTel] = useState('');
+    const [nome, setNome] = useState('');
+    const [telefone, setTelefone] = useState('');
+    const [editingId, setEditingId] = useState(null);
 
-    const handleAdd = () => {
-        if (!novoNome) return;
-        setPartners([...partners, { id: Date.now().toString(), nome: novoNome, telefone: novoTel }]);
-        setNovoNome('');
-        setNovoTel('');
+    const handleSave = () => {
+        if (!nome) return;
+        
+        if (editingId) {
+            setPartners(partners.map(p => p.id === editingId ? { ...p, nome, telefone } : p));
+            setEditingId(null);
+        } else {
+            setPartners([...partners, { id: Date.now().toString(), nome, telefone }]);
+        }
+        
+        setNome('');
+        setTelefone('');
+    };
+
+    const handleEdit = (p) => {
+        setEditingId(p.id);
+        setNome(p.nome);
+        setTelefone(p.telefone || '');
     };
 
     const handleRemove = (id) => {
-        setPartners(partners.filter(p => p.id !== id));
+        if (window.confirm("Deseja realmente remover este Lava-Jato?")) {
+            setPartners(partners.filter(p => p.id !== id));
+        }
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setNome('');
+        setTelefone('');
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-fadeInUp">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden animate-fadeInUp">
                 <div className="px-4 py-3 border-b bg-gray-100 flex justify-between items-center">
-                    <h2 className="text-sm font-bold text-gray-800">Parceiros de Lavagem</h2>
+                    <h2 className="text-sm font-bold text-gray-800">Parceiros de Lavagem (Lava-Jatos)</h2>
                     <button onClick={onClose} className="text-gray-500"><X size={16}/></button>
                 </div>
                 
-                <div className="p-4 bg-gray-50 border-b">
-                    <h4 className="text-xs font-bold mb-2">Adicionar Novo</h4>
+                <div className="p-4 bg-blue-50 border-b">
+                    <h4 className="text-xs font-bold mb-2 text-blue-900">
+                        {editingId ? 'Editando Parceiro' : 'Adicionar Novo Parceiro'}
+                    </h4>
                     <div className="flex gap-2">
-                        <input type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} placeholder="Nome do Lava-Jato..." className="flex-1 p-2 border rounded text-xs outline-none"/>
-                        <input type="text" value={novoTel} onChange={e => setNovoTel(e.target.value)} placeholder="Telefone..." className="w-24 p-2 border rounded text-xs outline-none"/>
-                        <button onClick={handleAdd} className="bg-gray-800 text-white px-3 rounded font-bold text-xs">Add</button>
+                        <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do Lava-Jato..." className="flex-1 p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"/>
+                        <input type="text" value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="Telefone..." className="w-28 p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"/>
+                        <button onClick={handleSave} className="bg-blue-600 text-white px-3 rounded font-bold text-xs hover:bg-blue-700 shadow-sm flex items-center gap-1">
+                            {editingId ? <CheckCircle size={14}/> : <PlusCircle size={14}/>} {editingId ? 'Salvar' : 'Add'}
+                        </button>
+                        {editingId && (
+                            <button onClick={cancelEdit} className="bg-gray-200 text-gray-700 px-2 rounded font-bold text-xs hover:bg-gray-300">
+                                <X size={14}/>
+                            </button>
+                        )}
                     </div>
                 </div>
 
-                <div className="p-4 max-h-60 overflow-y-auto">
+                <div className="p-4 max-h-60 overflow-y-auto bg-white">
                     {partners.length === 0 ? (
-                        <p className="text-xs text-gray-400 text-center">Nenhum parceiro cadastrado.</p>
+                        <p className="text-xs text-gray-400 text-center py-4">Nenhum parceiro cadastrado.</p>
                     ) : (
                         <ul className="space-y-2">
                             {partners.map(p => (
-                                <li key={p.id} className="flex justify-between items-center p-2 border rounded bg-white text-xs">
+                                <li key={p.id} className="flex justify-between items-center p-2 border border-gray-200 rounded bg-gray-50 text-xs hover:border-blue-300 transition-colors">
                                     <div>
                                         <p className="font-bold text-gray-800">{p.nome}</p>
-                                        {p.telefone && <p className="text-gray-500">{p.telefone}</p>}
+                                        <p className="text-gray-500">{p.telefone || 'Sem telefone'}</p>
                                     </div>
-                                    <button onClick={() => handleRemove(p.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
+                                    <div className="flex gap-1">
+                                        <button onClick={() => handleEdit(p)} className="text-blue-600 hover:bg-blue-100 p-1.5 rounded transition"><Edit2 size={14}/></button>
+                                        <button onClick={() => handleRemove(p.id)} className="text-red-500 hover:bg-red-100 p-1.5 rounded transition"><Trash2 size={14}/></button>
+                                    </div>
                                 </li>
                             ))}
                         </ul>

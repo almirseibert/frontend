@@ -16,6 +16,7 @@ const RevisionsPage = ({
     return (
         <div className="container mx-auto p-2 md:p-4 animate-fadeIn">
             <h1 className="text-2xl font-bold mb-4 text-gray-800 flex items-center gap-2">
+                {/* Ícone alterado para Chave de Boca (Wrench) */}
                 <Wrench className="text-blue-600" /> Revisões & Manutenções
             </h1>
             
