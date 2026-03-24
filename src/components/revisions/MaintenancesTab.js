@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { PlusCircle, Wrench, X, CheckCircle, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { PlusCircle, Wrench, X, CheckCircle, ArrowRight, Loader } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 
 const getVehicleName = (id, vehicles) => {
@@ -15,12 +15,34 @@ const getObraName = (id, obras) => {
 const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) => {
     const [manutencoesProgramadas, setManutencoesProgramadas] = useState([]);
     const [manutencoesExecutadas, setManutencoesExecutadas] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     const [modalNovaProgramada, setModalNovaProgramada] = useState(false);
     const [modalNovaExecutada, setModalNovaExecutada] = useState(null); 
 
+    // Busca os dados reais do Banco de Dados
+    const fetchData = async () => {
+        setIsLoading(true);
+        try {
+            const progData = await apiClient.get('/maintenances/scheduled');
+            setManutencoesProgramadas(Array.isArray(progData) ? progData : []);
+            
+            const execData = await apiClient.get('/maintenances/executed');
+            setManutencoesExecutadas(Array.isArray(execData) ? execData : []);
+        } catch (error) {
+            console.error("Erro ao buscar manutenções do banco:", error);
+            setAlertMessage("Erro ao carregar os dados de manutenção.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (apiClient) fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [apiClient]);
+
     const handleExecuteProgramada = (prog) => {
-        // AUTO-PREENCHIMENTO: Puxa o Veículo e a Descrição do Defeito automaticamente
         setModalNovaExecutada({
             vehicleId: prog.vehicleId,
             descricao: prog.descricao, 
@@ -28,22 +50,33 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
         });
     };
 
-    const onSaveProgramada = (data) => {
-        setManutencoesProgramadas([{ id: Date.now(), status: 'Pendente', ...data }, ...manutencoesProgramadas]);
-        setAlertMessage("Relato programado com sucesso!");
-        setModalNovaProgramada(false);
-    };
-
-    const onSaveExecutada = (data) => {
-        setManutencoesExecutadas([{ id: Date.now(), ...data }, ...manutencoesExecutadas]);
-        
-        if (data.programadaId) {
-            setManutencoesProgramadas(prev => prev.map(p => p.id === data.programadaId ? { ...p, status: 'Executado' } : p));
+    const onSaveProgramada = async (data) => {
+        try {
+            await apiClient.post('/maintenances/scheduled', data);
+            setAlertMessage("Relato salvo e programado com sucesso!");
+            fetchData(); // Atualiza a lista com dados do banco
+            setModalNovaProgramada(false);
+        } catch (error) {
+            console.error(error);
+            setAlertMessage("Erro ao salvar relato no banco de dados.");
         }
-
-        setAlertMessage(`Manutenção executada! Custo gerado na Obra: ${getObraName(data.obraId, obras)}`);
-        setModalNovaExecutada(null);
     };
+
+    const onSaveExecutada = async (data) => {
+        try {
+            await apiClient.post('/maintenances/executed', data);
+            setAlertMessage(`Manutenção executada! Custo gerado na Obra: ${getObraName(data.obraId, obras)}`);
+            fetchData(); // Atualiza a lista com dados do banco
+            setModalNovaExecutada(null);
+        } catch (error) {
+            console.error(error);
+            setAlertMessage("Erro ao registrar a execução da manutenção.");
+        }
+    };
+
+    if (isLoading) {
+        return <div className="flex justify-center py-10"><Loader className="animate-spin text-blue-600" size={32} /></div>;
+    }
 
     return (
         <div className="animate-fadeIn space-y-6">
@@ -79,7 +112,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
                                     <td className="p-3 font-bold text-gray-800">{getVehicleName(item.vehicleId, vehicles)}</td>
                                     <td className="p-3">{new Date(item.dataRelato).toLocaleDateString('pt-BR')}</td>
                                     <td className="p-3 text-gray-700">{item.descricao}</td>
-                                    <td className="p-3 text-gray-500">{item.relator}</td>
+                                    <td className="p-3 text-gray-500">{item.relator || 'N/A'}</td>
                                     <td className="p-3 text-center">
                                         {item.status === 'Pendente' ? (
                                             <button onClick={() => handleExecuteProgramada(item)} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold flex items-center justify-center gap-1 mx-auto transition shadow-sm">
@@ -160,7 +193,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
                 <NovaExecutadaModal 
                     vehicles={vehicles} 
                     obras={obras}
-                    defaultData={modalNovaExecutada} // <-- Dados Auto-preenchidos injetados aqui
+                    defaultData={modalNovaExecutada} 
                     onClose={() => setModalNovaExecutada(null)}
                     onSave={onSaveExecutada}
                 />
@@ -169,7 +202,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
     );
 };
 
-// ... (Restante dos modais de Manutenção: NovaProgramadaModal)
+// ... MODAIS ...
 const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         vehicleId: '', dataRelato: new Date().toISOString().split('T')[0], descricao: '', relator: ''
@@ -221,7 +254,6 @@ const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
     );
 };
 
-// Modal de Manutenção Executada (O botão "Executar" injeta os defaultData aqui)
 const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         vehicleId: defaultData.vehicleId || '', 

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { PlusCircle, Droplet, Users, X, Trash2, Edit2, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { PlusCircle, Droplet, Users, X, Trash2, Edit2, CheckCircle, Loader } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 
 const getVehicleName = (id, vehicles) => {
@@ -14,18 +14,49 @@ const getObraName = (id, obras) => {
 
 const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) => {
     const [lavagens, setLavagens] = useState([]);
-    const [washingPartners, setWashingPartners] = useState([
-        { id: '1', nome: 'Lava Rápido Expresso', telefone: '(11) 99999-9999' }
-    ]);
+    const [washingPartners, setWashingPartners] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     const [modalNovaLavagem, setModalNovaLavagem] = useState(false);
     const [modalParceiros, setModalParceiros] = useState(false);
 
-    const onSaveLavagem = (data) => {
-        setLavagens([{ id: Date.now(), ...data }, ...lavagens]);
-        setAlertMessage(`Lavagem registrada! Custo gerado na Obra: ${getObraName(data.obraId, obras)}`);
-        setModalNovaLavagem(false);
+    // Busca os dados do Banco
+    const fetchData = async () => {
+        setIsLoading(true);
+        try {
+            const lavData = await apiClient.get('/washings');
+            setLavagens(Array.isArray(lavData) ? lavData : []);
+            
+            const partData = await apiClient.get('/washings/partners');
+            setWashingPartners(Array.isArray(partData) ? partData : []);
+        } catch (error) {
+            console.error("Erro ao buscar dados de lavagens:", error);
+            setAlertMessage("Erro ao carregar o histórico de lavagens.");
+        } finally {
+            setIsLoading(false);
+        }
     };
+
+    useEffect(() => {
+        if (apiClient) fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [apiClient]);
+
+    const onSaveLavagem = async (data) => {
+        try {
+            await apiClient.post('/washings', data);
+            setAlertMessage(`Lavagem registrada no Banco de Dados! Custo gerado na Obra: ${getObraName(data.obraId, obras)}`);
+            fetchData();
+            setModalNovaLavagem(false);
+        } catch (error) {
+            console.error(error);
+            setAlertMessage("Erro ao salvar lavagem no sistema.");
+        }
+    };
+
+    if (isLoading) {
+        return <div className="flex justify-center py-10"><Loader className="animate-spin text-blue-600" size={32} /></div>;
+    }
 
     return (
         <div className="animate-fadeIn">
@@ -39,7 +70,7 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
                     </div>
                     <ProtectedComponent requiredPermission="editor">
                         <div className="flex gap-2">
-                            <button onClick={() => setModalParceiros(true)} className="bg-gray-100 text-gray-700 px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-gray-200 border border-gray-300">
+                            <button onClick={() => setModalParceiros(true)} className="bg-gray-100 text-gray-700 px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-gray-200 border border-gray-300 shadow-sm">
                                 <Users size={14} /> Parceiros (Lava-Jatos)
                             </button>
                             <button onClick={() => setModalNovaLavagem(true)} className="bg-blue-600 text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-blue-700 shadow-sm">
@@ -71,7 +102,7 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
                                         <td className="p-3 text-xs text-gray-600 font-medium">{getObraName(item.obraId, obras)}</td>
                                         <td className="p-3 text-red-600 font-bold">R$ {parseFloat(item.valor || 0).toFixed(2)}</td>
                                         <td className="p-3 text-gray-700">{pName}</td>
-                                        <td className="p-3 text-gray-800 font-medium">{item.descricao}</td>
+                                        <td className="p-3 text-gray-800 font-medium">{item.descricao || 'N/A'}</td>
                                     </tr>
                                 )
                             })}
@@ -96,7 +127,9 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
             {modalParceiros && (
                 <WashingPartnersModal 
                     partners={washingPartners}
-                    setPartners={setWashingPartners}
+                    apiClient={apiClient}
+                    fetchData={fetchData}
+                    setAlertMessage={setAlertMessage}
                     onClose={() => setModalParceiros(false)}
                 />
             )}
@@ -104,6 +137,7 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
     );
 };
 
+// --- Modais ---
 const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         vehicleId: '', obraId: '', dataLavagem: new Date().toISOString().split('T')[0], valor: '', parceiroId: '', descricao: ''
@@ -176,24 +210,33 @@ const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave })
     );
 };
 
-// Modal Completo de Gestão de Parceiros (CRUD)
-const WashingPartnersModal = ({ partners, setPartners, onClose }) => {
+const WashingPartnersModal = ({ partners, apiClient, fetchData, setAlertMessage, onClose }) => {
     const [nome, setNome] = useState('');
     const [telefone, setTelefone] = useState('');
     const [editingId, setEditingId] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!nome) return;
-        
-        if (editingId) {
-            setPartners(partners.map(p => p.id === editingId ? { ...p, nome, telefone } : p));
+        setIsSaving(true);
+        try {
+            if (editingId) {
+                await apiClient.put(`/washings/partners/${editingId}`, { nome, telefone });
+                setAlertMessage("Parceiro atualizado no banco.");
+            } else {
+                await apiClient.post('/washings/partners', { nome, telefone });
+                setAlertMessage("Novo parceiro cadastrado no banco.");
+            }
+            setNome('');
+            setTelefone('');
             setEditingId(null);
-        } else {
-            setPartners([...partners, { id: Date.now().toString(), nome, telefone }]);
+            fetchData(); // Atualiza a lista na aba principal
+        } catch (error) {
+            console.error(error);
+            setAlertMessage("Erro ao salvar parceiro.");
+        } finally {
+            setIsSaving(false);
         }
-        
-        setNome('');
-        setTelefone('');
     };
 
     const handleEdit = (p) => {
@@ -202,9 +245,16 @@ const WashingPartnersModal = ({ partners, setPartners, onClose }) => {
         setTelefone(p.telefone || '');
     };
 
-    const handleRemove = (id) => {
+    const handleRemove = async (id) => {
         if (window.confirm("Deseja realmente remover este Lava-Jato?")) {
-            setPartners(partners.filter(p => p.id !== id));
+            try {
+                await apiClient.delete(`/washings/partners/${id}`);
+                setAlertMessage("Parceiro excluído com sucesso.");
+                fetchData();
+            } catch (error) {
+                console.error(error);
+                setAlertMessage("Erro ao excluir parceiro.");
+            }
         }
     };
 
@@ -229,8 +279,9 @@ const WashingPartnersModal = ({ partners, setPartners, onClose }) => {
                     <div className="flex gap-2">
                         <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do Lava-Jato..." className="flex-1 p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"/>
                         <input type="text" value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="Telefone..." className="w-28 p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-blue-500"/>
-                        <button onClick={handleSave} className="bg-blue-600 text-white px-3 rounded font-bold text-xs hover:bg-blue-700 shadow-sm flex items-center gap-1">
-                            {editingId ? <CheckCircle size={14}/> : <PlusCircle size={14}/>} {editingId ? 'Salvar' : 'Add'}
+                        <button onClick={handleSave} disabled={isSaving} className="bg-blue-600 text-white px-3 rounded font-bold text-xs hover:bg-blue-700 shadow-sm flex items-center gap-1">
+                            {isSaving ? <Loader size={14} className="animate-spin"/> : (editingId ? <CheckCircle size={14}/> : <PlusCircle size={14}/>)} 
+                            {editingId ? 'Salvar' : 'Add'}
                         </button>
                         {editingId && (
                             <button onClick={cancelEdit} className="bg-gray-200 text-gray-700 px-2 rounded font-bold text-xs hover:bg-gray-300">
@@ -242,7 +293,7 @@ const WashingPartnersModal = ({ partners, setPartners, onClose }) => {
 
                 <div className="p-4 max-h-60 overflow-y-auto bg-white">
                     {partners.length === 0 ? (
-                        <p className="text-xs text-gray-400 text-center py-4">Nenhum parceiro cadastrado.</p>
+                        <p className="text-xs text-gray-400 text-center py-4">Nenhum parceiro cadastrado no sistema.</p>
                     ) : (
                         <ul className="space-y-2">
                             {partners.map(p => (
