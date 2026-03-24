@@ -30,7 +30,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
         },
 
         // Gestão
-        { id: 'revisions', label: 'Revisões/Manutenções', icon: <Wrench size={18} /> },
+        { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={18} /> },
         { id: 'partners', label: 'Parceiros/Postos', icon: <Droplet size={18} /> },
         

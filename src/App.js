@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'; 
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
-    ChevronLeft, ChevronRight, Bell, Fuel, Droplet, DollarSign, ShieldAlert,
+    ChevronLeft, ChevronRight, Bell, Wrench, Fuel, Droplet, DollarSign, ShieldAlert,
     User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp // <--- TrendingUp adicionado
 } from 'lucide-react';
 
@@ -259,7 +259,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
         //{ id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} />, dimmed: true },
-        { id: 'revisions', label: 'Revisões', icon: <Bell size={16} /> },
+        { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
         { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
         { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
