@@ -23,7 +23,7 @@ const RefuelingPage = ({
     vehicleGroups = {},
     apiClient, 
     reloadData,
-    navigate // IMPORTANTE: Recebe função de navegação do App.js
+    navigate
 }) => {
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -38,14 +38,12 @@ const RefuelingPage = ({
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // --- HELPER: Validação de Data ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
         return str.length > 5 && !str.startsWith('0000') && str !== '1970-01-01T00:00:00.000Z';
     };
 
-    // --- HELPER: Formatação de Data Segura ---
     const formatDateSafe = (dateInput) => {
         if (!isValidDbDate(dateInput)) return 'N/A';
         try {
@@ -64,7 +62,6 @@ const RefuelingPage = ({
         } catch { return 'Erro'; }
     };
 
-    // --- FILTROS ---
     const openRefuelings = useMemo(() => {
         return refuelings
             .filter(r => r.status === 'Aberta')
@@ -101,7 +98,6 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    // --- GERAÇÃO DE PDF (MANTIDO) ---
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, returnBlob = false) => {
         setIsGeneratingPdf(true);
         return new Promise((resolve, reject) => {
@@ -138,12 +134,28 @@ const RefuelingPage = ({
                     let leituraLabel = 'Leitura';
                     let leituraValue = 'N/A';
                     
-                    if (order.horimetro && order.horimetro > 0) {
-                        leituraLabel = 'Horímetro';
-                        leituraValue = order.horimetro;
-                    } else if (order.odometro && order.odometro > 0) {
+                    const odoVal = parseFloat(order.odometro);
+                    const horiVal = parseFloat(order.horimetro);
+                    
+                    // Lógica segura para determinar a exibição correta baseada no tipo de veículo
+                    if (odoVal > 0 && horiVal > 0) {
+                        const isLeveOrTrecho = vehicle && [
+                            'Automóvel', 'Camionete', 'Utilitários', 'Moto', 
+                            'Caminhão Prancha', 'Semirreboques'
+                        ].includes(vehicle.tipo);
+                        if (isLeveOrTrecho) {
+                            leituraLabel = 'Odômetro';
+                            leituraValue = odoVal;
+                        } else {
+                            leituraLabel = 'Horímetro';
+                            leituraValue = horiVal;
+                        }
+                    } else if (odoVal > 0) {
                         leituraLabel = 'Odômetro';
-                        leituraValue = order.odometro;
+                        leituraValue = odoVal;
+                    } else if (horiVal > 0) {
+                        leituraLabel = 'Horímetro';
+                        leituraValue = horiVal;
                     }
 
                     const body = [
@@ -196,7 +208,6 @@ const RefuelingPage = ({
                     doc.setDrawColor(180, 180, 180);
                     doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-                    // LÓGICA DE RETORNO (Salvar ou Blob)
                     if (returnBlob) {
                         const blob = doc.output('blob');
                         setIsGeneratingPdf(false);
@@ -267,7 +278,6 @@ const RefuelingPage = ({
                 </div>
                 <ProtectedComponent requiredPermission="editor">
                     <div className="flex gap-2 w-full md:w-auto">
-                        {/* Botão para Gerir Solicitações do App */}
                         <button 
                             onClick={() => navigate('admin_solicitacoes')} 
                             className="flex-1 md:flex-none flex items-center gap-2 px-4 py-3 bg-gray-900 text-white font-bold rounded-lg shadow hover:bg-gray-800 transition active:scale-95 justify-center"
@@ -287,7 +297,6 @@ const RefuelingPage = ({
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 <div className="xl:col-span-4 space-y-4">
-                    {/* Lista de Ordens Abertas */}
                     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
                         <h2 className="text-lg font-bold text-gray-800 mb-4 pb-2 border-b flex justify-between">
                             Ordens Abertas
@@ -348,7 +357,6 @@ const RefuelingPage = ({
                 </div>
 
                 <div className="xl:col-span-8 space-y-6">
-                    {/* Lista Histórica */}
                     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
                         <div className="flex flex-col sm:flex-row justify-between items-center mb-4 pb-2 border-b gap-4">
                             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">

@@ -1,6 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Loader, Info, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp, Mail, Send } from 'lucide-react';
-import { getAllowedReadingTypes } from '../../utils/vehicleRules';
+
+// Movido para dentro do arquivo para evitar erro de importação (Could not resolve)
+const getAllowedReadingTypes = (tipo) => {
+    if (!tipo) return [];
+    const isLeveOrTrecho = [
+        'Automóvel', 'Camionete', 'Utilitários', 'Moto', 
+        'Caminhão Prancha', 'Semirreboques'
+    ].includes(tipo);
+    return isLeveOrTrecho ? ['odometro'] : ['horimetro'];
+};
 
 const RefuelingOrderModal = ({
     user,
@@ -51,7 +60,6 @@ const RefuelingOrderModal = ({
         } catch { return 'Erro'; }
     };
 
-    // Helper ROBUSTO para normalizar tipo de combustível
     const normalizeFuelType = (val) => {
         if (!val) return '';
         const v = val.toString().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
@@ -100,7 +108,8 @@ const RefuelingOrderModal = ({
         outrosValor: '',
     });
 
-    // Efeito para Inicialização de Dados
+    const prevVehicleIdRef = useRef(null);
+
     useEffect(() => {
         if (orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW') {
             setFormData({
@@ -161,7 +170,6 @@ const RefuelingOrderModal = ({
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
     const isSolicitacao = !!solicitacaoData;
 
-    // --- CÁLCULO DE PROGRESSO FINANCEIRO ---
     useEffect(() => {
         if (formData.obraId && obras.length > 0) { 
             const obra = obras.find(o => o.id === formData.obraId);
@@ -198,21 +206,32 @@ const RefuelingOrderModal = ({
     const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
     const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
-    // Helpers de Grupo (usando vehicleRules)
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.vehicleId), [formData.vehicleId, vehicles]);
     
     useEffect(() => {
-        if (selectedVehicle) {
-            const history = refuelings
-                .filter(r => r.vehicleId === selectedVehicle.id && r.status === 'Concluída')
-                .sort((a,b) => {
-                    const dateA = a.data || a.date;
-                    const dateB = b.data || b.date;
-                    return getSafeDateObj(dateB).getTime() - getSafeDateObj(dateA).getTime();
-                });
-            
-            const last = history[0];
-            setLastRefuelData(last);
+        if (!selectedVehicle) {
+            prevVehicleIdRef.current = null;
+            setLastRefuelData(null);
+            setLastAverage(null);
+            setWarnings([]);
+            return;
+        }
+
+        const history = refuelings
+            .filter(r => r.vehicleId === selectedVehicle.id && r.status === 'Concluída')
+            .sort((a,b) => {
+                const dateA = a.data || a.date;
+                const dateB = b.data || b.date;
+                return getSafeDateObj(dateB).getTime() - getSafeDateObj(dateA).getTime();
+            });
+        
+        const last = history[0];
+        setLastRefuelData(last);
+
+        // Preenchimento Automático APENAS quando o veículo mudar de fato, 
+        // para não sobrescrever a digitação do usuário se refuelings atualizar em background.
+        if (prevVehicleIdRef.current !== selectedVehicle.id) {
+            prevVehicleIdRef.current = selectedVehicle.id;
 
             if (!isEditing && !isSolicitacao) {
                 let autoEmployeeId = formData.employeeId;
@@ -244,45 +263,45 @@ const RefuelingOrderModal = ({
                     partnerId: autoPartnerId || prev.partnerId,
                     fuelType: autoFuelType || prev.fuelType,
                     litrosLiberados: autoLitros || prev.litrosLiberados,
-                    odometro: prev.odometro || selectedVehicle.odometro?.toString() || '',
-                    horimetro: prev.horimetro || selectedVehicle.horimetro?.toString() || ''
+                    odometro: selectedVehicle.odometro?.toString() || '',
+                    horimetro: selectedVehicle.horimetro?.toString() || ''
                 }));
             }
-
-            const newWarnings = [];
-            if (selectedVehicle.naoPodeCircular) newWarnings.push("⚠️ 'NÃO PODE CIRCULAR'");
-            if (selectedVehicle.status === 'manutencao') newWarnings.push("🔧 Em manutenção.");
-            setWarnings(newWarnings);
-
-            if (last && history[1]) {
-                const prev = history[1];
-                const litros = parseFloat(last.litrosAbastecidos || 0);
-                let diff = 0;
-                let unit = 'Km/L';
-
-                const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
-                if (allowed.includes('horimetro')) {
-                    const lastHr = parseFloat(last.horimetro || 0); 
-                    const prevHr = parseFloat(prev.horimetro || 0);
-                    diff = lastHr - prevHr;
-                    unit = 'L/Hr';
-                } else {
-                    const lastKm = parseFloat(last.odometro || 0);
-                    const prevKm = parseFloat(prev.odometro || 0);
-                    diff = lastKm - prevKm;
-                }
-
-                if (diff > 0 && litros > 0) {
-                    const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
-                    setLastAverage(`${avg.toFixed(2)} ${unit}`);
-                } else {
-                    setLastAverage('Incalculável');
-                }
-            } else {
-                setLastAverage(null);
-            }
         }
-    }, [selectedVehicle, obras, refuelings, isEditing, isSolicitacao]);
+
+        const newWarnings = [];
+        if (selectedVehicle.naoPodeCircular) newWarnings.push("⚠️ 'NÃO PODE CIRCULAR'");
+        if (selectedVehicle.status === 'manutencao') newWarnings.push("🔧 Em manutenção.");
+        setWarnings(newWarnings);
+
+        if (last && history[1]) {
+            const prevRefuel = history[1];
+            const litros = parseFloat(last.litrosAbastecidos || 0);
+            let diff = 0;
+            let unit = 'Km/L';
+
+            const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
+            if (allowed.includes('horimetro')) {
+                const lastHr = parseFloat(last.horimetro || 0); 
+                const prevHr = parseFloat(prevRefuel.horimetro || 0);
+                diff = lastHr - prevHr;
+                unit = 'L/Hr';
+            } else {
+                const lastKm = parseFloat(last.odometro || 0);
+                const prevKm = parseFloat(prevRefuel.odometro || 0);
+                diff = lastKm - prevKm;
+            }
+
+            if (diff > 0 && litros > 0) {
+                const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+                setLastAverage(`${avg.toFixed(2)} ${unit}`);
+            } else {
+                setLastAverage('Incalculável');
+            }
+        } else {
+            setLastAverage(null);
+        }
+    }, [selectedVehicle, obras, refuelings, isEditing, isSolicitacao, formData.employeeId, formData.obraId, formData.partnerId, formData.fuelType, formData.litrosLiberados]);
 
     useEffect(() => {
         setBlockReason(null);
@@ -299,7 +318,6 @@ const RefuelingOrderModal = ({
             const last = parseFloat(selectedVehicle.odometro || 0);
 
             if (!isNaN(current) && last > 0) {
-                 // Permitimos valores IGUAIS sem bloqueio (caso o valor sugerido e real sejam o mesmo do sistema)
                  if (current < last) reason = `Odômetro (${current}) menor que o atual (${last}).`;
                  else if (current - last > 1000) reason = `Salto excessivo de Km (> 1000).`;
             }
@@ -310,7 +328,6 @@ const RefuelingOrderModal = ({
             let last = parseFloat(selectedVehicle.horimetro || 0);
 
             if (!isNaN(current) && last > 0) {
-                // Permitimos valores IGUAIS sem bloqueio
                 if (current < last) reason = `Horímetro (${current}) menor que o atual (${last}).`;
                 else if (current - last > 50) reason = `Salto excessivo (> 50h).`;
             }
@@ -359,15 +376,11 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    // --- LÓGICA DE DISTRIBUIÇÃO INTELIGENTE (AGORA COM MAILTO) ---
     const processDistribution = async (orderData) => {
-        console.log(">>> [DEBUG] Iniciando Distribuição. Dados da Ordem:", orderData);
-
         const vehicle = vehicles.find(v => v.id === formData.vehicleId);
         const partner = partners.find(p => p.id === formData.partnerId);
         const employee = employees.find(e => e.id === formData.employeeId);
         
-        // 1. Dados Finais Formatados
         const finalData = orderData || {
             ...formData,
             id: orderToEdit?.id || 'PREVIEW',
@@ -376,26 +389,19 @@ const RefuelingOrderModal = ({
             vehicleInfo: `${vehicle?.modelo || ''} - ${vehicle?.placa || ''}`
         };
 
-        // 2. Verificar se tem email
         const partnerEmail = partner?.email;
         const hasEmail = partnerEmail && partnerEmail.includes('@');
 
-        if (!onGeneratePDF) {
-            console.error("Função onGeneratePDF não fornecida.");
-            return;
-        }
+        if (!onGeneratePDF) return;
 
         try {
-            // 3. Gerar PDF Blob e Fazer Upload (Para obter Link)
             const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
             
-            // Nome do Arquivo
             const emissionDateStr = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
             const safeDate = emissionDateStr.replace(/\//g, '-');
             const reCode = vehicle?.registroInterno || 'SN';
             const pdfFileName = `Autorizacao_${finalData.authNumber}_${reCode}_${safeDate}.pdf`;
 
-            // 4. Upload do PDF (Necessário para gerar o link que vai no email)
             const formDataUpload = new FormData();
             formDataUpload.append('file', pdfBlob, pdfFileName);
 
@@ -407,7 +413,6 @@ const RefuelingOrderModal = ({
                 return '';
             };
             
-            // Ajustar URL base da API
             let baseUrl = '';
             if (apiClient.defaults.baseURL) {
                 baseUrl = apiClient.defaults.baseURL.replace(/\/$/, '');
@@ -428,25 +433,18 @@ const RefuelingOrderModal = ({
             const uploadResult = await response.json();
             const pdfUrl = uploadResult.url;
             
-            // Construir Link Absoluto (Importante para o email externo)
             let absoluteLink = pdfUrl;
             if (pdfUrl && !pdfUrl.startsWith('http')) {
-                // Tenta pegar a base da URL da API ou da janela atual
                 let urlDomain = window.location.origin;
-                // Se a API estiver em outro domínio, idealmente usamos o domínio da API
                 if (baseUrl.startsWith('http')) {
                     urlDomain = baseUrl;
                 }
-                
-                
                 absoluteLink = `${urlDomain.replace('/api', '')}${pdfUrl.startsWith('/') ? '' : '/'}${pdfUrl}`;
             }
 
-            // 5. Decisão: Email (Cliente Local) ou WhatsApp
             if (hasEmail) {
                 setAlertMessage(`Abrindo E-mail para ${partnerEmail}...`);
                 
-                // Monta o corpo do email para o cliente local (Outlook/Thunderbird/Mail)
                 const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
                 const arlaMsg = formData.needsArla ? `\nArla 32: ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` : '';
                 const outrosMsgEmail = finalData.outros ? `\nOutros/Obs: ${finalData.outros}` : '';
@@ -476,22 +474,17 @@ Estão autorizados somente os itens discriminados na ordem de abastecimento. Qua
 Att,
 Equipe Frotas MAK`;
 
-                // Abre o cliente de email
                 window.location.href = `mailto:${partnerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-                
-                // Não abrimos o WhatsApp se foi por e-mail
                 return; 
             } else {
                  setAlertMessage("Posto sem e-mail. Abrindo WhatsApp...");
             }
 
-            // 6. Fallback para WhatsApp (se não tiver email)
             triggerWhatsApp(finalData, partner, vehicle, employee, absoluteLink);
 
         } catch (err) {
             console.error(">>> [DEBUG] Erro na Distribuição:", err);
             setAlertMessage("Erro ao processar envio. PDF gerado localmente.");
-            // Backup: Download direto se der erro no upload
             onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
         }
     };
@@ -503,12 +496,21 @@ Equipe Frotas MAK`;
             return;
         }
 
-        const allowedReadings = getAllowedReadingTypes(vehicle?.tipo);
+        const allowedReadings = vehicle ? getAllowedReadingTypes(vehicle.tipo) : [];
         let readingMsg = '';
-        if (allowedReadings.includes('odometro')) {
-             readingMsg = `*Hodômetro:* ${finalData.odometro ? finalData.odometro + ' Km' : 'N/A'}`;
+        const fOdo = parseFloat(finalData.odometro);
+        const fHori = parseFloat(finalData.horimetro);
+        
+        if (allowedReadings.includes('odometro') && fOdo > 0) {
+             readingMsg = `*Hodômetro:* ${fOdo} Km`;
+        } else if (allowedReadings.includes('horimetro') && fHori > 0) {
+             readingMsg = `*Horímetro:* ${fHori} Hr`;
+        } else if (fOdo > 0) {
+             readingMsg = `*Hodômetro:* ${fOdo} Km`;
+        } else if (fHori > 0) {
+             readingMsg = `*Horímetro:* ${fHori} Hr`;
         } else {
-             readingMsg = `*Horímetro:* ${finalData.horimetro ? finalData.horimetro + ' Hr' : 'N/A'}`;
+             readingMsg = `*Leitura:* N/A`;
         }
         
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
@@ -562,14 +564,20 @@ ${readingMsg}`;
         setShowPasswordModal(false);
 
         const safeFloat = (val) => {
+            if (val === null || val === undefined || val === '') return null;
             const num = parseFloat(val);
             return isNaN(num) ? null : num;
         };
 
+        // Geração Segura: Removemos proativamente leituras indesejadas que possam estar sujas no formulário
+        const allowed = selectedVehicle ? getAllowedReadingTypes(selectedVehicle.tipo) : [];
+        const finalOdometro = allowed.includes('odometro') ? safeFloat(formData.odometro) : null;
+        const finalHorimetro = allowed.includes('horimetro') ? safeFloat(formData.horimetro) : null;
+
         const payload = {
             ...formData,
-            odometro: safeFloat(formData.odometro),
-            horimetro: safeFloat(formData.horimetro),
+            odometro: finalOdometro,
+            horimetro: finalHorimetro,
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
@@ -606,7 +614,6 @@ ${readingMsg}`;
                     authNumber: res.authNumber || orderToEdit?.authNumber,
                     createdBy: user 
                  };
-                 // CHAMA O PROCESSO DE DISTRIBUIÇÃO INTELIGENTE
                  await processDistribution(fullOrderData);
             }
             onClose();
@@ -634,7 +641,7 @@ ${readingMsg}`;
                 <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-gray-700">Horímetro (Hr) *</label>
                     <input type="number" name="horimetro" value={formData.horimetro} onChange={handleChange} className="w-full p-1 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || 0}`}/>
-                    </div>
+                </div>
             );
         }
     };
@@ -678,7 +685,6 @@ ${readingMsg}`;
                             </select>
                         </div>
                         
-                        {/* CARD ÚLTIMO ABASTECIMENTO COMPACTO */}
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-1.5 rounded border border-gray-200 text-[10px] text-gray-600 flex justify-between items-center">
                                 <div>
@@ -722,7 +728,6 @@ ${readingMsg}`;
                             </select>
                         </div>
 
-                        {/* PROGRESSO FINANCEIRO */}
                         {obraStatus && (
                             <div className="p-2 bg-blue-50 border border-blue-200 rounded text-[10px]">
                                 <h4 className="font-bold text-blue-800 flex items-center gap-1 mb-1">
@@ -815,7 +820,6 @@ ${readingMsg}`;
 
                 <div className="p-2 border-t bg-gray-50 flex justify-end gap-2 rounded-b-xl shrink-0">
                     <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition">Cancelar</button>
-                    {/* Botão Condicional para Bloqueio */}
                     {blockReason || requiresBudgetOverride ? (
                         <button onClick={handleSaveClick} className="px-3 py-1.5 bg-red-500 text-white font-bold text-xs rounded shadow hover:bg-red-600 transition flex items-center gap-1">
                             <Lock size={12}/> Liberar
