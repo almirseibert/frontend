@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     Activity, Building, Truck, Users, CheckCircle, Wrench, ShieldAlert,
-    Maximize2, Loader
+    Maximize2, Loader, Calendar, Bell
 } from 'lucide-react';
 
 // Componentes Modularizados
@@ -10,6 +10,7 @@ import InactivityAlertModal from '../components/dashboard/InactivityAlertModal';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import ObraProgressBI from '../components/dashboard/ObraProgressBI';
 import FuelEfficiencyRanking from '../components/dashboard/FuelEfficiencyRanking';
+import AgendaModal from '../components/modals/AgendaModal'; // NOVO: Componente da Agenda
 
 const Dashboard = ({
     navigate,
@@ -26,6 +27,33 @@ const Dashboard = ({
     // Fetch local de alertas de inatividade (específico do dashboard)
     const [inactivityAlerts, setInactivityAlerts] = useState([]);
     const [loadingAlerts, setLoadingAlerts] = useState(true);
+
+    // ==========================================
+    // ESTADOS E FUNÇÕES DA NOVA AGENDA
+    // ==========================================
+    const [showAgenda, setShowAgenda] = useState(false);
+    const [notificacoesAgenda, setNotificacoesAgenda] = useState(0);
+
+    const carregarNotificacoesAgenda = async () => {
+        try {
+            // Usa o apiClient que vem por prop
+            if (apiClient && apiClient.get) {
+                const response = await apiClient.get('/api/agenda/notificacoes');
+                if (response.data) {
+                    setNotificacoesAgenda(response.data.length);
+                }
+            }
+        } catch (error) {
+            console.error("Erro ao buscar alertas da agenda:", error);
+        }
+    };
+
+    useEffect(() => {
+        carregarNotificacoesAgenda();
+        const intervalAgenda = setInterval(carregarNotificacoesAgenda, 300000); // 5 min
+        return () => clearInterval(intervalAgenda);
+    }, [apiClient]);
+    // ==========================================
 
     useEffect(() => {
         const fetchAlerts = async () => {
@@ -105,8 +133,20 @@ const Dashboard = ({
                     </h1>
                     <p className="text-sm text-gray-500">Visão Geral da Frota • {new Date().toLocaleDateString()}</p>
                 </div>
-                <button onClick={() => navigate('obras')} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2">
-                    <Building size={16}/> Gerenciar Obras
+                
+                {/* --- BOTÃO DA AGENDA (Substituindo o "Gerenciar Obras") --- */}
+                <button 
+                    onClick={() => setShowAgenda(true)} 
+                    className="relative bg-slate-800 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors shadow-sm flex items-center gap-2"
+                >
+                    <Calendar size={18}/> Agenda / Avisos
+                    
+                    {/* Sininho de Notificação Vermelho */}
+                    {notificacoesAgenda > 0 && (
+                        <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full animate-bounce shadow-md border-2 border-white z-10">
+                            {notificacoesAgenda}
+                        </span>
+                    )}
                 </button>
             </header>
 
@@ -210,6 +250,13 @@ const Dashboard = ({
                     onClose={() => setIsMapExpanded(false)} 
                 />
             )}
+            
+            {/* --- MODAL DA NOVA AGENDA --- */}
+            <AgendaModal 
+                isOpen={showAgenda} 
+                onClose={() => setShowAgenda(false)} 
+                onEventUpdate={carregarNotificacoesAgenda}
+            />
         </div>
     );
 };
