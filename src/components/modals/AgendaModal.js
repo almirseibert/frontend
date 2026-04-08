@@ -133,7 +133,8 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        /* CORREÇÃO AQUI: z-[9999] garante que a agenda fique por cima do mapa (Leaflet/Maps) */
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden animate-fade-in">
                 
                 {/* Header do Modal */}
@@ -180,7 +181,8 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
 
                 {/* --- SUB-MODAL: ADICIONAR EVENTO --- */}
                 {showAddModal && (
-                    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+                    /* CORREÇÃO AQUI: z-[10000] para o modal de adicionar tarefa não ficar oculto */
+                    <div className="fixed inset-0 bg-black/40 z-[10000] flex items-center justify-center p-4">
                         <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
                             <div className="p-4 border-b flex justify-between items-center bg-gray-50">
                                 <h2 className="text-lg font-bold text-gray-800">Nova Tarefa</h2>
@@ -224,7 +226,8 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
 
                 {/* --- SUB-MODAL: DETALHES DO EVENTO --- */}
                 {showDetailModal && selectedEvent && (
-                    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+                    /* CORREÇÃO AQUI: z-[10000] para o modal de detalhe ficar no topo */
+                    <div className="fixed inset-0 bg-black/40 z-[10000] flex items-center justify-center p-4">
                         <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
                             <div className="p-4 flex justify-between items-start" style={{ borderBottom: `4px solid ${selectedEvent.color_hex}` }}>
                                 <div>
