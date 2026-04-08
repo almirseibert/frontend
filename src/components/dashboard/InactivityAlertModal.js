@@ -187,7 +187,7 @@ const InactivityAlertModal = ({
 
     return (
         // Z-Index aumentado para 10000 para garantir que fique acima de tudo
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[10000] p-4 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[10] p-4 backdrop-blur-sm animate-fadeIn">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100 border border-gray-200">
                 {/* Header */}
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
