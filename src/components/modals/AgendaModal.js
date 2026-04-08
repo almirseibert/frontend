@@ -24,7 +24,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     const [description, setDescription] = useState('');
     const [eventDate, setEventDate] = useState('');
     const [eventTime, setEventTime] = useState('08:00');
-    const [colorHex, setColorHex] = useState('#22C55E'); // Verde
+    const [colorHex, setColorHex] = useState('#22C55E'); // Verde padrão
 
     useEffect(() => {
         if (isOpen) {
@@ -37,220 +37,243 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
             setLoading(true);
             const response = await apiClient.get('/agenda');
             
-            // Formatando para o react-big-calendar
-            const formatados = response.data.map(ev => {
-                const start = new Date(ev.event_datetime);
-                const end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hora visual
-                
-                return {
-                    id: ev.id,
-                    title: ev.title,
-                    start: start,
-                    end: end,
-                    is_completed: ev.is_completed,
-                    description: ev.description,
-                    color_hex: ev.color_hex,
-                    related_type: ev.related_type
-                };
-            });
-            
-            setEventos(formatados);
-            if(onEventUpdate) onEventUpdate(); // Atualiza o sininho no dashboard
+            // PROTEÇÃO ADICIONADA: Verifica se a resposta é de fato um Array
+            if (Array.isArray(response)) {
+                const formattedEvents = response.map(evento => ({
+                    ...evento,
+                    start: new Date(evento.event_datetime),
+                    end: new Date(evento.event_datetime), // Big Calendar precisa de start e end
+                    title: evento.title
+                }));
+                setEventos(formattedEvents);
+            } else {
+                console.warn('A API não retornou um array válido para a agenda:', response);
+                setEventos([]); // Evita o erro de .map mantendo um array vazio
+            }
         } catch (error) {
-            console.error('Erro ao buscar agenda:', error);
+            console.error("Erro ao buscar agenda:", error);
+            setEventos([]); // Em caso de erro HTTP (ex: 401 token expirado), protege a tela
         } finally {
             setLoading(false);
         }
     };
 
-    const handleAdicionarEvento = async (e) => {
+    const onSubmit = async (e) => {
         e.preventDefault();
         try {
-            const datetime = `${eventDate} ${eventTime}:00`;
+            const datetime = `${eventDate}T${eventTime}:00`;
             await apiClient.post('/agenda', {
-                title, description, event_datetime: datetime,
-                color_hex: colorHex, related_type: 'manual'
+                title,
+                description,
+                event_datetime: datetime,
+                color_hex: colorHex
             });
             
             setShowAddModal(false);
-            resetForm();
             carregarEventos();
+            if (onEventUpdate) onEventUpdate(); // Atualiza painel do dashboard se necessário
+            
+            // Limpar form
+            setTitle('');
+            setDescription('');
+            setEventDate('');
+            setEventTime('08:00');
         } catch (error) {
             console.error('Erro ao adicionar evento:', error);
-            alert('Erro ao criar evento.');
+            alert('Erro ao criar evento. Verifique sua conexão ou tente fazer login novamente.');
+        }
+    };
+
+    const excluirEvento = async (id) => {
+        if (!window.confirm('Tem certeza que deseja excluir este evento?')) return;
+        try {
+            await apiClient.delete(`/agenda/${id}`);
+            setShowDetailModal(false);
+            carregarEventos();
+            if (onEventUpdate) onEventUpdate();
+        } catch (error) {
+            console.error('Erro ao excluir evento:', error);
+            alert('Erro ao excluir evento.');
         }
     };
 
     const toggleConcluido = async (id, isCompleted) => {
         try {
-            await apiClient.patch(`/agenda/${id}/concluir`, { is_completed: !isCompleted });
+            await apiClient.put(`/agenda/${id}/concluir`, { is_completed: !isCompleted });
             setShowDetailModal(false);
             carregarEventos();
+            if (onEventUpdate) onEventUpdate();
         } catch (error) {
-            console.error('Erro ao atualizar status:', error);
+            console.error('Erro ao atualizar status do evento:', error);
         }
     };
 
-    const excluirEvento = async (id) => {
-        if (!window.confirm('Excluir este evento permanentemente?')) return;
-        try {
-            await apiClient.delete(`/agenda/${id}`);
-            setShowDetailModal(false);
-            carregarEventos();
-        } catch (error) {
-            console.error('Erro ao excluir:', error);
-        }
-    };
-
-    const resetForm = () => {
-        setTitle(''); setDescription(''); setEventDate(''); setEventTime('08:00'); setColorHex('#22C55E');
-    };
-
-    // Ações do Calendário
-    const handleSlotSelect = ({ start }) => {
-        setEventDate(moment(start).format('YYYY-MM-DD'));
-        setEventTime('08:00');
-        setShowAddModal(true);
-    };
-
-    const handleEventSelect = (evento) => {
-        setSelectedEvent(evento);
-        setShowDetailModal(true);
-    };
-
-    // Customização de Cores dos Eventos no Calendário
-    const eventPropGetter = (event) => ({
-        style: {
-            backgroundColor: event.color_hex || '#3B82F6',
+    // Estilização customizada para os blocos da agenda
+    const eventStyleGetter = (event) => {
+        let backgroundColor = event.color_hex || '#3B82F6';
+        let style = {
+            backgroundColor: backgroundColor,
+            borderRadius: '5px',
             opacity: event.is_completed ? 0.6 : 1,
-            textDecoration: event.is_completed ? 'line-through' : 'none',
-            border: 'none',
-            borderRadius: '4px',
-            color: '#fff'
-        }
-    });
+            color: 'white',
+            border: '0px',
+            display: 'block',
+            textDecoration: event.is_completed ? 'line-through' : 'none'
+        };
+        return { style };
+    };
 
     if (!isOpen) return null;
 
     return (
-        /* CORREÇÃO AQUI: z-[9999] garante que a agenda fique por cima do mapa (Leaflet/Maps) */
-        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden relative">
                 
-                {/* Header do Modal */}
-                <div className="bg-gray-800 p-4 flex justify-between items-center text-white shrink-0">
-                    <div className="flex items-center gap-3">
-                        <CalendarIcon className="w-6 h-6 text-blue-400" />
-                        <h2 className="text-xl font-bold">Agenda & Planejamento</h2>
+                {/* Header do Modal Principal */}
+                <div className="bg-blue-900 p-4 flex justify-between items-center text-white shrink-0">
+                    <div className="flex items-center gap-2">
+                        <CalendarIcon className="w-6 h-6 text-blue-300" />
+                        <h2 className="text-xl font-bold">Agenda & Lembretes</h2>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="flex gap-4">
                         <button 
-                            onClick={() => { resetForm(); setShowAddModal(true); }}
-                            className="bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm font-medium transition-colors"
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 hover:bg-blue-500 transition-colors px-4 py-2 rounded-lg text-sm font-semibold shadow flex items-center gap-2"
                         >
-                            <Plus className="w-4 h-4" /> Nova Tarefa
+                            <Plus className="w-4 h-4" /> Novo Evento
                         </button>
-                        <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded transition-colors">
+                        <button onClick={onClose} className="text-blue-200 hover:text-white transition-colors">
                             <X className="w-6 h-6" />
                         </button>
                     </div>
                 </div>
 
                 {/* Corpo (Calendário) */}
-                <div className="flex-1 p-4 overflow-hidden bg-gray-50">
+                <div className="flex-1 p-4 bg-gray-50 overflow-hidden">
                     {loading ? (
-                        <div className="flex h-full items-center justify-center text-gray-500">Carregando calendário...</div>
+                        <div className="w-full h-full flex justify-center items-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-900"></div>
+                        </div>
                     ) : (
-                        <Calendar
-                            localizer={localizer}
-                            events={eventos}
-                            startAccessor="start"
-                            endAccessor="end"
-                            selectable
-                            onSelectSlot={handleSlotSelect}
-                            onSelectEvent={handleEventSelect}
-                            eventPropGetter={eventPropGetter}
-                            messages={{
-                                next: "Próximo", previous: "Anterior", today: "Hoje",
-                                month: "Mês", week: "Semana", day: "Dia", agenda: "Lista"
-                            }}
-                            className="bg-white rounded-lg shadow-sm border p-4 h-full"
-                        />
+                        <div className="bg-white p-4 rounded-lg shadow h-full">
+                            <Calendar
+                                localizer={localizer}
+                                events={eventos}
+                                startAccessor="start"
+                                endAccessor="end"
+                                style={{ height: '100%' }}
+                                messages={{
+                                    next: "Próximo",
+                                    previous: "Anterior",
+                                    today: "Hoje",
+                                    month: "Mês",
+                                    week: "Semana",
+                                    day: "Dia",
+                                    agenda: "Lista",
+                                    noEventsInRange: "Nenhum evento neste período."
+                                }}
+                                eventPropGetter={eventStyleGetter}
+                                onSelectEvent={(event) => {
+                                    setSelectedEvent(event);
+                                    setShowDetailModal(true);
+                                }}
+                            />
+                        </div>
                     )}
                 </div>
 
-                {/* --- SUB-MODAL: ADICIONAR EVENTO --- */}
+                {/* MODAL: ADICIONAR EVENTO */}
                 {showAddModal && (
-                    /* CORREÇÃO AQUI: z-[10000] para o modal de adicionar tarefa não ficar oculto */
-                    <div className="fixed inset-0 bg-black/40 z-[10000] flex items-center justify-center p-4">
-                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                                <h2 className="text-lg font-bold text-gray-800">Nova Tarefa</h2>
-                                <button onClick={() => setShowAddModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40 p-4">
+                        <div className="bg-white rounded-xl w-full max-w-md shadow-2xl">
+                            <div className="flex justify-between items-center p-4 border-b">
+                                <h3 className="font-bold text-lg text-gray-800">Criar Novo Evento</h3>
+                                <button onClick={() => setShowAddModal(false)}><X className="text-gray-500 hover:text-red-500" /></button>
                             </div>
-                            <form onSubmit={handleAdicionarEvento} className="p-4 space-y-4">
+                            <form onSubmit={onSubmit} className="p-4 space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
-                                    <input type="text" required value={title} onChange={e => setTitle(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ex: Ligar para fornecedor..." />
+                                    <input 
+                                        type="text" required value={title} onChange={(e) => setTitle(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Ex: Revisão Trator 05"
+                                    />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-                                    <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" rows="2"></textarea>
-                                </div>
+                                
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
-                                        <input type="date" required value={eventDate} onChange={e => setEventDate(e.target.value)} className="w-full p-2 border rounded-lg" />
+                                        <input 
+                                            type="date" required value={eventDate} onChange={(e) => setEventDate(e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg p-2"
+                                        />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Hora</label>
-                                        <input type="time" required value={eventTime} onChange={e => setEventTime(e.target.value)} className="w-full p-2 border rounded-lg" />
+                                        <input 
+                                            type="time" required value={eventTime} onChange={(e) => setEventTime(e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg p-2"
+                                        />
                                     </div>
                                 </div>
+
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Cor (Categoria)</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição / Detalhes</label>
+                                    <textarea 
+                                        value={description} onChange={(e) => setDescription(e.target.value)} rows="3"
+                                        className="w-full border border-gray-300 rounded-lg p-2"
+                                    ></textarea>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Cor de Destaque</label>
                                     <div className="flex gap-3">
-                                        <button type="button" onClick={() => setColorHex('#22C55E')} className={`w-8 h-8 rounded-full bg-green-500 ${colorHex === '#22C55E' ? 'ring-2 ring-offset-2 ring-green-500' : ''}`} title="Comum" />
-                                        <button type="button" onClick={() => setColorHex('#3B82F6')} className={`w-8 h-8 rounded-full bg-blue-500 ${colorHex === '#3B82F6' ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`} title="Informativo" />
-                                        <button type="button" onClick={() => setColorHex('#EAB308')} className={`w-8 h-8 rounded-full bg-yellow-500 ${colorHex === '#EAB308' ? 'ring-2 ring-offset-2 ring-yellow-500' : ''}`} title="Atenção" />
-                                        <button type="button" onClick={() => setColorHex('#EF4444')} className={`w-8 h-8 rounded-full bg-red-500 ${colorHex === '#EF4444' ? 'ring-2 ring-offset-2 ring-red-500' : ''}`} title="Urgente" />
+                                        {['#22C55E', '#3B82F6', '#EAB308', '#EF4444', '#8B5CF6'].map(color => (
+                                            <button
+                                                key={color} type="button" onClick={() => setColorHex(color)}
+                                                className={`w-8 h-8 rounded-full border-2 ${colorHex === color ? 'border-gray-900 scale-110' : 'border-transparent'}`}
+                                                style={{ backgroundColor: color }}
+                                            />
+                                        ))}
                                     </div>
                                 </div>
-                                <div className="flex justify-end gap-2 mt-6">
-                                    <button type="submit" className="px-4 py-2 w-full bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Salvar Tarefa</button>
+
+                                <div className="flex justify-end gap-3 mt-6">
+                                    <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+                                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Salvar Evento</button>
                                 </div>
                             </form>
                         </div>
                     </div>
                 )}
 
-                {/* --- SUB-MODAL: DETALHES DO EVENTO --- */}
+                {/* MODAL: DETALHES DO EVENTO */}
                 {showDetailModal && selectedEvent && (
-                    /* CORREÇÃO AQUI: z-[10000] para o modal de detalhe ficar no topo */
-                    <div className="fixed inset-0 bg-black/40 z-[10000] flex items-center justify-center p-4">
-                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-                            <div className="p-4 flex justify-between items-start" style={{ borderBottom: `4px solid ${selectedEvent.color_hex}` }}>
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40 p-4">
+                        <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden shadow-2xl">
+                            <div className="p-4 border-b flex justify-between items-start" style={{ borderTop: `4px solid ${selectedEvent.color_hex || '#3B82F6'}` }}>
                                 <div>
-                                    <h2 className={`text-xl font-bold ${selectedEvent.is_completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                    <h3 className={`font-bold text-xl ${selectedEvent.is_completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
                                         {selectedEvent.title}
-                                    </h2>
-                                    <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                                    </h3>
+                                    <div className="flex items-center text-sm text-gray-500 mt-1 gap-1">
                                         <Clock className="w-4 h-4" />
                                         {moment(selectedEvent.start).format('DD/MM/YYYY [às] HH:mm')}
-                                    </p>
-                                </div>
-                                <button onClick={() => setShowDetailModal(false)} className="text-gray-400 hover:text-gray-600">
-                                    <X className="w-6 h-6" />
-                                </button>
-                            </div>
-                            <div className="p-4 space-y-4">
-                                {selectedEvent.description && (
-                                    <div className="bg-gray-50 p-3 rounded-lg text-gray-700 text-sm">
-                                        {selectedEvent.description}
                                     </div>
+                                </div>
+                                <button onClick={() => setShowDetailModal(false)}><X className="text-gray-400 hover:text-gray-700" /></button>
+                            </div>
+                            
+                            <div className="p-4">
+                                {selectedEvent.description ? (
+                                    <p className="text-gray-700 text-sm whitespace-pre-wrap">{selectedEvent.description}</p>
+                                ) : (
+                                    <p className="text-gray-400 text-sm italic">Nenhuma descrição informada.</p>
                                 )}
-                                
-                                <div className="flex justify-between items-center pt-4 border-t">
+                            </div>
+
+                            <div className="bg-gray-50 p-4 border-t">
+                                <div className="flex justify-between items-center">
                                     <button 
                                         onClick={() => excluirEvento(selectedEvent.id)}
                                         className="text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm font-medium"
@@ -260,14 +283,14 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
                                     
                                     <button 
                                         onClick={() => toggleConcluido(selectedEvent.id, selectedEvent.is_completed)}
-                                        className={`px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors ${
+                                        className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors ${
                                             selectedEvent.is_completed 
                                             ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' 
                                             : 'bg-green-500 text-white hover:bg-green-600'
                                         }`}
                                     >
-                                        <CheckCircle className="w-5 h-5" />
-                                        {selectedEvent.is_completed ? 'Desmarcar Concluído' : 'Marcar como Concluído'}
+                                        <CheckCircle className="w-4 h-4" />
+                                        {selectedEvent.is_completed ? 'Desmarcar' : 'Concluir'}
                                     </button>
                                 </div>
                             </div>
