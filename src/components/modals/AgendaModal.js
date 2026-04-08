@@ -35,7 +35,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     const carregarEventos = async () => {
         try {
             setLoading(true);
-            const response = await apiClient.get('/api/agenda');
+            const response = await apiClient.get('/agenda');
             
             // Formatando para o react-big-calendar
             const formatados = response.data.map(ev => {
@@ -67,7 +67,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
         e.preventDefault();
         try {
             const datetime = `${eventDate} ${eventTime}:00`;
-            await apiClient.post('/api/agenda', {
+            await apiClient.post('/agenda', {
                 title, description, event_datetime: datetime,
                 color_hex: colorHex, related_type: 'manual'
             });
@@ -83,7 +83,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
 
     const toggleConcluido = async (id, isCompleted) => {
         try {
-            await apiClient.patch(`/api/agenda/${id}/concluir`, { is_completed: !isCompleted });
+            await apiClient.patch(`/agenda/${id}/concluir`, { is_completed: !isCompleted });
             setShowDetailModal(false);
             carregarEventos();
         } catch (error) {
@@ -94,7 +94,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     const excluirEvento = async (id) => {
         if (!window.confirm('Excluir este evento permanentemente?')) return;
         try {
-            await apiClient.delete(`/api/agenda/${id}`);
+            await apiClient.delete(`/agenda/${id}`);
             setShowDetailModal(false);
             carregarEventos();
         } catch (error) {
