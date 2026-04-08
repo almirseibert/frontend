@@ -24,7 +24,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     const [description, setDescription] = useState('');
     const [eventDate, setEventDate] = useState('');
     const [eventTime, setEventTime] = useState('08:00');
-    const [reminderTime, setReminderTime] = useState('0'); // NOVO: Tempo de aviso
+    const [reminderTime, setReminderTime] = useState('0'); 
     const [colorHex, setColorHex] = useState('#22C55E'); // Verde padrão
 
     useEffect(() => {
@@ -60,12 +60,19 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     const onSubmit = async (e) => {
         e.preventDefault();
         try {
-            const datetime = `${eventDate}T${eventTime}:00`;
+            // ==============================================================
+            // CORREÇÃO DO FUSO HORÁRIO (GMT-3)
+            // O moment interpreta a data e hora digitadas no fuso local e
+            // exporta no formato ISO (UTC absoluto) garantindo que o 
+            // servidor salve o horário exato sem importar onde ele está hospedado.
+            // ==============================================================
+            const datetime = moment(`${eventDate} ${eventTime}`, 'YYYY-MM-DD HH:mm').toISOString();
+            
             await apiClient.post('/agenda', {
                 title,
                 description,
                 event_datetime: datetime,
-                reminder_time: parseInt(reminderTime, 10), // Envia a configuração de alerta
+                reminder_time: parseInt(reminderTime, 10), 
                 color_hex: colorHex
             });
             
@@ -215,7 +222,6 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
                                     </div>
                                 </div>
 
-                                {/* NOVO: SELETOR DE TEMPO DE AVISO */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Alertas e Lembretes</label>
                                     <select 
