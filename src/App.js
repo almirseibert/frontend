@@ -43,9 +43,11 @@ import {
     getVehicleMainReading
 } from './utils/vehicleRules';
 
-// --- Modais Globais (Simples) ---
+// ==========================================
+// Modais Globais
+// ==========================================
+
 const CustomAlert = ({ message, onClose }) => (
-    // Z-INDEX AUMENTADO PARA 99999 AQUI
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[99999]">
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md text-center">
             <pre className="text-base mb-6 whitespace-pre-wrap text-left font-sans text-gray-700">{message}</pre>
@@ -118,7 +120,6 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
     );
 };
 
-// --- Modal de Troca de Senha ---
 const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
@@ -128,7 +129,10 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
 
     useEffect(() => {
         if(isOpen) {
-            setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setMessage(null);
+            setCurrentPassword(''); 
+            setNewPassword(''); 
+            setConfirmPassword(''); 
+            setMessage(null);
         }
     }, [isOpen]);
 
@@ -200,7 +204,6 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
 };
 
 const UpdateMessageModal = ({ message, onClose }) => (
-    // Z-INDEX AUMENTADO PARA 99999 AQUI
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[99999]"> 
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-xl">
             <div className="flex justify-between items-center mb-4">
@@ -221,9 +224,7 @@ const UpdateMessageModal = ({ message, onClose }) => (
     </div>
 );
 
-// --- Componente de Notificação de Admin ---
 const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
-    // Z-INDEX AUMENTADO PARA 99999 AQUI
     <div className="fixed bottom-4 right-4 z-[99999] bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm animate-bounce-in">
         <div className="flex justify-between items-start">
             <div className="flex items-center gap-3">
@@ -251,7 +252,10 @@ const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
     </div>
 );
 
-// --- SIDEBAR (Otimizada e Compacta) ---
+// ==========================================
+// Componente da Sidebar
+// ==========================================
+
 const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     
@@ -275,7 +279,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
     
     return (
         <div className={`bg-slate-900 text-slate-300 shadow-xl transition-all duration-300 ease-in-out flex flex-col ${isCollapsed ? 'w-14' : 'w-56'} h-full z-20`}>
-            {/* Header Sidebar com Logo */}
             <div className="h-14 flex items-center justify-between px-3 border-b border-slate-700 bg-slate-950 shrink-0">
                 {!isCollapsed ? (
                      <img src="https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png" alt="MAK" className="h-8 object-contain" />
@@ -292,20 +295,20 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                 </button>
             </div>
             
-            {/* Nav Items */}
             <nav className="flex-1 overflow-y-auto custom-scrollbar py-2">
                 <ul className="space-y-1 px-2">
                     {navItems.map(item => {
                         const isAdmin = user.user_type === 'admin';
                         const canAccessRefuelingRelated = user.podeAcessarAbastecimento || isAdmin;
 
-                        // Filtros de acesso
-                        if ((item.id === 'refueling' || item.id === 'comboio' || item.id === 'admin_solicitacoes') && !canAccessRefuelingRelated) return null;
+                        if ((item.id === 'refueling' || item.id === 'comboio' || item.id === 'admin_solicitacoes') && !canAccessRefuelingRelated) {
+                            return null;
+                        }
                         
-                        // Filtro de restrição de papel (ex: dashboard supervisor)
-                        if (item.restricted && !item.restricted.includes(user.user_type) && user.user_type !== 'admin') return null;
+                        if (item.restricted && !item.restricted.includes(user.user_type) && user.user_type !== 'admin') {
+                            return null;
+                        }
                         
-                        // Mantém ativo se estiver no detalhe do supervisor
                         const isActive = currentPage === item.id || (item.id === 'supervisor_dashboard' && currentPage === 'supervisor_detail'); 
                         const isDimmed = item.dimmed;
 
@@ -325,7 +328,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                                     </span>
                                     {!isCollapsed && <span className="ml-3 text-xs font-bold truncate">{item.label}</span>}
                                     
-                                    {/* BADGE DE NOTIFICAÇÃO */}
                                     {item.badge > 0 && (
                                         <span className={`absolute ${isCollapsed ? 'top-0 right-0' : 'right-2'} bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm animate-pulse`}>
                                             {item.badge}
@@ -357,7 +359,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                 </ul>
             </nav>
             
-            {/* Footer Sidebar */}
             <div className="p-2 border-t border-slate-700 bg-slate-950 shrink-0">
                 <div className={`mb-2 px-2 flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
                     <div className="w-6 h-6 rounded-full bg-yellow-500 text-slate-900 flex items-center justify-center font-bold text-xs">
@@ -385,17 +386,18 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
     );
 };
 
-// --- APP CONTENT ---
+// ==========================================
+// Conteúdo Principal (App Content)
+// ==========================================
+
 const AppContent = () => {
     const { user, logout } = useAuth(); 
     const [currentPage, setCurrentPage] = useState('dashboard');
     const [pageFilter, setPageFilter] = useState(null); 
     const [alertMessage, setAlertMessage] = useState(''); 
-
-    // Estado para navegação na página de supervisor
     const [selectedObraId, setSelectedObraId] = useState(null);
 
-    // Dados Globais
+    // Estados Globais de Dados
     const [vehicles, setVehicles] = useState([]);
     const [obras, setObras] = useState([]);
     const [revisions, setRevisions] = useState([]);
@@ -408,16 +410,18 @@ const AppContent = () => {
     const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
     const [dailyWorkLogs, setDailyWorkLogs] = useState([]); 
     
+    // Estados de Interface e Modais
     const [loadingData, setLoadingData] = useState(true); 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); 
     const [pendingRequestsCount, setPendingRequestsCount] = useState(0); 
-    
-    // Novo Estado de Notificação de Solicitação de Abastecimento
     const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
+    
+    // Estado para os alertas em Real-Time da Agenda
+    const [agendaAlerts, setAgendaAlerts] = useState([]);
 
-    // --- SOCKET.IO IMPLEMENTAÇÃO ---
+    // Implementação do Socket.io
     useEffect(() => {
         const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
         const cleanSocketUrl = SOCKET_URL.replace('/api', '');
@@ -430,44 +434,83 @@ const AppContent = () => {
             console.log("🟢 Conectado ao servidor Socket.io");
         });
 
+        // Ouvinte de Alertas da Agenda
+        socket.on('agenda:alerta', (data) => {
+            if (!user) return;
+            const currentUserId = String(user.uid || user.id);
+            const eventUserId = String(data.userId);
+
+            if (currentUserId === eventUserId) {
+                // Tenta tocar o bipe, se não conseguir apenas exibe visualmente
+                try {
+                    const audio = new Audio('/beep.mp3'); 
+                    audio.play().catch(e => console.warn('Sem interação para áudio.', e)); 
+                } catch(e) {
+                    console.warn('Erro ao reproduzir áudio.', e);
+                }
+                
+                setAgendaAlerts(prev => [...prev, data]);
+            }
+        });
+
+        // Ouvinte de Sincronização em Lote
         socket.on('server:sync', async ({ targets }) => {
-            console.log("🔄 Recebido pedido de sincronização para:", targets);
-            
             if (!targets || !Array.isArray(targets)) return;
 
             const updateActions = {
                 'vehicles': () => apiClient.getVehicles().then(setVehicles),
                 'obras': () => apiClient.getObras().then(setObras),
                 'employees': () => apiClient.getEmployees().then(setEmployees),
-                'revisions': () => { if(user.user_type !== 'operador') apiClient.getRevisions().then(setRevisions) },
-                'partners': () => apiClient.getPartners().then(setRawPartners), // Operador agora precisa de Partners (Postos)
-                'refuelings': () => { if(user.podeAcessarAbastecimento || user.user_type === 'admin') apiClient.getRefuelings().then(setRefuelings) },
-                'comboio': () => { if(user.podeAcessarAbastecimento || user.user_type === 'admin') apiClient.getComboioTransactions().then(setRawComboioTransactions) },
-                'fines': () => { if(user.user_type !== 'operador') apiClient.getFines().then(setRawFines) },
-                'dailyWorkLogs': () => { if(user.user_type !== 'operador') apiClient.getDailyLogs('all').then(setDailyWorkLogs) },
-                'expenses': () => { if(user.user_type !== 'operador') apiClient.getExpenses().then(setExpenses) },
+                'revisions': () => { 
+                    if(user.user_type !== 'operador') {
+                        return apiClient.getRevisions().then(setRevisions);
+                    }
+                },
+                'partners': () => apiClient.getPartners().then(setRawPartners), 
+                'refuelings': () => { 
+                    if(user.podeAcessarAbastecimento || user.user_type === 'admin') {
+                        return apiClient.getRefuelings().then(setRefuelings);
+                    }
+                },
+                'comboio': () => { 
+                    if(user.podeAcessarAbastecimento || user.user_type === 'admin') {
+                        return apiClient.getComboioTransactions().then(setRawComboioTransactions);
+                    }
+                },
+                'fines': () => { 
+                    if(user.user_type !== 'operador') {
+                        return apiClient.getFines().then(setRawFines);
+                    }
+                },
+                'dailyWorkLogs': () => { 
+                    if(user.user_type !== 'operador') {
+                        return apiClient.getDailyLogs('all').then(setDailyWorkLogs);
+                    }
+                },
+                'expenses': () => { 
+                    if(user.user_type !== 'operador') {
+                        return apiClient.getExpenses().then(setExpenses);
+                    }
+                },
                 'solicitacoes': () => { 
-                    // Se for admin/gestor, pode querer atualizar contador de pendentes
                     if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
-                         apiClient.get('/solicitacoes?status=PENDENTE') // Supondo endpoint de contagem ou filtro
+                         return apiClient.get('/solicitacoes?status=PENDENTE')
                             .then(res => {
-                                // CORREÇÃO: Garante que res é array antes de filtrar
                                 const data = Array.isArray(res) ? res : (res.data || []);
                                 if (Array.isArray(data)) {
                                     setPendingSolicitacoesCount(data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length);
                                 }
-                            })
-                            .catch(console.error);
+                            }).catch(console.error);
                     }
                 }
             };
 
             for (const target of targets) {
                 if (updateActions[target]) {
-                    try {
-                        await updateActions[target]();
-                    } catch (error) {
-                        console.error(`Erro ao atualizar ${target} via socket:`, error);
+                    try { 
+                        await updateActions[target](); 
+                    } catch (error) { 
+                        console.error(`Erro ao sincronizar target ${target}:`, error); 
                     }
                 }
             }
@@ -477,13 +520,11 @@ const AppContent = () => {
         socket.on('admin:notificacao', (data) => {
             if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
                 if (data.tipo === 'nova_solicitacao' || data.tipo === 'baixa_pendente') {
-                    // Toca som de alerta
-                    try {
-                        const audio = new Audio('/beep.mp3'); // Certifique-se de ter este arquivo ou remove esta linha
-                        audio.play().catch(e => {}); 
+                    try { 
+                        const audio = new Audio('/beep.mp3'); 
+                        audio.play().catch(e => console.warn('Sem interação', e)); 
                     } catch(e) {}
                     
-                    // Incrementa contador visual
                     setPendingSolicitacoesCount(prev => prev + 1);
                 }
             }
@@ -493,15 +534,25 @@ const AppContent = () => {
             console.log("🔴 Desconectado do servidor Socket.io");
         });
 
-        return () => {
-            socket.disconnect();
+        return () => { 
+            socket.disconnect(); 
         };
     }, [user]);
 
-    const partners = React.useMemo(() => [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [rawPartners]);
-    const comboioTransactions = React.useMemo(() => [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime())), [rawComboioTransactions]);
-    const fines = React.useMemo(() => [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime())), [rawFines]);
+    // Memorizações de Dados para Otimização de Performance
+    const partners = React.useMemo(() => {
+        return [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || ''));
+    }, [rawPartners]);
 
+    const comboioTransactions = React.useMemo(() => {
+        return [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime()));
+    }, [rawComboioTransactions]);
+
+    const fines = React.useMemo(() => {
+        return [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime()));
+    }, [rawFines]);
+
+    // Processamento de Alertas de Veículos
     const processVehiclesWithAlerts = (vehiclesData, revisionsData, finesData) => {
         const now = new Date();
         const thirtyDaysFromNow = new Date();
@@ -511,13 +562,13 @@ const AppContent = () => {
             let hasAlert = false;
             let alertText = '';
 
-            // 1. Alerta de Circulação
+            // Bloqueio de Circulação
             if (vehicle.canCirculate === false || vehicle.canCirculate === 0 || vehicle.canCirculate === '0') { 
-                hasAlert = true;
+                hasAlert = true; 
                 alertText = `BLOQUEIO: O veículo não pode rodar (Doc/Manutenção).`;
             }
 
-            // 2. Alerta de Revisão
+            // Revisões
             const revision = revisionsData.find(r => r.vehicleId === vehicle.id); 
             if (revision && !hasAlert) {
                 const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
@@ -535,28 +586,29 @@ const AppContent = () => {
                 if (!metaLeitura && unit === 'Hr' && proximoOdometro) metaLeitura = proximoOdometro; 
 
                 if (proximaData && now >= proximaData) {
-                    hasAlert = true;
+                    hasAlert = true; 
                     alertText = 'Atenção: Revisão Vencida (Data)!';
                 } else if (proximaData && avisoDias > 0) {
                      const warningDate = new Date(proximaData);
                      warningDate.setDate(warningDate.getDate() - avisoDias);
-                     if (now >= warningDate) {
-                        hasAlert = true;
-                        alertText = 'Atenção: Revisão Próxima (Data)!';
+                     if (now >= warningDate) { 
+                         hasAlert = true; 
+                         alertText = 'Atenção: Revisão Próxima (Data)!'; 
                      }
                 }
 
                 if (!hasAlert && metaLeitura > 0) {
                      if (currentReading >= metaLeitura) {
-                         hasAlert = true;
+                         hasAlert = true; 
                          alertText = `Atenção: Revisão Vencida (${unit})!`;
                      } else if (avisoAntecedencia > 0 && currentReading >= (metaLeitura - avisoAntecedencia)) {
-                         hasAlert = true;
+                         hasAlert = true; 
                          alertText = `Atenção: Revisão Próxima (${unit})!`;
                      }
                 }
             }
 
+            // Documentos
             const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho'].includes(vehicle.tipo);
             if (isTruck && !hasAlert) {
                 const docs = [
@@ -570,21 +622,22 @@ const AppContent = () => {
                         const d = new Date(doc.date);
                         const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()); 
                         if (now > compareDate) {
-                            hasAlert = true;
-                            alertText = `Atenção: ${doc.type} Vencido!`;
+                            hasAlert = true; 
+                            alertText = `Atenção: ${doc.type} Vencido!`; 
                             break; 
                         } else if (compareDate <= thirtyDaysFromNow) {
-                            hasAlert = true;
+                            hasAlert = true; 
                             alertText = `Atenção: ${doc.type} Vence em breve!`;
                         }
                     }
                 }
             }
             
+            // Multas
             const hasPendingFine = finesData.some(fine => fine.vehicleId === vehicle.id && fine.paymentStatus === 'Pendente'); 
-            if(hasPendingFine && !hasAlert) {
-                hasAlert = true;
-                alertText = 'Atenção: Há multas pendentes para este veículo.';
+            if(hasPendingFine && !hasAlert) { 
+                hasAlert = true; 
+                alertText = 'Atenção: Há multas pendentes para este veículo.'; 
             }
 
             return { ...vehicle, possuiAviso: hasAlert, avisoTexto: alertText };
@@ -600,14 +653,17 @@ const AppContent = () => {
         setPageFilter(filter); 
     };
 
-    // Nova função para navegar para o detalhe da obra
-    const handleNavigateToObra = (obraId) => {
-        setSelectedObraId(obraId);
-        setCurrentPage('supervisor_detail');
+    const handleNavigateToObra = (obraId) => { 
+        setSelectedObraId(obraId); 
+        setCurrentPage('supervisor_detail'); 
     };
 
+    // Carregamento de Todos os Dados
     const loadAllData = React.useCallback(async () => {
-        if (!user) { setLoadingData(false); return; }
+        if (!user) { 
+            setLoadingData(false); 
+            return; 
+        }
         
         setLoadingData(true);
         setAlertMessage(''); 
@@ -627,10 +683,10 @@ const AppContent = () => {
         };
 
         if (user.user_type === 'operador') { 
-            delete dataEndpoints.revisions;
-            delete dataEndpoints.expenses;
+            delete dataEndpoints.revisions; 
+            delete dataEndpoints.expenses; 
             delete dataEndpoints.comboioTransactions;
-            delete dataEndpoints.fines;
+            delete dataEndpoints.fines; 
             delete dataEndpoints.dailyWorkLogs;
         }
 
@@ -644,120 +700,187 @@ const AppContent = () => {
                 }
             });
 
+            // Tratativas Adicionais de Admin / Atualizações do Sistema
             if (user.user_type === 'admin') {
                 try {
                     const updateMsg = await apiClient.adminGetUpdateMessage();
-                    if (updateMsg && updateMsg.showPopup) {
-                        setUpdateMessage(updateMsg.message);
-                        setShowUpdateModal(true);
+                    if (updateMsg && updateMsg.showPopup) { 
+                        setUpdateMessage(updateMsg.message); 
+                        setShowUpdateModal(true); 
                     }
-                } catch (e) { console.warn("Erro msg update", e); }
+                } catch (e) {
+                    console.warn("Erro ao buscar mensagem de update:", e);
+                }
 
                 try {
                     const requests = await apiClient.adminGetRegistrationRequests();
-                    if (requests && requests.length > 0) {
-                        setPendingRequestsCount(requests.length);
-                    } else {
-                        setPendingRequestsCount(0);
-                    }
-                } catch (e) { console.warn("Erro requests check", e); }
+                    setPendingRequestsCount(requests && requests.length > 0 ? requests.length : 0);
+                } catch (e) {
+                    console.warn("Erro ao buscar requisições de cadastro:", e);
+                }
             } else if (user.user_type !== 'operador') {
                  try {
                     const updateMsg = await apiClient.adminGetUpdateMessage();
-                    if (updateMsg && updateMsg.showPopup) {
-                        setUpdateMessage(updateMsg.message);
-                        setShowUpdateModal(true);
+                    if (updateMsg && updateMsg.showPopup) { 
+                        setUpdateMessage(updateMsg.message); 
+                        setShowUpdateModal(true); 
                     }
-                } catch (e) { console.warn("Erro msg update", e); }
+                } catch (e) {
+                    console.warn("Erro ao buscar mensagem de update:", e);
+                }
             }
 
-            // Atualizar contagem inicial de solicitações
+            // Busca solicitações pendentes no carregamento inicial
             if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
                  try {
                      const res = await apiClient.get('/solicitacoes');
-                     // CORREÇÃO: Tratamento para evitar "undefined.filter"
                      const data = Array.isArray(res) ? res : (res.data || []);
                      if (Array.isArray(data)) {
-                         const pending = data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length;
-                         setPendingSolicitacoesCount(pending);
+                         setPendingSolicitacoesCount(data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length);
                      }
-                 } catch(e) {}
+                 } catch(e) {
+                     console.warn("Erro ao carregar quantidade de solicitações:", e);
+                 }
             }
-
         } catch (error) {
-            console.error("Erro Fatal API:", error);
-            setAlertMessage("Erro de conexão com o servidor.");
-            if (error.message.includes('401')) logout();
+            console.error("Erro Fatal API no carregamento de dados:", error);
+            setAlertMessage("Erro de conexão com o servidor. Alguns dados podem não ter sido carregados.");
+            if (error.message.includes('401')) {
+                logout();
+            }
         } finally {
             setLoadingData(false);
         }
     }, [user, logout]); 
 
-    useEffect(() => { loadAllData(); }, [loadAllData]);
+    useEffect(() => { 
+        loadAllData(); 
+    }, [loadAllData]);
 
-    // --- LÓGICA DE RENDERIZAÇÃO DO OPERADOR (NOVA) ---
+    // Renderização Especial para Perfil de Operador
     if (user && user.user_type === 'operador') { 
-        if (loadingData) return <div className="flex justify-center items-center h-screen"><Loader className="animate-spin text-yellow-500" size={40} /></div>;
-        
-        // Operador agora acessa a página de Solicitação
+        if (loadingData) {
+            return (
+                <div className="flex justify-center items-center h-screen">
+                    <Loader className="animate-spin text-yellow-500" size={40} />
+                </div>
+            );
+        }
         return (
             <SolicitacaoAbastecimentoPage 
                 apiClient={apiClient} 
                 user={user} 
                 vehicles={vehicles} 
                 obras={obras} 
-                partners={partners}
-                setAlertMessage={setAlertMessage}
+                partners={partners} 
+                setAlertMessage={setAlertMessage} 
             />
         );
     }
 
     const renderPage = () => {
         const commonProps = { 
-            user, setAlertMessage, PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
-            ConfirmationModal, vehicleGroups, extraObraOptions, equipmentTypesForHours, operationalSubGroups,
-            apiClient, reloadData: loadAllData, navigate, 
+            user, 
+            setAlertMessage, 
+            PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
+            ConfirmationModal, 
+            vehicleGroups, 
+            extraObraOptions, 
+            equipmentTypesForHours, 
+            operationalSubGroups,
+            apiClient, 
+            reloadData: loadAllData, 
+            navigate, 
             vehicles: processedVehicles, 
-            obras, revisions, expenses, employees, partners, refuelings, comboioTransactions, fines, diarioDeBordoLogs,
+            obras, 
+            revisions, 
+            expenses, 
+            employees, 
+            partners, 
+            refuelings, 
+            comboioTransactions, 
+            fines, 
+            diarioDeBordoLogs, 
             dailyWorkLogs,
         };
-        
-        const Denied = () => <div className="p-10 text-center text-red-500 font-bold bg-white rounded shadow m-4">Acesso Negado</div>;
+
+        const Denied = () => (
+            <div className="p-10 text-center text-red-500 font-bold bg-white rounded shadow m-4">
+                Acesso Negado
+            </div>
+        );
 
         switch (currentPage) {
-            case 'dashboard': return <Dashboard {...commonProps} />;
-            
-            // --- MÓDULO SUPERVISOR ---
-            case 'supervisor_dashboard': return <SupervisorDashboard {...commonProps} onNavigateToDetail={handleNavigateToObra} />;
-            case 'supervisor_detail': return <SupervisorObraDetail obraId={selectedObraId} onBack={() => setCurrentPage('supervisor_dashboard')} />;
-            
-            case 'vehicles': return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
-            case 'obras': return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
-            case 'billing': return <BillingPage {...commonProps} />;
-            case 'controleDiario': return <ControleDiarioPage {...commonProps} />;
-            case 'revisions': return <RevisionsPage {...commonProps} />;
-            case 'partners': return <PartnersPage {...commonProps} />;
-            case 'refueling': return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <RefuelingPage {...commonProps} /> : <Denied />;
-            
-            // --- NOVA ROTA ---
-            case 'admin_solicitacoes': return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
-            
-            case 'orders': return <OrdersPage {...commonProps} />; 
-            case 'comboio': return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <ComboioPage {...commonProps} /> : <Denied />;
-            case 'expenses': return <ExpensesPage {...commonProps} />;
-            case 'employees': return <EmployeesPage {...commonProps} />;
-            case 'fines': return <FinesPage {...commonProps} />;
-            case 'tires': return <TiresPage {...commonProps} revisions={revisions} />; 
-            case 'reports': return <ReportsPage {...commonProps} />; 
-            case 'admin': return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />; 
-            default: return <Dashboard {...commonProps} />; 
+            case 'dashboard': 
+                return <Dashboard {...commonProps} />;
+            case 'supervisor_dashboard': 
+                return <SupervisorDashboard {...commonProps} onNavigateToDetail={handleNavigateToObra} />;
+            case 'supervisor_detail': 
+                return <SupervisorObraDetail obraId={selectedObraId} onBack={() => setCurrentPage('supervisor_dashboard')} />;
+            case 'vehicles': 
+                return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
+            case 'obras': 
+                return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
+            case 'billing': 
+                return <BillingPage {...commonProps} />;
+            case 'controleDiario': 
+                return <ControleDiarioPage {...commonProps} />;
+            case 'revisions': 
+                return <RevisionsPage {...commonProps} />;
+            case 'partners': 
+                return <PartnersPage {...commonProps} />;
+            case 'refueling': 
+                return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <RefuelingPage {...commonProps} /> : <Denied />;
+            case 'admin_solicitacoes': 
+                return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
+            case 'orders': 
+                return <OrdersPage {...commonProps} />; 
+            case 'comboio': 
+                return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <ComboioPage {...commonProps} /> : <Denied />;
+            case 'expenses': 
+                return <ExpensesPage {...commonProps} />;
+            case 'employees': 
+                return <EmployeesPage {...commonProps} />;
+            case 'fines': 
+                return <FinesPage {...commonProps} />;
+            case 'tires': 
+                return <TiresPage {...commonProps} revisions={revisions} />; 
+            case 'reports': 
+                return <ReportsPage {...commonProps} />; 
+            case 'admin': 
+                return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />; 
+            default: 
+                return <Dashboard {...commonProps} />; 
         }
     };
 
     return (
         <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
-            {showUpdateModal && updateMessage && <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />}
+            {showUpdateModal && updateMessage && (
+                <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />
+            )}
             
+            {/* RENDERIZAÇÃO DOS AVISOS REAL-TIME DA AGENDA */}
+            <div className="fixed top-20 right-4 z-[99999] flex flex-col gap-3">
+                {agendaAlerts.map((alerta, index) => (
+                    <div key={index} className="bg-white border-l-4 border-yellow-500 shadow-2xl rounded-lg p-4 w-80 animate-bounce-in relative">
+                        <button 
+                            onClick={() => setAgendaAlerts(prev => prev.filter((_, i) => i !== index))} 
+                            className="absolute top-2 right-2 text-gray-400 hover:text-gray-800 transition-colors"
+                        >
+                            <X size={16}/>
+                        </button>
+                        <div className="flex items-start gap-3 mt-1 text-gray-800">
+                            <Bell size={24} className="text-yellow-500 animate-pulse shrink-0" />
+                            <div>
+                                <h3 className="font-bold text-sm leading-tight">{alerta.title}</h3>
+                                <p className="text-xs mt-1 font-medium">{alerta.message}</p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
             {pendingRequestsCount > 0 && user.user_type === 'admin' && (
                 <AdminPendingRequestAlert 
                     pendingCount={pendingRequestsCount} 
@@ -772,7 +895,7 @@ const AppContent = () => {
                 user={user} 
                 logout={logout} 
                 onChangePassword={() => setShowChangePasswordModal(true)} 
-                pendingSolicitacoesCount={pendingSolicitacoesCount} // Passa contagem para Badge
+                pendingSolicitacoesCount={pendingSolicitacoesCount} 
             /> 
             
             <ChangePasswordModal 
@@ -783,24 +906,43 @@ const AppContent = () => {
 
             <main className="flex-1 flex flex-col relative overflow-hidden">
                 <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 bg-slate-100 scroll-smooth">
-                    {alertMessage && <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />}
+                    {alertMessage && (
+                        <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />
+                    )}
+                    
                     {loadingData ? (
                         <div className="flex items-center justify-center h-full text-lg font-semibold text-gray-500">
                             <Loader size={32} className="animate-spin mr-3 text-yellow-500" /> Sincronizando dados...
                         </div>
-                    ) : renderPage()}
+                    ) : (
+                        renderPage()
+                    )}
                 </div>
             </main>
         </div>
     );
 };
 
+// ==========================================
+// Roteador e Container Principal
+// ==========================================
+
 const AppRouter = () => {
     const { user, loading } = useAuth(); 
-    if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-100"><Loader size={40} className="animate-spin text-yellow-500" /></div>;
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-100">
+                <Loader size={40} className="animate-spin text-yellow-500" />
+            </div>
+        );
+    }
     return !user ? <LoginScreen apiClient={apiClient} /> : <AppContent />;
 };
 
 export default function AppContainer() {
-    return <AuthProvider><AppRouter /></AuthProvider>;
+    return (
+        <AuthProvider>
+            <AppRouter />
+        </AuthProvider>
+    );
 }

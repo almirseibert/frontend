@@ -4,7 +4,7 @@ import moment from 'moment';
 import 'moment/locale/pt-br';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import apiClient from '../../services/apiClient';
-import { X, Clock, CheckCircle, Trash2, Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { X, Clock, CheckCircle, Trash2, Plus, Calendar as CalendarIcon, Bell } from 'lucide-react';
 
 // Configura o Moment.js para Português
 moment.locale('pt-br');
@@ -24,6 +24,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
     const [description, setDescription] = useState('');
     const [eventDate, setEventDate] = useState('');
     const [eventTime, setEventTime] = useState('08:00');
+    const [reminderTime, setReminderTime] = useState('0'); // NOVO: Tempo de aviso
     const [colorHex, setColorHex] = useState('#22C55E'); // Verde padrão
 
     useEffect(() => {
@@ -37,22 +38,20 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
             setLoading(true);
             const response = await apiClient.get('/agenda');
             
-            // PROTEÇÃO ADICIONADA: Verifica se a resposta é de fato um Array
             if (Array.isArray(response)) {
                 const formattedEvents = response.map(evento => ({
                     ...evento,
                     start: new Date(evento.event_datetime),
-                    end: new Date(evento.event_datetime), // Big Calendar precisa de start e end
+                    end: new Date(evento.event_datetime), 
                     title: evento.title
                 }));
                 setEventos(formattedEvents);
             } else {
-                console.warn('A API não retornou um array válido para a agenda:', response);
-                setEventos([]); // Evita o erro de .map mantendo um array vazio
+                setEventos([]);
             }
         } catch (error) {
             console.error("Erro ao buscar agenda:", error);
-            setEventos([]); // Em caso de erro HTTP (ex: 401 token expirado), protege a tela
+            setEventos([]); 
         } finally {
             setLoading(false);
         }
@@ -66,18 +65,20 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
                 title,
                 description,
                 event_datetime: datetime,
+                reminder_time: parseInt(reminderTime, 10), // Envia a configuração de alerta
                 color_hex: colorHex
             });
             
             setShowAddModal(false);
             carregarEventos();
-            if (onEventUpdate) onEventUpdate(); // Atualiza painel do dashboard se necessário
+            if (onEventUpdate) onEventUpdate(); 
             
             // Limpar form
             setTitle('');
             setDescription('');
             setEventDate('');
             setEventTime('08:00');
+            setReminderTime('0');
         } catch (error) {
             console.error('Erro ao adicionar evento:', error);
             alert('Erro ao criar evento. Verifique sua conexão ou tente fazer login novamente.');
@@ -108,7 +109,6 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
         }
     };
 
-    // Estilização customizada para os blocos da agenda
     const eventStyleGetter = (event) => {
         let backgroundColor = event.color_hex || '#3B82F6';
         let style = {
@@ -129,7 +129,6 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden relative">
                 
-                {/* Header do Modal Principal */}
                 <div className="bg-blue-900 p-4 flex justify-between items-center text-white shrink-0">
                     <div className="flex items-center gap-2">
                         <CalendarIcon className="w-6 h-6 text-blue-300" />
@@ -148,7 +147,6 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
                     </div>
                 </div>
 
-                {/* Corpo (Calendário) */}
                 <div className="flex-1 p-4 bg-gray-50 overflow-hidden">
                     {loading ? (
                         <div className="w-full h-full flex justify-center items-center">
@@ -196,7 +194,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
                                     <input 
                                         type="text" required value={title} onChange={(e) => setTitle(e.target.value)}
                                         className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Ex: Revisão Trator 05"
+                                        placeholder="Ex: Reunião Operacional"
                                     />
                                 </div>
                                 
@@ -205,23 +203,39 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
                                         <input 
                                             type="date" required value={eventDate} onChange={(e) => setEventDate(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-lg p-2"
+                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Hora</label>
                                         <input 
                                             type="time" required value={eventTime} onChange={(e) => setEventTime(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-lg p-2"
+                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
                                         />
                                     </div>
+                                </div>
+
+                                {/* NOVO: SELETOR DE TEMPO DE AVISO */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Alertas e Lembretes</label>
+                                    <select 
+                                        value={reminderTime} 
+                                        onChange={(e) => setReminderTime(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                                    >
+                                        <option value="0">Apenas na hora do evento</option>
+                                        <option value="15">Avisar 15 minutos antes</option>
+                                        <option value="60">Avisar 1 hora antes</option>
+                                        <option value="1440">Avisar 1 dia antes</option>
+                                        <option value="-1">🔥 Evento Crítico (1 Dia, 1h, 15m e Na Hora)</option>
+                                    </select>
                                 </div>
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Descrição / Detalhes</label>
                                     <textarea 
-                                        value={description} onChange={(e) => setDescription(e.target.value)} rows="3"
-                                        className="w-full border border-gray-300 rounded-lg p-2"
+                                        value={description} onChange={(e) => setDescription(e.target.value)} rows="2"
+                                        className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
                                     ></textarea>
                                 </div>
 
