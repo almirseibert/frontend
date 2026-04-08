@@ -38,7 +38,7 @@ const Dashboard = ({
         try {
             // Usa o apiClient que vem por prop
             if (apiClient && apiClient.get) {
-                const response = await apiClient.get('/api/agenda/notificacoes');
+                const response = await apiClient.get('/agenda/notificacoes');
                 if (response.data) {
                     setNotificacoesAgenda(response.data.length);
                 }
