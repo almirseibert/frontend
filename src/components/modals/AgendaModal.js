@@ -184,7 +184,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
 
                 {/* MODAL: ADICIONAR EVENTO */}
                 {showAddModal && (
-                    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black bg-opacity-40 p-4">
+                    <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black bg-opacity-40 p-4">
                         <div className="bg-white rounded-xl w-full max-w-md shadow-2xl">
                             <div className="flex justify-between items-center p-4 border-b">
                                 <h3 className="font-bold text-lg text-gray-800">Criar Novo Evento</h3>
@@ -249,7 +249,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
 
                 {/* MODAL: DETALHES DO EVENTO */}
                 {showDetailModal && selectedEvent && (
-                    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black bg-opacity-40 p-4">
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-40 p-4">
                         <div className="bg-white rounded-xl w-full max-w-sm overflow-hidden shadow-2xl">
                             <div className="p-4 border-b flex justify-between items-start" style={{ borderTop: `4px solid ${selectedEvent.color_hex || '#3B82F6'}` }}>
                                 <div>
