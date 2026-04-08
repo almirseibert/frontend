@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Wrench, Fuel, Droplet, DollarSign, ShieldAlert,
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp // <--- TrendingUp adicionado
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp 
 } from 'lucide-react';
 
 // Importação do Socket.io Client
@@ -29,8 +29,8 @@ import OrdersPage from './pages/OrdersPage';
 import LoginScreen from './components/LoginScreen'; 
 import TiresPage from './pages/TiresPage'; 
 import BillingPage from './pages/BillingPage';
-import SupervisorDashboard from './pages/SupervisorDashboard'; // <--- MÓDULO SUPERVISOR
-import SupervisorObraDetail from './pages/SupervisorObraDetail'; // <--- MÓDULO SUPERVISOR DETALHE
+import SupervisorDashboard from './pages/SupervisorDashboard'; 
+import SupervisorObraDetail from './pages/SupervisorObraDetail'; 
 import SolicitacaoAbastecimentoPage from './pages/SolicitacaoAbastecimentoPage';
 import AdminSolicitacoesPage from './pages/AdminSolicitacoesPage';
 
@@ -45,7 +45,8 @@ import {
 
 // --- Modais Globais (Simples) ---
 const CustomAlert = ({ message, onClose }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
+    // Z-INDEX AUMENTADO PARA 99999 AQUI
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[99999]">
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md text-center">
             <pre className="text-base mb-6 whitespace-pre-wrap text-left font-sans text-gray-700">{message}</pre>
             <button onClick={onClose} className="py-2 px-6 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 transition-colors">OK</button>
@@ -199,7 +200,8 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
 };
 
 const UpdateMessageModal = ({ message, onClose }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]"> 
+    // Z-INDEX AUMENTADO PARA 99999 AQUI
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[99999]"> 
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-xl">
             <div className="flex justify-between items-center mb-4">
                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -221,7 +223,8 @@ const UpdateMessageModal = ({ message, onClose }) => (
 
 // --- Componente de Notificação de Admin ---
 const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
-    <div className="fixed bottom-4 right-4 z-[120] bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm animate-bounce-in">
+    // Z-INDEX AUMENTADO PARA 99999 AQUI
+    <div className="fixed bottom-4 right-4 z-[99999] bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm animate-bounce-in">
         <div className="flex justify-between items-start">
             <div className="flex items-center gap-3">
                 <div className="bg-blue-100 p-2 rounded-full text-blue-600">
@@ -254,18 +257,16 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
     
     const navItems = [
         { id: 'dashboard', label: 'Painel Geral', icon: <Building size={16} /> },
-        { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', icon: <TrendingUp size={16} />, restricted: ['admin', 'supervisor'] }, // <--- NOVO ITEM
+        { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', icon: <TrendingUp size={16} />, restricted: ['admin', 'supervisor'] }, 
         { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
         { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
-        //{ id: 'controleDiario', label: 'Controle Diário', icon: <CalendarClock size={16} />, dimmed: true },
         { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
         { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
         { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
         { id: 'admin_solicitacoes', label: 'Solicitações (App)', icon: <Smartphone size={16} />, badge: pendingSolicitacoesCount },
         { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
-        //{ id: 'orders', label: 'Compras/Serviços', icon: <ShoppingCart size={16}/>, dimmed: true },
         { id: 'expenses', label: 'Despesas', icon: <DollarSign size={16} /> },
         { id: 'employees', label: 'Funcionários', icon: <User size={16} /> },
         { id: 'fines', label: 'Multas', icon: <ShieldAlert size={16} /> },
@@ -628,8 +629,6 @@ const AppContent = () => {
         if (user.user_type === 'operador') { 
             delete dataEndpoints.revisions;
             delete dataEndpoints.expenses;
-            // ATENÇÃO: Operador AGORA PRECISA de partners (postos)
-            // delete dataEndpoints.partners; <-- REMOVIDO PARA PERMITIR CARREGAMENTO
             delete dataEndpoints.comboioTransactions;
             delete dataEndpoints.fines;
             delete dataEndpoints.dailyWorkLogs;

@@ -158,7 +158,8 @@ const AllocationMap = ({ obras = [], vehicles = [], vehicleGroups = {}, isExpand
 export const ExpandedMapModal = ({ obras, vehicles, vehicleGroups, onClose }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[40] p-4">
-            <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
+            {/* Adicionado 'isolate' aqui também para garantir */}
+            <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-7xl max-h-[90vh] flex flex-col isolate">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
                     <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                         <MapPin className="text-blue-600" /> Mapa de Alocação Expandido
@@ -166,8 +167,8 @@ export const ExpandedMapModal = ({ obras, vehicles, vehicleGroups, onClose }) =>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={24} /></button>
                 </div>
                 
-                {/* O z-0 foi adicionado aqui para "prender" as camadas do Leaflet dentro desta div */}
-                <div className="flex-1 relative bg-gray-100 z-0">
+                {/* Adicionado 'isolate' e 'overflow-hidden' para trancar o mapa */}
+                <div className="flex-1 relative bg-gray-100 isolate z-0 overflow-hidden">
                     <AllocationMap obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} isExpanded={true} />
                 </div>
             </div>
