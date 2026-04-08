@@ -165,7 +165,9 @@ export const ExpandedMapModal = ({ obras, vehicles, vehicleGroups, onClose }) =>
                     </h2>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200"><X size={24} /></button>
                 </div>
-                <div className="flex-1 relative bg-gray-100">
+                
+                {/* O z-0 foi adicionado aqui para "prender" as camadas do Leaflet dentro desta div */}
+                <div className="flex-1 relative bg-gray-100 z-0">
                     <AllocationMap obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} isExpanded={true} />
                 </div>
             </div>
