@@ -54,7 +54,7 @@ export default function AgendaModal({ isOpen, onClose, onEventUpdate }) {
             setLoading(false);
         }
     };
-
+      
     // Lógica Dinâmica de Limites dos Inputs
     const getMaxLimit = () => {
         switch(reminderUnit) {
