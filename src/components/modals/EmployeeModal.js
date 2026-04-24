@@ -219,7 +219,6 @@ const EmployeeModal = ({
                                     <option value="Auxiliar de Pavimentação">Auxiliar de Pavimentação</option>
                                     <option value="Borracheiro">Borracheiro</option>
                                     <option value="Eletricista Automotivo">Eletricista Automotivo</option>
-                                    <option value="Encarregado de Obras">Encarregado de Obras</option>
                                     <option value="Lavador">Lavador</option>
                                     <option value="Mecânico">Mecânico</option>
                                     <option value="Motorista">Motorista</option>

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, RefreshCw, Loader, AlertCircle, Truck, BarChart2, ArrowLeft, DollarSign, Activity } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, Loader, AlertCircle, Truck, BarChart2, ArrowLeft, DollarSign, Activity, Save } from 'lucide-react';
 import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
 import ContractConfigModal from '../components/supervisor/ContractConfigModal';
 import AllocationForecastPage from './AllocationForecastPage';
 
 // ============================================================================
-// COMPONENTE: BUSINESS INTELLIGENCE & PRODUTIVIDADE (NOVO)
+// COMPONENTE: BUSINESS INTELLIGENCE & PRODUTIVIDADE
 // ============================================================================
 const ProductionBI = ({ onBack }) => {
     const [obras, setObras] = useState([]);
@@ -14,36 +14,57 @@ const ProductionBI = ({ onBack }) => {
     const [filtroDias, setFiltroDias] = useState(15);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    
+    // Controlo dos Tickets
     const [ticketMedio, setTicketMedio] = useState({});
+    const [unsavedTickets, setUnsavedTickets] = useState(false);
+    const [isSavingTickets, setIsSavingTickets] = useState(false);
 
     // Carrega a listagem de obras para o Select
     useEffect(() => {
         apiClient.get('/supervisor/dashboard').then(res => setObras(res)).catch(console.error);
     }, []);
 
-    // Carrega os dados Analíticos com base no filtro
+    // Carrega os dados Analíticos + Configuração de Tickets salva no Banco de Dados
     useEffect(() => {
         setLoading(true);
-        apiClient.get(`/supervisor/analytics?obraId=${filtroObra}&dias=${filtroDias}`)
-            .then(res => {
-                setData(res);
-                // Preenche ticket médio padrão (120 R$/h) caso ainda não esteja configurado no state local
-                const newTicket = { ...ticketMedio };
-                let hasChanges = false;
-                Object.keys(res.frotaPorTipo).forEach(tipo => {
-                    if (newTicket[tipo] === undefined) {
-                        newTicket[tipo] = 120; 
-                        hasChanges = true;
-                    }
-                });
-                if (hasChanges) setTicketMedio(newTicket);
-            })
-            .catch(console.error)
-            .finally(() => setLoading(false));
+        Promise.all([
+            apiClient.get(`/supervisor/analytics?obraId=${filtroObra}&dias=${filtroDias}`),
+            apiClient.get('/supervisor/tickets') // Busca no BD os tickets guardados
+        ])
+        .then(([analyticsRes, ticketsRes]) => {
+            setData(analyticsRes);
+            
+            // Mescla os tickets da base de dados com possíveis novos tipos de máquinas
+            const newTicket = { ...ticketsRes };
+            Object.keys(analyticsRes.frotaPorTipo).forEach(tipo => {
+                if (newTicket[tipo] === undefined) {
+                    newTicket[tipo] = 120; // Default de fallback se não houver no banco
+                }
+            });
+            setTicketMedio(newTicket);
+            setUnsavedTickets(false); // Reseta o status de alterações pendentes
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
     }, [filtroObra, filtroDias]);
 
     const handleTicketChange = (tipo, value) => {
         setTicketMedio(prev => ({ ...prev, [tipo]: Number(value) }));
+        setUnsavedTickets(true); // Indica que houve alteração manual não guardada
+    };
+
+    const saveTicketsToDatabase = async () => {
+        setIsSavingTickets(true);
+        try {
+            await apiClient.post('/supervisor/tickets', { tickets: ticketMedio });
+            setUnsavedTickets(false);
+        } catch (error) {
+            console.error("Erro ao guardar tickets:", error);
+            alert("Ocorreu um erro ao guardar os valores padrão.");
+        } finally {
+            setIsSavingTickets(false);
+        }
     };
 
     const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
@@ -82,6 +103,14 @@ const ProductionBI = ({ onBack }) => {
                 </div>
             </div>
 
+            {/* Aviso de Filtros Ativos para Transparência de Dados */}
+            <div className="mb-4 px-4 py-3 flex items-start gap-3 text-sm text-slate-600 bg-blue-50/50 rounded-xl border border-blue-100 shadow-sm">
+                <AlertCircle size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                <p>
+                    <strong>Filtros Automáticos do BI:</strong> Equipamentos inativos, veículos terceirizados, <i>Semirreboques</i> e <i>Caminhão Carroceria</i> foram removidos nativamente dos cálculos de capacidade para uma visualização produtiva precisa.
+                </p>
+            </div>
+
             {loading || !data ? (
                 <div className="flex flex-col items-center justify-center h-64">
                     <Loader size={48} className="animate-spin text-blue-600 mb-4" />
@@ -115,7 +144,6 @@ const ProductionBI = ({ onBack }) => {
 
                     {/* Gráfico de Barras com Tailwind Puro (Clean e Seguro) */}
                     {(() => {
-                        // Calcula o teto (Y max) com 15% de margem no topo do gráfico
                         const maxVal = Math.max(...data.chartData.map(d => Math.max(d.capacidade_alocada + d.capacidade_disponivel + d.capacidade_manutencao, d.horas_faturadas)), 10) * 1.15;
 
                         return (
@@ -125,7 +153,6 @@ const ProductionBI = ({ onBack }) => {
                                 </h3>
                                 
                                 <div className="relative h-72 flex items-end gap-2 border-b border-l border-slate-200 p-2 pb-0">
-                                    {/* Linha Verde: Capacidade Real Disponível */}
                                     <div 
                                         className="absolute left-0 w-full border-t-[3px] border-dashed border-green-500 z-0 flex items-center transition-all duration-500"
                                         style={{ bottom: `${((data.summary.capEmObra + data.summary.capDisponivel) / maxVal) * 100}%` }}
@@ -135,7 +162,6 @@ const ProductionBI = ({ onBack }) => {
                                         </span>
                                     </div>
 
-                                    {/* Linha Vermelha: Pico Máximo com Equipamentos em Manutenção */}
                                     {data.summary.capManutencao > 0 && (
                                         <div 
                                             className="absolute left-0 w-full border-t border-dotted border-red-400 z-0 flex items-center transition-all duration-500"
@@ -147,11 +173,10 @@ const ProductionBI = ({ onBack }) => {
                                         </div>
                                     )}
 
-                                    {/* Barras Azuis (Horas Executadas) */}
                                     {data.chartData.map((d, i) => {
                                         const height = (d.horas_faturadas / maxVal) * 100;
                                         const parts = d.date.split('-');
-                                        const dateStr = `${parts[2]}/${parts[1]}`; // Conversão segura DD/MM
+                                        const dateStr = `${parts[2]}/${parts[1]}`; 
                                         
                                         return (
                                             <div key={i} className="flex-1 flex flex-col justify-end items-center relative group h-full z-10">
@@ -159,7 +184,6 @@ const ProductionBI = ({ onBack }) => {
                                                     className="w-full max-w-[40px] bg-gradient-to-t from-blue-600 to-blue-400 rounded-t hover:from-blue-700 hover:to-blue-500 transition-all cursor-pointer relative shadow-sm border-t border-blue-300"
                                                     style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0' }}
                                                 >
-                                                    {/* Tooltip Dinâmica */}
                                                     <div className="opacity-0 group-hover:opacity-100 absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl whitespace-nowrap pointer-events-none z-20">
                                                         <p className="font-bold text-slate-300 mb-1">{dateStr}</p>
                                                         <p className="font-bold text-sm">Faturado: <span className="text-blue-300">{d.horas_faturadas.toFixed(1)}h</span></p>
@@ -180,7 +204,7 @@ const ProductionBI = ({ onBack }) => {
                         );
                     })()}
 
-                    {/* Financeiro / Ticket Médio Interativo */}
+                    {/* Financeiro / Ticket Médio Interativo e Persistente */}
                     {(() => {
                         let potencialDiario = 0;
                         let faturadoTotal = 0;
@@ -193,7 +217,23 @@ const ProductionBI = ({ onBack }) => {
 
                         return (
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                                <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><DollarSign size={20} className="text-yellow-600"/> Análise Financeira por Categoria</h3>
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                        <DollarSign size={20} className="text-yellow-600"/> Análise Financeira por Categoria
+                                    </h3>
+                                    
+                                    {/* Botão para Guardar na Base de Dados */}
+                                    {unsavedTickets && (
+                                        <button 
+                                            onClick={saveTicketsToDatabase}
+                                            disabled={isSavingTickets}
+                                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm flex items-center gap-2 transition-colors animate-pulse"
+                                        >
+                                            {isSavingTickets ? <Loader size={16} className="animate-spin" /> : <Save size={16} />}
+                                            Salvar Valores Padrão
+                                        </button>
+                                    )}
+                                </div>
                                 
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                                     <div className="lg:col-span-2 overflow-x-auto">
@@ -331,7 +371,6 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                 </div>
                 
                 <div className="flex gap-3 flex-wrap justify-center">
-                    {/* NOVO BOTÃO DE BI */}
                     <button 
                         onClick={() => setViewMode('bi')}
                         className="bg-slate-800 text-white hover:bg-slate-900 px-4 py-2 rounded-lg font-bold shadow-sm flex items-center gap-2 transition-all"
