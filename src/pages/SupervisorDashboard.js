@@ -82,6 +82,14 @@ const ProductionBI = ({ onBack }) => {
                 </div>
             </div>
 
+            {/* Aviso de Filtros Ativos para Transparência de Dados */}
+            <div className="mb-4 px-4 py-3 flex items-start gap-3 text-sm text-slate-600 bg-blue-50/50 rounded-xl border border-blue-100 shadow-sm">
+                <AlertCircle size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                <p>
+                    <strong>Filtros Automáticos do BI:</strong> Equipamentos inativos, veículos terceirizados, <i>Semirreboques</i> e <i>Caminhão Carroceria</i> foram removidos nativamente dos cálculos de capacidade para uma visualização produtiva precisa.
+                </p>
+            </div>
+
             {loading || !data ? (
                 <div className="flex flex-col items-center justify-center h-64">
                     <Loader size={48} className="animate-spin text-blue-600 mb-4" />
