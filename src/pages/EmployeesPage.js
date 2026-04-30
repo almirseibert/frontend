@@ -16,7 +16,11 @@ import {
     Phone,
     Hash,
     Truck,
-    CalendarCheck
+    CalendarCheck,
+    BellRing,
+    Stethoscope,
+    CalendarDays,
+    X
 } from 'lucide-react';
 
 // Imports dos Modais
@@ -32,6 +36,138 @@ const ProtectedComponent = ({ requiredPermission, user, children }) => {
     if (requiredRole === 'admin' && userRole !== 'admin') return null;
     if (requiredRole === 'editor' && !['admin', 'editor'].includes(userRole)) return null;
     return <>{children}</>;
+};
+
+// --- NOVO MODAL INLINE: EXAME TOXICOLÓGICO ---
+const ExamUpdateModal = ({ employee, onClose, apiClient, reloadData, setAlertMessage }) => {
+    const [dataExame, setDataExame] = useState('');
+    const [proximoVencimento, setProximoVencimento] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Sugere o vencimento para 2.5 anos (30 meses) ao selecionar a data do exame
+    const handleDataExameChange = (val) => {
+        setDataExame(val);
+        if (val) {
+            const dateObj = new Date(val);
+            dateObj.setMonth(dateObj.getMonth() + 30);
+            setProximoVencimento(dateObj.toISOString().split('T')[0]);
+        }
+    };
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await apiClient.post(`/employees/${employee.id}/toxicological-exam`, { dataExame, proximoVencimento });
+            setAlertMessage('Exame toxicológico atualizado e registrado na auditoria!');
+            reloadData();
+            onClose();
+        } catch (error) {
+            setAlertMessage('Erro ao atualizar exame.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in-up">
+                <div className="flex justify-between items-center p-4 border-b bg-gray-50">
+                    <h3 className="font-bold flex items-center gap-2"><Stethoscope className="text-blue-500" size={20}/> Registrar Exame</h3>
+                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded text-gray-500"><X size={20} /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                    <p className="text-sm text-gray-600">Atualizando para: <strong>{employee.nome}</strong></p>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Data Realização do Exame</label>
+                        <input type="date" value={dataExame} onChange={e => handleDataExameChange(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none text-sm"/>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Próximo Vencimento Sugerido (2.5 Anos)</label>
+                        <input type="date" value={proximoVencimento} onChange={e => setProximoVencimento(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none text-sm"/>
+                    </div>
+                </div>
+                <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-100 font-bold">Cancelar</button>
+                    <button onClick={handleSave} disabled={isSaving || !dataExame || !proximoVencimento} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm disabled:opacity-50">
+                        {isSaving ? 'Salvando...' : 'Confirmar e Salvar'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- NOVO MODAL INLINE: AFASTAMENTO / FÉRIAS ---
+const LeaveStatusModal = ({ employee, onClose, apiClient, reloadData, setAlertMessage }) => {
+    const [tipo, setTipo] = useState(employee.statusAfastamentoTipo || 'ferias');
+    const [dataTermino, setDataTermino] = useState(
+        employee.statusAfastamentoTermino ? new Date(employee.statusAfastamentoTermino).toISOString().split('T')[0] : ''
+    );
+    const [isSaving, setIsSaving] = useState(false);
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await apiClient.post(`/employees/${employee.id}/leave-status`, { tipo, dataTermino });
+            setAlertMessage('Status de afastamento atualizado!');
+            reloadData();
+            onClose();
+        } catch (error) {
+            setAlertMessage('Erro ao atualizar afastamento.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleRemove = async () => {
+        setIsSaving(true);
+        try {
+            await apiClient.post(`/employees/${employee.id}/leave-status`, { tipo: null, dataTermino: null });
+            setAlertMessage('Funcionário retornou às atividades normais!');
+            reloadData();
+            onClose();
+        } catch (error) {
+            setAlertMessage('Erro ao retornar funcionário.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in-up">
+                <div className="flex justify-between items-center p-4 border-b bg-gray-50">
+                    <h3 className="font-bold flex items-center gap-2"><CalendarDays className="text-orange-500" size={20}/> Gerenciar Afastamento</h3>
+                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded text-gray-500"><X size={20} /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                    <p className="text-sm text-gray-600">Configurando para: <strong>{employee.nome}</strong></p>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Motivo / Tipo</label>
+                        <select value={tipo} onChange={e => setTipo(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none text-sm">
+                            <option value="ferias">Férias</option>
+                            <option value="atestado">Atestado / Licença</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Data Prevista de Retorno (Fim do Prazo)</label>
+                        <input type="date" value={dataTermino} onChange={e => setDataTermino(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none text-sm"/>
+                    </div>
+                </div>
+                <div className="p-4 border-t bg-gray-50 flex justify-between gap-2">
+                    {employee.statusAfastamentoTipo ? (
+                        <button onClick={handleRemove} disabled={isSaving} className="px-4 py-2 border border-green-500 text-green-700 hover:bg-green-50 font-bold rounded-lg text-sm">Finalizar Antecipado</button>
+                    ) : <div></div>}
+                    <div className="flex gap-2">
+                        <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-100 font-bold">Cancelar</button>
+                        <button onClick={handleSave} disabled={isSaving || !dataTermino} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg text-sm disabled:opacity-50">
+                            {isSaving ? 'Salvando...' : 'Aplicar'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const EmployeesPage = ({ 
@@ -62,9 +198,13 @@ const EmployeesPage = ({
     const [employeeForStatusChange, setEmployeeForStatusChange] = useState(null);
     const [employeeToDelete, setEmployeeToDelete] = useState(null);
 
+    // Novos Modais de RH
+    const [examModalEmp, setExamModalEmp] = useState(null);
+    const [leaveModalEmp, setLeaveModalEmp] = useState(null);
+
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // --- CÁLCULO DE DIAS DISPONÍVEIS ---
+    // --- CÁLCULO DE DIAS DISPONÍVEIS (MANTIDO) ---
     const calculateDaysAvailable = (lastDate) => {
         if (!lastDate) return 0;
         const end = new Date(lastDate);
@@ -74,12 +214,10 @@ const EmployeesPage = ({
         return diffDays;
     };
 
-    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (LÊ DO BACKEND PRIMEIRO) ---
+    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (MANTIDA) ---
     const getAllocationInfo = (employeeId) => {
         const emp = employees.find(e => e.id === employeeId);
         
-        // 1. Prioridade: Dados calculados pelo Backend (Obras + Operacional)
-        // Isso garante que o RE apareça mesmo se o veículo não estiver na lista local 'vehicles'
         if (emp && emp.alocacaoAtual && emp.alocacaoAtual.isAllocated) {
             return {
                 status: 'alocado',
@@ -87,12 +225,10 @@ const EmployeesPage = ({
             };
         }
 
-        // 2. Fallback: Verificação local (caso o backend não tenha enviado ou para dados recém-atualizados sem reload)
         if (!vehicles || vehicles.length === 0) return { status: 'disponivel', description: 'Disponível' };
 
         const allocatedVehicles = vehicles.filter(v => {
             let isAssigned = false;
-            // Verifica alocação operacional manual
             if (v.operationalAssignment) {
                 let assignment = v.operationalAssignment;
                 if (typeof assignment === 'string') {
@@ -102,7 +238,6 @@ const EmployeesPage = ({
                     isAssigned = true;
                 }
             }
-            // Verifica motorista fixo
             const isDriver = v.driverId && String(v.driverId) === String(employeeId);
             return isAssigned || isDriver;
         });
@@ -119,7 +254,7 @@ const EmployeesPage = ({
         return { status: 'disponivel', description: 'Disponível' };
     };
 
-    // --- LÓGICA DE DADOS ---
+    // --- LÓGICA DE DADOS (MANTIDA) ---
     const processedEmployees = useMemo(() => {
         return employees.filter(emp => {
             const searchLower = searchTerm.toLowerCase();
@@ -175,7 +310,7 @@ const EmployeesPage = ({
         setSortConfig({ key, direction });
     };
 
-    // --- AÇÕES ---
+    // --- AÇÕES (MANTIDAS) ---
     const handleDelete = async () => {
         if (employeeToDelete) {
             try {
@@ -315,13 +450,18 @@ const EmployeesPage = ({
                                 </th>
                                 <th className="p-4">Contato</th>
                                 <th className="p-4 text-center">Status / Alocação</th>
-                                <th className="p-4 text-center">Ações</th>
+                                <th className="p-4 text-center">Ações RH</th>
+                                <th className="p-4 text-center">Ações Gerais</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 text-sm">
                             {sortedEmployees.map(emp => {
                                 const allocation = getAllocationInfo(emp.id);
                                 const isInactive = emp.status && (emp.status.toLowerCase() === 'inativo' || emp.status.toLowerCase() === 'desligado');
+                                const isOnLeave = emp.statusAfastamentoTipo != null;
+                                
+                                // Verifica se retornou de férias há menos de 7 dias
+                                const returnedRecently = emp.dataRetornoAfastamento && Math.abs(new Date() - new Date(emp.dataRetornoAfastamento)) <= (7 * 86400000);
                                 
                                 // Cálculo de dias disponíveis
                                 const daysAvailable = allocation.status === 'disponivel' && emp.lastAllocationEnd 
@@ -329,13 +469,14 @@ const EmployeesPage = ({
                                     : 0;
 
                                 return (
-                                    <tr key={emp.id} className={`hover:bg-gray-50 transition-colors ${isInactive ? 'bg-gray-50/50' : ''}`}>
+                                    <tr key={emp.id} className={`hover:bg-gray-50 transition-colors ${isInactive ? 'bg-gray-50/50' : (isOnLeave ? 'bg-orange-50/30' : '')}`}>
                                         
                                         {/* Nome e Registro */}
                                         <td className="p-4 align-top">
-                                            <div className="font-bold text-gray-800 text-base">
+                                            <div className="font-bold text-gray-800 text-base flex items-center gap-2">
                                                 {emp.nome} 
                                                 {emp.vulgo && <span className="text-gray-500 font-normal ml-1">({emp.vulgo})</span>}
+                                                {returnedRecently && <BellRing size={16} className="text-blue-500 animate-pulse" title="Retornou de Afastamento Recentemente" />}
                                             </div>
                                             <div className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-1" title="Registro Interno">
                                                 <Hash size={10} />
@@ -374,6 +515,13 @@ const EmployeesPage = ({
                                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
                                                     Inativo
                                                  </span>
+                                            ) : isOnLeave ? (
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200">
+                                                        {emp.statusAfastamentoTipo}
+                                                    </span>
+                                                    {emp.statusAfastamentoTermino && <span className="text-[10px] text-gray-500">Volta: {new Date(emp.statusAfastamentoTermino).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</span>}
+                                                </div>
                                             ) : (
                                                 <div className="flex flex-col items-center gap-1">
                                                     {allocation.status === 'alocado' ? (
@@ -404,7 +552,19 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* Ações */}
+                                        {/* COLUNA: AÇÕES DE RH (NOVO) */}
+                                        <td className="p-4 align-top">
+                                            <div className="flex justify-center gap-1">
+                                                <button onClick={() => setExamModalEmp(emp)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Informar Exame Toxicológico">
+                                                    <Stethoscope size={18}/>
+                                                </button>
+                                                <button onClick={() => setLeaveModalEmp(emp)} className={`p-2 rounded-lg transition-colors ${isOnLeave ? 'text-orange-600 bg-orange-100' : 'text-orange-500 hover:bg-orange-50'}`} title="Gerenciar Férias / Afastamento">
+                                                    <CalendarDays size={18}/>
+                                                </button>
+                                            </div>
+                                        </td>
+
+                                        {/* COLUNA: AÇÕES GERAIS */}
                                         <td className="p-4 align-top">
                                             <div className="flex justify-center gap-1">
                                                 <button 
@@ -459,7 +619,7 @@ const EmployeesPage = ({
                             })}
                             {sortedEmployees.length === 0 && (
                                 <tr>
-                                    <td colSpan="6" className="text-center p-8 text-gray-400 italic">
+                                    <td colSpan="7" className="text-center p-8 text-gray-400 italic">
                                         Nenhum funcionário encontrado.
                                     </td>
                                 </tr>
@@ -469,7 +629,7 @@ const EmployeesPage = ({
                 </div>
             </div>
 
-            {/* Modais */}
+            {/* Modais Antigos */}
             {isModalOpen && (
                 <EmployeeModal 
                     user={user} 
@@ -511,6 +671,27 @@ const EmployeesPage = ({
                     onConfirm={handleDelete} 
                     onClose={() => setIsDeleteModalOpen(false)} 
                     apiClient={apiClient} 
+                />
+            )}
+
+            {/* Novos Modais RH */}
+            {examModalEmp && (
+                <ExamUpdateModal 
+                    employee={examModalEmp} 
+                    onClose={() => setExamModalEmp(null)} 
+                    apiClient={apiClient} 
+                    reloadData={reloadData} 
+                    setAlertMessage={setAlertMessage} 
+                />
+            )}
+
+            {leaveModalEmp && (
+                <LeaveStatusModal 
+                    employee={leaveModalEmp} 
+                    onClose={() => setLeaveModalEmp(null)} 
+                    apiClient={apiClient} 
+                    reloadData={reloadData} 
+                    setAlertMessage={setAlertMessage} 
                 />
             )}
         </div>
