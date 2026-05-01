@@ -45,6 +45,9 @@ const apiFetch = async (endpoint, options = {}) => {
 };
 
 const apiClient = {
+    // --- Upload Genérico (Usado em Funcionários e Multas) ---
+    uploadFile: async (formData) => apiFetch('/upload', { method: 'POST', body: formData }),
+
     // --- Autenticação ---
     login: async (email, password) => {
         return apiFetch('/auth/login', {
@@ -199,6 +202,7 @@ const apiClient = {
     createFine: async (data) => apiFetch('/fines', { method: 'POST', body: JSON.stringify(data) }),
     updateFine: async (id, data) => apiFetch(`/fines/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteFine: async (id) => apiFetch(`/fines/${id}`, { method: 'DELETE' }),
+    // (A rota .post(`/fines/${id}/notify`) é acessada dinamicamente via apiFetch, não precisando estar declarada no apiClient, mas usaremos post() padrão se necessário)
 
     // --- Diário de Bordo ---
     getDiarioDeBordo: async () => apiFetch('/diarioDeBordo'),
