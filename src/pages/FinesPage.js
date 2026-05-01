@@ -10,8 +10,7 @@ import {
     Printer,
     Send
 } from 'lucide-react';
-import jsPDF from 'jspdf'; // Certifique-se de ter instalado: npm install jspdf
-import apiClient from '../services/apiClient';
+import jsPDF from 'jspdf';
 import ProtectedComponent from '../components/ProtectedComponent';
 
 // ===================================================================================
@@ -27,7 +26,8 @@ const formatDate = (dateString) => {
 // ===================================================================================
 // FUNÇÃO GERADORA DE PDF (TERMO DE RESPONSABILIDADE)
 // ===================================================================================
-const generateFinePDF = (fineData, employee, vehicle) => {
+// Agora aceita 'returnBlob' para gerar o arquivo silenciosamente e enviar via API
+const generateFinePDF = (fineData, employee, vehicle, returnBlob = false) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 20;
@@ -66,8 +66,8 @@ const generateFinePDF = (fineData, employee, vehicle) => {
     const details = [
         `Veículo: ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - Placa: ${vehicle?.placa || 'N/A'}`,
         `Data da Infração: ${formatDate(fineData.dataInfração)}`,
-        `Local: ${fineData.local || 'Não informado'}`,
-        `Código/Descrição: ${fineData.codigoInfração || ''} - ${fineData.descricao}`,
+        `Local: ${fineData.local || fineData.localInfracao || 'Não informado'}`,
+        `Código/Descrição: ${fineData.codigoInfração || fineData.codigoInfracao || ''} - ${fineData.descricao}`,
         `Valor da Multa: R$ ${parseFloat(fineData.valor || 0).toFixed(2).replace('.', ',')}`
     ];
 
@@ -95,98 +95,50 @@ const generateFinePDF = (fineData, employee, vehicle) => {
     }
 
     // --- Aviso de Transferência (NIC) ---
-    // Exibe o aviso SE NÃO estiver no nome do funcionário
     if (!fineData.alreadyInEmployeeName) {
-        doc.setFillColor(255, 240, 240); // Fundo avermelhado leve
+        doc.setFillColor(255, 240, 240);
         doc.rect(margin, yPos - 5, pageWidth - (margin * 2), 45, 'F');
         
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(220, 0, 0); // Texto Vermelho
+        doc.setTextColor(220, 0, 0); 
         doc.text("⚠️ AVISO IMPORTANTE - TRANSFERÊNCIA DE PONTUAÇÃO", margin + 5, yPos);
         yPos += 8;
         
-        doc.setTextColor(0, 0, 0); // Texto Preto
+        doc.setTextColor(0, 0, 0); 
         doc.setFontSize(10);
-        const textNIC = "É OBRIGATÓRIA a assinatura do formulário de identificação do condutor infrator e a entrega da cópia da CNH ao departamento responsável dentro do prazo legal. \n\nA NÃO realização deste procedimento acarretará na penalidade de NIC (Não Indicação de Condutor), gerando uma NOVA MULTA de valor igual ou superior (multiplicado) à original, cujo custo TAMBÉM será repassado ao condutor responsável.";
+        const textNIC = "É OBRIGATÓRIA a assinatura do formulário de identificação do condutor infrator e a entrega da cópia da CNH ao departamento responsável dentro do prazo legal. \n\nA NÃO realização deste procedimento acarretará na penalidade de NIC (Não Indicação de Condutor), gerando uma NOVA MULTA de valor igual ou superior à original, cujo custo TAMBÉM será repassado ao condutor responsável.";
         
         const splitNIC = doc.splitTextToSize(textNIC, pageWidth - (margin * 2) - 10);
         doc.text(splitNIC, margin + 5, yPos);
         yPos += (splitNIC.length * 5) + 15;
     }
 
-    // --- Assinatura ---
-    yPos = 250; // Fixa no final da página
-    doc.line(margin + 20, yPos, pageWidth - margin - 20, yPos);
-    doc.setFontSize(10);
-    doc.text("Assinatura do Condutor", pageWidth / 2, yPos + 5, { align: "center" });
-    doc.text(`${employee?.nome || ''}`, pageWidth / 2, yPos + 10, { align: "center" });
+    // --- Validade Eletrônica (Substitui a Assinatura Física) ---
+    yPos = 245; 
+    doc.setFillColor(245, 245, 245);
+    doc.rect(margin, yPos - 5, pageWidth - (margin * 2), 28, 'F');
+    doc.setDrawColor(200);
+    doc.line(margin, yPos - 5, pageWidth - margin, yPos - 5);
     
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text("VALIDADE ELETRÔNICA (Notificação Digital)", pageWidth / 2, yPos, { align: "center" });
+    
+    doc.setFont("helvetica", "normal");
+    const textoEletronico = "Este termo foi gerado e enviado eletronicamente. A ciência e o recebimento desta notificação via sistema/WhatsApp corporativo suprem a necessidade de assinatura física para a devida autorização do desconto em folha de pagamento, estando em total conformidade com as normas e políticas da empresa.";
+    const splitEletronico = doc.splitTextToSize(textoEletronico, pageWidth - (margin * 2) - 10);
+    doc.text(splitEletronico, margin + 5, yPos + 6);
+
     // Data de Emissão
     doc.setFontSize(8);
     doc.text(`Documento gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, 280);
 
-    // Salvar/Abrir
-    window.open(doc.output('bloburl'), '_blank');
-};
-
-// ===================================================================================
-// FUNÇÃO WHATSAPP (NOTIFICAÇÃO) - CORRIGIDA
-// ===================================================================================
-const sendFineWhatsApp = (fineData, employee, vehicle, silent = false) => {
-    if (!employee) {
-        if (!silent) alert("Funcionário não identificado.");
-        return;
-    }
-
-    // Busca o telefone prioritariamente na coluna 'contato'
-    const rawPhone = employee.contato || employee.whatsapp || employee.telefone;
-
-    if (!rawPhone) {
-        if (!silent) alert(`O funcionário ${employee.nome} não possui número de contato cadastrado.`);
-        return;
-    }
-    
-    // Sanitização rigorosa: remove TUDO que não for número (espaços, (), -, etc)
-    const phone = rawPhone.replace(/\D/g, '');
-
-    // Verificação simples se sobrou algo válido
-    if (phone.length < 10) {
-        if (!silent) alert(`O número de telefone encontrado (${rawPhone}) parece incompleto ou inválido.`);
-        return;
-    }
-
-    const firstName = employee.nome ? employee.nome.split(' ')[0] : 'Colaborador';
-    
-    const msg = 
-`*NOTIFICAÇÃO DE INFRAÇÃO DE TRÂNSITO - FROTAS MAK*
-
-Olá, ${firstName}.
-Informamos que recebemos uma notificação de infração de trânsito vinculada a um veículo sob sua responsabilidade.
-
-*Detalhes da Infração:*
-🚗 *Veículo:* ${vehicle?.placa || 'N/A'} (${vehicle?.registroInterno || ''})
-📅 *Data:* ${formatDate(fineData.dataInfração)}
-📍 *Local:* ${fineData.local || 'Não informado'}
-📝 *Motivo:* ${fineData.descricao}
-💰 *Valor:* R$ ${parseFloat(fineData.valor || 0).toFixed(2).replace('.', ',')}
-
-*Atenção:*
-Esta multa será processada pelo RH conforme as políticas da empresa.
-Caso tenha dúvidas, divergências sobre a autoria ou não concorde com o desconto, favor entrar em contato com o setor de Frotas/RH *imediatamente*.
-
-${!fineData.alreadyInEmployeeName ? '⚠️ *IMPORTANTE:* Favor comparecer para assinar a indicação de condutor e evitar multas NIC (multa dobrada).' : ''}
-
-_Mensagem automática do Sistema Frotas MAK v2.0_`;
-
-    const url = `https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`;
-    
-    // Tenta abrir e avisa se bloqueado
-    const win = window.open(url, '_blank');
-    if (!win || win.closed || typeof win.closed === 'undefined') {
-        if (!silent) alert("O navegador bloqueou a abertura do WhatsApp. Por favor, habilite pop-ups para este site.");
+    if (returnBlob) {
+        return doc.output('blob');
+    } else {
+        window.open(doc.output('bloburl'), '_blank');
     }
 };
-
 
 // ===================================================================================
 // MODAL PARA EDITAR/ADICIONAR MULTA
@@ -201,7 +153,6 @@ const FineModal = ({
     apiClient,
     reloadData
 }) => {
-    // Estado inicial do formulário
     const [formData, setFormData] = useState({
         vehicleId: fine?.vehicleId || '',
         employeeId: fine?.employeeId || '',
@@ -212,7 +163,6 @@ const FineModal = ({
         valor: fine?.valor?.toString() || '',
         dataVencimento: fine?.dataVencimento ? new Date(fine.dataVencimento).toISOString().split('T')[0] : '',
         status: fine?.status || 'Pendente',
-        // NOVOS CAMPOS
         discountFromEmployee: fine?.discountFromEmployee || false,
         alreadyInEmployeeName: fine?.alreadyInEmployeeName || false
     });
@@ -269,30 +219,19 @@ const FineModal = ({
             reloadData();
             onClose();
 
-            // Ações Pós-Salvar (PDF e WhatsApp)
-            // Usa setTimeout para garantir que a UI atualize e o modal feche antes dos alertas
+            // Pós-salvar apenas pergunta sobre visualização do PDF.
+            // O envio via WhatsApp foi movido para um botão direto para maior controle durante os testes.
             setTimeout(() => {
-                const phoneField = employee.contato || employee.whatsapp || employee.telefone;
-                
-                // 1. PDF de Desconto/Transferência
                 if (formData.discountFromEmployee || !formData.alreadyInEmployeeName) {
-                    const confirmPDF = window.confirm("Multa salva! Deseja gerar o Termo de Responsabilidade/Cobrança agora?");
+                    const confirmPDF = window.confirm("Deseja visualizar o Termo de Responsabilidade Eletrônico agora?");
                     if (confirmPDF) {
-                        generateFinePDF(dataToSave, employee, vehicle);
-                    }
-                }
-
-                // 2. WhatsApp (Verifica se funcionário tem telefone antes de perguntar)
-                if (phoneField) {
-                    const confirmZap = window.confirm(`Deseja notificar ${employee.nome} via WhatsApp sobre esta multa?`);
-                    if (confirmZap) {
-                        sendFineWhatsApp(dataToSave, employee, vehicle);
+                        generateFinePDF(dataToSave, employee, vehicle, false);
                     }
                 }
             }, 500);
 
         } catch (err) {
-            console.error("Erro ao salvar multa via API:", err);
+            console.error("Erro ao salvar multa:", err);
             setError(err.message || "Ocorreu um erro ao salvar a multa.");
             setIsSaving(false);
         }
@@ -304,7 +243,6 @@ const FineModal = ({
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-2 sm:p-4 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col my-auto overflow-hidden">
-                {/* Cabeçalho */}
                 <div className="p-4 sm:p-5 border-b bg-gray-50 flex justify-between items-center sticky top-0 z-10">
                     <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={20}/> : <PlusCircle size={20}/>}
@@ -313,11 +251,8 @@ const FineModal = ({
                     <button onClick={onClose} className="p-2 rounded-full text-gray-500 hover:bg-gray-200 transition"><X size={20}/></button>
                 </div>
                 
-                {/* Formulário */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                        
-                        {/* Seção Principal */}
                         <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                              <div>
                                 <label className="block font-bold text-gray-700 mb-1">Veículo Infrator *</label>
@@ -337,7 +272,6 @@ const FineModal = ({
                             </div>
                         </div>
 
-                        {/* Dados da Multa */}
                         <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
                             <h3 className="md:col-span-3 text-xs font-bold text-gray-500 uppercase border-b pb-1 mb-1">Detalhes da Infração</h3>
                             
@@ -371,34 +305,21 @@ const FineModal = ({
                             </div>
                         </div>
 
-                        {/* Gestão RH (Novos Checkboxes) */}
                         <div className="md:col-span-2 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                              <h3 className="text-xs font-bold text-yellow-800 uppercase border-b border-yellow-200 pb-1 mb-2 flex items-center gap-2">
                                 <FileText size={14}/> Gestão Administrativa / RH
                              </h3>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <label className="flex items-start gap-2 cursor-pointer p-2 hover:bg-yellow-100 rounded transition">
-                                    <input 
-                                        type="checkbox" 
-                                        name="discountFromEmployee" 
-                                        checked={formData.discountFromEmployee} 
-                                        onChange={handleChange} 
-                                        className="mt-1 w-4 h-4 text-yellow-600 rounded focus:ring-yellow-500 border-gray-300"
-                                    />
+                                    <input type="checkbox" name="discountFromEmployee" checked={formData.discountFromEmployee} onChange={handleChange} className="mt-1 w-4 h-4 text-yellow-600 rounded focus:ring-yellow-500 border-gray-300" />
                                     <div>
                                         <span className="block font-bold text-gray-800">Descontar do Funcionário?</span>
-                                        <span className="text-xs text-gray-600">Gera termo de autorização de desconto em folha.</span>
+                                        <span className="text-xs text-gray-600">Gera termo de ciência e autorização eletrônica.</span>
                                     </div>
                                 </label>
 
                                 <label className="flex items-start gap-2 cursor-pointer p-2 hover:bg-yellow-100 rounded transition">
-                                    <input 
-                                        type="checkbox" 
-                                        name="alreadyInEmployeeName" 
-                                        checked={formData.alreadyInEmployeeName} 
-                                        onChange={handleChange} 
-                                        className="mt-1 w-4 h-4 text-yellow-600 rounded focus:ring-yellow-500 border-gray-300"
-                                    />
+                                    <input type="checkbox" name="alreadyInEmployeeName" checked={formData.alreadyInEmployeeName} onChange={handleChange} className="mt-1 w-4 h-4 text-yellow-600 rounded focus:ring-yellow-500 border-gray-300" />
                                     <div>
                                         <span className="block font-bold text-gray-800">Já está no nome do Condutor?</span>
                                         <span className="text-xs text-gray-600">Se marcado, remove o aviso de multa NIC do termo.</span>
@@ -416,10 +337,9 @@ const FineModal = ({
                     </div>
                 </form>
 
-                {/* Rodapé */}
                 <div className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row justify-end gap-3 sticky bottom-0 z-10">
                     <button type="button" onClick={onClose} className="px-5 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium transition w-full sm:w-auto">Cancelar</button>
-                    <button type="submit" onClick={handleSubmit} disabled={isSaving} className="px-5 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg hover:bg-yellow-500 shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto">
+                    <button type="submit" onClick={handleSubmit} disabled={isSaving} className="px-5 py-2.5 bg-yellow-400 text-gray-900 font-bold rounded-lg hover:bg-yellow-500 shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 w-full sm:w-auto">
                         {isSaving ? <><Loader className="animate-spin" size={18}/> Processando...</> : <><PlusCircle size={18}/> Salvar Multa</>}
                     </button>
                 </div>
@@ -442,6 +362,9 @@ const FinesPage = ({
     const [itemToDelete, setItemToDelete] = useState(null);
     const [filters, setFilters] = useState({ search: '', status: 'Pendente' });
     const [sortConfig, setSortConfig] = useState({ key: 'dataInfração', direction: 'descending' });
+    
+    // Controle de estado para carregamento individual do botão de WhatsApp
+    const [notifyingIds, setNotifyingIds] = useState(new Set());
 
     const requestSort = (key) => {
         let direction = 'ascending';
@@ -473,11 +396,53 @@ const FinesPage = ({
             setAlertMessage('Multa excluída com sucesso.');
             reloadData();
         } catch (error) {
-            console.error("Erro ao excluir multa via API:", error);
+            console.error("Erro ao excluir multa:", error);
             setAlertMessage(error.message || 'Falha ao excluir multa.');
         } finally {
             setIsDeleteModalOpen(false);
             setItemToDelete(null);
+        }
+    };
+
+    // --- NOVA FUNÇÃO DE ENVIO VIA API ---
+    const handleSendWhatsAppAPI = async (fine) => {
+        const employee = employees.find(e => e.id === fine.employeeId);
+        const vehicle = vehicles.find(v => v.id === fine.vehicleId);
+
+        if (!employee || (!employee.contato && !employee.telefone && !employee.whatsapp)) {
+            alert(`O funcionário não possui número de contato cadastrado.`);
+            return;
+        }
+
+        const confirmZap = window.confirm(`Deseja notificar ${employee.nome} via WhatsApp utilizando a API oficial Frotas MAK? (O Termo em PDF será anexado automaticamente)`);
+        if (!confirmZap) return;
+
+        setNotifyingIds(prev => new Set(prev).add(fine.id));
+
+        try {
+            // 1. Gera o PDF silenciosamente como Blob
+            const pdfBlob = generateFinePDF(fine, employee, vehicle, true);
+            const file = new File([pdfBlob], `Multa_${vehicle.placa}_FrotasMAK.pdf`, { type: 'application/pdf' });
+
+            // 2. Faz o Upload do PDF
+            const formData = new FormData();
+            formData.append('file', file);
+            const uploadRes = await apiClient.uploadFile(formData);
+            const pdfUrl = uploadRes.data?.url || uploadRes.url;
+
+            // 3. Aciona o novo endpoint da API que fará o envio da mensagem
+            await apiClient.post(`/fines/${fine.id}/notify`, { pdfUrl });
+
+            setAlertMessage('Notificação e Termo Eletrônico enviados com sucesso pelo WhatsApp!');
+        } catch (error) {
+            console.error("Erro ao notificar multa:", error);
+            setAlertMessage(`Erro ao notificar via WhatsApp: ${error.response?.data?.error || error.message}`);
+        } finally {
+            setNotifyingIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(fine.id);
+                return newSet;
+            });
         }
     };
 
@@ -600,7 +565,9 @@ const FinesPage = ({
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {processedFines.map(fine => (
+                            {processedFines.map(fine => {
+                                const isNotifying = notifyingIds.has(fine.id);
+                                return (
                                 <tr key={fine.id} className="bg-white hover:bg-yellow-50 transition-colors duration-150 group">
                                     <td className="px-6 py-4">
                                         <div className="font-bold text-gray-900">
@@ -646,24 +613,21 @@ const FinesPage = ({
                                                 onClick={() => {
                                                      const emp = employees.find(e => e.id === fine.employeeId);
                                                      const veh = vehicles.find(v => v.id === fine.vehicleId);
-                                                     generateFinePDF(fine, emp, veh);
+                                                     generateFinePDF(fine, emp, veh, false); // false = mostra visualização
                                                 }}
-                                                title="Gerar PDF Cobrança" 
+                                                title="Visualizar PDF" 
                                                 className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition"
                                             >
                                                 <Printer size={18} />
                                             </button>
                                             
                                             <button 
-                                                onClick={() => {
-                                                    const emp = employees.find(e => e.id === fine.employeeId);
-                                                    const veh = vehicles.find(v => v.id === fine.vehicleId);
-                                                    sendFineWhatsApp(fine, emp, veh);
-                                                }}
-                                                title="Enviar WhatsApp" 
-                                                className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"
+                                                onClick={() => handleSendWhatsAppAPI(fine)}
+                                                disabled={isNotifying}
+                                                title="Enviar WhatsApp via API c/ Anexo" 
+                                                className={`p-1.5 rounded-full transition ${isNotifying ? 'text-green-400' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
                                             >
-                                                <Send size={18} />
+                                                {isNotifying ? <Loader className="animate-spin" size={18} /> : <Send size={18} />}
                                             </button>
 
                                             <ProtectedComponent requiredPermission="editor">
@@ -675,7 +639,7 @@ const FinesPage = ({
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )})}
                             {processedFines.length === 0 && (
                                 <tr><td colSpan="6" className="text-center p-10 text-gray-500 italic">Nenhuma multa encontrada com os filtros atuais.</td></tr>
                             )}
