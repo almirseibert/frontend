@@ -29,7 +29,7 @@ const EmployeeModal = ({
         email: '',
         status: 'ativo',
         // CNH: Mapeamos para um objeto para facilitar a UI
-        cnh: { numero: '', categoria: '', validade: '', anexo: null },
+        cnh: { numero: '', categoria: '', validade: '', emissao: '', exameToxicologicoVencimento: '', anexo: null },
         // ASO: Nova aba
         aso: { dataEmissao: '', validade: '', anexo: null, observacao: '' },
         epi: { dataEntrega: '', anexo: null },
@@ -43,6 +43,10 @@ const EmployeeModal = ({
             const cnhNumero = cnhData.numero || employee.cnhNumero || '';
             const cnhCategoria = cnhData.categoria || employee.cnhCategoria || '';
             const cnhValidade = formatDateForInput(cnhData.validade || employee.cnhVencimento);
+            
+            // Novos campos RH (Emissão CNH e Toxicológico)
+            const cnhEmissao = formatDateForInput(employee.cnhEmissao);
+            const exameToxicologicoVencimento = formatDateForInput(employee.exameToxicologicoVencimento);
 
             setFormData({
                 nome: employee.nome || '',
@@ -63,6 +67,8 @@ const EmployeeModal = ({
                     numero: cnhNumero,
                     categoria: cnhCategoria,
                     validade: cnhValidade,
+                    emissao: cnhEmissao,
+                    exameToxicologicoVencimento: exameToxicologicoVencimento,
                     anexo: cnhData.anexo || null
                 },
                 
@@ -94,6 +100,23 @@ const EmployeeModal = ({
             ...prev,
             [section]: { ...prev[section], [field]: value }
         }));
+    };
+
+    // Handler especial para data de emissão da CNH para auto-sugerir toxicológico
+    const handleCnhEmissaoChange = (val) => {
+        setFormData(prev => {
+            const newData = { ...prev, cnh: { ...prev.cnh, emissao: val } };
+            
+            // Sugere vencimento de toxicológico 2.5 anos (30 meses) após a emissão
+            // APENAS se o campo de toxicológico ainda estiver vazio
+            if (val && !prev.cnh.exameToxicologicoVencimento) {
+                const dateObj = new Date(val);
+                dateObj.setMonth(dateObj.getMonth() + 30);
+                newData.cnh.exameToxicologicoVencimento = dateObj.toISOString().split('T')[0];
+            }
+            
+            return newData;
+        });
     };
 
     const handleFileUpload = async (e, section) => {
@@ -128,6 +151,8 @@ const EmployeeModal = ({
                 cnhNumero: formData.cnh.numero,
                 cnhCategoria: formData.cnh.categoria,
                 cnhVencimento: formData.cnh.validade,
+                cnhEmissao: formData.cnh.emissao,
+                exameToxicologicoVencimento: formData.cnh.exameToxicologicoVencimento
             };
 
             if (employee) {
@@ -160,7 +185,7 @@ const EmployeeModal = ({
                 <div className="flex border-b px-6 pt-2 bg-white sticky top-0 z-10">
                     {[
                         { id: 'dados', label: 'Dados Pessoais', icon: User },
-                        { id: 'cnh', label: 'CNH', icon: FileText },
+                        { id: 'cnh', label: 'CNH e Exames', icon: FileText },
                         { id: 'aso', label: 'Atestado Médico (ASO)', icon: Stethoscope },
                         { id: 'epi', label: 'EPIs', icon: Shield }
                     ].map(tab => (
@@ -254,7 +279,7 @@ const EmployeeModal = ({
                     {activeTab === 'cnh' && (
                         <div className="space-y-6 animate-fadeIn">
                             <div className="bg-blue-50 p-5 rounded-lg border border-blue-100">
-                                <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><FileText size={18}/> Dados da CNH</h3>
+                                <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><FileText size={18}/> Dados da CNH e Exame Toxicológico</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
                                         <label className="text-xs font-bold text-blue-700 uppercase mb-1">Número Registro</label>
@@ -265,9 +290,19 @@ const EmployeeModal = ({
                                         <input value={formData.cnh?.categoria || ''} onChange={e => handleNestedChange('cnh', 'categoria', e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white" placeholder="Ex: AE"/>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Vencimento</label>
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Data Emissão CNH</label>
+                                        <input type="date" value={formData.cnh?.emissao || ''} onChange={e => handleCnhEmissaoChange(e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white"/>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1">Vencimento CNH</label>
                                         <input type="date" value={formData.cnh?.validade || ''} onChange={e => handleNestedChange('cnh', 'validade', e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white"/>
                                     </div>
+                                    <div className="md:col-span-2">
+                                        <label className="text-xs font-bold text-blue-700 uppercase mb-1" title="Vencimento do Exame Toxicológico">Vencimento Toxicológico</label>
+                                        <input type="date" value={formData.cnh?.exameToxicologicoVencimento || ''} onChange={e => handleNestedChange('cnh', 'exameToxicologicoVencimento', e.target.value)} className="w-full p-2.5 border border-blue-200 rounded-lg bg-white"/>
+                                    </div>
+
                                     <div className="md:col-span-3 mt-2">
                                         <label className="text-xs font-bold text-blue-700 uppercase mb-1">Anexo CNH Digitalizada</label>
                                         <div className="flex gap-3 items-center bg-white p-3 rounded-lg border border-blue-200 border-dashed">

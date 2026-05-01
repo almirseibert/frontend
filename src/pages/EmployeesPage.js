@@ -18,7 +18,6 @@ import {
     Truck,
     CalendarCheck,
     BellRing,
-    Stethoscope,
     CalendarDays,
     X
 } from 'lucide-react';
@@ -38,66 +37,7 @@ const ProtectedComponent = ({ requiredPermission, user, children }) => {
     return <>{children}</>;
 };
 
-// --- NOVO MODAL INLINE: EXAME TOXICOLÓGICO ---
-const ExamUpdateModal = ({ employee, onClose, apiClient, reloadData, setAlertMessage }) => {
-    const [dataExame, setDataExame] = useState('');
-    const [proximoVencimento, setProximoVencimento] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
-
-    // Sugere o vencimento para 2.5 anos (30 meses) ao selecionar a data do exame
-    const handleDataExameChange = (val) => {
-        setDataExame(val);
-        if (val) {
-            const dateObj = new Date(val);
-            dateObj.setMonth(dateObj.getMonth() + 30);
-            setProximoVencimento(dateObj.toISOString().split('T')[0]);
-        }
-    };
-
-    const handleSave = async () => {
-        setIsSaving(true);
-        try {
-            await apiClient.post(`/employees/${employee.id}/toxicological-exam`, { dataExame, proximoVencimento });
-            setAlertMessage('Exame toxicológico atualizado e registrado na auditoria!');
-            reloadData();
-            onClose();
-        } catch (error) {
-            setAlertMessage('Erro ao atualizar exame.');
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in-up">
-                <div className="flex justify-between items-center p-4 border-b bg-gray-50">
-                    <h3 className="font-bold flex items-center gap-2"><Stethoscope className="text-blue-500" size={20}/> Registrar Exame</h3>
-                    <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded text-gray-500"><X size={20} /></button>
-                </div>
-                <div className="p-4 space-y-4">
-                    <p className="text-sm text-gray-600">Atualizando para: <strong>{employee.nome}</strong></p>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Data Realização do Exame</label>
-                        <input type="date" value={dataExame} onChange={e => handleDataExameChange(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none text-sm"/>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Próximo Vencimento Sugerido (2.5 Anos)</label>
-                        <input type="date" value={proximoVencimento} onChange={e => setProximoVencimento(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none text-sm"/>
-                    </div>
-                </div>
-                <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-100 font-bold">Cancelar</button>
-                    <button onClick={handleSave} disabled={isSaving || !dataExame || !proximoVencimento} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm disabled:opacity-50">
-                        {isSaving ? 'Salvando...' : 'Confirmar e Salvar'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- NOVO MODAL INLINE: AFASTAMENTO / FÉRIAS ---
+// --- MODAL INLINE: AFASTAMENTO / FÉRIAS ---
 const LeaveStatusModal = ({ employee, onClose, apiClient, reloadData, setAlertMessage }) => {
     const [tipo, setTipo] = useState(employee.statusAfastamentoTipo || 'ferias');
     const [dataTermino, setDataTermino] = useState(
@@ -198,13 +138,11 @@ const EmployeesPage = ({
     const [employeeForStatusChange, setEmployeeForStatusChange] = useState(null);
     const [employeeToDelete, setEmployeeToDelete] = useState(null);
 
-    // Novos Modais de RH
-    const [examModalEmp, setExamModalEmp] = useState(null);
+    // Modal RH
     const [leaveModalEmp, setLeaveModalEmp] = useState(null);
 
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // --- CÁLCULO DE DIAS DISPONÍVEIS (MANTIDO) ---
     const calculateDaysAvailable = (lastDate) => {
         if (!lastDate) return 0;
         const end = new Date(lastDate);
@@ -214,7 +152,6 @@ const EmployeesPage = ({
         return diffDays;
     };
 
-    // --- FUNÇÃO DE ALOCAÇÃO ATUALIZADA (MANTIDA) ---
     const getAllocationInfo = (employeeId) => {
         const emp = employees.find(e => e.id === employeeId);
         
@@ -254,7 +191,6 @@ const EmployeesPage = ({
         return { status: 'disponivel', description: 'Disponível' };
     };
 
-    // --- LÓGICA DE DADOS (MANTIDA) ---
     const processedEmployees = useMemo(() => {
         return employees.filter(emp => {
             const searchLower = searchTerm.toLowerCase();
@@ -310,7 +246,6 @@ const EmployeesPage = ({
         setSortConfig({ key, direction });
     };
 
-    // --- AÇÕES (MANTIDAS) ---
     const handleDelete = async () => {
         if (employeeToDelete) {
             try {
@@ -509,7 +444,7 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* Status e Alocação (ATUALIZADO) */}
+                                        {/* Status e Alocação */}
                                         <td className="p-4 align-top text-center">
                                             {isInactive ? (
                                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-red-100 text-red-700">
@@ -529,7 +464,6 @@ const EmployeesPage = ({
                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
                                                                 <Truck size={12}/> Alocado
                                                             </span>
-                                                            {/* Exibe o RE sem cortar o texto */}
                                                             <span className="text-xs text-gray-600 font-bold max-w-[160px] text-center" title={allocation.description}>
                                                                 {allocation.description}
                                                             </span>
@@ -552,12 +486,9 @@ const EmployeesPage = ({
                                             )}
                                         </td>
 
-                                        {/* COLUNA: AÇÕES DE RH (NOVO) */}
+                                        {/* COLUNA: AÇÕES DE RH (Afastamento mantido) */}
                                         <td className="p-4 align-top">
                                             <div className="flex justify-center gap-1">
-                                                <button onClick={() => setExamModalEmp(emp)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Informar Exame Toxicológico">
-                                                    <Stethoscope size={18}/>
-                                                </button>
                                                 <button onClick={() => setLeaveModalEmp(emp)} className={`p-2 rounded-lg transition-colors ${isOnLeave ? 'text-orange-600 bg-orange-100' : 'text-orange-500 hover:bg-orange-50'}`} title="Gerenciar Férias / Afastamento">
                                                     <CalendarDays size={18}/>
                                                 </button>
@@ -629,7 +560,7 @@ const EmployeesPage = ({
                 </div>
             </div>
 
-            {/* Modais Antigos */}
+            {/* Modais Gerais */}
             {isModalOpen && (
                 <EmployeeModal 
                     user={user} 
@@ -674,17 +605,7 @@ const EmployeesPage = ({
                 />
             )}
 
-            {/* Novos Modais RH */}
-            {examModalEmp && (
-                <ExamUpdateModal 
-                    employee={examModalEmp} 
-                    onClose={() => setExamModalEmp(null)} 
-                    apiClient={apiClient} 
-                    reloadData={reloadData} 
-                    setAlertMessage={setAlertMessage} 
-                />
-            )}
-
+            {/* Modal RH */}
             {leaveModalEmp && (
                 <LeaveStatusModal 
                     employee={leaveModalEmp} 
