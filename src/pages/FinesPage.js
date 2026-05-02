@@ -26,7 +26,7 @@ const formatDate = (dateString) => {
 // ===================================================================================
 // FUNÇÃO GERADORA DE PDF (TERMO DE RESPONSABILIDADE)
 // ===================================================================================
-// Agora aceita 'returnBlob' para gerar o arquivo silenciosamente e enviar via API
+// Aceita 'returnBlob' para gerar o arquivo silenciosamente e enviar via API
 const generateFinePDF = (fineData, employee, vehicle, returnBlob = false) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -113,7 +113,7 @@ const generateFinePDF = (fineData, employee, vehicle, returnBlob = false) => {
         yPos += (splitNIC.length * 5) + 15;
     }
 
-    // --- Validade Eletrônica (Substitui a Assinatura Física) ---
+    // --- Validade Eletrônica ---
     yPos = 245; 
     doc.setFillColor(245, 245, 245);
     doc.rect(margin, yPos - 5, pageWidth - (margin * 2), 28, 'F');
@@ -219,8 +219,7 @@ const FineModal = ({
             reloadData();
             onClose();
 
-            // Pós-salvar apenas pergunta sobre visualização do PDF.
-            // O envio via WhatsApp foi movido para um botão direto para maior controle durante os testes.
+            // Pós-salvar visualização do PDF.
             setTimeout(() => {
                 if (formData.discountFromEmployee || !formData.alreadyInEmployeeName) {
                     const confirmPDF = window.confirm("Deseja visualizar o Termo de Responsabilidade Eletrônico agora?");
@@ -363,7 +362,6 @@ const FinesPage = ({
     const [filters, setFilters] = useState({ search: '', status: 'Pendente' });
     const [sortConfig, setSortConfig] = useState({ key: 'dataInfração', direction: 'descending' });
     
-    // Controle de estado para carregamento individual do botão de WhatsApp
     const [notifyingIds, setNotifyingIds] = useState(new Set());
 
     const requestSort = (key) => {
@@ -404,13 +402,13 @@ const FinesPage = ({
         }
     };
 
-    // --- NOVA FUNÇÃO DE ENVIO VIA API ---
+    // --- NOVA FUNÇÃO DE ENVIO VIA API (Totalmente Independente) ---
     const handleSendWhatsAppAPI = async (fine) => {
         const employee = employees.find(e => e.id === fine.employeeId);
         const vehicle = vehicles.find(v => v.id === fine.vehicleId);
 
-        if (!employee || (!employee.contato && !employee.telefone && !employee.whatsapp)) {
-            alert(`O funcionário não possui número de contato cadastrado.`);
+        if (!employee || !employee.contato) {
+            alert(`O funcionário não possui número de contato cadastrado no sistema.`);
             return;
         }
 
@@ -424,13 +422,19 @@ const FinesPage = ({
             const pdfBlob = generateFinePDF(fine, employee, vehicle, true);
             const file = new File([pdfBlob], `Multa_${vehicle.placa}_FrotasMAK.pdf`, { type: 'application/pdf' });
 
-            // 2. Faz o Upload do PDF
+            // 2. Faz o Upload direto na Rota das Multas (Isolado e Seguro)
             const formData = new FormData();
             formData.append('file', file);
-            const uploadRes = await apiClient.uploadFile(formData);
+            
+            // Usamos post() genérico do apiClient para a nova rota interna das multas
+            const uploadRes = await apiClient.post('/fines/upload-pdf', formData);
             const pdfUrl = uploadRes.data?.url || uploadRes.url;
 
-            // 3. Aciona o novo endpoint da API que fará o envio da mensagem
+            if (!pdfUrl) {
+                 throw new Error("URL do PDF não foi gerada pelo servidor.");
+            }
+
+            // 3. Aciona a notificação com o anexo pronto
             await apiClient.post(`/fines/${fine.id}/notify`, { pdfUrl });
 
             setAlertMessage('Notificação e Termo Eletrônico enviados com sucesso pelo WhatsApp!');
@@ -613,7 +617,7 @@ const FinesPage = ({
                                                 onClick={() => {
                                                      const emp = employees.find(e => e.id === fine.employeeId);
                                                      const veh = vehicles.find(v => v.id === fine.vehicleId);
-                                                     generateFinePDF(fine, emp, veh, false); // false = mostra visualização
+                                                     generateFinePDF(fine, emp, veh, false); 
                                                 }}
                                                 title="Visualizar PDF" 
                                                 className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition"
