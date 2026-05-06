@@ -634,7 +634,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Fornecedor *</label>
                                 <SearchableSupplierSelect 
-                                    partners={partners} 
+                                    partners={partners.filter(p => p.tipo_parceiro === 'fornecedor')} 
                                     value={formData.supplierId} 
                                     onChange={(id, name) => setFormData({...formData, supplierId: id, supplier: name})} 
                                 />

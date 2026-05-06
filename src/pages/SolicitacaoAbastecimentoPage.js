@@ -1028,7 +1028,7 @@ const SolicitacaoAbastecimentoPage = ({
                             >
                                 <option value="">Selecione o Posto...</option>
                                 {partners
-                                    .filter(p => p.status_operacional !== 'BLOQUEADO')
+                                    .filter(p => p.status_operacional !== 'BLOQUEADO' && (!p.tipo_parceiro || p.tipo_parceiro === 'posto'))
                                     .map(p => (
                                     <option key={p.id} value={p.id}>{p.razaoSocial}</option>
                                 ))}
