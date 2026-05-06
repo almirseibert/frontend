@@ -1,38 +1,21 @@
 import React, { useState, useMemo } from 'react';
 import {
-    PlusCircle,
-    Edit,
-    Trash2,
-    FileText,
-    X,
-    Loader,
-    Droplet,
-    Truck,
-    Fuel,
-    Printer,
-    ChevronDown,
-    ChevronUp,
-    Save,
-    Ban, // Importado para Bloqueio
-    CheckCircle // Importado para Ativação
+    PlusCircle, Edit, Trash2, FileText, X, Loader, 
+    Droplet, Truck, Fuel, Printer, ChevronDown, ChevronUp,
+    Save, Ban, CheckCircle, PackageOpen
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// --- Página de Parceiros (Postos) ---
+// --- Página de Parceiros (Postos e Fornecedores) ---
 const PartnersPage = ({
-    user,
-    partners = [],
-    vehicles = [], 
-    refuelings = [],
-    comboioTransactions = [],
-    PasswordConfirmationModal,
-    setAlertMessage,
-    apiClient,
-    reloadData,
-    ConfirmationModal // Recebe Modal de Confirmação Simples (se disponível no App.js, senão usamos lógica local ou PasswordModal)
+    user, partners = [], vehicles = [], refuelings = [], comboioTransactions = [],
+    PasswordConfirmationModal, setAlertMessage, apiClient, reloadData, ConfirmationModal
 }) => {
+    // Abas de navegação
+    const [activeTab, setActiveTab] = useState('posto'); // 'posto' | 'fornecedor'
+
     // Estados
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -44,8 +27,6 @@ const PartnersPage = ({
     const [itemToDelete, setItemToDelete] = useState(null);
     const [partnerForReport, setPartnerForReport] = useState(null);
     const [partnerForPrices, setPartnerForPrices] = useState(null);
-    
-    // Novo Estado para Bloqueio/Desbloqueio
     const [partnerToToggleStatus, setPartnerToToggleStatus] = useState(null);
 
     // Estados para filtro e ordenação
@@ -63,22 +44,21 @@ const PartnersPage = ({
         if (!itemToDelete) return;
         try {
             await apiClient.deletePartner(itemToDelete.id);
-            setAlertMessage("Posto excluído com sucesso!");
+            setAlertMessage("Registro excluído com sucesso!");
             reloadData();
         } catch (error) {
-            console.error("Erro ao excluir posto:", error);
-            setAlertMessage(error.message || "Falha ao excluir o posto.");
+            console.error("Erro ao excluir:", error);
+            setAlertMessage(error.message || "Falha ao excluir.");
         } finally {
             setItemToDelete(null);
             setIsDeleteModalOpen(false);
         }
     };
 
-    // Toggle Status (Bloquear/Desbloquear)
+    // Toggle Status
     const handleToggleStatus = async () => {
         if (!partnerToToggleStatus) return;
         try {
-            // Se está BLOQUEADO, vira ATIVO. Se está null/ATIVO, vira BLOQUEADO.
             const novoStatus = partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? 'ATIVO' : 'BLOQUEADO';
             await apiClient.updatePartnerStatus(partnerToToggleStatus.id, novoStatus);
             setAlertMessage(`Parceiro ${novoStatus === 'ATIVO' ? 'ativado' : 'bloqueado'} com sucesso!`);
@@ -90,11 +70,17 @@ const PartnersPage = ({
         }
     };
 
-    // Lógica de Filtro e Ordenação
+    // Lógica de Filtro e Ordenação (Separando por Aba)
     const filteredAndSortedPartners = useMemo(() => {
         let filteredItems = [...(partners || [])];
 
-        // 1. Filtrar
+        // 0. Filtrar pela Aba Ativa (Se não tiver tipo, assume posto para retrocompatibilidade)
+        filteredItems = filteredItems.filter(p => {
+            const tipo = p.tipo_parceiro || 'posto';
+            return tipo === activeTab;
+        });
+
+        // 1. Filtrar texto
         if (filterText) {
             filteredItems = filteredItems.filter(partner =>
                 (partner.razaoSocial || '').toLowerCase().includes(filterText.toLowerCase()) ||
@@ -108,18 +94,13 @@ const PartnersPage = ({
             filteredItems.sort((a, b) => {
                 const aValue = a[sortConfig.key] || '';
                 const bValue = b[sortConfig.key] || '';
-                
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'ascending' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'ascending' ? 1 : -1;
-                }
+                if (aValue < bValue) return sortConfig.direction === 'ascending' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
             });
         }
         return filteredItems;
-    }, [partners, filterText, sortConfig]);
+    }, [partners, filterText, sortConfig, activeTab]);
 
     const requestSort = (key) => {
         let direction = 'ascending';
@@ -131,22 +112,36 @@ const PartnersPage = ({
 
     const getSortIcon = (key) => {
         if (sortConfig.key !== key) return null;
-        if (sortConfig.direction === 'ascending') {
-            return <ChevronUp size={14} className="ml-1" />;
-        }
+        if (sortConfig.direction === 'ascending') return <ChevronUp size={14} className="ml-1" />;
         return <ChevronDown size={14} className="ml-1" />;
     };
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fade-in">
             {/* Cabeçalho */}
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-                <h1 className="text-3xl font-bold text-gray-800">Postos e Parceiros</h1>
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                <h1 className="text-3xl font-bold text-gray-800">Postos & Fornecedores</h1>
                 <ProtectedComponent requiredPermission="editor">
                     <button onClick={() => openModal()} className="flex items-center gap-2 px-3 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow hover:bg-yellow-500 transition text-sm">
-                        <PlusCircle size={18} />Adicionar Posto
+                        <PlusCircle size={18} /> Cadastrar {activeTab === 'posto' ? 'Posto' : 'Fornecedor'}
                     </button>
                 </ProtectedComponent>
+            </div>
+
+            {/* ABAS */}
+            <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-lg pt-2 px-2 overflow-x-auto shadow-sm">
+                <button 
+                    onClick={() => setActiveTab('posto')} 
+                    className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'posto' ? 'border-b-2 border-yellow-500 text-yellow-600 bg-yellow-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                >
+                    <Droplet size={16} /> Postos de Combustível
+                </button>
+                <button 
+                    onClick={() => setActiveTab('fornecedor')} 
+                    className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'fornecedor' ? 'border-b-2 border-yellow-500 text-yellow-600 bg-yellow-50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                >
+                    <PackageOpen size={16} /> Peças & Serviços (Fornecedores)
+                </button>
             </div>
 
             {/* Filtro */}
@@ -160,9 +155,8 @@ const PartnersPage = ({
                 />
             </div>
 
-            {/* Lista de Postos */}
+            {/* Lista */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200">
-                {/* Cabeçalho Tabela Desktop */}
                 <div className="hidden md:grid grid-cols-8 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider">
                     <div className="col-span-2 cursor-pointer flex items-center" onClick={() => requestSort('razaoSocial')}>
                         Razão Social / Endereço {getSortIcon('razaoSocial')}
@@ -176,7 +170,6 @@ const PartnersPage = ({
                     <div className="col-span-2 text-center">Ações</div>
                 </div>
 
-                {/* Linhas */}
                 {filteredAndSortedPartners.map(partner => (
                     <div key={partner.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${partner.status_operacional === 'BLOQUEADO' ? 'bg-red-50' : ''}`}>
                         <div className="md:col-span-2">
@@ -184,14 +177,8 @@ const PartnersPage = ({
                             <p className="text-xs text-gray-500 mt-0.5">{partner.endereco}</p>
                             <p className="text-xs text-gray-400 mt-0.5">{partner.cnpj}</p>
                         </div>
-                        <div>
-                            <span className="font-medium text-gray-500 md:hidden">Cidade: </span>
-                            {partner.cidade}
-                        </div>
-                        <div>
-                             <span className="font-medium text-gray-500 md:hidden">WhatsApp: </span>
-                             {partner.whatsapp}
-                        </div>
+                        <div><span className="font-medium text-gray-500 md:hidden">Cidade: </span>{partner.cidade}</div>
+                        <div><span className="font-medium text-gray-500 md:hidden">WhatsApp: </span>{partner.whatsapp}</div>
                         <div>
                              <span className="font-medium text-gray-500 md:hidden">Contato: </span>
                              <span className="block truncate" title={`${partner.contatoResponsavel || ''} ${partner.telefone ? `(${partner.telefone})` : ''}`}>
@@ -200,34 +187,28 @@ const PartnersPage = ({
                         </div>
                         <div className="text-center">
                             {partner.status_operacional === 'BLOQUEADO' ? (
-                                <span className="inline-flex items-center gap-1 text-red-600 font-bold text-xs px-2 py-1 bg-red-100 rounded-full">
-                                    <Ban size={12}/> BLOQUEADO
-                                </span>
+                                <span className="inline-flex items-center gap-1 text-red-600 font-bold text-xs px-2 py-1 bg-red-100 rounded-full"><Ban size={12}/> BLOQUEADO</span>
                             ) : (
-                                <span className="inline-flex items-center gap-1 text-green-600 font-bold text-xs px-2 py-1 bg-green-100 rounded-full">
-                                    <CheckCircle size={12}/> ATIVO
-                                </span>
+                                <span className="inline-flex items-center gap-1 text-green-600 font-bold text-xs px-2 py-1 bg-green-100 rounded-full"><CheckCircle size={12}/> ATIVO</span>
                             )}
                         </div>
                         
                         <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center mt-2 md:mt-0">
-                            <button onClick={() => openReportModal(partner)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full transition-colors" title="Relatório de Abastecimentos"><FileText size={14} /></button>
+                            {activeTab === 'posto' && (
+                                <button onClick={() => openReportModal(partner)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full" title="Relatório de Abastecimentos"><FileText size={14} /></button>
+                            )}
                             <ProtectedComponent requiredPermission="editor">
-                                {/* Botão de Bloqueio/Desbloqueio */}
                                 <button 
                                     onClick={() => setPartnerToToggleStatus(partner)}
-                                    className={`p-1.5 rounded-full transition ${
-                                        partner.status_operacional === 'BLOQUEADO' 
-                                        ? 'text-green-600 hover:bg-green-100' 
-                                        : 'text-red-400 hover:text-red-600 hover:bg-red-100'
-                                    }`}
+                                    className={`p-1.5 rounded-full transition ${partner.status_operacional === 'BLOQUEADO' ? 'text-green-600 hover:bg-green-100' : 'text-red-400 hover:text-red-600 hover:bg-red-100'}`}
                                     title={partner.status_operacional === 'BLOQUEADO' ? "Desbloquear (Ativar)" : "Bloquear (Lista Negra)"}
                                 >
                                     {partner.status_operacional === 'BLOQUEADO' ? <CheckCircle size={14}/> : <Ban size={14}/>}
                                 </button>
-
-                                <button onClick={() => openPriceModal(partner)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full transition-colors" title="Valores Combustíveis"><Fuel size={14} /></button>
-                                <button onClick={() => openModal(partner)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full transition-colors" title="Editar"><Edit size={14} /></button>
+                                {activeTab === 'posto' && (
+                                    <button onClick={() => openPriceModal(partner)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-gray-100 rounded-full" title="Valores Combustíveis"><Fuel size={14} /></button>
+                                )}
+                                <button onClick={() => openModal(partner)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-full" title="Editar"><Edit size={14} /></button>
                             </ProtectedComponent>
                             <ProtectedComponent requiredPermission="admin">
                                 <button onClick={() => openDeleteModal(partner.id)} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-full"><Trash2 size={14}/></button>
@@ -236,81 +217,44 @@ const PartnersPage = ({
                     </div>
                 ))}
                 {filteredAndSortedPartners.length === 0 && (
-                    <p className="p-6 text-center text-gray-500 italic">Nenhum posto cadastrado.</p>
+                    <p className="p-6 text-center text-gray-500 italic">Nenhum registro encontrado nesta categoria.</p>
                 )}
             </div>
 
             {/* Modais */}
             {isModalOpen && (
-                <PartnerModal
-                    user={user}
-                    partner={editingPartner}
-                    onClose={() => setIsModalOpen(false)}
-                    apiClient={apiClient}
-                    reloadData={reloadData}
-                    setAlertMessage={setAlertMessage}
-                />
+                <PartnerModal user={user} partner={editingPartner} defaultTipo={activeTab} onClose={() => setIsModalOpen(false)} apiClient={apiClient} reloadData={reloadData} setAlertMessage={setAlertMessage} />
             )}
             {isPriceModalOpen && (
-                <FuelPriceModal
-                    user={user}
-                    partner={partnerForPrices}
-                    onClose={() => setIsPriceModalOpen(false)}
-                    apiClient={apiClient}
-                    reloadData={reloadData}
-                    setAlertMessage={setAlertMessage}
-                />
+                <FuelPriceModal user={user} partner={partnerForPrices} onClose={() => setIsPriceModalOpen(false)} apiClient={apiClient} reloadData={reloadData} setAlertMessage={setAlertMessage} />
             )}
             {isReportModalOpen && (
-                <RefuelingReportModal
-                    partner={partnerForReport}
-                    vehicles={vehicles}
-                    refuelings={refuelings}
-                    comboioTransactions={comboioTransactions}
-                    onClose={() => setIsReportModalOpen(false)}
-                    apiClient={apiClient}
-                    reloadData={reloadData} 
-                    setAlertMessage={setAlertMessage}
-                />
+                <RefuelingReportModal partner={partnerForReport} vehicles={vehicles} refuelings={refuelings} comboioTransactions={comboioTransactions} onClose={() => setIsReportModalOpen(false)} apiClient={apiClient} reloadData={reloadData} setAlertMessage={setAlertMessage} />
             )}
             {isDeleteModalOpen && itemToDelete && (
-                <PasswordConfirmationModal
-                    message="Confirme sua senha para excluir este posto. Todas as ordens de abastecimento e transações de comboio associadas perderão a referência (mas não serão excluídas)."
-                    onConfirm={handleDelete}
-                    onClose={() => setIsDeleteModalOpen(false)}
-                    apiClient={apiClient}
-                />
+                <PasswordConfirmationModal message="Confirme sua senha para excluir. Todas as ordens vinculadas perderão a referência visual (mas não serão excluídas)." onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />
             )}
 
-            {/* Modal de Confirmação de Bloqueio/Desbloqueio (Se ConfirmationModal existir) */}
             {partnerToToggleStatus && ConfirmationModal ? (
                 <ConfirmationModal 
-                    title={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "Ativar Posto" : "Bloquear Posto"}
+                    title={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "Ativar Cadastro" : "Bloquear Cadastro"}
                     message={partnerToToggleStatus.status_operacional === 'BLOQUEADO' 
-                        ? "Deseja ativar este posto novamente para abastecimentos?" 
-                        : "Deseja adicionar este posto à Lista Negra? Os operadores não poderão selecioná-lo."}
+                        ? "Deseja ativar este fornecedor/posto novamente?" 
+                        : "Deseja adicionar este parceiro à Lista Negra? Ninguém poderá selecioná-lo em novas ordens."}
                     onConfirm={handleToggleStatus}
                     onClose={() => setPartnerToToggleStatus(null)}
                     confirmColor={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "bg-green-500 hover:bg-green-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}
                     confirmText={partnerToToggleStatus.status_operacional === 'BLOQUEADO' ? "Ativar" : "Bloquear"}
                 />
             ) : partnerToToggleStatus && (
-                // Fallback caso ConfirmationModal não seja passado (usa PasswordModal por segurança ou alert simples)
-                <PasswordConfirmationModal
-                    message={partnerToToggleStatus.status_operacional === 'BLOQUEADO' 
-                        ? "Confirme para ATIVAR o posto." 
-                        : "Confirme para BLOQUEAR o posto (Lista Negra)."}
-                    onConfirm={handleToggleStatus}
-                    onClose={() => setPartnerToToggleStatus(null)}
-                    apiClient={apiClient}
-                />
+                <PasswordConfirmationModal message="Confirme a alteração de status deste parceiro." onConfirm={handleToggleStatus} onClose={() => setPartnerToToggleStatus(null)} apiClient={apiClient} />
             )}
         </div>
     );
 };
 
-// --- Modal de Adicionar/Editar Posto ---
-const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, reloadData }) => {
+// --- Modal de Adicionar/Editar ---
+const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, apiClient, reloadData }) => {
     const [formData, setFormData] = useState({
         razaoSocial: partner?.razaoSocial || '',
         cnpj: partner?.cnpj || '',
@@ -321,6 +265,7 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
         whatsapp: partner?.whatsapp || '',
         email: partner?.email || '',
         contatoResponsavel: partner?.contatoResponsavel || '',
+        tipo_parceiro: partner?.tipo_parceiro || defaultTipo || 'posto'
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -331,10 +276,8 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!formData.razaoSocial) {
-            setAlertMessage("A Razão Social é obrigatória.");
-            return;
-        }
+        if (!formData.razaoSocial) return setAlertMessage("A Razão Social é obrigatória.");
+        
         setIsSaving(true);
         const dataToSave = { ...formData };
         Object.keys(dataToSave).forEach(key => { if (dataToSave[key] === '') dataToSave[key] = null; });
@@ -342,23 +285,19 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
         try {
             if (partner) {
                 await apiClient.updatePartner(partner.id, dataToSave);
-                setAlertMessage(`Posto ${formData.razaoSocial} atualizado!`);
+                setAlertMessage(`Registro atualizado com sucesso!`);
             } else {
-                const dataForCreation = { ...dataToSave };
-                dataForCreation.id = crypto.randomUUID();
-                dataForCreation.fuel_prices = {
-                    'Diesel S10': 0, 'Diesel S500': 0, 'Arla': 0,
-                    'Gasolina Comum': 0, 'Gasolina Aditivada': 0
-                };
-                
+                const dataForCreation = { ...dataToSave, id: crypto.randomUUID() };
+                if (dataForCreation.tipo_parceiro === 'posto') {
+                    dataForCreation.fuel_prices = { 'Diesel S10': 0, 'Diesel S500': 0, 'Arla': 0, 'Gasolina Comum': 0, 'Gasolina Aditivada': 0 };
+                }
                 await apiClient.createPartner(dataForCreation);
-                setAlertMessage(`Posto ${formData.razaoSocial} cadastrado!`);
+                setAlertMessage(`Cadastrado com sucesso!`);
             }
             reloadData();
             onClose();
         } catch (error) {
-            console.error("Erro ao salvar posto:", error);
-            setAlertMessage(error.message || "Erro ao salvar posto.");
+            setAlertMessage(error.message || "Erro ao salvar.");
         } finally {
             setIsSaving(false);
         }
@@ -368,20 +307,28 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[95vh] flex flex-col my-auto">
                 <div className="p-4 sm:p-6 border-b sticky top-0 bg-white z-10 flex justify-between items-center">
-                    <h2 className="text-xl sm:text-2xl font-bold">{partner ? 'Editar Posto' : 'Adicionar Posto'}</h2>
+                    <h2 className="text-xl sm:text-2xl font-bold">{partner ? 'Editar Cadastro' : 'Novo Cadastro'}</h2>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={20}/></button>
                 </div>
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
                     <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Razão Social *</label><input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} placeholder="Razão Social" required className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div><label className="block font-medium text-gray-700">CNPJ</label><input name="cnpj" value={formData.cnpj} onChange={handleChange} placeholder="00.000.000/0000-00" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div><label className="block font-medium text-gray-700">Inscrição Estadual</label><input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} placeholder="Inscrição Estadual" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Endereço Completo</label><input name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, Número, Bairro, Cidade - UF" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Cidade</label><input name="cidade" value={formData.cidade} onChange={handleChange} placeholder="Cidade - UF" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div><label className="block font-medium text-gray-700">Telefone</label><input name="telefone" value={formData.telefone} onChange={handleChange} placeholder="(00) 0000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div className="md:col-span-2">
+                            <label className="block font-medium text-gray-700 mb-2">Categoria do Parceiro *</label>
+                            <div className="flex gap-4">
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipo_parceiro" value="posto" checked={formData.tipo_parceiro === 'posto'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Posto de Combustível</label>
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipo_parceiro" value="fornecedor" checked={formData.tipo_parceiro === 'fornecedor'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Fornecedor (Peças, Serviços, etc)</label>
+                            </div>
+                        </div>
+
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Razão Social / Fantasia *</label><input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} required className="mt-1 p-2 border rounded w-full bg-white focus:ring-2 focus:ring-yellow-500 outline-none" /></div>
+                        <div><label className="block font-medium text-gray-700">CNPJ / CPF</label><input name="cnpj" value={formData.cnpj} onChange={handleChange} placeholder="00.000.000/0000-00" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Inscrição Estadual</label><input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Endereço Completo</label><input name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, Número, Bairro" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Cidade - UF</label><input name="cidade" value={formData.cidade} onChange={handleChange} placeholder="Lajeado - RS" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Telefone Fixo</label><input name="telefone" value={formData.telefone} onChange={handleChange} placeholder="(00) 0000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">WhatsApp</label><input name="whatsapp" value={formData.whatsapp} onChange={handleChange} placeholder="(00) 90000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div><label className="block font-medium text-gray-700">E-mail</label><input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="contato@posto.com" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div><label className="block font-medium text-gray-700">Contato Responsável</label><input name="contatoResponsavel" value={formData.contatoResponsavel} onChange={handleChange} placeholder="Nome do Contato" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">E-mail</label><input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="contato@empresa.com" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Contato Responsável (Nome)</label><input name="contatoResponsavel" value={formData.contatoResponsavel} onChange={handleChange} placeholder="Falar com..." className="mt-1 p-2 border rounded w-full bg-white" /></div>
                     </div>
                     <div className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row justify-end gap-2 sticky bottom-0 z-10">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm font-medium w-full sm:w-auto" disabled={isSaving}>Cancelar</button>
@@ -395,7 +342,7 @@ const PartnerModal = ({ user, partner, onClose, setAlertMessage, apiClient, relo
     );
 };
 
-// --- Modal de Preços de Combustível ---
+// --- Modal de Preços de Combustível (MANTIDO NA ÍNTEGRA) ---
 const FuelPriceModal = ({ user, partner, onClose, setAlertMessage, apiClient, reloadData }) => {
     const [prices, setPrices] = useState({
         'Diesel S10': partner?.fuel_prices?.['Diesel S10']?.toString().replace('.', ',') || '',
@@ -468,7 +415,7 @@ const FuelPriceModal = ({ user, partner, onClose, setAlertMessage, apiClient, re
     );
 };
 
-// --- Modal de Relatório (RefuelingReportModal) ---
+// --- Modal de Relatório (MANTIDO NA ÍNTEGRA) ---
 const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboioTransactions = [], onClose, apiClient, reloadData, setAlertMessage }) => {
     
     const today = new Date().toISOString().split('T')[0];
@@ -495,8 +442,6 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
             const outros = parseFloat(e.outrosValor) || 0;
             const litros = parseFloat(e.litrosAbastecidos) || 0;
             
-            // LÓGICA CORRIGIDA: Usa o preço registrado no abastecimento (histórico), não o atual
-            // Fallback para o preço atual do posto se o histórico não existir (dados antigos)
             let precoUnit = parseFloat(e.pricePerLiter);
             if (!precoUnit || precoUnit === 0) {
                  precoUnit = parseFloat(partner.fuel_prices?.[e.fuelType] || 0);
@@ -595,7 +540,6 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
             setIsUpdatingNf(false);
         }
     };
-
 
     // Função de Gerar PDF
     const generateReportPDF = () => {

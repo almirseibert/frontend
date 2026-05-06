@@ -1,86 +1,61 @@
-import React, { useState, useMemo } from 'react';
-import apiClient from '../services/apiClient'; // Importa o apiClient
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import apiClient from '../services/apiClient';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
-    PlusCircle,
-    Edit,
-    Trash2, // Ícone mantido para remover itens
-    FileText,
-    XCircle,
-    Loader, // Adicionado Loader
-    X // <-- CORREÇÃO: Ícone X adicionado
+    PlusCircle, Edit, Trash2, FileText, XCircle, Loader, X,
+    CheckCircle, MessageCircle, FileUp, FileCode2, Paperclip, Wrench
 } from 'lucide-react';
-
-import ProtectedComponent from '../components/ProtectedComponent'; // Ajuste o caminho
-import { PasswordConfirmationModal } from '../App'; // Importa PasswordConfirmationModal do App.js
+import ProtectedComponent from '../components/ProtectedComponent';
 
 // ===================================================================================
-// GERAÇÃO DE PDF PARA ORDEM DE COMPRA/SERVIÇO (AJUSTADO PARA DATAS DA API e props)
+// GERAÇÃO DE PDF PARA ORDEM DE COMPRA/SERVIÇO
 // ===================================================================================
 const generateOrderPDF = (order, vehicle, employee, obra, logoDataUrl) => {
-    // Gerado em folha A4, com conteúdo na área de um A5 (metade superior)
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
-    const effectivePageHeight = 148.5; // Metade da altura de um A4
+    const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 10;
 
-    // Adiciona o logótipo
     if (logoDataUrl) {
-        const imgWidth = 45;
-        const imgHeight = 16.875; // Mantém proporção
-        try {
-            doc.addImage(logoDataUrl, 'PNG', margin, 10, imgWidth, imgHeight);
-        } catch(e) { console.error("Erro logo PDF:", e); }
+        try { doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875); } catch(e) {}
     }
 
-    // Título e Número da Ordem
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18); doc.setFont('helvetica', 'bold');
     doc.text('Ordem de Compra/Serviço', pageWidth - margin, 15, { align: 'right' });
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(12); doc.setFont('helvetica', 'normal');
     doc.text(`Nº: ${String(order.orderNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
-    // Ajustado para usar new Date() e verificar se a data existe
     doc.text(`Data: ${order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}`, pageWidth - margin, 29, { align: 'right' });
 
-    // Linha divisória
-    doc.setLineWidth(0.5);
-    doc.line(margin, 38, pageWidth - margin, 38);
+    doc.setLineWidth(0.5); doc.line(margin, 38, pageWidth - margin, 38);
 
-    // Informações
-    const infoStartY = 45;
-    const midX = (pageWidth / 2) + 5; // Ponto médio para segunda coluna
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
+    const infoStartY = 45; const midX = (pageWidth / 2) + 5;
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
     doc.text('Fornecedor:', margin, infoStartY);
     doc.text('Obra de Destino:', midX, infoStartY);
     doc.setFont('helvetica', 'normal');
-    doc.text(order.supplier || 'N/A', margin + 25, infoStartY); // Ajusta posição do valor
-    doc.text(obra?.nome || order.obraId || 'Não especificada', midX + 30, infoStartY); // Ajusta posição do valor
+    doc.text(order.supplier || 'N/A', margin + 25, infoStartY); 
+    doc.text(obra?.nome || order.obraId || 'Não especificada', midX + 30, infoStartY); 
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Funcionário Autorizado:', margin, infoStartY + 7);
+    doc.text('Func. Autorizado:', margin, infoStartY + 7);
     doc.setFont('helvetica', 'normal');
-    doc.text(employee?.nome || 'Não especificado', margin + 40, infoStartY + 7); // Ajusta posição do valor
+    doc.text(employee?.nome || 'Não especificado', margin + 35, infoStartY + 7); 
 
     if (vehicle) {
         doc.setFont('helvetica', 'bold');
         doc.text('Veículo Vinculado:', midX, infoStartY + 7);
         doc.setFont('helvetica', 'normal');
-        doc.text(`${vehicle.registroInterno || 'N/A'} - ${vehicle.placa || 'N/A'}`, midX + 35, infoStartY + 7); // Ajusta posição do valor
+        doc.text(`${vehicle.registroInterno || 'N/A'} - ${vehicle.placa || 'N/A'}`, midX + 35, infoStartY + 7); 
     }
 
-    // Tabela de Itens
     const tableBody = (order.items || []).map(item => [
         item.quantity || 0,
         item.description || '',
-        // Verifica status e valor antes de formatar
-        order.status !== 'Pendente de Valor' ? `R$ ${(item.unitPrice || 0).toFixed(2)}` : 'A cotar',
-        order.status !== 'Pendente de Valor' ? `R$ ${((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}` : 'A cotar'
+        order.status !== 'A Cotar' ? `R$ ${(item.unitPrice || 0).toFixed(2)}` : 'A cotar',
+        order.status !== 'A Cotar' ? `R$ ${((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}` : 'A cotar'
     ]);
 
-    let finalY = infoStartY + 15; // Posição inicial da tabela
+    let finalY = infoStartY + 15;
 
     autoTable(doc, {
         startY: finalY,
@@ -90,80 +65,69 @@ const generateOrderPDF = (order, vehicle, employee, obra, logoDataUrl) => {
         headStyles: { fillColor: [24, 49, 83], fontSize: 9 },
         styles: { fontSize: 8 },
         didDrawPage: (data) => {
-             // Atualiza finalY após desenhar a tabela
             finalY = data.cursor.y;
-
-            if (order.status !== 'Pendente de Valor') {
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(10);
+            if (order.status !== 'A Cotar') {
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
                 doc.text('Total Geral:', data.settings.margin.left, finalY + 8);
-                // Usa totalValue calculado pela API/DB se disponível, senão recalcula
                 const displayTotal = order.totalValue != null ? order.totalValue : (order.items || []).reduce((sum, i) => sum + ((i.quantity || 0) * (i.unitPrice || 0)), 0);
                 doc.text(`R$ ${(displayTotal || 0).toFixed(2)}`, pageWidth - margin, finalY + 8, { align: 'right' });
-                finalY += 8; // Adiciona espaço após o total
+                finalY += 8; 
             }
         }
     });
 
-     // Garante que finalY seja atualizado mesmo se didDrawPage não for chamado (tabela vazia)
-     if (doc.lastAutoTable && doc.lastAutoTable.finalY) {
-        finalY = doc.lastAutoTable.finalY > finalY ? doc.lastAutoTable.finalY : finalY;
-     }
-     finalY += 10; // Adiciona margem após a tabela
+    if (doc.lastAutoTable && doc.lastAutoTable.finalY) finalY = Math.max(finalY, doc.lastAutoTable.finalY);
+    finalY += 10; 
 
-
-    // Condições de Pagamento
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
     doc.text('Condição de Pagamento:', margin, finalY);
     doc.setFont('helvetica', 'normal');
     let paymentText = order.payment?.type || 'N/A';
     if (order.payment?.type === 'A prazo') {
         paymentText += ` - ${order.payment.method || ''}`;
-        if (order.payment.method === 'Boleto') {
-            paymentText += ` (${order.payment.days || ''} dias)`;
-        }
+        if (order.payment.method === 'Boleto') paymentText += ` (${order.payment.days || ''} dias)`;
     }
-    doc.text(paymentText, margin + 40, finalY);
-    finalY += 7; // Adiciona espaço
+    doc.text(paymentText, margin + 45, finalY);
+    finalY += 10;
 
-    // Mensagem Obrigatória no Rodapé (posicionada no final da área A5)
-    const footerStartY = Math.max(finalY, effectivePageHeight - 25); // Garante que não sobreponha
-    doc.setLineWidth(0.2);
-    doc.line(margin, footerStartY, pageWidth - margin, footerStartY);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Esta ordem de compra deve gerar uma nota fiscal para faturamento.', margin, footerStartY + 5);
-    doc.text('Somente os itens acima descriminados estão liberados para compra, itens adicionais não serão faturados.', margin, footerStartY + 9);
+    const footerStartY = Math.max(finalY, 120); 
+    doc.setLineWidth(0.2); doc.line(margin, footerStartY, pageWidth - margin, footerStartY);
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+    doc.text('ATENÇÃO: A NF DEVE SER FATURADA CONFORME DADOS ABAIXO.', margin, footerStartY + 5);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Apenas os itens listados estão autorizados. Itens extras não serão pagos sem prévia aprovação.', margin, footerStartY + 9);
     doc.setFont('helvetica', 'italic');
-    doc.text(`Ordem emitida por: ${order.createdBy?.userEmail || 'N/A'}`, margin, footerStartY + 15);
+    doc.text(`Ordem emitida eletronicamente por: ${order.createdBy?.userEmail || 'N/A'}`, margin, footerStartY + 15);
 
-    // Linha pontilhada para indicar o corte
-    doc.setLineDashPattern([1, 1], 0);
-    doc.setDrawColor(180, 180, 180);
-    doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
+    doc.setLineDashPattern([1, 1], 0); doc.setDrawColor(180, 180, 180);
+    doc.line(0, 148.5, pageWidth, 148.5);
 
     doc.output('dataurlnewwindow');
 };
 
-// --- Componente Principal (Usa props e apiClient) ---
+// ===================================================================================
+// PÁGINA PRINCIPAL
+// ===================================================================================
 const OrdersPage = ({
-    user, setAlertMessage,
-    vehicles = [], employees = [], obras = [], // Dados via props
-    PasswordConfirmationModal, apiClient, reloadData,
-    orders = [] // Ordens via props
+    user, setAlertMessage, vehicles = [], employees = [], obras = [], partners = [], 
+    PasswordConfirmationModal, ConfirmationModal, apiClient, reloadData, orders = [] 
 }) => {
-    // Estados da UI (sem mudanças)
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState(null);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [itemToCancel, setItemToCancel] = useState(null);
-    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '' });
-    const [loadingCancel, setLoadingCancel] = useState(false); // Adicionado estado de loading para cancelamento
+    
+    // Novo fluxo: Fechamento via XML
+    const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
+    const [orderToClose, setOrderToClose] = useState(null);
 
-    // Memos para ordenação e filtro (usa props, datas da API)
+    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '' });
+
     const sortedObras = useMemo(() => [...(obras || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedVehicles = useMemo(() => [...(vehicles || [])].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
+    
+    // Filtra para exibir apenas fornecedores na listagem (caso queira, senão mostra todos)
+    const suppliers = useMemo(() => [...(partners || [])].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
 
     const filteredOrders = useMemo(() => {
         return (orders || []).filter(order => {
@@ -171,62 +135,83 @@ const OrdersPage = ({
             const numberMatch = !filters.number || String(order.orderNumber).padStart(6, '0').includes(filters.number);
             const obraMatch = !filters.obra || order.obraId === filters.obra;
             const vehicleMatch = !filters.vehicle || order.vehicleId === filters.vehicle;
+            const statusMatch = !filters.status || order.status === filters.status;
             const emitterMatch = !filters.emitter || (order.createdBy?.userEmail || '').toLowerCase().includes(filters.emitter.toLowerCase());
-            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch;
+            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch;
         })
-        .sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0)); // Garante ordenação decrescente por número
+        .sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0)); 
     }, [orders, filters]);
 
-    // Abrir PDF (usa dados das props)
     const handleOpenPDF = (order) => {
         const vehicle = vehicles.find(v => v.id === order.vehicleId);
         const employee = employees.find(e => e.id === order.employeeId);
         const obra = obras.find(o => o.id === order.obraId);
-
-        // Lógica do Logo (sem mudanças)
         const logo = new Image();
         logo.crossOrigin = 'Anonymous';
-        logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png'; // Use HTTPS
+        logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png'; 
         logo.onload = () => {
              try {
                 const canvas = document.createElement('canvas');
                 canvas.width = logo.width; canvas.height = logo.height;
                 const ctx = canvas.getContext('2d'); ctx.drawImage(logo, 0, 0);
-                const dataUrl = canvas.toDataURL('image/png');
-                generateOrderPDF(order, vehicle, employee, obra, dataUrl);
-             } catch (e) { console.error("Erro logo PDF:", e); generateOrderPDF(order, vehicle, employee, obra, null); }
+                generateOrderPDF(order, vehicle, employee, obra, canvas.toDataURL('image/png'));
+             } catch (e) { generateOrderPDF(order, vehicle, employee, obra, null); }
         };
-        logo.onerror = (e) => { console.error("Erro logo:", e); generateOrderPDF(order, vehicle, employee, obra, null); }
+        logo.onerror = () => generateOrderPDF(order, vehicle, employee, obra, null);
     };
 
-    // Abrir Modais (sem mudanças)
-    const openEditModal = (order) => { setEditingOrder(order); setIsModalOpen(true); };
-    const openCancelModal = (order) => { setItemToCancel(order); setIsCancelModalOpen(true); };
+    const handleSendWhatsApp = async (order) => {
+        const employee = employees.find(e => e.id === order.employeeId);
+        const supplier = suppliers.find(s => s.id === order.supplierId);
+        const zap = supplier?.whatsapp || supplier?.telefone;
+        
+        if (!zap) {
+            setAlertMessage("O fornecedor selecionado não possui WhatsApp/Telefone cadastrado.");
+            return;
+        }
 
-    // Cancelar Ordem (usa apiClient)
+        const texto = `Olá! Segue a Ordem de Compra/Serviço *Nº ${String(order.orderNumber).padStart(6, '0')}* da MAK.\n\nVeículo/Equip: ${vehicles.find(v => v.id === order.vehicleId)?.registroInterno || 'N/A'}\nFunc. Autorizado: ${employee?.nome || 'N/A'}\n\nPor favor, envie o orçamento ou NF vinculada a este número.`;
+        const linkStr = `https://api.whatsapp.com/send?phone=55${zap.replace(/\D/g, '')}&text=${encodeURIComponent(texto)}`;
+        window.open(linkStr, '_blank');
+    };
+
     const handleCancelOrder = async () => {
         if (!itemToCancel) return;
-        setLoadingCancel(true); // Inicia loading
         try {
-            await apiClient.cancelOrder(itemToCancel.id); // Chama a API para cancelar
-            setAlertMessage("Ordem cancelada com sucesso.");
-            reloadData(); // Recarrega dados
+            await apiClient.cancelOrder(itemToCancel.id); 
+            setAlertMessage("Ordem cancelada. Despesas estornadas.");
+            reloadData(); 
         } catch (error) {
-            console.error("Erro ao cancelar ordem:", error);
             setAlertMessage(error.message || "Falha ao cancelar a ordem.");
         } finally {
-            setIsCancelModalOpen(false);
-            setItemToCancel(null);
-            setLoadingCancel(false); // Finaliza loading
+            setIsCancelModalOpen(false); setItemToCancel(null);
         }
     };
 
-    // Renderização Principal
+    const handleCloseOrderSubmit = async (nfNumber, finalValue) => {
+        try {
+            // Atualiza para 'Concluída', informando NF e Valor, que irá gerar a Despesa
+            await apiClient.updateOrder(orderToClose.id, {
+                ...orderToClose,
+                status: 'Concluída',
+                invoiceNumber: nfNumber,
+                totalValue: finalValue
+            });
+            setAlertMessage(`Ordem fechada! Despesa gerada para a NF ${nfNumber}.`);
+            reloadData();
+        } catch (error) {
+            setAlertMessage("Erro ao fechar ordem: " + error.message);
+        } finally {
+            setIsCloseModalOpen(false); setOrderToClose(null);
+        }
+    };
+
     return (
-        <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8">
-            {/* Cabeçalho */}
+        <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8 animate-fade-in">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                <h1 className="text-3xl font-bold text-gray-800">Ordens de Compra/Serviço</h1>
+                <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                    <FileText className="text-blue-600"/> Ordens de Manutenção & Compra
+                </h1>
                  <ProtectedComponent requiredPermission="editor">
                     <button onClick={() => { setEditingOrder(null); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow hover:bg-yellow-500 transition w-full sm:w-auto justify-center text-sm">
                         <PlusCircle size={18} />Nova Ordem
@@ -234,72 +219,85 @@ const OrdersPage = ({
                 </ProtectedComponent>
             </div>
 
-            {/* Filtros */}
-            <div className="bg-white p-4 rounded-lg shadow grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-center text-sm">
-                 <input type="text" placeholder="Nº Ordem" value={filters.number} onChange={e => setFilters({...filters, number: e.target.value})} className="p-2 border rounded-lg w-full bg-gray-50"/>
-                 <input type="date" value={filters.date} onChange={e => setFilters({...filters, date: e.target.value})} className="p-2 border rounded-lg w-full bg-gray-50"/>
-                 <select value={filters.obra} onChange={e => setFilters({...filters, obra: e.target.value})} className="p-2 border rounded-lg w-full bg-white">
+            <div className="bg-white p-4 rounded-lg shadow grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-center text-sm">
+                 <input type="text" placeholder="Nº Ordem" value={filters.number} onChange={e => setFilters({...filters, number: e.target.value})} className="p-2 border rounded w-full bg-gray-50"/>
+                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="p-2 border rounded w-full bg-white">
+                    <option value="">Status (Todos)</option>
+                    <option value="A Cotar">A Cotar (Pendente)</option>
+                    <option value="Aberta">Aberta (Em Andamento)</option>
+                    <option value="Concluída">Concluída (Fechada/NF)</option>
+                    <option value="Cancelada">Cancelada</option>
+                 </select>
+                 <select value={filters.obra} onChange={e => setFilters({...filters, obra: e.target.value})} className="p-2 border rounded w-full bg-white">
                     <option value="">Todas as Obras</option>
                     {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                    <option value="Administração">Administração</option>
-                    <option value="Oficina">Oficina</option>
                  </select>
-                 <select value={filters.vehicle} onChange={e => setFilters({...filters, vehicle: e.target.value})} className="p-2 border rounded-lg w-full bg-white">
+                 <select value={filters.vehicle} onChange={e => setFilters({...filters, vehicle: e.target.value})} className="p-2 border rounded w-full bg-white">
                     <option value="">Todos os Veículos</option>
-                    {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
+                    {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno}</option>)}
                  </select>
-                 <input type="text" placeholder="Emissor (email)" value={filters.emitter} onChange={e => setFilters({...filters, emitter: e.target.value})} className="p-2 border rounded-lg w-full bg-gray-50"/>
+                 <input type="date" value={filters.date} onChange={e => setFilters({...filters, date: e.target.value})} className="p-2 border rounded w-full bg-gray-50"/>
+                 <input type="text" placeholder="Emissor..." value={filters.emitter} onChange={e => setFilters({...filters, emitter: e.target.value})} className="p-2 border rounded w-full bg-gray-50"/>
             </div>
 
-            {/* Tabela de Ordens */}
             <div className="bg-white rounded-lg shadow overflow-x-auto">
-                <table className="w-full text-sm text-left min-w-[1000px]"> {/* min-w para forçar scroll horizontal se necessário */}
+                <table className="w-full text-sm text-left min-w-[1100px]"> 
                     <thead className="bg-gray-100 text-xs uppercase text-gray-700">
                         <tr>
                             <th className="p-3">Nº Ordem</th>
-                            <th className="p-3">Obra/Local</th>
+                            <th className="p-3">Obra Destino</th>
                             <th className="p-3">Veículo</th>
                             <th className="p-3">Fornecedor</th>
-                            <th className="p-3">Funcionário</th>
+                            <th className="p-3">Motorista</th>
                             <th className="p-3">Data</th>
                             <th className="p-3">Status</th>
                             <th className="p-3 text-right">Valor Total</th>
-                            <th className="p-3">Ações</th>
+                            <th className="p-3 text-center">Ações</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-100">
                         {filteredOrders.map(order => {
                             const vehicle = vehicles.find(v => v.id === order.vehicleId);
                             const employee = employees.find(e => e.id === order.employeeId);
                             const obra = obras.find(o => o.id === order.obraId);
                             const statusStyles = {
-                                'Ativa': 'bg-green-100 text-green-800',
+                                'Aberta': 'bg-blue-100 text-blue-800',
+                                'Concluída': 'bg-green-100 text-green-800 font-bold',
                                 'Cancelada': 'bg-red-100 text-red-800',
-                                'Pendente de Valor': 'bg-yellow-100 text-yellow-800 animate-pulse'
+                                'A Cotar': 'bg-yellow-100 text-yellow-800 animate-pulse'
                             };
                             return (
-                                <tr key={order.id} className="border-b hover:bg-gray-50 align-top"> {/* align-top para melhor leitura */}
-                                    <td className="p-3 font-bold">{String(order.orderNumber || '').padStart(6, '0')}</td>
-                                    <td className="p-3">{obra?.nome || order.obraId || 'N/A'}</td> {/* Mostra ID se obra não encontrada */}
-                                    <td className="p-3">{vehicle ? `${vehicle.registroInterno}` : 'N/A'}</td>
-                                    <td className="p-3">{order.supplier}</td>
-                                    <td className="p-3">{employee?.nome || 'N/A'}</td>
-                                    <td className="p-3 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</td>
+                                <tr key={order.id} className={`hover:bg-gray-50 ${order.status === 'Cancelada' ? 'opacity-60' : ''}`}> 
+                                    <td className="p-3 font-bold text-gray-900">{String(order.orderNumber || '').padStart(6, '0')}</td>
+                                    <td className="p-3 font-medium">{obra?.nome || 'N/A'}</td> 
+                                    <td className="p-3"><span className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">{vehicle ? vehicle.registroInterno : 'N/A'}</span></td>
+                                    <td className="p-3 truncate max-w-[150px]" title={order.supplier}>{order.supplier}</td>
+                                    <td className="p-3">{employee?.vulgo || employee?.nome || 'N/A'}</td>
+                                    <td className="p-3">{order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '-'}</td>
                                     <td className="p-3">
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${statusStyles[order.status] || 'bg-gray-100 text-gray-800'}`}>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase whitespace-nowrap ${statusStyles[order.status] || 'bg-gray-100'}`}>
                                             {order.status}
                                         </span>
                                     </td>
-                                     <td className="p-3 text-right font-medium">
-                                        {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(order.totalValue || 0).toFixed(2)}`}
+                                    <td className="p-3 text-right font-bold text-gray-800">
+                                        {order.status === 'A Cotar' ? '-' : `R$ ${(order.totalValue || 0).toFixed(2)}`}
                                     </td>
                                     <td className="p-3">
-                                        <div className="flex items-center gap-1 flex-nowrap"> {/* flex-nowrap para evitar quebra de linha */}
-                                            <button onClick={() => handleOpenPDF(order)} title="Visualizar PDF" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-md"><FileText size={14}/></button>
+                                        <div className="flex items-center justify-center gap-1">
+                                            <button onClick={() => handleOpenPDF(order)} title="Gerar PDF" className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"><FileText size={16}/></button>
+                                            
+                                            <button onClick={() => handleSendWhatsApp(order)} title="Enviar ao Fornecedor" className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded"><MessageCircle size={16}/></button>
+                                            
+                                            {order.status !== 'Concluída' && order.status !== 'Cancelada' && (
+                                                <ProtectedComponent requiredPermission="editor">
+                                                    <button onClick={() => { setOrderToClose(order); setIsCloseModalOpen(true); }} title="Fechar Ordem / Lançar NF" className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded"><CheckCircle size={16}/></button>
+                                                </ProtectedComponent>
+                                            )}
+
                                             {order.status !== 'Cancelada' && (
                                                 <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => openEditModal(order)} title="Editar Ordem" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-gray-100 rounded-md"><Edit size={14}/></button>
-                                                    <button onClick={() => openCancelModal(order)} title="Cancelar Ordem" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md"><XCircle size={14}/></button>
+                                                    <button onClick={() => { setEditingOrder(order); setIsModalOpen(true); }} title="Editar/Reabrir" className="p-1.5 text-gray-500 hover:text-yellow-600 hover:bg-yellow-50 rounded"><Edit size={16}/></button>
+                                                    <button onClick={() => { setItemToCancel(order); setIsCancelModalOpen(true); }} title="Cancelar" className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"><XCircle size={16}/></button>
                                                 </ProtectedComponent>
                                             )}
                                         </div>
@@ -307,290 +305,370 @@ const OrdersPage = ({
                                 </tr>
                             )
                         })}
-                         {filteredOrders.length === 0 && (
-                            <tr><td colSpan="9" className="p-6 text-center text-gray-500 italic">Nenhuma ordem encontrada.</td></tr>
-                        )}
+                         {filteredOrders.length === 0 && (<tr><td colSpan="9" className="p-8 text-center text-gray-500 italic">Nenhuma ordem encontrada nos filtros.</td></tr>)}
                     </tbody>
                 </table>
             </div>
 
             {/* Modais */}
             {isModalOpen && <OrderModal
-                user={user}
-                onClose={() => {setIsModalOpen(false); setEditingOrder(null);}}
-                setAlertMessage={setAlertMessage}
-                vehicles={vehicles}
-                employees={employees}
-                obras={obras}
-                orderToEdit={editingOrder}
-                generatePDF={handleOpenPDF} // Passa a função para gerar PDF
-                apiClient={apiClient}
-                reloadData={reloadData}
+                user={user} onClose={() => {setIsModalOpen(false); setEditingOrder(null);}} setAlertMessage={setAlertMessage}
+                vehicles={vehicles} employees={employees} obras={obras} suppliers={suppliers}
+                orderToEdit={editingOrder} generatePDF={handleOpenPDF} apiClient={apiClient} reloadData={reloadData}
             />}
-            {/* Modal de Cancelamento usa PasswordConfirmationModal */}
+
+            {isCloseModalOpen && orderToClose && <CloseOrderModal 
+                order={orderToClose} onClose={() => setIsCloseModalOpen(false)} onSubmit={handleCloseOrderSubmit} 
+            />}
+
             {isCancelModalOpen && itemToCancel && <PasswordConfirmationModal
-                message={`Confirme sua senha para CANCELAR a ordem Nº ${String(itemToCancel.orderNumber || '').padStart(6, '0')}.`}
-                onConfirm={handleCancelOrder}
-                onClose={() => setIsCancelModalOpen(false)}
-                apiClient={apiClient} // Passa apiClient
+                message={`Deseja CANCELAR a Ordem Nº ${String(itemToCancel.orderNumber || '').padStart(6, '0')}? Se houver despesa vinculada, ela será apagada do fluxo de caixa.`}
+                onConfirm={handleCancelOrder} onClose={() => setIsCancelModalOpen(false)} apiClient={apiClient}
              />}
         </div>
     );
 };
 
-
 // ===================================================================================
-// MODAL DE CRIAÇÃO/EDIÇÃO DE ORDEM (CORRIGIDO)
+// MODAL DE CRIAÇÃO/EDIÇÃO DE ORDEM
 // ===================================================================================
-const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees = [], obras = [], orderToEdit, generatePDF, apiClient, reloadData }) => {
-    // Estado inicial
+const OrderModal = ({ user, onClose, setAlertMessage, vehicles, employees, obras, suppliers, orderToEdit, generatePDF, apiClient, reloadData }) => {
     const [formData, setFormData] = useState({
-        supplier: orderToEdit?.supplier || '',
+        supplierId: orderToEdit?.supplierId || '',
+        supplierName: orderToEdit?.supplier || '',
         date: orderToEdit?.date ? new Date(orderToEdit.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         employeeId: orderToEdit?.employeeId || '',
         obraId: orderToEdit?.obraId || '',
         vehicleId: orderToEdit?.vehicleId || '',
-        items: (Array.isArray(orderToEdit?.items) ? orderToEdit.items : []).map(item => ({
-            quantity: item.quantity?.toString() || '1',
-            description: item.description || '',
-            unitPrice: item.unitPrice?.toString() || ''
-        })) || [{ quantity: '1', description: '', unitPrice: '' }],
-        payment: orderToEdit?.payment || { type: 'À vista', method: '', days: '' }
+        items: (Array.isArray(orderToEdit?.items) && orderToEdit.items.length > 0 ? orderToEdit.items : [{ quantity: '1', description: '', unitPrice: '' }]),
+        payment: orderToEdit?.payment || { type: 'À vista', method: '', days: '' },
+        status: orderToEdit?.status || 'Aberta',
+        anexos: orderToEdit?.anexos || []
     });
-    const [isPricePending, setIsPricePending] = useState(orderToEdit ? orderToEdit.status === 'Pendente de Valor' : true);
+    
     const [isSaving, setIsSaving] = useState(false);
+    const fileInputRef = useRef(null);
 
-    // Memos para ordenação
     const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
-    // Funções para itens
+    // Lógica inteligente de Sugestão de Obra
+    useEffect(() => {
+        if (formData.vehicleId && obras.length > 0 && !orderToEdit) {
+            let suggestedObraId = null;
+            obras.forEach(obra => {
+                const history = obra.historicoVeiculos || [];
+                if (history.some(h => h.veiculoId === formData.vehicleId && !h.dataSaida)) {
+                    suggestedObraId = obra.id;
+                }
+            });
+
+            if (!suggestedObraId) {
+                let latestDate = 0;
+                obras.forEach(obra => {
+                    const history = obra.historicoVeiculos || [];
+                    history.forEach(h => {
+                        if (h.veiculoId === formData.vehicleId && h.dataSaida) {
+                            const outDate = new Date(h.dataSaida).getTime();
+                            if (outDate > latestDate) { latestDate = outDate; suggestedObraId = obra.id; }
+                        }
+                    });
+                });
+            }
+
+            if (suggestedObraId && formData.obraId !== suggestedObraId) {
+                setFormData(prev => ({ ...prev, obraId: suggestedObraId }));
+                // Apenas uma dica visual leve poderia ser colocada, mas evitamos alert()
+            }
+        }
+    }, [formData.vehicleId, obras, orderToEdit]);
+
+    const handleSupplierChange = (e) => {
+        const id = e.target.value;
+        const sup = suppliers.find(s => s.id === id);
+        setFormData(prev => ({ ...prev, supplierId: id, supplierName: sup ? sup.razaoSocial : '' }));
+    };
+
     const handleItemChange = (index, field, value) => {
         const newItems = [...formData.items];
-        let processedValue = value;
-        if (field === 'unitPrice') {
-             processedValue = value.replace(',', '.');
-             if (!/^\d*\.?\d{0,2}$/.test(processedValue) && processedValue !== '') return;
-        } else if (field === 'quantity') {
-             processedValue = value.replace(',', '.');
-            if (!/^\d*\.?\d*$/.test(processedValue) && processedValue !== '') return;
+        let val = value;
+        if (field === 'unitPrice' || field === 'quantity') {
+             val = value.replace(',', '.');
+             if (!/^\d*\.?\d*$/.test(val) && val !== '') return;
         }
-        newItems[index] = { ...newItems[index], [field]: processedValue };
+        newItems[index] = { ...newItems[index], [field]: val };
         setFormData(prev => ({...prev, items: newItems}));
     };
+    
     const addItem = () => setFormData(prev => ({ ...prev, items: [...prev.items, { quantity: '1', description: '', unitPrice: '' }]}));
     const removeItem = (index) => setFormData(prev => ({ ...prev, items: formData.items.filter((_, i) => i !== index) }));
 
-    // Cálculo do total
     const totalValue = useMemo(() => {
-        if (isPricePending) return 0;
-        return formData.items.reduce((total, item) => {
-            const quantity = parseFloat(item.quantity) || 0;
-            const price = parseFloat(item.unitPrice) || 0;
-            return total + (quantity * price);
-        }, 0);
-    }, [formData.items, isPricePending]);
+        if (formData.status === 'A Cotar') return 0;
+        return formData.items.reduce((total, item) => total + ((parseFloat(item.quantity)||0) * (parseFloat(item.unitPrice)||0)), 0);
+    }, [formData.items, formData.status]);
 
-    // Salvar (usa apiClient)
+    // Simulador de Anexo (Mock)
+    const handleAddAttachment = () => {
+        const url = prompt("Cole o link do orçamento/comprovante (Ex: Google Drive, PDF Cloud):");
+        if (url) setFormData(p => ({ ...p, anexos: [...p.anexos, url] }));
+    };
+
     const handleSave = async (e) => {
         if(e) e.preventDefault();
-        // Validações
-        const itemsValid = formData.items.length > 0 && formData.items.every(i => (parseFloat(i.quantity) || 0) > 0 && i.description);
-        const pricesValid = isPricePending || formData.items.every(i => (parseFloat(i.unitPrice) || 0) > 0);
-        const paymentValid = formData.payment.type !== 'A prazo' || (formData.payment.method && (formData.payment.method !== 'Boleto' || formData.payment.days));
-
-        if (!formData.supplier || !formData.date || !formData.employeeId || !formData.obraId || !itemsValid || !pricesValid || !paymentValid) {
-            let errorMsg = "Preencha: Fornecedor, Data, Funcionário, Obra, Itens (Qtd*, Desc*)";
-            if (!isPricePending) errorMsg += ", Vlr. Unit.* (>0)";
-            errorMsg += ", Pagamento.";
-             if (!paymentValid && formData.payment.type === 'A prazo') errorMsg += " Detalhes do pagamento a prazo.";
-            setAlertMessage(errorMsg);
-            return;
+        
+        if (!formData.supplierId || !formData.date || !formData.employeeId || !formData.obraId) {
+            setAlertMessage("Preencha Fornecedor, Data, Funcionário e Obra de Destino."); return;
         }
-        if (formData.items.some(i => (parseFloat(i.quantity) || 0) <= 0)) {
-            setAlertMessage("A quantidade dos itens deve ser maior que zero.");
-            return;
-        }
+        const hasValidItems = formData.items.some(i => i.description.trim() !== '');
+        if (!hasValidItems) { setAlertMessage("Adicione ao menos um item com descrição."); return; }
 
         setIsSaving(true);
         const finalOrderData = {
-            supplier: formData.supplier,
-            date: new Date(formData.date + 'T12:00:00Z').toISOString(), // ISO UTC
+            supplierId: formData.supplierId,
+            supplier: formData.supplierName,
+            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
             employeeId: formData.employeeId,
             obraId: formData.obraId,
             vehicleId: formData.vehicleId || null,
             items: formData.items.map(item => ({
                  quantity: parseFloat(item.quantity) || 0,
                  description: item.description,
-                 unitPrice: isPricePending ? 0 : (parseFloat(item.unitPrice) || 0)
+                 unitPrice: formData.status === 'A Cotar' ? 0 : (parseFloat(item.unitPrice) || 0)
             })),
             payment: formData.payment,
-            totalValue: isPricePending ? 0 : totalValue,
-            status: isPricePending ? 'Pendente de Valor' : 'Ativa',
+            totalValue: formData.status === 'A Cotar' ? 0 : totalValue,
+            status: formData.status,
+            anexos: formData.anexos,
+            editedBy: orderToEdit ? { userEmail: user.email, userId: user.id } : null,
+            createdBy: orderToEdit ? undefined : { userEmail: user.email, userId: user.id }
         };
 
         try {
-            let savedOrderData;
+            let savedOrder;
             if (orderToEdit) {
-                savedOrderData = await apiClient.updateOrder(orderToEdit.id, finalOrderData);
-                setAlertMessage(`Ordem ${savedOrderData.orderNumber || ''} atualizada!`);
+                await apiClient.updateOrder(orderToEdit.id, finalOrderData);
+                setAlertMessage(`Ordem atualizada com sucesso!`);
+                savedOrder = { ...orderToEdit, ...finalOrderData };
             } else {
-                savedOrderData = await apiClient.createOrder(finalOrderData);
-                setAlertMessage(`Ordem ${savedOrderData.orderNumber || ''} criada!`);
+                const res = await apiClient.createOrder(finalOrderData);
+                setAlertMessage(`Ordem criada com sucesso!`);
+                savedOrder = { ...finalOrderData, orderNumber: res.orderNumber };
             }
 
             reloadData();
-
-            if (savedOrderData) {
-                 const pdfData = { ...formData, ...savedOrderData };
-                 generatePDF(pdfData);
-            }
+            // generatePDF(savedOrder);
             onClose();
         } catch (error) {
-            console.error("Erro ao salvar ordem:", error);
             setAlertMessage(error.message || "Falha ao salvar a ordem.");
         } finally {
             setIsSaving(false);
         }
     };
 
-    // CORREÇÃO: A tag <form> deve envolver o rodapé
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] flex flex-col my-auto">
-                {/* Cabeçalho */}
-                <div className="p-4 sm:p-6 border-b sticky top-0 bg-white z-10 flex justify-between items-center">
-                    <h2 className="text-xl sm:text-2xl font-bold">{orderToEdit ? 'Editar' : 'Nova'} Ordem de Compra/Serviço</h2>
-                    <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={20}/></button>
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col my-auto">
+                <div className="p-4 sm:p-5 border-b sticky top-0 bg-gray-50 z-10 flex justify-between items-center rounded-t-lg">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        {orderToEdit ? <Edit size={20}/> : <PlusCircle size={20}/>}
+                        {orderToEdit ? 'Editar Ordem' : 'Nova Ordem de Compra/Serviço'}
+                    </h2>
+                    <button type="button" onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500"><X size={20}/></button>
                 </div>
 
-                {/* Formulário (envolve conteúdo e rodapé) */}
-                <form onSubmit={handleSave} className="flex-1 flex flex-col overflow-hidden"> {/* Form começa aqui */}
-                    
-                    {/* Conteúdo Rolável */}
-                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 text-sm">
-                        {/* Campos Principais */}
+                <form onSubmit={handleSave} className="flex-1 flex flex-col overflow-hidden"> 
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 text-sm">
+                        
+                        <div className="bg-blue-50 p-3 rounded border border-blue-100 flex gap-4 items-center">
+                            <label className="font-bold text-blue-900 shrink-0">Status da Ordem:</label>
+                            <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="p-2 border border-blue-200 rounded bg-white text-blue-900 font-bold focus:ring-2 focus:ring-blue-500">
+                                <option value="A Cotar">A Cotar (Sem Valor)</option>
+                                <option value="Aberta">Aberta (Autorizada)</option>
+                                <option value="Concluída">Concluída (NF Entregue)</option>
+                            </select>
+                            {formData.status === 'Concluída' && <span className="text-xs text-blue-700 italic flex-1">Isso lançará a despesa automaticamente.</span>}
+                        </div>
+
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label className="block font-medium text-gray-700">Fornecedor *</label>
-                                <input type="text" placeholder="Nome do Fornecedor" value={formData.supplier} onChange={e => setFormData({...formData, supplier: e.target.value})} className="mt-1 p-2 border rounded w-full bg-white" required />
-                            </div>
-                            <div>
-                                <label className="block font-medium text-gray-700">Data *</label>
-                                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="mt-1 p-2 border rounded w-full bg-white" required />
-                            </div>
-                            <div>
-                                <label className="block font-medium text-gray-700">Funcionário Autorizado *</label>
-                                <select value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})} className="mt-1 p-2 border rounded w-full bg-white" required>
-                                    <option value="">Selecione...</option>
-                                    {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} {e.vulgo ? `(${e.vulgo})` : ''}</option>)}
+                                <label className="block font-bold text-gray-700 text-xs uppercase mb-1">Fornecedor *</label>
+                                <select value={formData.supplierId} onChange={handleSupplierChange} className="p-2 border rounded w-full bg-white" required>
+                                    <option value="">Selecione na base de parceiros...</option>
+                                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.razaoSocial} {s.cnpj ? `(${s.cnpj})` : ''}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label className="block font-medium text-gray-700">Obra de Destino *</label>
-                                <select value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})} className="mt-1 p-2 border rounded w-full bg-white" required>
+                                <label className="block font-bold text-gray-700 text-xs uppercase mb-1">Data Emissão *</label>
+                                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="p-2 border rounded w-full bg-white" required />
+                            </div>
+                            <div>
+                                <label className="block font-bold text-gray-700 text-xs uppercase mb-1">Veículo / Máquina (Opcional)</label>
+                                <select value={formData.vehicleId} onChange={e => setFormData({...formData, vehicleId: e.target.value})} className="p-2 border rounded w-full bg-white">
+                                    <option value="">Nenhum (Uso Geral)</option>
+                                    {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block font-bold text-gray-700 text-xs uppercase mb-1">Obra p/ Custo (Automático) *</label>
+                                <select value={formData.obraId} onChange={e => setFormData({...formData, obraId: e.target.value})} className="p-2 border rounded w-full bg-yellow-50 font-semibold" required>
                                     <option value="">Selecione...</option>
                                     {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                     <option value="Administração">Administração</option>
-                                    <option value="Oficina">Oficina</option>
+                                    <option value="Oficina">Oficina Central</option>
                                 </select>
                             </div>
                             <div className="md:col-span-2">
-                                <label className="block font-medium text-gray-700">Vincular Veículo (Opcional)</label>
-                                <select value={formData.vehicleId} onChange={e => setFormData({...formData, vehicleId: e.target.value})} className="mt-1 p-2 border rounded w-full bg-white">
-                                    <option value="">Nenhum</option>
-                                    {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
+                                <label className="block font-bold text-gray-700 text-xs uppercase mb-1">Funcionário Autorizado *</label>
+                                <select value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})} className="p-2 border rounded w-full bg-white" required>
+                                    <option value="">Selecione quem fará o serviço/retirada...</option>
+                                    {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} {e.vulgo ? `(${e.vulgo})` : ''}</option>)}
                                 </select>
                             </div>
                         </div>
 
                         {/* Itens */}
-                        <div className="border-t pt-4 mt-4">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-                                <h3 className="font-semibold text-lg text-gray-800">Itens / Serviços *</h3>
-                                <label className="flex items-center gap-2 text-xs sm:text-sm font-medium cursor-pointer shrink-0">
-                                    <input type="checkbox" checked={isPricePending} onChange={() => setIsPricePending(!isPricePending)} className="h-4 w-4 rounded text-yellow-600 focus:ring-yellow-500 border-gray-300"/>
-                                    Lançar sem valor (a cotar)
-                                </label>
-                            </div>
+                        <div className="border-t pt-4">
+                            <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-3"><Wrench size={16}/> Itens ou Serviços</h3>
                             <div className="space-y-2">
                                 {formData.items.map((item, index) => (
-                                    <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                                        <div className="col-span-4 sm:col-span-2">
-                                            <label className="text-[11px] font-medium text-gray-600 block mb-0.5">Qtd*</label>
-                                            <input type="text" inputMode="decimal" placeholder="Qtd" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} className="p-1.5 border rounded w-full text-sm bg-white" required/>
-                                        </div>
-                                        <div className="col-span-8 sm:col-span-6">
-                                             <label className="text-[11px] font-medium text-gray-600 block mb-0.5">Descrição*</label>
-                                            <input type="text" placeholder="Descrição" value={item.description} onChange={e => handleItemChange(index, 'description', e.target.value)} className="p-1.5 border rounded w-full text-sm bg-white" required />
-                                        </div>
-                                        <div className="col-span-9 sm:col-span-3">
-                                             <label className="text-[11px] font-medium text-gray-600 block mb-0.5">Vlr. Unit.*</label>
-                                            <input type="text" inputMode="decimal" step="0.01" placeholder="Vlr. Unit." value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', e.target.value)} className={`p-1.5 border rounded w-full text-sm ${isPricePending ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} required={!isPricePending} disabled={isPricePending} />
-                                        </div>
-                                        <div className="col-span-3 sm:col-span-1 flex items-end justify-center h-full">
-                                            {formData.items.length > 1 && <button type="button" onClick={() => removeItem(index)} className="text-red-500 hover:text-red-700 p-1 mt-1"><Trash2 size={14} /></button>}
+                                    <div key={index} className="flex flex-col md:flex-row gap-2 items-start md:items-center">
+                                        <input type="text" placeholder="Qtd" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} className="p-2 border rounded w-full md:w-20 bg-white" required/>
+                                        <input type="text" placeholder="Descrição da Peça ou Serviço" value={item.description} onChange={e => handleItemChange(index, 'description', e.target.value)} className="p-2 border rounded w-full flex-1 bg-white" required />
+                                        <div className="flex w-full md:w-auto gap-2">
+                                            <input type="text" placeholder="R$ Unit." value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', e.target.value)} className={`p-2 border rounded w-full md:w-32 ${formData.status === 'A Cotar' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} disabled={formData.status === 'A Cotar'} />
+                                            {formData.items.length > 1 && <button type="button" onClick={() => removeItem(index)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-transparent"><Trash2 size={16} /></button>}
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                            <button type="button" onClick={addItem} className="text-xs text-yellow-600 font-semibold hover:underline mt-2">+ Adicionar Item</button>
-                            <p className={`text-right font-bold text-lg mt-3 ${isPricePending ? 'text-gray-500' : 'text-gray-800'}`}>
-                                Total: {isPricePending ? 'Aguardando Cotação' : `R$ ${totalValue.toFixed(2)}`}
-                            </p>
-                            {!isPricePending && totalValue <= 0 && formData.items.length > 0 && formData.items.some(i => i.description || i.quantity) && (
-                                 <p className="text-right text-xs text-red-500">Valor unitário deve ser maior que zero.</p>
-                             )}
-                              {formData.items.length === 0 && (
-                                 <p className="text-left text-xs text-red-500 mt-1">Adicione pelo menos um item.</p>
-                             )}
-                             {formData.items.some(i => (parseFloat(i.quantity) || 0) <= 0 && i.description) && (
-                                 <p className="text-left text-xs text-red-500 mt-1">Quantidade deve ser maior que zero.</p>
-                             )}
-                        </div>
-
-                        {/* Pagamento */}
-                        <div className="border-t pt-4 mt-4">
-                            <h3 className="font-semibold text-lg mb-2 text-gray-800">Condição de Pagamento *</h3>
-                            <div className="flex flex-wrap gap-x-6 gap-y-2 items-center mb-2">
-                                <label className="inline-flex items-center cursor-pointer"><input type="radio" name="paymentType" value="À vista" checked={formData.payment.type === 'À vista'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: ''}})} className="h-4 w-4 text-yellow-600"/> <span className="ml-2 text-sm">À vista</span></label>
-                                <label className="inline-flex items-center cursor-pointer"><input type="radio" name="paymentType" value="A prazo" checked={formData.payment.type === 'A prazo'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method: formData.payment.method || 'PIX', days: formData.payment.days || ''}})} className="h-4 w-4 text-yellow-600"/> <span className="ml-2 text-sm">A prazo</span></label>
+                            <div className="flex justify-between items-center mt-3">
+                                <button type="button" onClick={addItem} className="text-xs text-blue-600 font-bold hover:underline px-2 py-1">+ Add Item</button>
+                                <p className={`text-right font-bold text-lg ${formData.status === 'A Cotar' ? 'text-gray-400' : 'text-gray-800'}`}>
+                                    Total: {formData.status === 'A Cotar' ? 'Aguardando Valores' : `R$ ${totalValue.toFixed(2)}`}
+                                </p>
                             </div>
-                            {formData.payment.type === 'A prazo' && (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-                                    <div className="w-full">
-                                        <label className="text-xs font-medium text-gray-600 block mb-1">Método*</label>
-                                        <select value={formData.payment.method} onChange={e => setFormData({...formData, payment: {...formData.payment, method: e.target.value}})} className="p-2 border rounded bg-white text-sm w-full" required={formData.payment.type === 'A prazo'}>
-                                            <option value="">Selecione...</option>
-                                            <option value="PIX">PIX</option>
-                                            <option value="Boleto">Boleto</option>
-                                        </select>
-                                    </div>
-                                    {formData.payment.method === 'Boleto' && (
-                                        <div className="w-full">
-                                            <label className="text-xs font-medium text-gray-600 block mb-1">Dias Venc.*</label>
-                                            <input type="number" placeholder="Dias" value={formData.payment.days} onChange={e => setFormData({...formData, payment: {...formData.payment, days: e.target.value}})} className="p-2 border rounded text-sm bg-white w-full" min="1" required={formData.payment.method === 'Boleto'}/>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                         </div>
-                    </div> {/* Fim do div de scroll */}
 
-                    {/* Rodapé Fixo */}
-                    <div className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row justify-end gap-2 sticky bottom-0 z-10">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm font-medium w-full sm:w-auto" disabled={isSaving}>Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 disabled:bg-yellow-300 flex items-center justify-center gap-2 text-sm w-full sm:w-auto">
-                             {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Salvar e Gerar PDF'}
+                        {/* Pagamento e Anexos */}
+                        <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h3 className="font-bold text-gray-800 mb-2">Condição de Pagamento</h3>
+                                <div className="flex gap-4 mb-2">
+                                    <label className="flex items-center gap-1 cursor-pointer"><input type="radio" value="À vista" checked={formData.payment.type === 'À vista'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: ''}})} /> À vista</label>
+                                    <label className="flex items-center gap-1 cursor-pointer"><input type="radio" value="A prazo" checked={formData.payment.type === 'A prazo'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method: 'Boleto', days: '30'}})} /> A prazo</label>
+                                </div>
+                                {formData.payment.type === 'A prazo' && (
+                                    <div className="flex gap-2">
+                                        <select value={formData.payment.method} onChange={e => setFormData({...formData, payment: {...formData.payment, method: e.target.value}})} className="p-2 border rounded bg-white text-xs w-full">
+                                            <option value="Boleto">Boleto</option>
+                                            <option value="PIX">PIX Agendado</option>
+                                        </select>
+                                        <input type="number" placeholder="Dias" value={formData.payment.days} onChange={e => setFormData({...formData, payment: {...formData.payment, days: e.target.value}})} className="p-2 border rounded text-xs w-20"/>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div>
+                                <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-2"><Paperclip size={16}/> Orçamentos / Anexos</h3>
+                                <ul className="space-y-1 mb-2">
+                                    {formData.anexos.map((url, i) => (
+                                        <li key={i} className="flex justify-between items-center text-xs bg-gray-50 p-1.5 rounded border">
+                                            <a href={url} target="_blank" rel="noreferrer" className="text-blue-600 truncate max-w-[200px]">{url}</a>
+                                            <button type="button" onClick={() => setFormData(p => ({...p, anexos: p.anexos.filter((_, idx) => idx !== i)}))} className="text-red-500"><X size={14}/></button>
+                                        </li>
+                                    ))}
+                                    {formData.anexos.length === 0 && <li className="text-xs text-gray-400 italic">Nenhum anexo salvo.</li>}
+                                </ul>
+                                <button type="button" onClick={handleAddAttachment} className="text-xs flex items-center gap-1 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded font-semibold text-gray-700">
+                                    <FileUp size={14}/> Anexar Link de Nuvem
+                                </button>
+                            </div>
+                        </div>
+
+                    </div> 
+
+                    <div className="p-4 bg-gray-100 border-t flex justify-end gap-3 sticky bottom-0 z-10 rounded-b-lg">
+                        <button type="button" onClick={onClose} className="px-5 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-bold text-gray-700">Cancelar</button>
+                        <button type="submit" disabled={isSaving} className="px-5 py-2 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow-md hover:bg-yellow-500 disabled:opacity-50 flex items-center gap-2 text-sm">
+                             {isSaving ? <><Loader className="animate-spin" size={18}/> Salvando...</> : 'Salvar Ordem'}
                         </button>
                     </div>
-                </form> {/* Fim do form */}
+                </form> 
             </div>
         </div>
     );
 };
 
+// ===================================================================================
+// MODAL FECHAMENTO (XML)
+// ===================================================================================
+const CloseOrderModal = ({ order, onClose, onSubmit }) => {
+    const [nfNumber, setNfNumber] = useState(order.invoiceNumber || '');
+    const [finalValue, setFinalValue] = useState(order.totalValue || 0);
+    const [isParsing, setIsParsing] = useState(false);
+
+    const handleXmlImport = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        setIsParsing(true);
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const xmlDoc = new DOMParser().parseFromString(evt.target.result, "text/xml");
+                
+                // Pega <nNF> e <vNF> (Total da Nota)
+                const nNfNode = xmlDoc.getElementsByTagName('nNF')[0];
+                const vNfNode = xmlDoc.getElementsByTagName('vNF')[0];
+                
+                if (nNfNode) setNfNumber(nNfNode.textContent);
+                if (vNfNode) setFinalValue(parseFloat(vNfNode.textContent));
+
+            } catch (err) {
+                alert("Erro ao ler o XML. Preencha manualmente.");
+            } finally {
+                setIsParsing(false);
+            }
+        }
+        reader.readAsText(file);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100] p-4">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6 border-t-4 border-blue-500">
+                <h3 className="text-lg font-bold text-gray-800 mb-2">Concluir Ordem #{order.orderNumber}</h3>
+                <p className="text-xs text-gray-600 mb-4">Ao concluir, a despesa financeira será efetivada no caixa da obra.</p>
+                
+                <div className="mb-4 bg-gray-50 border p-3 rounded border-dashed text-center">
+                    <label className="cursor-pointer text-sm font-bold text-blue-600 hover:underline flex flex-col items-center gap-1">
+                        <FileCode2 size={24}/> Importar XML (Opcional)
+                        <input type="file" accept=".xml" className="hidden" onChange={handleXmlImport} />
+                    </label>
+                    {isParsing && <p className="text-xs text-gray-500 mt-2">Lendo...</p>}
+                </div>
+
+                <div className="space-y-3 mb-6">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase">Nº Nota Fiscal *</label>
+                        <input type="text" value={nfNumber} onChange={e=>setNfNumber(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase">Valor Total (R$) *</label>
+                        <input type="number" step="0.01" value={finalValue} onChange={e=>setFinalValue(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded text-sm font-bold text-gray-700 hover:bg-gray-300">Cancelar</button>
+                    <button onClick={() => onSubmit(nfNumber, parseFloat(finalValue))} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700" disabled={!nfNumber || finalValue <= 0}>
+                        Confirmar Fechamento
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default OrdersPage;
-

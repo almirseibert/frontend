@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Wrench, Fuel, Droplet, DollarSign, ShieldAlert,
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp 
+    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp, Package 
 } from 'lucide-react';
 
 // Importação do Socket.io Client
@@ -26,6 +26,7 @@ import DiarioDeBordoPage from './pages/DiarioDeBordoPage';
 import AdminPage from './pages/AdminPage'; 
 import ControleDiarioPage from './pages/ControleDiarioPage';
 import OrdersPage from './pages/OrdersPage'; 
+import InventoryPage from './pages/InventoryPage'; // NOVO MÓDULO ESTOQUE
 import LoginScreen from './components/LoginScreen'; 
 import TiresPage from './pages/TiresPage'; 
 import BillingPage from './pages/BillingPage';
@@ -267,7 +268,9 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
         { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
         { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
         { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
-        { id: 'partners', label: 'Postos/Parceiros', icon: <Fuel size={16} /> },
+        { id: 'orders', label: 'Ordens (C/S)', icon: <ShoppingCart size={16} /> },
+        { id: 'inventory', label: 'Estoque / Peças', icon: <Package size={16} /> },
+        { id: 'partners', label: 'Fornecedores', icon: <Fuel size={16} /> },
         { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
         { id: 'admin_solicitacoes', label: 'Solicitações (App)', icon: <Smartphone size={16} />, badge: pendingSolicitacoesCount },
         { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
@@ -409,6 +412,7 @@ const AppContent = () => {
     const [rawFines, setRawFines] = useState([]);
     const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
     const [dailyWorkLogs, setDailyWorkLogs] = useState([]); 
+    const [orders, setOrders] = useState([]); // NOVO ESTADO DAS ORDENS DE SERVIÇO
     
     // Estados de Interface e Modais
     const [loadingData, setLoadingData] = useState(true); 
@@ -467,6 +471,11 @@ const AppContent = () => {
                     }
                 },
                 'partners': () => apiClient.getPartners().then(setRawPartners), 
+                'orders': () => {
+                    if (user.user_type !== 'operador' && typeof apiClient.getAllOrders === 'function') {
+                        return apiClient.getAllOrders().then(setOrders);
+                    }
+                },
                 'refuelings': () => { 
                     if(user.podeAcessarAbastecimento || user.user_type === 'admin') {
                         return apiClient.getRefuelings().then(setRefuelings);
@@ -680,6 +689,7 @@ const AppContent = () => {
             fines: { getter: apiClient.getFines, setter: setRawFines },
             diarioDeBordo: { getter: apiClient.getDiarioDeBordo, setter: setDiarioDeBordoLogs },
             dailyWorkLogs: { getter: () => apiClient.getDailyLogs('all'), setter: setDailyWorkLogs },
+            orders: { getter: apiClient.getAllOrders, setter: setOrders } // Busca as ordens (o apiClient pode usar getAllOrders ou getOrders dependendo de como você definiu)
         };
 
         if (user.user_type === 'operador') { 
@@ -688,10 +698,16 @@ const AppContent = () => {
             delete dataEndpoints.comboioTransactions;
             delete dataEndpoints.fines; 
             delete dataEndpoints.dailyWorkLogs;
+            delete dataEndpoints.orders;
         }
 
         try {
-            const promises = Object.values(dataEndpoints).map(endpoint => endpoint.getter().catch(e => null));
+            const promises = Object.values(dataEndpoints).map(endpoint => {
+                if (typeof endpoint.getter === 'function') {
+                    return endpoint.getter().catch(e => null);
+                }
+                return Promise.resolve(null);
+            });
             const results = await Promise.all(promises);
 
             Object.keys(dataEndpoints).forEach((key, index) => {
@@ -802,6 +818,7 @@ const AppContent = () => {
             fines, 
             diarioDeBordoLogs, 
             dailyWorkLogs,
+            orders // Agora repassando as Ordens Globalmente
         };
 
         const Denied = () => (
@@ -835,6 +852,8 @@ const AppContent = () => {
                 return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
             case 'orders': 
                 return <OrdersPage {...commonProps} />; 
+            case 'inventory': 
+                return <InventoryPage {...commonProps} />; 
             case 'comboio': 
                 return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <ComboioPage {...commonProps} /> : <Denied />;
             case 'expenses': 
