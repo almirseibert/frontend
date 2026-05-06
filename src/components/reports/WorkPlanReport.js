@@ -8,11 +8,14 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
     const [pdfWorkplanSelectedObras, setPdfWorkplanSelectedObras] = useState([]);
     const [pdfWorkplanFilterStatus, setPdfWorkplanFilterStatus] = useState('ativa');
 
+    // Helper de ordenação alfanumérica
+    const sortAlphaNum = (a, b) => (a || '').toString().localeCompare((b || '').toString(), undefined, { numeric: true, sensitivity: 'base' });
+
     const obrasToDisplay = useMemo(() => {
         if (!obras) return [];
         return obras
             .filter(o => o.status === pdfWorkplanFilterStatus)
-            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+            .sort((a, b) => sortAlphaNum(a.nome, b.nome));
     }, [obras, pdfWorkplanFilterStatus]);
 
     useEffect(() => {
@@ -25,7 +28,7 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
         pdfWorkplanSelectedObras
             .map(obraId => obras.find(o => o.id === obraId))
             .filter(Boolean)
-            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''))
+            .sort((a, b) => sortAlphaNum(a.nome, b.nome))
             .forEach((obra, index) => {
                 if (index > 0) doc.addPage();
 
@@ -46,13 +49,31 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                 const progressData = { contratado: {}, concluido: {}, totalContratado: 0, totalConcluido: 0 };
                 const uniqueEquipmentTypes = [...new Set(equipmentTypesForHours)];
                 const allEquipmentTypes = [...uniqueEquipmentTypes];
+                
                 if (!allEquipmentTypes.includes('Caminhão')) allEquipmentTypes.push('Caminhão');
                 
+                // Zera concluidos
                 allEquipmentTypes.forEach(type => {
-                    const contracted = parseFloat(obra.horasContratadasPorTipo?.[type] || 0);
-                    progressData.contratado[type] = contracted;
-                    progressData.totalContratado += contracted;
                     progressData.concluido[type] = 0;
+                });
+
+                // CORREÇÃO SOLICITADA: Somar TODAS as horas contratadas do grupo 'Caminhões' para o item 'Caminhão'
+                Object.entries(obra.horasContratadasPorTipo || {}).forEach(([tipo, horas]) => {
+                    const horasNum = parseFloat(horas || 0);
+                    if (horasNum <= 0) return;
+
+                    const isCaminhao = vehicleGroups['Caminhões']?.includes(tipo);
+
+                    if (isCaminhao) {
+                        progressData.contratado['Caminhão'] = (progressData.contratado['Caminhão'] || 0) + horasNum;
+                        progressData.totalContratado += horasNum;
+                    } else {
+                        progressData.contratado[tipo] = (progressData.contratado[tipo] || 0) + horasNum;
+                        progressData.totalContratado += horasNum;
+                        if (!allEquipmentTypes.includes(tipo)) {
+                            allEquipmentTypes.push(tipo);
+                        }
+                    }
                 });
 
                 (obra.historicoVeiculos || []).forEach(h => {
@@ -71,9 +92,7 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                     if (h.dataSaida) {
                         endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
                     } else {
-                         if (vehicleGroup === 'Máquinas Pesadas') {
-                            endReading = parseFloat(vehicle.horimetro || 0);
-                        } else if (vehicleGroup === 'Caminhões') {
+                         if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
                             endReading = parseFloat(vehicle.horimetro || 0);
                         }
                     }
@@ -86,7 +105,7 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                            progressData.concluido[vehicle.tipo] = (progressData.concluido[vehicle.tipo] || 0) + hours;
                            if(!allEquipmentTypes.includes(vehicle.tipo)) {
                                allEquipmentTypes.push(vehicle.tipo);
-                               progressData.contratado[vehicle.tipo] = 0;
+                               if(!progressData.contratado[vehicle.tipo]) progressData.contratado[vehicle.tipo] = 0;
                            }
                         }
                     }
@@ -123,7 +142,6 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                 doc.text(`Percentual Geral Concluido: ${progressData.totalContratado > 0 ? ((progressData.totalConcluido / progressData.totalContratado) * 100).toFixed(2) : 0}%`, 14, finalY);
                 finalY += 15;
                 
-                // Histórico e Despesas (simplificado para o exemplo, manter lógica original se necessário)
                 doc.setFontSize(16); doc.text('Histórico de Veículos na Obra', 14, finalY); finalY += 8;
                 
                 const vehicleHistoryBody = (obra.historicoVeiculos || []).map(h => {
@@ -136,30 +154,14 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                     let endReading = 0;
                     let readingLabel = '';
 
-                    if (vehicleGroup === 'Máquinas Pesadas') {
+                    if (vehicleGroup === 'Máquinas Pesadas' || vehicleGroup === 'Caminhões') {
                         readingLabel = 'Horas';
                         startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
-                        if (h.dataSaida) {
-                            endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
-                        } else {
-                            endReading = parseFloat(vehicle.horimetro || 0);
-                        }
-                    } else if (vehicleGroup === 'Caminhões') {
-                        readingLabel = 'Horas';
-                        startReading = parseFloat(h.horimetroEntrada || h.odometroEntrada || 0);
-                        if (h.dataSaida) {
-                            endReading = parseFloat(h.horimetroSaida || h.odometroSaida || 0);
-                        } else {
-                            endReading = parseFloat(vehicle.horimetro ?? 0);
-                        }
-                    } else { // Veículos Leves
+                        endReading = h.dataSaida ? parseFloat(h.horimetroSaida || h.odometroSaida || 0) : parseFloat(vehicle.horimetro || 0);
+                    } else { 
                         readingLabel = 'Km';
                         startReading = parseFloat(h.odometroEntrada || 0);
-                        if (h.dataSaida) {
-                            endReading = parseFloat(h.odometroSaida || 0);
-                        } else {
-                            endReading = parseFloat(vehicle.odometro || 0);
-                        }
+                        endReading = h.dataSaida ? parseFloat(h.odometroSaida || 0) : parseFloat(vehicle.odometro || 0);
                     }
 
                     const totalWorked = (endReading >= startReading) ? (endReading - startReading).toFixed(1) : 'Erro';
@@ -189,7 +191,6 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                     doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Nenhum veículo alocado nesta obra.', 14, finalY); finalY += 15;
                 }
 
-                // Despesas
                 const obraExpenses = (expenses || []).filter(e => e.obraId === obra.id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
                 const totalDespesas = obraExpenses.reduce((sum, exp) => sum + (parseFloat(exp.amount) || 0), 0);
                 

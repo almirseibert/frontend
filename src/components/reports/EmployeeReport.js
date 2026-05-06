@@ -22,24 +22,30 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
     // Configuração de Colunas - Adicionadas as novas colunas por padrão
     const [selectedColumns, setSelectedColumns] = useState(['nome', 'funcao', 'allocationStatus', 'cidade', 'status', 'contato', 'obraAtual', 'historySummary']);
 
+    // ADICIONADO: Novas colunas mapeadas
     const allColumns = useMemo(() => [
         { key: 'nome', label: 'Nome' },
         { key: 'vulgo', label: 'Apelido' },
         { key: 'funcao', label: 'Função' },
-        { key: 'status', label: 'Status Cadastro' }, // Coluna para o PDF
+        { key: 'status', label: 'Status Cadastro' }, 
         { key: 'allocationStatus', label: 'Situação Atual' },
-        { key: 'cidade', label: 'Cidade' }, // Coluna para o PDF
+        { key: 'cidade', label: 'Cidade' }, 
         { key: 'contato', label: 'Telefone' },
+        { key: 'cnhCategoria', label: 'Cat. CNH' }, // Nova
+        { key: 'cnhVencimento', label: 'Venc. CNH' }, // Nova
+        { key: 'toxicologicoVencimento', label: 'Venc. Toxicológico' }, // Nova
         { key: 'obraAtual', label: 'Obra Atual' },
         { key: 'veiculosAlocados', label: 'Veículos Alocados' },
-        { key: 'cnhInfo', label: 'CNH (Cat/Venc)'},
         { key: 'multasPendentes', label: 'Multas Pendentes' },
         { key: 'dataDesalocamento', label: 'Última Saída' },
         { key: 'diasDisponivel', label: 'Dias Disponível' },
-        { key: 'historySummary', label: 'Histórico no Período' } // Nova Coluna Complexa
+        { key: 'historySummary', label: 'Histórico no Período' } 
     ], []);
 
-    // 1. Mapear Alocações ATUAIS (para exibição rápida)
+    // Função universal de ordenação Alfanumérica
+    const sortAlphaNum = (a, b) => (a || '').toString().localeCompare((b || '').toString(), undefined, { numeric: true, sensitivity: 'base' });
+
+    // 1. Mapear Alocações ATUAIS
     const currentAllocations = useMemo(() => {
         const allocations = new Map();
         obras.forEach(obra => {
@@ -59,7 +65,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
         const now = new Date();
         now.setHours(0,0,0,0);
 
-        // Define janela de datas para busca de histórico
         const startFilter = filters.startDate ? new Date(filters.startDate) : null;
         const endFilter = filters.endDate ? new Date(filters.endDate) : null;
         if (endFilter) endFilter.setHours(23, 59, 59);
@@ -69,12 +74,10 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
             const isAllocated = !!alloc;
             let statusAlocacao = e.status === 'inativo' ? 'Inativo' : (isAllocated ? 'Alocado' : 'Disponível');
             
-            // --- Lógica de Dias Disponível ---
             let dataDesalocamento = null;
             let diasDisponivel = null;
             let lastExitDate = null;
 
-            // Varre histórico global para achar última saída (para calcular dias disponível)
             obras.forEach(obra => {
                 const historico = obra.historicoVeiculos || [];
                 historico.forEach(h => {
@@ -101,8 +104,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                 diasDisponivel = 0;
             }
 
-            // --- Lógica de Histórico Detalhado por Período ---
-            // Requisito: Obra, Data Entrada/Saída e Registro do Veículo vinculado
             let historyLogs = [];
             if (startFilter && endFilter) {
                 obras.forEach(obra => {
@@ -112,15 +113,9 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                             const hStart = new Date(h.dataEntrada);
                             const hEnd = h.dataSaida ? new Date(h.dataSaida) : new Date();
                             
-                            // Verifica se há intersecção com o período do filtro
                             if (hStart <= endFilter && hEnd >= startFilter) {
-                                // Busca o veículo usado neste registro histórico
-                                const vehicleUsed = vehicles.find(v => v.id === h.veiculoId);
-                                const vehReg = vehicleUsed ? vehicleUsed.registroInterno : 'N/A';
-
                                 const startStr = hStart.toLocaleDateString('pt-BR');
                                 const endStr = h.dataSaida ? new Date(h.dataSaida).toLocaleDateString('pt-BR') : 'Atual';
-                                
                                 historyLogs.push(`Obra: ${obra.nome}\nPeríodo: ${startStr} a ${endStr}`);
                             }
                         }
@@ -140,40 +135,29 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                 dataDesalocamento,
                 diasDisponivel,
                 veiculosAlocados: alloc ? alloc.vehicleRegistros.join(', ') : '',
-                historySummary // Campo formatado para o PDF/Tabela
+                historySummary 
             };
         });
     }, [employees, currentAllocations, obras, filters.startDate, filters.endDate, vehicles]);
 
-    // 3. Filtragem Final
+    // 3. Filtragem Final e Ordenação Alfanumérica
     const filteredEmployees = useMemo(() => {
         return processedEmployees
             .filter(e => {
-                // Filtro de Cidade
                 const matchCidade = filters.cidade ? (e.cidade || '').toLowerCase() === filters.cidade.toLowerCase() : true;
-                
-                // Filtro de Função
                 const matchFuncao = filters.funcao ? e.funcao === filters.funcao : true;
-                
-                // Filtro de Status Cadastro (Ativo/Inativo)
-                // Se filtro for vazio, mostra todos. Se for "ativo" mostra ativos.
-                const matchStatusCadastro = filters.status 
-                    ? e.status === filters.status 
-                    : true;
-                
-                // Filtro de Obra
+                const matchStatusCadastro = filters.status ? e.status === filters.status : true;
                 const matchObra = filters.obraId 
                     ? (currentAllocations.get(e.id)?.obraId === filters.obraId || (filters.obraId === 'N/A' && !currentAllocations.has(e.id))) 
                     : true;
 
-                // Filtro de Situação (Alocado/Disponível)
                 let matchAllocStatus = true;
                 if (filters.allocationStatus === 'alocado') matchAllocStatus = e.isAllocated;
                 if (filters.allocationStatus === 'disponivel') matchAllocStatus = !e.isAllocated;
 
                 return matchCidade && matchFuncao && matchStatusCadastro && matchObra && matchAllocStatus;
             })
-            .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+            .sort((a, b) => sortAlphaNum(a.nome, b.nome));
     }, [processedEmployees, filters, currentAllocations]);
 
     useEffect(() => {
@@ -199,17 +183,19 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
         
         const body = filteredEmployees.filter(e => selectedEmployeeIds.includes(e.id)).map(emp => {
             const cnhVenc = emp.cnhVencimento ? new Date(emp.cnhVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
+            const toxVenc = emp.toxicologicoVencimento ? new Date(emp.toxicologicoVencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
             const multas = fines.filter(f => f.employeeId === emp.id && f.status === 'Pendente').length;
             
-            // Garantir que status e cidade apareçam no objeto de dados
             const data = { 
                 ...emp, 
-                cnhInfo: `${emp.cnhCategoria || ''} - ${cnhVenc}`, 
+                cnhCategoria: emp.cnhCategoria || '-',
+                cnhVencimento: cnhVenc,
+                toxicologicoVencimento: toxVenc,
                 multasPendentes: multas,
                 dataDesalocamento: emp.dataDesalocamento,
                 diasDisponivel: emp.diasDisponivel !== '-' ? `${emp.diasDisponivel} dias` : '-',
                 historySummary: emp.historySummary,
-                status: (emp.status || 'Ativo').toUpperCase(), // Formata status cadastro
+                status: (emp.status || 'Ativo').toUpperCase(),
                 cidade: emp.cidade || 'N/A'
             };
             return selectedColumns.map(col => data[col] || '');
@@ -223,7 +209,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
             headStyles: { fillColor: [34, 139, 34] }, 
             styles: { fontSize: 8, cellWidth: 'wrap', valign: 'middle' },
             columnStyles: {
-                // Coluna Histórico mais larga
                 [selectedColumns.indexOf('historySummary')]: { cellWidth: 70, fontSize: 7 } 
             }
         });
@@ -235,7 +220,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
             <SectionHeader icon={Users} title="Relatório de Funcionários" description="Gestão de quadro, alocações e histórico detalhado." />
             
             <FilterSection>
-                {/* Filtro de Datas para Histórico */}
                 <div className="col-span-1 md:col-span-2 flex gap-2 border-r pr-4 border-gray-200">
                     <div className="flex-1">
                         <label className="text-[10px] uppercase font-bold text-gray-500">Histórico De:</label>
@@ -255,7 +239,7 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
 
                 <select value={filters.cidade} onChange={e => setFilters({...filters, cidade: e.target.value})} className="input-field">
                     <option value="">Todas as Cidades</option>
-                    {[...new Set(employees.map(e => e.cidade).filter(Boolean))].sort().map(c => <option key={c} value={c}>{c}</option>)}
+                    {[...new Set(employees.map(e => e.cidade).filter(Boolean))].sort(sortAlphaNum).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
 
                 <select value={filters.allocationStatus} onChange={e => setFilters({...filters, allocationStatus: e.target.value})} className="input-field bg-yellow-50 border-yellow-200 text-yellow-800 font-medium">
@@ -266,17 +250,16 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
 
                 <select value={filters.funcao} onChange={e => setFilters({...filters, funcao: e.target.value})} className="input-field">
                     <option value="">Todas as Funções</option>
-                    {[...new Set(employees.map(e => e.funcao).filter(Boolean))].sort().map(f => <option key={f} value={f}>{f}</option>)}
+                    {[...new Set(employees.map(e => e.funcao).filter(Boolean))].sort(sortAlphaNum).map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
                 
                 <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
                     <option value="">Todas as Obras (Alocação)</option>
                     <option value="N/A">Sem Alocação</option>
-                    {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                    {obras.filter(o => o.status === 'ativa').sort((a,b) => sortAlphaNum(a.nome, b.nome)).map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                 </select>
             </FilterSection>
 
-            {/* Seleção de Colunas */}
             <div className="mb-4 bg-white p-3 rounded border">
                 <span className="text-xs font-bold text-gray-500 uppercase mb-2 block">Colunas Visíveis (PDF)</span>
                 <div className="flex flex-wrap gap-2">
@@ -294,7 +277,7 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
 
             <div className="border rounded-lg max-h-80 overflow-y-auto mb-4 bg-white custom-scrollbar">
                 <table className="w-full text-xs text-left">
-                    <thead className="bg-gray-100 sticky top-0 uppercase text-gray-600 font-bold">
+                    <thead className="bg-gray-100 sticky top-0 uppercase text-gray-600 font-bold z-10">
                         <tr>
                             <th className="p-3 w-10 text-center"><input type="checkbox" checked={selectAll} onChange={e => {setSelectAll(e.target.checked); setSelectedEmployeeIds(e.target.checked ? filteredEmployees.map(x=>x.id) : [])}} className="rounded text-green-600 focus:ring-green-500"/></th>
                             <th className="p-3">Nome</th>
@@ -303,6 +286,10 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                             <th className="p-3">Cadastro</th>
                             <th className="p-3">Cidade</th>
                             {selectedColumns.includes('historySummary') && <th className="p-3">Histórico</th>}
+                            {/* Renderiza as colunas selecionadas dinamicamente na UI para validação visual */}
+                            {selectedColumns.includes('cnhCategoria') && <th className="p-3">Cat. CNH</th>}
+                            {selectedColumns.includes('cnhVencimento') && <th className="p-3">Venc. CNH</th>}
+                            {selectedColumns.includes('toxicologicoVencimento') && <th className="p-3">Venc. Toxicológico</th>}
                         </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -321,6 +308,9 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
                                 {selectedColumns.includes('historySummary') && (
                                     <td className="p-3 whitespace-pre-wrap text-gray-600 bg-gray-50 border-l text-[10px]">{e.historySummary}</td>
                                 )}
+                                {selectedColumns.includes('cnhCategoria') && <td className="p-3 font-bold">{e.cnhCategoria || '-'}</td>}
+                                {selectedColumns.includes('cnhVencimento') && <td className="p-3">{e.cnhVencimento ? new Date(e.cnhVencimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '-'}</td>}
+                                {selectedColumns.includes('toxicologicoVencimento') && <td className="p-3">{e.toxicologicoVencimento ? new Date(e.toxicologicoVencimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : '-'}</td>}
                             </tr>
                         ))}
                     </tbody>

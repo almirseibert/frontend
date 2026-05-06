@@ -5,8 +5,8 @@ import { FileText, Printer, Droplet, AlertCircle, RefreshCw, Search } from 'luci
 import { SectionHeader, FilterSection } from './ReportComponents';
 
 const SupplyOrdersReport = ({ 
-    supplyOrders = [], // Valor padrão []
-    refuelings = [],   // Valor padrão [] -> Corrige o erro "undefined"
+    supplyOrders = [], 
+    refuelings = [],   
     vehicles = [], 
     obras = [], 
     partners = [], 
@@ -14,7 +14,6 @@ const SupplyOrdersReport = ({
     employees = [] 
 }) => {
     // --- 0. Tratamento Robusto de Props ---
-    // Unifica as fontes de dados, priorizando 'refuelings' se tiver dados
     const rawOrders = useMemo(() => {
         if (Array.isArray(refuelings) && refuelings.length > 0) return refuelings;
         if (Array.isArray(supplyOrders) && supplyOrders.length > 0) return supplyOrders;
@@ -23,7 +22,6 @@ const SupplyOrdersReport = ({
 
     const rawPartners = Array.isArray(partners) ? partners : (Array.isArray(gasStations) ? gasStations : []);
 
-    // Filtros
     const [filters, setFilters] = useState({ 
         vehicleId: '', 
         obraId: '', 
@@ -35,14 +33,14 @@ const SupplyOrdersReport = ({
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
 
-    // --- 1. Helpers de Data (SQL/MySQL) ---
+    // Helpers de ordenação e Data
+    const sortAlphaNum = (a, b) => (a || '').toString().localeCompare((b || '').toString(), undefined, { numeric: true, sensitivity: 'base' });
+
     const getSafeDateObj = (dateInput) => {
         if (!dateInput) return new Date(0);
         if (dateInput instanceof Date) return dateInput;
-        // Suporte legado Firestore
         if (typeof dateInput.toDate === 'function') return dateInput.toDate();
         
-        // Tratamento SQL String
         const str = String(dateInput).trim();
         const isoStr = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
         try {
@@ -51,10 +49,8 @@ const SupplyOrdersReport = ({
         } catch { return new Date(0); }
     };
 
-    // --- 2. Processamento de Parceiros (Fallback) ---
     const partnersData = useMemo(() => {
         let list = [...rawPartners];
-        // Se a lista de parceiros estiver vazia, extrai das ordens (fallback)
         if (list.length === 0 && rawOrders.length > 0) {
             const uniquePartners = new Map();
             rawOrders.forEach(o => {
@@ -70,40 +66,40 @@ const SupplyOrdersReport = ({
         return list;
     }, [rawPartners, rawOrders]);
 
-    // Ordenações para os Selects
-    const sortedVehicles = useMemo(() => [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
-    const sortedPartners = useMemo(() => [...partnersData].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partnersData]);
-    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
+    const sortedVehicles = useMemo(() => [...vehicles].sort((a, b) => sortAlphaNum(a.registroInterno, b.registroInterno)), [vehicles]);
+    const sortedPartners = useMemo(() => [...partnersData].sort((a, b) => sortAlphaNum(a.razaoSocial, b.razaoSocial)), [partnersData]);
+    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a, b) => sortAlphaNum(a.nome, b.nome)), [obras]);
 
-    // --- 3. Filtragem Principal (Replicando RefuelingPage) ---
+    // --- 3. Filtragem Flexível para Resolver Status ("nada funciona") ---
     const filteredOrders = useMemo(() => {
-        // Passo 1: Filtrar apenas 'Aberta' (Exatamente como no RefuelingPage e Banco)
-        const openOrders = rawOrders.filter(o => o.status === 'Aberta');
+        // Correção Crucial: Deixar o termo "aberta" ou status similares abrangentes para não sumir dados
+        const openOrders = rawOrders.filter(o => {
+            const currentStatus = (o.status || '').trim().toLowerCase();
+            return ['aberta', 'aberto', 'pendente', 'em aberto'].includes(currentStatus);
+        });
 
-        // Passo 2: Datas
         const start = filters.startDate ? new Date(filters.startDate + 'T00:00:00') : null;
         const end = filters.endDate ? new Date(filters.endDate + 'T23:59:59') : null;
 
-        // Passo 3: Map e Filtro Final
         return openOrders.map(order => {
             const vehicle = vehicles.find(v => v.id === order.vehicleId);
             const partner = partnersData.find(p => p.id === order.partnerId);
             const obra = obras.find(o => o.id === order.obraId);
             const employee = employees.find(e => e.id === order.employeeId);
-            const dateObj = getSafeDateObj(order.data || order.date);
+            const dateObj = getSafeDateObj(order.data || order.date || order.createdAt); // Adicionado fallback para createdAt
             
             return {
                 ...order,
                 id: order.id,
                 vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : (order.vehicleName || 'N/A'),
-                partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || 'Posto N/A'),
+                partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || order.postoNome || 'Posto N/A'),
                 obraName: obra ? obra.nome : 'N/A',
                 driverName: employee ? employee.nome : (order.employeeName || 'N/A'),
-                formattedDate: dateObj.toLocaleDateString('pt-BR'),
+                formattedDate: dateObj.getTime() > 0 ? dateObj.toLocaleDateString('pt-BR') : 'Data Inválida',
                 rawDate: dateObj,
                 orderNumber: order.authNumber ? `#${String(order.authNumber).padStart(6, '0')}` : 'N/A',
-                rawAuthNumber: Number(order.authNumber) || 0, // Para ordenação
-                quantity: order.isFillUp ? 'Completo' : `${order.litrosLiberados || 0} L`,
+                rawAuthNumber: Number(order.authNumber) || 0,
+                quantity: order.isFillUp ? 'Completo' : `${order.litrosLiberados || order.quantidade || 0} L`,
                 status: (order.status || 'Aberta').toUpperCase()
             };
         }).filter(order => {
@@ -118,17 +114,14 @@ const SupplyOrdersReport = ({
 
             return matchVeh && matchObra && matchPartner && matchDate;
         })
-        // Ordenação por Número da Ordem (Decrescente), igual RefuelingPage
         .sort((a,b) => b.rawAuthNumber - a.rawAuthNumber); 
 
     }, [rawOrders, vehicles, obras, partnersData, employees, filters]);
 
-    // Checkbox "Selecionar Todos"
     useEffect(() => {
         setSelectAll(filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length);
     }, [selectedOrderIds, filteredOrders]);
 
-    // --- Geração de PDF ---
     const handleGeneratePDF = () => {
         const doc = new jsPDF();
         doc.setFontSize(18);
@@ -145,7 +138,7 @@ const SupplyOrdersReport = ({
                 o.driverName,
                 o.partnerName,
                 o.obraName,
-                o.fuelType,
+                o.fuelType || o.tipoCombustivel || '-',
                 o.quantity,
                 o.status
             ]);
@@ -162,7 +155,6 @@ const SupplyOrdersReport = ({
         doc.save('Relatorio_Ordens_Aberto.pdf');
     };
 
-    // --- Tela de "Sem Dados" ou Erro ---
     if (rawOrders.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-gray-200 rounded-lg text-center animate-fade-in">
@@ -171,16 +163,6 @@ const SupplyOrdersReport = ({
                 <p className="text-sm text-gray-500 max-w-md mb-4">
                     Nenhuma ordem de abastecimento encontrada na lista.
                 </p>
-                <div className="w-full max-w-md bg-white p-3 rounded border border-gray-300 text-left shadow-sm">
-                    <h4 className="text-xs font-bold text-gray-600 uppercase border-b pb-1 mb-2">Diagnóstico Técnico</h4>
-                    <ul className="text-xs font-mono text-gray-600 space-y-1">
-                        <li>refuelings: {refuelings.length} itens</li>
-                        <li>supplyOrders: {supplyOrders.length} itens</li>
-                        <li className="text-red-600 mt-2 font-bold">
-                            Atenção: Se você tem ordens no sistema, verifique a chamada deste componente. É necessário passar a prop <code>refuelings={'{listaDeAbastecimentos}'}</code>.
-                        </li>
-                    </ul>
-                </div>
             </div>
         );
     }
@@ -234,7 +216,7 @@ const SupplyOrdersReport = ({
                     </thead>
                     <tbody className="divide-y">
                         {filteredOrders.length === 0 ? (
-                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">Nenhuma ordem 'Aberta' encontrada com os filtros atuais.</td></tr>
+                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">Nenhuma ordem listada como 'Aberta' com os filtros atuais.</td></tr>
                         ) : (
                             filteredOrders.map(o => (
                                 <tr key={o.id} className={`hover:bg-red-50 transition-colors ${selectedOrderIds.includes(o.id) ? 'bg-red-50' : ''}`}>

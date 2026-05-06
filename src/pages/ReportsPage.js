@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
     Users, Truck, FileText, AlertTriangle, 
-    ClipboardCheck, HardHat, Printer, Droplet
+    ClipboardCheck, HardHat, Printer, Droplet, TrendingUp
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -14,7 +14,8 @@ import AlertsReport from '../components/reports/AlertsReport';
 import BillingReport from '../components/reports/BillingReport';
 import ConstructionReport from '../components/reports/ConstructionReport';
 import WorkPlanReport from '../components/reports/WorkPlanReport';
-import SupplyOrdersReport from '../components/reports/SupplyOrdersReport'; // Novo
+import SupplyOrdersReport from '../components/reports/SupplyOrdersReport'; 
+import AveragesReport from '../components/reports/AveragesReport'; // Novo
 
 const ReportsPage = ({ 
     vehicles = [], 
@@ -26,15 +27,14 @@ const ReportsPage = ({
     vehicleGroups = {}, 
     dailyWorkLogs = [], 
     refuelings = [],
-    // Novos dados necessários (passar via props ou buscar na API aqui dentro se preferir)
     supplyOrders = [], 
     gasStations = [],
-    revisions = [] // Adicionado para os cálculos do AlertsReport
+    revisions = []
 }) => {
     const [reportType, setReportType] = useState(null);
     const [inactivityAlerts, setInactivityAlerts] = useState([]);
     const [fetchedRefuelings, setFetchedRefuelings] = useState([]);
-    const [fetchedRevisions, setFetchedRevisions] = useState([]); // ADICIONADO: Estado para as revisões
+    const [fetchedRevisions, setFetchedRevisions] = useState([]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -47,7 +47,6 @@ const ReportsPage = ({
                     const refuelsData = await apiClient.getRefuelings();
                     setFetchedRefuelings(refuelsData || []);
                 }
-                // ADICIONADO: Busca de revisões caso não tenha vindo via prop (previne aba de manutenção vazia)
                 if (revisions.length === 0 && apiClient) {
                     try {
                         const revData = apiClient.getRevisions ? await apiClient.getRevisions() : await apiClient.get('/revisions');
@@ -64,7 +63,7 @@ const ReportsPage = ({
     }, [refuelings, revisions]); 
 
     const activeRefuelings = refuelings.length > 0 ? refuelings : fetchedRefuelings;
-    const activeRevisions = revisions.length > 0 ? revisions : fetchedRevisions; // ADICIONADO: Usa as revisões da prop ou as buscadas
+    const activeRevisions = revisions.length > 0 ? revisions : fetchedRevisions; 
 
     const reportTypes = [
         { id: 'vehicles', label: 'Frota & Veículos', icon: Truck, desc: 'Listagem geral, status e localização.', color: 'bg-blue-600' },
@@ -73,7 +72,8 @@ const ReportsPage = ({
         { id: 'billing', label: 'Faturamento', icon: ClipboardCheck, desc: 'Comparativo Contratado x Faturado.', color: 'bg-yellow-500' },
         { id: 'construction', label: 'Obras', icon: HardHat, desc: 'Progresso Físico vs. Financeiro.', color: 'bg-orange-600' },
         { id: 'workplan', label: 'Plano de Trabalho', icon: FileText, desc: 'Histórico físico e despesas.', color: 'bg-gray-600' },
-        { id: 'supply', label: 'Ordens Abastecimento', icon: Droplet, desc: 'Relatório de ordens em aberto.', color: 'bg-purple-600' }, // Novo Card
+        { id: 'supply', label: 'Ordens Abastecimento', icon: Droplet, desc: 'Relatório de ordens em aberto.', color: 'bg-purple-600' },
+        { id: 'averages', label: 'Médias & Consumo', icon: TrendingUp, desc: 'Comparativos e médias (Km/L, L/Hr).', color: 'bg-teal-600' } // Novo Card
     ];
 
     return (
@@ -124,7 +124,8 @@ const ReportsPage = ({
                             {reportType === 'billing' && <BillingReport obras={obras} vehicles={vehicles} />}
                             {reportType === 'construction' && <ConstructionReport obras={obras} vehicles={vehicles} dailyWorkLogs={dailyWorkLogs} vehicleGroups={vehicleGroups} />}
                             {reportType === 'workplan' && <WorkPlanReport obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} expenses={expenses} equipmentTypesForHours={equipmentTypesForHours} />}
-                            {reportType === 'supply' && <SupplyOrdersReport supplyOrders={supplyOrders} vehicles={vehicles} obras={obras} gasStations={gasStations} />}
+                            {reportType === 'supply' && <SupplyOrdersReport supplyOrders={supplyOrders} vehicles={vehicles} obras={obras} gasStations={gasStations} refuelings={activeRefuelings} />}
+                            {reportType === 'averages' && <AveragesReport refuelings={activeRefuelings} vehicles={vehicles} obras={obras} vehicleGroups={vehicleGroups} />}
                         </ProtectedComponent>
                     </div>
                 )}
