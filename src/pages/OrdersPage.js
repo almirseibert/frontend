@@ -130,8 +130,8 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
     const tableBody = (order.items || []).map(item => [
         item.quantity || 0,
         item.description || '',
-        order.status !== 'Pendente de Valor' ? `R$ ${(item.unitPrice || 0).toFixed(2)}` : 'A cotar',
-        order.status !== 'Pendente de Valor' ? `R$ ${((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}` : 'A cotar'
+        order.status !== 'Pendente de Valor' ? `R$ ${(parseFloat(item.unitPrice) || 0).toFixed(2)}` : 'A cotar',
+        order.status !== 'Pendente de Valor' ? `R$ ${((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}` : 'A cotar'
     ]);
 
     let finalY = infoStartY + 18; 
@@ -148,8 +148,8 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
             if (order.status !== 'Pendente de Valor') {
                 doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
                 doc.text('Total Geral:', data.settings.margin.left, finalY + 8);
-                const displayTotal = order.totalValue != null ? order.totalValue : (order.items || []).reduce((sum, i) => sum + ((i.quantity || 0) * (i.unitPrice || 0)), 0);
-                doc.text(`R$ ${(displayTotal || 0).toFixed(2)}`, pageWidth - margin, finalY + 8, { align: 'right' });
+                const displayTotal = order.totalValue != null ? order.totalValue : (order.items || []).reduce((sum, i) => sum + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0)), 0);
+                doc.text(`R$ ${(parseFloat(displayTotal) || 0).toFixed(2)}`, pageWidth - margin, finalY + 8, { align: 'right' });
                 finalY += 8; 
             }
         }
@@ -352,7 +352,7 @@ const OrdersPage = ({
                                         </span>
                                     </td>
                                      <td className="p-3 text-right font-medium text-gray-900">
-                                        {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(order.totalValue || 0).toFixed(2)}`}
+                                        {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(parseFloat(order.totalValue) || 0).toFixed(2)}`}
                                     </td>
                                     <td className="p-3">
                                         <div className="flex items-center gap-1 flex-nowrap"> 
@@ -600,7 +600,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             reloadData();
 
             if (savedOrderData) {
-                 const pdfData = { ...formData, ...savedOrderData };
+                 const pdfData = { ...finalOrderData, ...savedOrderData };
                  generatePDF(pdfData);
             }
             onClose();
