@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
     PlusCircle, Edit, Trash2, FileText, XCircle, Loader, X,
-    ChevronDown, UploadCloud, Paperclip
+    ChevronDown, UploadCloud, Paperclip, RefreshCw
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent'; 
@@ -127,6 +127,7 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
         doc.text(`${vehicle.registroInterno || 'N/A'} - ${vehicle.placa || 'N/A'}`, midX + 35, infoStartY + 7); 
     }
 
+    // Tratamento estrito de valores matemáticos
     const tableBody = (order.items || []).map(item => [
         item.quantity || 0,
         item.description || '',
@@ -174,7 +175,7 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
             doc.setFont('helvetica', 'normal');
             order.payment.installments.forEach((inst, idx) => {
                 const dataFormatada = inst.dueDate ? new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A';
-                const valorFormat = parseFloat(inst.value || 0).toFixed(2);
+                const valorFormat = (parseFloat(inst.value) || 0).toFixed(2);
                 doc.text(`${idx + 1}ª Parcela: ${dataFormatada} - R$ ${valorFormat}`, margin + 40, finalY);
                 finalY += 4.5;
             });
@@ -203,31 +204,65 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
 // ===================================================================================
 const OrdersPage = ({
     user, setAlertMessage,
-    vehicles = [], employees = [], obras = [], partners = [], // Recebe partners
+    vehicles = [], employees = [], obras = [], partners = [], 
     PasswordConfirmationModal, apiClient, reloadData,
     orders = [] 
 }) => {
+    // --- ESTADOS ---
+    const [localOrders, setLocalOrders] = useState([]);
+    const [isFetching, setIsFetching] = useState(false);
+    
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState(null);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [itemToCancel, setItemToCancel] = useState(null);
-    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '' });
+    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '' });
     const [loadingCancel, setLoadingCancel] = useState(false);
+
+    // --- FETCH INDEPENDENTE (FALLBACK) ---
+    const fetchLocalOrders = async () => {
+        setIsFetching(true);
+        try {
+            let data = [];
+            if (typeof apiClient.getAllOrders === 'function') {
+                data = await apiClient.getAllOrders();
+            } else if (typeof apiClient.get === 'function') {
+                data = await apiClient.get('/orders');
+            }
+            if (data) setLocalOrders(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error("Erro ao buscar ordens locais:", error);
+        } finally {
+            setIsFetching(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchLocalOrders();
+    }, []);
+
+    const handleReloadData = async () => {
+        if (reloadData) await reloadData();
+        await fetchLocalOrders();
+    };
+
+    const activeOrders = orders && orders.length > 0 ? orders : localOrders;
 
     const sortedObras = useMemo(() => [...(obras || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedVehicles = useMemo(() => [...(vehicles || [])].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
 
     const filteredOrders = useMemo(() => {
-        return (orders || []).filter(order => {
+        return (activeOrders || []).filter(order => {
             const dateMatch = !filters.date || (order.date && new Date(order.date).toISOString().split('T')[0] === filters.date);
             const numberMatch = !filters.number || String(order.orderNumber).padStart(6, '0').includes(filters.number);
             const obraMatch = !filters.obra || order.obraId === filters.obra;
             const vehicleMatch = !filters.vehicle || order.vehicleId === filters.vehicle;
             const emitterMatch = !filters.emitter || (order.createdBy?.userEmail || '').toLowerCase().includes(filters.emitter.toLowerCase());
-            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch;
+            const statusMatch = !filters.status || order.status === filters.status;
+            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch;
         })
         .sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0)); 
-    }, [orders, filters]);
+    }, [activeOrders, filters]);
 
     const handleOpenPDF = (order) => {
         const vehicle = vehicles.find(v => v.id === order.vehicleId);
@@ -257,9 +292,14 @@ const OrdersPage = ({
         if (!itemToCancel) return;
         setLoadingCancel(true); 
         try {
-            await apiClient.cancelOrder(itemToCancel.id); 
+            // Fallback robusto
+            if (typeof apiClient.cancelOrder === 'function') {
+                await apiClient.cancelOrder(itemToCancel.id);
+            } else {
+                await apiClient.put(`/orders/${itemToCancel.id}/cancel`);
+            }
             setAlertMessage("Ordem cancelada com sucesso.");
-            reloadData(); 
+            await handleReloadData(); 
         } catch (error) {
             setAlertMessage(error.message || "Falha ao cancelar a ordem.");
         } finally {
@@ -270,19 +310,33 @@ const OrdersPage = ({
     };
 
     return (
-        <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8">
+        <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8 animate-fade-in">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                 <h1 className="text-3xl font-bold text-gray-800">Ordens de Compra/Serviço</h1>
                  <ProtectedComponent requiredPermission="editor">
-                    <button onClick={() => { setEditingOrder(null); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow hover:bg-yellow-500 transition w-full sm:w-auto justify-center text-sm">
-                        <PlusCircle size={18} />Nova Ordem
-                    </button>
+                    <div className="flex w-full sm:w-auto gap-2">
+                        <button onClick={handleReloadData} className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg shadow hover:bg-gray-300 transition text-sm">
+                            <RefreshCw size={18} className={isFetching ? "animate-spin" : ""} /> 
+                        </button>
+                        <button onClick={() => { setEditingOrder(null); setIsModalOpen(true); }} className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow hover:bg-yellow-500 transition justify-center text-sm">
+                            <PlusCircle size={18} />Nova Ordem
+                        </button>
+                    </div>
                 </ProtectedComponent>
             </div>
 
-            <div className="bg-white p-4 rounded-lg shadow grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-center text-sm">
+            <div className="bg-white p-4 rounded-lg shadow grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-center text-sm">
                  <input type="text" placeholder="Nº Ordem" value={filters.number} onChange={e => setFilters({...filters, number: e.target.value})} className="p-2 border rounded-lg w-full bg-gray-50"/>
                  <input type="date" value={filters.date} onChange={e => setFilters({...filters, date: e.target.value})} className="p-2 border rounded-lg w-full bg-gray-50"/>
+                 
+                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="p-2 border rounded-lg w-full bg-white outline-none">
+                    <option value="">Status (Todos)</option>
+                    <option value="Pendente de Valor">A Cotar (Pendente)</option>
+                    <option value="Ativa">Ativa</option>
+                    <option value="Concluída">Concluída</option>
+                    <option value="Cancelada">Cancelada</option>
+                 </select>
+
                  <select value={filters.obra} onChange={e => setFilters({...filters, obra: e.target.value})} className="p-2 border rounded-lg w-full bg-white">
                     <option value="">Todas as Obras</option>
                     {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
@@ -308,10 +362,10 @@ const OrdersPage = ({
                             <th className="p-3">Data</th>
                             <th className="p-3">Status</th>
                             <th className="p-3 text-right">Valor Total</th>
-                            <th className="p-3">Ações</th>
+                            <th className="p-3 text-center">Ações</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-100">
                         {filteredOrders.map(order => {
                             const vehicle = vehicles.find(v => v.id === order.vehicleId);
                             const employee = employees.find(e => e.id === order.employeeId);
@@ -328,18 +382,19 @@ const OrdersPage = ({
 
                             const statusStyles = {
                                 'Ativa': 'bg-green-100 text-green-800',
+                                'Concluída': 'bg-blue-100 text-blue-800',
                                 'Cancelada': 'bg-red-100 text-red-800',
                                 'Pendente de Valor': 'bg-yellow-100 text-yellow-800 animate-pulse'
                             };
 
                             return (
-                                <tr key={order.id} className="border-b hover:bg-gray-50 align-top"> 
+                                <tr key={order.id} className="hover:bg-gray-50 align-top"> 
                                     <td className="p-3 font-bold text-gray-800 whitespace-nowrap">
                                         {String(order.orderNumber || '').padStart(6, '0')}
                                         {anexosList.length > 0 && <span title={`${anexosList.length} anexo(s)`} className="inline-block ml-2 text-gray-400"><Paperclip size={12}/></span>}
                                     </td>
                                     <td className="p-3">{obra?.nome || order.obraId || 'N/A'}</td> 
-                                    <td className="p-3">{vehicle ? `${vehicle.registroInterno}` : 'N/A'}</td>
+                                    <td className="p-3">{vehicle ? <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-mono">{vehicle.registroInterno}</span> : 'N/A'}</td>
                                     <td className="p-3 max-w-[150px] truncate" title={order.supplier}>{order.supplier}</td>
                                     <td className="p-3 text-xs leading-tight">
                                         <div><strong>R:</strong> {employee?.nome || 'N/A'}</div>
@@ -355,7 +410,7 @@ const OrdersPage = ({
                                         {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(parseFloat(order.totalValue) || 0).toFixed(2)}`}
                                     </td>
                                     <td className="p-3">
-                                        <div className="flex items-center gap-1 flex-nowrap"> 
+                                        <div className="flex items-center justify-center gap-1 flex-nowrap"> 
                                             <button onClick={() => handleOpenPDF(order)} title="Visualizar PDF" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"><FileText size={14}/></button>
                                             {order.status !== 'Cancelada' && (
                                                 <ProtectedComponent requiredPermission="editor">
@@ -369,7 +424,11 @@ const OrdersPage = ({
                             )
                         })}
                          {filteredOrders.length === 0 && (
-                            <tr><td colSpan="9" className="p-6 text-center text-gray-500 italic">Nenhuma ordem encontrada.</td></tr>
+                            <tr>
+                                <td colSpan="9" className="p-8 text-center text-gray-500 italic">
+                                    {isFetching ? <><Loader size={18} className="inline animate-spin text-yellow-500 mr-2"/> Buscando dados...</> : 'Nenhuma ordem encontrada com os filtros atuais.'}
+                                </td>
+                            </tr>
                         )}
                     </tbody>
                 </table>
@@ -386,7 +445,7 @@ const OrdersPage = ({
                 orderToEdit={editingOrder}
                 generatePDF={handleOpenPDF} 
                 apiClient={apiClient}
-                reloadData={reloadData}
+                reloadData={handleReloadData} // Envia função unificada
             />}
 
             {isCancelModalOpen && itemToCancel && <PasswordConfirmationModal
@@ -421,11 +480,11 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         operatorId: orderToEdit?.operatorId || '',
         obraId: orderToEdit?.obraId || '',
         vehicleId: orderToEdit?.vehicleId || '',
-        items: (Array.isArray(orderToEdit?.items) ? orderToEdit.items : []).map(item => ({
+        items: (Array.isArray(orderToEdit?.items) && orderToEdit.items.length > 0 ? orderToEdit.items : [{ quantity: '1', description: '', unitPrice: '' }]).map(item => ({
             quantity: item.quantity?.toString() || '1',
             description: item.description || '',
             unitPrice: item.unitPrice?.toString() || ''
-        })) || [{ quantity: '1', description: '', unitPrice: '' }],
+        })),
         payment: orderToEdit?.payment || { type: 'À vista', method: '', days: '', installments: [] },
         anexos: parsedAnexos
     });
@@ -442,16 +501,15 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
     const handleItemChange = (index, field, value) => {
         const newItems = [...formData.items];
         let processedValue = value;
-        if (field === 'unitPrice') {
+        if (field === 'unitPrice' || field === 'quantity') {
              processedValue = value.replace(',', '.');
-             if (!/^\d*\.?\d{0,2}$/.test(processedValue) && processedValue !== '') return;
-        } else if (field === 'quantity') {
-             processedValue = value.replace(',', '.');
-            if (!/^\d*\.?\d*$/.test(processedValue) && processedValue !== '') return;
+             // Impede letras em campos numéricos
+             if (!/^\d*\.?\d*$/.test(processedValue) && processedValue !== '') return;
         }
         newItems[index] = { ...newItems[index], [field]: processedValue };
         setFormData(prev => ({...prev, items: newItems}));
     };
+    
     const addItem = () => setFormData(prev => ({ ...prev, items: [...prev.items, { quantity: '1', description: '', unitPrice: '' }]}));
     const removeItem = (index) => setFormData(prev => ({ ...prev, items: formData.items.filter((_, i) => i !== index) }));
 
@@ -496,7 +554,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         const file = e.target.files[0];
         if (!file) return;
 
-        if (file.size > 5 * 1024 * 1024) { // Proteção de 5MB
+        if (file.size > 5 * 1024 * 1024) { 
             setAlertMessage("O arquivo excede o limite de 5MB.");
             return;
         }
@@ -509,7 +567,6 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             let fileUrl = '';
             
             try {
-                // Tenta Endpoint genérico /upload
                 const res = await apiClient.post('/upload', uploadData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
@@ -518,7 +575,6 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                 console.warn("Upload falhou no servidor. Tentando fallback para Base64 local.", err);
             }
 
-            // Fallback robusto (Converte em Base64 e salva no banco de dados)
             if (!fileUrl) {
                 const reader = new FileReader();
                 reader.readAsDataURL(file);
@@ -553,15 +609,15 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
     const handleSave = async (e) => {
         if(e) e.preventDefault();
         
-        // Validações
-        const itemsValid = formData.items.length > 0 && formData.items.every(i => (parseFloat(i.quantity) || 0) > 0 && i.description);
+        // Validações Rígidas
+        const itemsValid = formData.items.length > 0 && formData.items.every(i => (parseFloat(i.quantity) || 0) > 0 && i.description.trim() !== '');
         const pricesValid = isPricePending || formData.items.every(i => (parseFloat(i.unitPrice) || 0) > 0);
         const paymentValid = formData.payment.type !== 'A prazo' || !!formData.payment.method;
 
         if (!formData.supplierId || !formData.date || !formData.employeeId || !formData.obraId || !itemsValid || !pricesValid || !paymentValid) {
             let errorMsg = "Preencha Fornecedor, Data, Func. Autorizado, Obra Destino, e Itens válidos.";
-            if (!isPricePending) errorMsg += " Informe os valores Unitários.";
-             if (!paymentValid && formData.payment.type === 'A prazo') errorMsg += " Selecione o método de pagamento a prazo.";
+            if (!isPricePending && !pricesValid) errorMsg += " Informe os valores Unitários.";
+            if (!paymentValid && formData.payment.type === 'A prazo') errorMsg += " Selecione o método de pagamento a prazo.";
             setAlertMessage(errorMsg);
             return;
         }
@@ -582,22 +638,34 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                  unitPrice: isPricePending ? 0 : (parseFloat(item.unitPrice) || 0)
             })),
             payment: formData.payment,
-            anexos: JSON.stringify(formData.anexos || []), // Envia stringificado
+            anexos: JSON.stringify(formData.anexos || []),
             totalValue: isPricePending ? 0 : totalValue,
             status: isPricePending ? 'Pendente de Valor' : 'Ativa',
         };
 
         try {
             let savedOrderData;
+            
+            // Suporte híbrido caso apiClient esteja defasado
             if (orderToEdit) {
-                savedOrderData = await apiClient.updateOrder(orderToEdit.id, finalOrderData);
+                if (typeof apiClient.updateOrder === 'function') {
+                    savedOrderData = await apiClient.updateOrder(orderToEdit.id, finalOrderData);
+                } else {
+                    const res = await apiClient.put(`/orders/${orderToEdit.id}`, finalOrderData);
+                    savedOrderData = res.data || res;
+                }
                 setAlertMessage(`Ordem atualizada com sucesso!`);
             } else {
-                savedOrderData = await apiClient.createOrder(finalOrderData);
+                if (typeof apiClient.createOrder === 'function') {
+                    savedOrderData = await apiClient.createOrder(finalOrderData);
+                } else {
+                    const res = await apiClient.post('/orders', finalOrderData);
+                    savedOrderData = res.data || res;
+                }
                 setAlertMessage(`Ordem criada com sucesso!`);
             }
 
-            reloadData();
+            if (reloadData) await reloadData();
 
             if (savedOrderData) {
                  const pdfData = { ...finalOrderData, ...savedOrderData };
