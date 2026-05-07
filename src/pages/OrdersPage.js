@@ -4,11 +4,26 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
     PlusCircle, Edit, Trash2, FileText, XCircle, Loader, X,
-    ChevronDown, UploadCloud, Paperclip, RefreshCw
+    ChevronDown, UploadCloud, Paperclip, RefreshCw, Eye, ThumbsUp, CheckCircle, FileCode2
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { PasswordConfirmationModal } from '../App'; 
+
+// ===================================================================================
+// HELPERS DE PARSE E FORMATAÇÃO
+// ===================================================================================
+const getCreatorEmail = (order) => {
+    if (!order || !order.createdBy) return 'N/A';
+    if (typeof order.createdBy === 'object') return order.createdBy.userEmail || 'N/A';
+    try { const p = JSON.parse(order.createdBy); return p.userEmail || 'N/A'; } catch(e) { return order.createdBy; }
+};
+
+const getEditorEmail = (order) => {
+    if (!order || !order.editedBy) return 'N/A';
+    if (typeof order.editedBy === 'object') return order.editedBy.userEmail || 'N/A';
+    try { const p = JSON.parse(order.editedBy); return p.userEmail || 'N/A'; } catch(e) { return order.editedBy; }
+};
 
 // ===================================================================================
 // COMPONENTE: SELECT COM BUSCA PARA FORNECEDORES
@@ -91,10 +106,13 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
         try { doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875); } catch(e) {}
     }
 
+    const orderNumberStr = order.orderNumber ? String(order.orderNumber).padStart(6, '0') : '000000';
+    const emissorEmail = getCreatorEmail(order);
+
     doc.setFontSize(18); doc.setFont('helvetica', 'bold');
     doc.text('Ordem de Compra/Serviço', pageWidth - margin, 15, { align: 'right' });
     doc.setFontSize(12); doc.setFont('helvetica', 'normal');
-    doc.text(`Nº: ${String(order.orderNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
+    doc.text(`Nº: ${orderNumberStr}`, pageWidth - margin, 22, { align: 'right' });
     doc.text(`Data: ${order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}`, pageWidth - margin, 29, { align: 'right' });
 
     doc.setLineWidth(0.5); doc.line(margin, 38, pageWidth - margin, 38);
@@ -127,7 +145,6 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
         doc.text(`${vehicle.registroInterno || 'N/A'} - ${vehicle.placa || 'N/A'}`, midX + 35, infoStartY + 7); 
     }
 
-    // Tratamento estrito de valores matemáticos
     const tableBody = (order.items || []).map(item => [
         item.quantity || 0,
         item.description || '',
@@ -191,7 +208,7 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl)
     doc.text('Esta ordem de compra deve gerar uma nota fiscal para faturamento.', margin, footerStartY + 5);
     doc.text('Somente os itens acima descriminados estão liberados para compra, itens adicionais não serão pagos.', margin, footerStartY + 9);
     doc.setFont('helvetica', 'italic');
-    doc.text(`Ordem emitida por: ${order.createdBy?.userEmail || 'N/A'}`, margin, footerStartY + 15);
+    doc.text(`Ordem emitida por: ${emissorEmail}`, margin, footerStartY + 15);
 
     doc.setLineDashPattern([1, 1], 0); doc.setDrawColor(180, 180, 180);
     doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
@@ -212,12 +229,18 @@ const OrdersPage = ({
     const [localOrders, setLocalOrders] = useState([]);
     const [isFetching, setIsFetching] = useState(false);
     
+    // Modais e Interações
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState(null);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [itemToCancel, setItemToCancel] = useState(null);
+    
+    const [orderDetailsToView, setOrderDetailsToView] = useState(null); // Modal de Raio-X
+    const [orderToClose, setOrderToClose] = useState(null); // Modal de Fechar Ordem (NF/XML)
+    const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
+
     const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '' });
-    const [loadingCancel, setLoadingCancel] = useState(false);
+    const [loadingAction, setLoadingAction] = useState(false);
 
     // --- FETCH INDEPENDENTE (FALLBACK) ---
     const fetchLocalOrders = async () => {
@@ -257,13 +280,15 @@ const OrdersPage = ({
             const numberMatch = !filters.number || String(order.orderNumber).padStart(6, '0').includes(filters.number);
             const obraMatch = !filters.obra || order.obraId === filters.obra;
             const vehicleMatch = !filters.vehicle || order.vehicleId === filters.vehicle;
-            const emitterMatch = !filters.emitter || (order.createdBy?.userEmail || '').toLowerCase().includes(filters.emitter.toLowerCase());
+            const emissorEmail = getCreatorEmail(order);
+            const emitterMatch = !filters.emitter || emissorEmail.toLowerCase().includes(filters.emitter.toLowerCase());
             const statusMatch = !filters.status || order.status === filters.status;
             return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch;
         })
         .sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0)); 
     }, [activeOrders, filters]);
 
+    // --- FUNÇÕES DE AÇÃO ---
     const handleOpenPDF = (order) => {
         const vehicle = vehicles.find(v => v.id === order.vehicleId);
         const employee = employees.find(e => e.id === order.employeeId);
@@ -290,9 +315,8 @@ const OrdersPage = ({
 
     const handleCancelOrder = async () => {
         if (!itemToCancel) return;
-        setLoadingCancel(true); 
+        setLoadingAction(true); 
         try {
-            // Fallback robusto
             if (typeof apiClient.cancelOrder === 'function') {
                 await apiClient.cancelOrder(itemToCancel.id);
             } else {
@@ -305,7 +329,54 @@ const OrdersPage = ({
         } finally {
             setIsCancelModalOpen(false);
             setItemToCancel(null);
-            setLoadingCancel(false); 
+            setLoadingAction(false); 
+        }
+    };
+
+    const handleQuickStatusChange = async (order, newStatus) => {
+        try {
+            const updatedData = { 
+                ...order, 
+                status: newStatus,
+                editedBy: { userEmail: user?.email, userId: user?.id || user?.uid }
+            };
+            
+            if (typeof apiClient.updateOrder === 'function') {
+                await apiClient.updateOrder(order.id, updatedData);
+            } else {
+                await apiClient.put(`/orders/${order.id}`, updatedData);
+            }
+            
+            setAlertMessage(`Ordem atualizada para: ${newStatus}`);
+            await handleReloadData();
+        } catch (error) {
+            setAlertMessage("Erro ao mudar o status: " + error.message);
+        }
+    };
+
+    const handleCloseOrderSubmit = async (nfNumber, finalValue) => {
+        try {
+            const updatedData = {
+                ...orderToClose,
+                status: 'Concluída',
+                invoiceNumber: nfNumber,
+                totalValue: finalValue,
+                editedBy: { userEmail: user?.email, userId: user?.id || user?.uid }
+            };
+
+            if (typeof apiClient.updateOrder === 'function') {
+                await apiClient.updateOrder(orderToClose.id, updatedData);
+            } else {
+                await apiClient.put(`/orders/${orderToClose.id}`, updatedData);
+            }
+
+            setAlertMessage(`Ordem fechada! Despesa gerada para a NF ${nfNumber}.`);
+            await handleReloadData();
+        } catch (error) {
+            setAlertMessage("Erro ao fechar ordem: " + error.message);
+        } finally {
+            setIsCloseModalOpen(false); 
+            setOrderToClose(null);
         }
     };
 
@@ -332,7 +403,7 @@ const OrdersPage = ({
                  <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="p-2 border rounded-lg w-full bg-white outline-none">
                     <option value="">Status (Todos)</option>
                     <option value="Pendente de Valor">A Cotar (Pendente)</option>
-                    <option value="Ativa">Ativa</option>
+                    <option value="Ativa">Ativa (Liberada)</option>
                     <option value="Concluída">Concluída</option>
                     <option value="Cancelada">Cancelada</option>
                  </select>
@@ -351,7 +422,7 @@ const OrdersPage = ({
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-x-auto">
-                <table className="w-full text-sm text-left min-w-[1000px]"> 
+                <table className="w-full text-sm text-left min-w-[1100px]"> 
                     <thead className="bg-gray-100 text-xs uppercase text-gray-700">
                         <tr>
                             <th className="p-3">Nº Ordem</th>
@@ -381,14 +452,14 @@ const OrdersPage = ({
                             })();
 
                             const statusStyles = {
-                                'Ativa': 'bg-green-100 text-green-800',
-                                'Concluída': 'bg-blue-100 text-blue-800',
+                                'Ativa': 'bg-blue-100 text-blue-800',
+                                'Concluída': 'bg-green-100 text-green-800',
                                 'Cancelada': 'bg-red-100 text-red-800',
                                 'Pendente de Valor': 'bg-yellow-100 text-yellow-800 animate-pulse'
                             };
 
                             return (
-                                <tr key={order.id} className="hover:bg-gray-50 align-top"> 
+                                <tr key={order.id} className="hover:bg-gray-50 align-middle"> 
                                     <td className="p-3 font-bold text-gray-800 whitespace-nowrap">
                                         {String(order.orderNumber || '').padStart(6, '0')}
                                         {anexosList.length > 0 && <span title={`${anexosList.length} anexo(s)`} className="inline-block ml-2 text-gray-400"><Paperclip size={12}/></span>}
@@ -403,19 +474,33 @@ const OrdersPage = ({
                                     <td className="p-3 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</td>
                                     <td className="p-3">
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${statusStyles[order.status] || 'bg-gray-100 text-gray-800'}`}>
-                                            {order.status}
+                                            {order.status === 'Ativa' ? 'Liberada (Ativa)' : order.status}
                                         </span>
                                     </td>
                                      <td className="p-3 text-right font-medium text-gray-900">
                                         {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(parseFloat(order.totalValue) || 0).toFixed(2)}`}
                                     </td>
                                     <td className="p-3">
-                                        <div className="flex items-center justify-center gap-1 flex-nowrap"> 
-                                            <button onClick={() => handleOpenPDF(order)} title="Visualizar PDF" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"><FileText size={14}/></button>
-                                            {order.status !== 'Cancelada' && (
+                                        <div className="flex items-center justify-center gap-1.5 flex-wrap w-full"> 
+                                            <button onClick={() => setOrderDetailsToView(order)} title="Ver Detalhes Completos (Raio-X)" className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition border border-transparent hover:border-blue-200"><Eye size={16}/></button>
+                                            <button onClick={() => handleOpenPDF(order)} title="Gerar / Visualizar PDF" className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-md transition"><FileText size={16}/></button>
+                                            
+                                            {order.status === 'Pendente de Valor' && (
                                                 <ProtectedComponent requiredPermission="editor">
-                                                    <button onClick={() => openEditModal(order)} title="Editar Ordem / Anexos" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition"><Edit size={14}/></button>
-                                                    <button onClick={() => openCancelModal(order)} title="Cancelar Ordem" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"><XCircle size={14}/></button>
+                                                    <button onClick={() => handleQuickStatusChange(order, 'Ativa')} title="Aprovar e Liberar Ordem" className="p-1.5 text-green-600 hover:bg-green-50 border border-transparent hover:border-green-200 rounded-md transition"><ThumbsUp size={16}/></button>
+                                                </ProtectedComponent>
+                                            )}
+
+                                            {order.status === 'Ativa' && (
+                                                <ProtectedComponent requiredPermission="editor">
+                                                    <button onClick={() => { setOrderToClose(order); setIsCloseModalOpen(true); }} title="Concluir / Lançar Nota Fiscal" className="p-1.5 text-green-600 hover:bg-green-50 border border-transparent hover:border-green-200 rounded-md transition"><CheckCircle size={16}/></button>
+                                                </ProtectedComponent>
+                                            )}
+
+                                            {order.status !== 'Cancelada' && order.status !== 'Concluída' && (
+                                                <ProtectedComponent requiredPermission="editor">
+                                                    <button onClick={() => openEditModal(order)} title="Editar Ordem" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition"><Edit size={16}/></button>
+                                                    <button onClick={() => openCancelModal(order)} title="Cancelar Ordem" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"><XCircle size={16}/></button>
                                                 </ProtectedComponent>
                                             )}
                                         </div>
@@ -434,6 +519,20 @@ const OrdersPage = ({
                 </table>
             </div>
 
+            {/* MODAIS ABERTOS CONDICIONALMENTE */}
+
+            {orderDetailsToView && <OrderDetailsModal 
+                order={orderDetailsToView} 
+                onClose={() => setOrderDetailsToView(null)} 
+                vehicles={vehicles} employees={employees} obras={obras}
+            />}
+
+            {isCloseModalOpen && orderToClose && <CloseOrderModal 
+                order={orderToClose} 
+                onClose={() => setIsCloseModalOpen(false)} 
+                onSubmit={handleCloseOrderSubmit} 
+            />}
+
             {isModalOpen && <OrderModal
                 user={user}
                 onClose={() => {setIsModalOpen(false); setEditingOrder(null);}}
@@ -445,7 +544,7 @@ const OrdersPage = ({
                 orderToEdit={editingOrder}
                 generatePDF={handleOpenPDF} 
                 apiClient={apiClient}
-                reloadData={handleReloadData} // Envia função unificada
+                reloadData={handleReloadData}
             />}
 
             {isCancelModalOpen && itemToCancel && <PasswordConfirmationModal
@@ -457,6 +556,246 @@ const OrdersPage = ({
         </div>
     );
 };
+
+// ===================================================================================
+// MODAL RAIO-X (VISUALIZAR TODOS OS DETALHES DA ORDEM)
+// ===================================================================================
+const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
+    const vehicle = vehicles.find(v => v.id === order.vehicleId);
+    const employee = employees.find(e => e.id === order.employeeId);
+    const operator = employees.find(e => e.id === order.operatorId);
+    const obra = obras.find(o => o.id === order.obraId);
+
+    const anexosList = (() => {
+        if (!order.anexos) return [];
+        if (typeof order.anexos === 'string') {
+            try { return JSON.parse(order.anexos); } catch(e) { return []; }
+        }
+        return Array.isArray(order.anexos) ? order.anexos : [];
+    })();
+
+    const itemsList = (() => {
+        if (!order.items) return [];
+        if (typeof order.items === 'string') {
+            try { return JSON.parse(order.items); } catch(e) { return []; }
+        }
+        return Array.isArray(order.items) ? order.items : [];
+    })();
+
+    const payment = (() => {
+        if (!order.payment) return { type: 'N/A' };
+        if (typeof order.payment === 'string') {
+            try { return JSON.parse(order.payment); } catch(e) { return { type: 'N/A' }; }
+        }
+        return order.payment;
+    })();
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[100] p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+                <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
+                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                        <Eye className="text-blue-500"/> Detalhes da Ordem #{String(order.orderNumber || '').padStart(6, '0')}
+                    </h2>
+                    <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-200 rounded-full transition"><X size={20}/></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* Status e Datas Header */}
+                    <div className="flex flex-wrap gap-4 items-center justify-between border-b pb-4">
+                        <div>
+                            <span className="text-xs font-bold text-gray-500 block uppercase mb-1">Status Atual</span>
+                            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                                order.status === 'Concluída' ? 'bg-green-100 text-green-800' :
+                                order.status === 'Ativa' ? 'bg-blue-100 text-blue-800' :
+                                order.status === 'Cancelada' ? 'bg-red-100 text-red-800' :
+                                'bg-yellow-100 text-yellow-800'
+                            }`}>
+                                {order.status === 'Ativa' ? 'Liberada (Ativa)' : order.status}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="text-xs font-bold text-gray-500 block uppercase mb-1">Data Emissão</span>
+                            <p className="font-bold text-gray-900">{order.date ? new Date(order.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'N/A'}</p>
+                        </div>
+                        <div>
+                            <span className="text-xs font-bold text-gray-500 block uppercase mb-1">Emissor (Criação)</span>
+                            <p className="font-bold text-gray-900">{getCreatorEmail(order)}</p>
+                        </div>
+                        <div>
+                            <span className="text-xs font-bold text-gray-500 block uppercase mb-1">Última Edição / Liberação</span>
+                            <p className="font-bold text-gray-900">{getEditorEmail(order)}</p>
+                        </div>
+                    </div>
+
+                    {/* Vínculos Operacionais */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-gray-50 p-4 rounded-lg border">
+                            <h3 className="text-xs font-black text-gray-400 uppercase mb-3">Vínculos de Fornecimento</h3>
+                            <p className="text-sm mb-2"><strong className="text-gray-700">Fornecedor:</strong> {order.supplier || 'N/A'}</p>
+                            <p className="text-sm mb-2"><strong className="text-gray-700">Obra/Local (Custo):</strong> {obra?.nome || order.obraId || 'N/A'}</p>
+                            <p className="text-sm"><strong className="text-gray-700">Veículo:</strong> {vehicle ? `${vehicle.registroInterno} - ${vehicle.placa}` : 'Uso Geral'}</p>
+                        </div>
+                        <div className="bg-gray-50 p-4 rounded-lg border">
+                            <h3 className="text-xs font-black text-gray-400 uppercase mb-3">Equipe Autorizada</h3>
+                            <p className="text-sm mb-2"><strong className="text-gray-700">Func. / Retirada:</strong> {employee?.nome || 'N/A'}</p>
+                            <p className="text-sm"><strong className="text-gray-700">Operador (Equipamento):</strong> {operator?.nome || 'Não se aplica'}</p>
+                        </div>
+                    </div>
+
+                    {/* Fechamento / NF */}
+                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg">
+                        <h3 className="text-xs font-black text-blue-800 uppercase mb-3">Dados Fiscais e Conclusão</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <p className="text-xs text-blue-600 font-bold uppercase mb-1">Nota Fiscal</p>
+                                <p className="font-black text-blue-900">{order.invoiceNumber || 'Não informada'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-blue-600 font-bold uppercase mb-1">Condição de Pagamento</p>
+                                <p className="font-bold text-blue-900">{payment.type} {payment.method ? `- ${payment.method}` : ''}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-blue-600 font-bold uppercase mb-1">Valor Total Autorizado</p>
+                                <p className="font-black text-blue-900 text-lg">R$ {(parseFloat(order.totalValue) || 0).toFixed(2)}</p>
+                            </div>
+                        </div>
+                        {payment.installments && payment.installments.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-blue-200">
+                                <p className="text-xs font-bold text-blue-700 mb-2">Desdobramento de Parcelas:</p>
+                                <div className="flex gap-2 flex-wrap">
+                                    {payment.installments.map((inst, idx) => (
+                                        <span key={idx} className="bg-white px-2 py-1 rounded text-xs border border-blue-200 shadow-sm font-semibold text-blue-900">
+                                            {idx + 1}ª - {inst.dueDate ? new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A'} - R$ {(parseFloat(inst.value) || 0).toFixed(2)}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Itens e Anexos */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2">
+                            <h3 className="text-xs font-black text-gray-500 uppercase mb-3 border-b pb-1">Itens Descriminados</h3>
+                            <table className="w-full text-xs text-left">
+                                <thead className="text-gray-400 border-b">
+                                    <tr>
+                                        <th className="pb-2 w-12">Qtd</th>
+                                        <th className="pb-2">Descrição</th>
+                                        <th className="pb-2 text-right">Vlr. Unit</th>
+                                        <th className="pb-2 text-right">Subtotal</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {itemsList.map((item, idx) => (
+                                        <tr key={idx} className="hover:bg-gray-50">
+                                            <td className="py-2 font-bold">{item.quantity}</td>
+                                            <td className="py-2">{item.description}</td>
+                                            <td className="py-2 text-right">R$ {(parseFloat(item.unitPrice)||0).toFixed(2)}</td>
+                                            <td className="py-2 text-right font-semibold">R$ {((parseFloat(item.quantity)||0) * (parseFloat(item.unitPrice)||0)).toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div>
+                            <h3 className="text-xs font-black text-gray-500 uppercase mb-3 border-b pb-1">Anexos / Orçamentos</h3>
+                            {anexosList.length > 0 ? (
+                                <ul className="space-y-2">
+                                    {anexosList.map((anexo, i) => (
+                                        <li key={i}>
+                                            <a href={anexo.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-2 bg-gray-50 border rounded text-xs font-semibold text-blue-600 hover:bg-blue-50 transition">
+                                                <Paperclip size={14}/> {anexo.name || `Anexo ${i+1}`}
+                                            </a>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-xs text-gray-400 italic">Nenhum documento anexado.</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 border-t bg-gray-100 text-right">
+                    <button onClick={onClose} className="px-6 py-2 bg-white border border-gray-300 rounded shadow-sm text-sm font-bold text-gray-700 hover:bg-gray-50">Voltar para Lista</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ===================================================================================
+// MODAL FECHAMENTO / CONCLUSÃO (XML / NF)
+// ===================================================================================
+const CloseOrderModal = ({ order, onClose, onSubmit }) => {
+    const [nfNumber, setNfNumber] = useState(order.invoiceNumber || '');
+    const [finalValue, setFinalValue] = useState(order.totalValue || 0);
+    const [isParsing, setIsParsing] = useState(false);
+
+    const handleXmlImport = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        setIsParsing(true);
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const xmlDoc = new DOMParser().parseFromString(evt.target.result, "text/xml");
+                
+                const nNfNode = xmlDoc.getElementsByTagName('nNF')[0];
+                const vNfNode = xmlDoc.getElementsByTagName('vNF')[0] || xmlDoc.getElementsByTagName('vProd')[0];
+                
+                if (nNfNode) setNfNumber(nNfNode.textContent);
+                if (vNfNode) setFinalValue(parseFloat(vNfNode.textContent).toFixed(2));
+
+            } catch (err) {
+                alert("Erro ao ler o XML. Preencha manualmente.");
+            } finally {
+                setIsParsing(false);
+            }
+        }
+        reader.readAsText(file);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100] p-4">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6 border-t-4 border-green-500">
+                <h3 className="text-lg font-bold text-gray-800 mb-2">Concluir Ordem #{String(order.orderNumber || '').padStart(6, '0')}</h3>
+                <p className="text-xs text-gray-600 mb-4">A confirmação da NF ativará a despesa financeira na Obra selecionada.</p>
+                
+                <div className="mb-4 bg-gray-50 border p-3 rounded border-dashed text-center">
+                    <label className="cursor-pointer text-sm font-bold text-green-600 hover:underline flex flex-col items-center gap-1">
+                        <FileCode2 size={24}/> Importar Leitura de XML
+                        <input type="file" accept=".xml" className="hidden" onChange={handleXmlImport} />
+                    </label>
+                    {isParsing && <p className="text-xs text-gray-500 mt-2">Lendo XML...</p>}
+                </div>
+
+                <div className="space-y-3 mb-6">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase">Nº Nota Fiscal *</label>
+                        <input type="text" value={nfNumber} onChange={e=>setNfNumber(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase">Valor Total Cobrado (R$) *</label>
+                        <input type="number" step="0.01" value={finalValue} onChange={e=>setFinalValue(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded text-sm font-bold text-gray-700 hover:bg-gray-300">Cancelar</button>
+                    <button onClick={() => onSubmit(nfNumber, parseFloat(finalValue))} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-bold hover:bg-green-700" disabled={!nfNumber || finalValue <= 0}>
+                        Concluir e Lançar NF
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 // ===================================================================================
 // MODAL DE CRIAÇÃO/EDIÇÃO DE ORDEM
@@ -486,7 +825,8 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             unitPrice: item.unitPrice?.toString() || ''
         })),
         payment: orderToEdit?.payment || { type: 'À vista', method: '', days: '', installments: [] },
-        anexos: parsedAnexos
+        anexos: parsedAnexos,
+        createdBy: orderToEdit?.createdBy || undefined 
     });
 
     const [isPricePending, setIsPricePending] = useState(orderToEdit ? orderToEdit.status === 'Pendente de Valor' : true);
@@ -503,7 +843,6 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         let processedValue = value;
         if (field === 'unitPrice' || field === 'quantity') {
              processedValue = value.replace(',', '.');
-             // Impede letras em campos numéricos
              if (!/^\d*\.?\d*$/.test(processedValue) && processedValue !== '') return;
         }
         newItems[index] = { ...newItems[index], [field]: processedValue };
@@ -641,6 +980,8 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             anexos: JSON.stringify(formData.anexos || []),
             totalValue: isPricePending ? 0 : totalValue,
             status: isPricePending ? 'Pendente de Valor' : 'Ativa',
+            createdBy: orderToEdit ? formData.createdBy : { userEmail: user?.email, userId: user?.id || user?.uid },
+            editedBy: orderToEdit ? { userEmail: user?.email, userId: user?.id || user?.uid } : null
         };
 
         try {
@@ -669,6 +1010,8 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
             if (savedOrderData) {
                  const pdfData = { ...finalOrderData, ...savedOrderData };
+                 if (!pdfData.orderNumber && savedOrderData.orderNumber) pdfData.orderNumber = savedOrderData.orderNumber;
+                 pdfData.createdBy = finalOrderData.createdBy; 
                  generatePDF(pdfData);
             }
             onClose();
