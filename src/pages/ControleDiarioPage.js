@@ -10,7 +10,6 @@ import apiClient from '../services/apiClient'; // Importa apiClient
 
 // Função para formatar a duração (mantida)
 const formatDuration = (milliseconds) => {
-// ... (código mantido) ...
     if (isNaN(milliseconds) || milliseconds < 0) return '0h 0m';
     const totalMinutes = Math.floor(milliseconds / 60000);
     const hours = Math.floor(totalMinutes / 60);
@@ -20,7 +19,6 @@ const formatDuration = (milliseconds) => {
 
 // Modal de Detalhes (ajustado para usar new Date())
 const LogDetailModal = ({ log, onClose }) => {
-// ... (código mantido) ...
     if (!log) return null;
     // Converte datas string da API para Date objects
     const logDate = new Date(log.logDate);
@@ -52,8 +50,6 @@ const LogDetailModal = ({ log, onClose }) => {
                         <ul className="list-disc pl-5 mt-1 text-xs">
                             {log.startReadings?.odometro != null && <li>Odômetro: {log.startReadings.odometro}</li>}
                             {log.startReadings?.horimetro != null && <li>Horímetro: {log.startReadings.horimetro}</li>}
-                            {log.startReadings?.horimetroDigital != null && <li>Hor. Digital: {log.startReadings.horimetroDigital}</li>}
-                            {log.startReadings?.horimetroAnalogico != null && <li>Hor. Analógico: {log.startReadings.horimetroAnalogico}</li>}
                         </ul>
                     </div>
                      {/* Leituras Finais */}
@@ -63,8 +59,6 @@ const LogDetailModal = ({ log, onClose }) => {
                             <ul className="list-disc pl-5 mt-1 text-xs">
                                 {log.endReadings?.odometro != null && <li>Odômetro: {log.endReadings.odometro}</li>}
                                 {log.endReadings?.horimetro != null && <li>Horímetro: {log.endReadings.horimetro}</li>}
-                                {log.endReadings?.horimetroDigital != null && <li>Hor. Digital: {log.endReadings.horimetroDigital}</li>}
-                                {log.endReadings?.horimetroAnalogico != null && <li>Hor. Analógico: {log.endReadings.horimetroAnalogico}</li>}
                             </ul>
                         </div>
                      )}
@@ -98,7 +92,6 @@ const LogEditModal = ({
     apiClient, setAlertMessage, PasswordConfirmationModal,
     fetchLogs // <-- Prop para recarregar dados
 }) => {
-// ... (código mantido) ...
     // Estado inicial preenchido com dados do log
     const [formData, setFormData] = useState({
         startReadings: log.startReadings || {},
@@ -110,21 +103,18 @@ const LogEditModal = ({
 
     // Determina o grupo do veículo (mantido)
     const vehicleGroup = useMemo(() => {
-// ... (código mantido) ...
         if (!vehicle) return null;
         return Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(vehicle.tipo));
     }, [vehicle, vehicleGroups]);
 
     // Handler para mudanças nos inputs (mantido)
     const handleChange = (e) => {
-// ... (código mantido) ...
         const { name, value, dataset } = e.target;
         const { type, field } = dataset; // type: 'startReadings' or 'endReadings', field: 'odometro', etc.
 
         if (type) {
             // Atualiza leituras dentro de startReadings ou endReadings
             setFormData(prev => ({
-// ... (código mantido) ...
                 ...prev,
                 [type]: {
                     ...prev[type],
@@ -133,7 +123,6 @@ const LogEditModal = ({
                 }
             }));
         } else {
-// ... (código mantido) ...
             // Atualiza outros campos (ex: notes)
             setFormData(prev => ({ ...prev, [name]: value }));
         }
@@ -141,7 +130,6 @@ const LogEditModal = ({
 
     // Abre o modal de senha para confirmar
     const handleConfirmEdit = (e) => {
-// ... (código mantido) ...
         e.preventDefault();
         // Adicionar validação aqui se necessário (ex: leituras finais >= iniciais)
         setShowPasswordModal(true);
@@ -149,7 +137,6 @@ const LogEditModal = ({
 
     // Função que salva após confirmação de senha
     const handleSave = async () => {
-// ... (código mantido) ...
         setIsSaving(true);
         // Prepara os dados para enviar à API (apenas os campos editáveis)
         const dataToUpdate = {
@@ -159,7 +146,6 @@ const LogEditModal = ({
         };
 
         try {
-// ... (código mantido) ...
             // Chama a API para atualizar o log
             await apiClient.updateDiarioDeBordo(log.id, dataToUpdate);
             setAlertMessage("Registro atualizado com sucesso!");
@@ -167,19 +153,16 @@ const LogEditModal = ({
             onClose(); // Fecha modal de edição
             fetchLogs(); // <-- RECARREGA OS DADOS DA PÁGINA
         } catch (error) {
-// ... (código mantido) ...
             console.error("Erro ao atualizar registro via API:", error);
             setAlertMessage(error.message || "Falha ao atualizar o registro.");
             // Mantém modal de senha aberto
         } finally {
-// ... (código mantido) ...
             setIsSaving(false);
         }
     };
 
-    // Função para renderizar campos de leitura (mantida)
+    // Função para renderizar campos de leitura (mantida e simplificada)
     const renderReadingFields = (type) => {
-// ... (código mantido) ...
         const readings = formData[type] || {};
         return (
             <div className="space-y-2 p-3 bg-gray-50 rounded border">
@@ -188,16 +171,9 @@ const LogEditModal = ({
                 {(vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões') && (
                     <div><label className="text-xs font-medium text-gray-600">Odômetro (Km)</label><input type="number" step="0.1" data-type={type} data-field="odometro" value={readings.odometro ?? ''} onChange={handleChange} className="w-full p-1 border rounded bg-white"/></div>
                 )}
-                {/* Horímetro (Caminhão) */}
-                {vehicleGroup === 'Caminhões' && (
+                {/* Horímetro (Caminhões e Máquinas Pesadas) */}
+                {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') && (
                     <div><label className="text-xs font-medium text-gray-600">Horímetro (Hr)</label><input type="number" step="0.1" data-type={type} data-field="horimetro" value={readings.horimetro ?? ''} onChange={handleChange} className="w-full p-1 border rounded bg-white"/></div>
-                )}
-                 {/* Horímetros (Máquinas Pesadas) */}
-                {vehicleGroup === 'Máquinas Pesadas' && (
-                    <>
-                        <div><label className="text-xs font-medium text-gray-600">Horímetro Digital (Hr)</label><input type="number" step="0.1" data-type={type} data-field="horimetroDigital" value={readings.horimetroDigital ?? ''} onChange={handleChange} className="w-full p-1 border rounded bg-white"/></div>
-                        {vehicle?.possuiHorimetroAnalogico && <div><label className="text-xs font-medium text-gray-600">Horímetro Analógico (Hr)</label><input type="number" step="0.1" data-type={type} data-field="horimetroAnalogico" value={readings.horimetroAnalogico ?? ''} onChange={handleChange} className="w-full p-1 border rounded bg-white"/></div>}
-                    </>
                 )}
             </div>
         );
@@ -257,45 +233,38 @@ const ControleDiarioPage = ({
     PasswordConfirmationModal, // Recebe o componente global
     setAlertMessage
 }) => {
-// ... (código mantido) ...
     const [logs, setLogs] = useState([]); // Estado para logs carregados da API
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
     // Estados dos modais (mantidos)
-// ... (código mantido) ...
     const [detailModalLog, setDetailModalLog] = useState(null);
     const [deleteModalLogId, setDeleteModalLogId] = useState(null);
     const [editModalLog, setEditModalLog] = useState(null); // Guarda { log, vehicle }
 
     // Estados dos filtros (mantidos)
     const [startDate, setStartDate] = useState(() => {
-// ... (código mantido) ...
         const date = new Date();
         date.setDate(1); // Primeiro dia do mês atual
         return date.toISOString().split('T')[0];
     });
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]); // Dia atual
     const [filterType, setFilterType] = useState('geral');
-// ... (código mantido) ...
     const [selectedObraId, setSelectedObraId] = useState('');
     const [selectedVehicleType, setSelectedVehicleType] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
 
     // Memoização de listas ordenadas (mantida)
-// ... (código mantido) ...
     const sortedObras = useMemo(() => (obras || []).sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => (employees || []).sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const vehicleTypes = useMemo(() => {
         if (!vehicleGroups) return [];
-// ... (código mantido) ...
         const allTypes = Object.values(vehicleGroups).flat();
         return [...new Set(allTypes)].sort();
     }, [vehicleGroups]);
 
     // Efeito para buscar logs da API com base nas datas (AGORA EM useCallback)
     const fetchLogs = useCallback(async () => {
-// ... (código mantido) ...
         setLoading(true);
         setError(null);
         try {
@@ -312,107 +281,82 @@ const ControleDiarioPage = ({
 
             setLogs(fetchedLogs || []); // Garante que seja um array
         } catch (err) {
-// ... (código mantido) ...
             console.error("Erro ao buscar logs do diário via API:", err);
             setError(err.message || "Falha ao carregar os dados. Verifique sua conexão ou permissões.");
             setLogs([]); // Limpa logs em caso de erro
         } finally {
-// ... (código mantido) ...
             setLoading(false);
         }
     }, [startDate, endDate, apiClient]); // Depende das datas e do apiClient
 
     // Efeito que chama a busca (agora depende do fetchLogs)
-// ... (código mantido) ...
     useEffect(() => {
         fetchLogs();
     }, [fetchLogs]);
 
     // Filtra os logs localmente com base nos filtros da UI (mantido)
     const filteredLogs = useMemo(() => {
-// ... (código mantido) ...
         if (!Array.isArray(logs)) return [];
         return logs.filter(log => {
             // Filtro por Obra
-// ... (código mantido) ...
             if (filterType === 'obra' && selectedObraId && log.obraId !== selectedObraId) {
                 return false;
             }
             // Filtro por Tipo de Veículo
-// ... (código mantido) ...
             if (filterType === 'vehicleType' && selectedVehicleType) {
                 const vehicle = vehicles.find(v => v.id === log.vehicleId);
                 if (!vehicle || vehicle.tipo !== selectedVehicleType) return false;
             }
             // Filtro por Funcionário
-// ... (código mantido) ...
             if (filterType === 'employee' && selectedEmployeeId && log.employeeId !== selectedEmployeeId) {
                 return false;
             }
             // Se passou por todos os filtros ou é 'geral'
-// ... (código mantido) ...
             return true;
         });
     }, [logs, filterType, selectedObraId, selectedVehicleType, selectedEmployeeId, vehicles]);
 
     // Calcula os resumos (ATUALIZADO para usar new Date())
     const summaryData = useMemo(() => {
-// ... (código mantido) ...
         let totalJornadaMs = 0;
         let totalHorasMaquina = 0;
         let totalKm = 0; // Adicionado para Km
 
         filteredLogs.forEach(log => {
-// ... (código mantido) ...
             const startTime = new Date(log.startTime);
             const endTime = log.endTime ? new Date(log.endTime) : null;
 
             // Calcula duração da jornada
-// ... (código mantido) ...
             if (endTime) {
                 totalJornadaMs += endTime.getTime() - startTime.getTime();
                  // Desconta pausas
                  (log.breaks || []).forEach(b => {
-// ... (código mantido) ...
                      totalJornadaMs -= (new Date(b.end).getTime() - new Date(b.start).getTime());
                  });
             }
 
             // Calcula horas/km
-// ... (código mantido) ...
             if (log.endReadings && log.startReadings) {
                 const vehicle = vehicles.find(v => v.id === log.vehicleId);
                 const vehicleGroup = vehicle ? Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(vehicle.tipo)) : null;
 
-// ... (código mantido) ...
                 const startOdo = parseFloat(log.startReadings.odometro || 0);
                 const endOdo = parseFloat(log.endReadings.odometro || 0);
                 const startHor = parseFloat(log.startReadings.horimetro || 0);
-// ... (código mantido) ...
                 const endHor = parseFloat(log.endReadings.horimetro || 0);
-                const startDig = parseFloat(log.startReadings.horimetroDigital || 0);
-                const endDig = parseFloat(log.endReadings.horimetroDigital || 0);
-                const startAna = parseFloat(log.startReadings.horimetroAnalogico || 0);
-// ... (código mantido) ...
-                const endAna = parseFloat(log.endReadings.horimetroAnalogico || 0);
 
                 if (vehicleGroup === 'Veículos Leves') {
                     if (endOdo >= startOdo) totalKm += (endOdo - startOdo);
-// ... (código mantido) ...
                 } else if (vehicleGroup === 'Caminhões') {
                     if (endOdo >= startOdo) totalKm += (endOdo - startOdo);
                     if (endHor >= startHor) totalHorasMaquina += (endHor - startHor);
                 } else if (vehicleGroup === 'Máquinas Pesadas') {
-// ... (código mantido) ...
-                    if (endDig >= startDig) totalHorasMaquina += (endDig - startDig);
-                    // CORREÇÃO: Removido '?' e adicionado 'vehicle &&'
-                    else if (endAna >= startAna && (vehicle && vehicle.possuiHorimetroAnalogico)) totalHorasMaquina += (endAna - startAna);
+                    if (endHor >= startHor) totalHorasMaquina += (endHor - startHor);
                 }
             }
         });
 
         return {
-// ... (código mantido) ...
             totalJornada: formatDuration(totalJornadaMs),
             totalHorasMaquina: totalHorasMaquina.toFixed(1), // 1 casa decimal para horas
             totalKm: totalKm.toFixed(1), // 1 casa decimal para Km
@@ -421,20 +365,16 @@ const ControleDiarioPage = ({
 
     // Função para deletar (ATUALIZADA para chamar fetchLogs)
     const handleDeleteConfirm = async () => {
-// ... (código mantido) ...
         if (!deleteModalLogId) return;
         try {
             // Chama a API para deletar o log
-// ... (código mantido) ...
             await apiClient.deleteDiarioDeBordo(deleteModalLogId);
             setAlertMessage("Registro excluído com sucesso!");
             fetchLogs(); // <-- RECARREGA OS DADOS DA PÁGINA
         } catch (error) {
-// ... (código mantido) ...
             console.error("Erro ao excluir registro via API:", error);
             setAlertMessage(error.message || "Falha ao excluir o registro.");
         } finally {
-// ... (código mantido) ...
             setDeleteModalLogId(null); // Fecha o modal de senha
         }
     };
@@ -559,20 +499,14 @@ const ControleDiarioPage = ({
                                          const endOdo = parseFloat(log.endReadings.odometro || 0);
                                          const startHor = parseFloat(log.startReadings.horimetro || 0);
                                          const endHor = parseFloat(log.endReadings.horimetro || 0);
-                                         const startDig = parseFloat(log.startReadings.horimetroDigital || 0);
-                                         const endDig = parseFloat(log.endReadings.horimetroDigital || 0);
-                                         const startAna = parseFloat(log.startReadings.horimetroAnalogico || 0);
-                                         const endAna = parseFloat(log.endReadings.horimetroAnalogico || 0);
 
                                          if (vehicleGroup === 'Veículos Leves') {
-                                             if (endOdo >= startOdo) horasKm = (endOdo - startOdo); unit = 'km';
+                                             if (endOdo >= startOdo) { horasKm = (endOdo - startOdo); unit = 'km'; }
                                          } else if (vehicleGroup === 'Caminhões') {
                                              if (endHor >= startHor) { horasKm = (endHor - startHor); unit = 'hrs'; }
                                              else if (endOdo >= startOdo) { horasKm = (endOdo - startOdo); unit = 'km'; }
                                          } else if (vehicleGroup === 'Máquinas Pesadas') {
-                                             if (endDig >= startDig) { horasKm = (endDig - startDig); unit = 'hrs'; }
-                                             // CORREÇÃO: Substituído 'vehicle?.possuiHorimetroAnalogico' por '(vehicle && vehicle.possuiHorimetroAnalogico)'
-                                             else if (endAna >= startAna && (vehicle && vehicle.possuiHorimetroAnalogico)) { horasKm = (endAna - startAna); unit = 'hrs'; }
+                                             if (endHor >= startHor) { horasKm = (endHor - startHor); unit = 'hrs'; }
                                          }
                                      }
 
@@ -628,4 +562,3 @@ const ControleDiarioPage = ({
 };
 
 export default ControleDiarioPage;
-

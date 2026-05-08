@@ -1069,7 +1069,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1" title="Quem fará o serviço ou irá retirar as peças">Funcionário Autorizado (Retirada) *</label>
                                 <select value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})} className="p-2 border rounded w-full bg-white outline-none focus:border-yellow-500" required>
-                                    <option value="">Selecione quem irá retirar...</option>
+                                    <option value="">Selecione quem irá retirar o pedido...</option>
                                     {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome} {e.vulgo ? `(${e.vulgo})` : ''}</option>)}
                                 </select>
                             </div>

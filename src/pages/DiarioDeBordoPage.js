@@ -35,7 +35,7 @@ const DiarioDeBordoPage = ({
     const [showAllocationWarning, setShowAllocationWarning] = useState(false);
     const [hasCheckedWarning, setHasCheckedWarning] = useState(false);
     const [endReadings, setEndReadings] = useState({
-        odometro: '', horimetro: '', horimetroDigital: '', horimetroAnalogico: ''
+        odometro: '', horimetro: ''
     });
     const [notesInput, setNotesInput] = useState('');
 
@@ -115,7 +115,7 @@ const DiarioDeBordoPage = ({
         if (!user || !myEmployeeData || !selectedVehicle) {
             setActiveLog(null);
             setNotesInput('');
-            setEndReadings({ odometro: '', horimetro: '', horimetroDigital: '', horimetroAnalogico: '' });
+            setEndReadings({ odometro: '', horimetro: '' });
             return;
         }
 
@@ -144,7 +144,7 @@ const DiarioDeBordoPage = ({
                     setNotesInput(foundActiveLog.notes || '');
                 } else {
                      // Limpa campos se não houver log ativo
-                    setEndReadings({ odometro: '', horimetro: '', horimetroDigital: '', horimetroAnalogico: '' });
+                    setEndReadings({ odometro: '', horimetro: '' });
                     setNotesInput('');
                 }
 
@@ -249,12 +249,10 @@ const DiarioDeBordoPage = ({
 
         setIsProcessing(true);
 
-        // Prepara leituras iniciais (baseadas no veículo)
+        // Prepara leituras iniciais (baseadas no veículo - UNIFICADO)
         const startReadings = {
             odometro: parseFloat(selectedVehicle.odometro || 0) || null,
             horimetro: parseFloat(selectedVehicle.horimetro || 0) || null,
-            horimetroDigital: parseFloat(selectedVehicle.horimetroDigital || 0) || null,
-            horimetroAnalogico: parseFloat(selectedVehicle.horimetroAnalogico || 0) || null,
         };
 
         // Prepara dados para a API
@@ -275,7 +273,7 @@ const DiarioDeBordoPage = ({
             // Define o log ativo com a resposta da API
             setActiveLog(createdLog);
             setNotesInput(''); // Limpa notas
-            setEndReadings({ odometro: '', horimetro: '', horimetroDigital: '', horimetroAnalogico: '' }); // Limpa leituras finais
+            setEndReadings({ odometro: '', horimetro: '' }); // Limpa leituras finais
         } catch (error) {
             console.error("Erro ao iniciar jornada via API:", error);
             setAlertMessage(error.message || "Falha ao iniciar a jornada.");
@@ -361,13 +359,9 @@ const DiarioDeBordoPage = ({
 
         const startOdo = parseFloat(activeLog.startReadings?.odometro || 0);
         const startHor = parseFloat(activeLog.startReadings?.horimetro || 0);
-        const startDig = parseFloat(activeLog.startReadings?.horimetroDigital || 0);
-        const startAna = parseFloat(activeLog.startReadings?.horimetroAnalogico || 0);
 
         const endOdoInput = parseFloat(endReadings.odometro || 0);
         const endHorInput = parseFloat(endReadings.horimetro || 0);
-        const endDigInput = parseFloat(endReadings.horimetroDigital || 0);
-        const endAnaInput = parseFloat(endReadings.horimetroAnalogico || 0);
 
         if (vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões') {
              if (endReadings.odometro) { // Verifica se o campo foi preenchido
@@ -377,25 +371,12 @@ const DiarioDeBordoPage = ({
                  hasAtLeastOneReading = true;
             }
         }
-        if (vehicleGroup === 'Caminhões') {
+        
+        if (vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') {
             if (endReadings.horimetro) {
                  if (endHorInput < startHor) { readingError = true; errorMsg += `${readingError ? ', ' : ''}Horímetro (${endHorInput} < ${startHor})`; }
                  finalReadings.horimetro = endHorInput;
                  vehicleUpdate.horimetro = endHorInput;
-                 hasAtLeastOneReading = true;
-            }
-        }
-        if (vehicleGroup === 'Máquinas Pesadas') {
-            if (endReadings.horimetroDigital) {
-                 if (endDigInput < startDig) { readingError = true; errorMsg += `${readingError ? ', ' : ''}Hor. Digital (${endDigInput} < ${startDig})`; }
-                 finalReadings.horimetroDigital = endDigInput;
-                 vehicleUpdate.horimetroDigital = endDigInput;
-                 hasAtLeastOneReading = true;
-            }
-             if (selectedVehicle.possuiHorimetroAnalogico && endReadings.horimetroAnalogico) {
-                 if (endAnaInput < startAna) { readingError = true; errorMsg += `${readingError ? ', ' : ''}Hor. Analógico (${endAnaInput} < ${startAna})`; }
-                 finalReadings.horimetroAnalogico = endAnaInput;
-                 vehicleUpdate.horimetroAnalogico = endAnaInput;
                  hasAtLeastOneReading = true;
             }
         }
@@ -452,15 +433,8 @@ const DiarioDeBordoPage = ({
              <div className="text-sm text-gray-600 space-y-1">
                  {(vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões') &&
                      <p><strong>Odômetro Inicial:</strong> {readings.odometro?.toFixed(1) ?? 'N/A'} km</p>}
-                 {vehicleGroup === 'Caminhões' &&
+                 {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') &&
                      <p><strong>Horímetro Inicial:</strong> {readings.horimetro?.toFixed(1) ?? 'N/A'} hrs</p>}
-                 {vehicleGroup === 'Máquinas Pesadas' && (
-                     <>
-                         <p><strong>Hor. Digital Inicial:</strong> {readings.horimetroDigital?.toFixed(1) ?? 'N/A'} hrs</p>
-                         {selectedVehicle?.possuiHorimetroAnalogico &&
-                             <p><strong>Hor. Analógico Inicial:</strong> {readings.horimetroAnalogico?.toFixed(1) ?? 'N/A'} hrs</p>}
-                     </>
-                 )}
             </div>
         );
     };
@@ -473,23 +447,11 @@ const DiarioDeBordoPage = ({
                     <input type="number" step="0.1" name="odometro" value={endReadings.odometro} onChange={handleReadingChange} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
                 </div>
             )}
-            {vehicleGroup === 'Caminhões' && (
+            {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') && (
                  <div>
                     <label className="block text-sm font-medium text-gray-700">Horímetro Final (hrs)*</label>
                     <input type="number" step="0.1" name="horimetro" value={endReadings.horimetro} onChange={handleReadingChange} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
                 </div>
-            )}
-            {vehicleGroup === 'Máquinas Pesadas' && (
-                <>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Hor. Digital Final (hrs)*</label>
-                        <input type="number" step="0.1" name="horimetroDigital" value={endReadings.horimetroDigital} onChange={handleReadingChange} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
-                    </div>
-                    {selectedVehicle?.possuiHorimetroAnalogico && <div>
-                        <label className="block text-sm font-medium text-gray-700">Hor. Analógico Final (hrs)</label>
-                        <input type="number" step="0.1" name="horimetroAnalogico" value={endReadings.horimetroAnalogico} onChange={handleReadingChange} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"/>
-                    </div>}
-                </>
             )}
             {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') &&
                 <div className="flex items-start gap-2 text-xs text-yellow-700 bg-yellow-50 p-2 rounded-md border border-yellow-200">
@@ -506,15 +468,8 @@ const DiarioDeBordoPage = ({
              <div className="text-sm text-gray-600 space-y-1">
                  {(vehicleGroup === 'Veículos Leves' || vehicleGroup === 'Caminhões') &&
                     <p><strong>Odômetro Atual:</strong> {selectedVehicle.odometro?.toFixed(1) ?? 'N/A'} km</p>}
-                 {vehicleGroup === 'Caminhões' &&
+                 {(vehicleGroup === 'Caminhões' || vehicleGroup === 'Máquinas Pesadas') &&
                     <p><strong>Horímetro Atual:</strong> {selectedVehicle.horimetro?.toFixed(1) ?? 'N/A'} hrs</p>}
-                 {vehicleGroup === 'Máquinas Pesadas' && (
-                    <>
-                         <p><strong>Hor. Digital Atual:</strong> {selectedVehicle.horimetroDigital?.toFixed(1) ?? 'N/A'} hrs</p>
-                         {selectedVehicle.possuiHorimetroAnalogico &&
-                             <p><strong>Hor. Analógico Atual:</strong> {selectedVehicle.horimetroAnalogico?.toFixed(1) ?? 'N/A'} hrs</p>}
-                    </>
-                 )}
              </div>
          );
     };
@@ -709,10 +664,6 @@ const DiarioDeBordoPage = ({
                                  const endOdo = parseFloat(log.endReadings.odometro || 0);
                                  const startHor = parseFloat(log.startReadings.horimetro || 0);
                                  const endHor = parseFloat(log.endReadings.horimetro || 0);
-                                 const startDig = parseFloat(log.startReadings.horimetroDigital || 0);
-                                 const endDig = parseFloat(log.endReadings.horimetroDigital || 0);
-                                 const startAna = parseFloat(log.startReadings.horimetroAnalogico || 0);
-                                 const endAna = parseFloat(log.endReadings.horimetroAnalogico || 0);
                                  let diff = 0;
                                  let unit = '';
 
@@ -722,9 +673,7 @@ const DiarioDeBordoPage = ({
                                      if (endHor >= startHor) { diff = endHor - startHor; unit = 'hrs'; readingLabel = 'Horímetro'; }
                                      else if (endOdo >= startOdo) { diff = endOdo - startOdo; unit = 'km'; readingLabel = 'Odômetro'; }
                                  } else if (vehicleGroup === 'Máquinas Pesadas') {
-                                     if (endDig >= startDig) { diff = endDig - startDig; unit = 'hrs'; readingLabel = 'Hor. Digital'; }
-                                     else if (endAna >= startAna && vehicle?.possuiHorimetroAnalogico) { diff = endAna - startAna; unit = 'hrs'; readingLabel = 'Hor. Analógico'; }
-                                     else { readingLabel = 'Horímetro'; }
+                                     if (endHor >= startHor) { diff = endHor - startHor; unit = 'hrs'; readingLabel = 'Horímetro'; }
                                  }
                                  readingValue = `${diff.toFixed(1)} ${unit}`;
                              }
