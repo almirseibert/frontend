@@ -8,8 +8,7 @@ import {
 // Importação do Socket.io Client
 import { io } from "socket.io-client";
 
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Sidebar from './components/Sidebar';
+import { AuthProvider, useAuth } from './contexts/AuthContext'; 
 
 // Page Imports
 import Dashboard from './pages/Dashboard';
@@ -31,7 +30,6 @@ import InventoryPage from './pages/InventoryPage'; // NOVO MÓDULO ESTOQUE
 import LoginScreen from './components/LoginScreen'; 
 import TiresPage from './pages/TiresPage'; 
 import BillingPage from './pages/BillingPage';
-import OperacionalPage from './pages/OperacionalPage';
 import SupervisorDashboard from './pages/SupervisorDashboard'; 
 import SupervisorObraDetail from './pages/SupervisorObraDetail'; 
 import SolicitacaoAbastecimentoPage from './pages/SolicitacaoAbastecimentoPage';
@@ -255,6 +253,141 @@ const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
     </div>
 );
 
+// ==========================================
+// Componente da Sidebar
+// ==========================================
+
+const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
+    const [isCollapsed, setIsCollapsed] = useState(false);
+    
+    const navItems = [
+        { id: 'dashboard', label: 'Painel Geral', icon: <Building size={16} /> },
+        { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', icon: <TrendingUp size={16} />, restricted: ['admin', 'supervisor'] }, 
+        { id: 'billing', label: 'Faturamento', icon: <ClipboardCheck size={16} /> },
+        { id: 'vehicles', label: 'Veículos', icon: <Truck size={16} /> },
+        { id: 'obras', label: 'Obras', icon: <HardHat size={16} /> },
+        { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
+        { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={16} /> }, 
+        { id: 'orders', label: 'Ordens (C/S)', icon: <ShoppingCart size={16} /> },
+        { id: 'inventory', label: 'Estoque / Peças', icon: <Package size={16} /> },
+        { id: 'partners', label: 'Fornecedores', icon: <Fuel size={16} /> },
+        { id: 'refueling', label: 'Abastecimento', icon: <Droplet size={16} /> },
+        { id: 'admin_solicitacoes', label: 'Solicitações (App)', icon: <Smartphone size={16} />, badge: pendingSolicitacoesCount },
+        { id: 'comboio', label: 'Comboio', icon: <Truck size={16} /> }, 
+        { id: 'expenses', label: 'Despesas', icon: <DollarSign size={16} /> },
+        { id: 'employees', label: 'Funcionários', icon: <User size={16} /> },
+        { id: 'fines', label: 'Multas', icon: <ShieldAlert size={16} /> },
+        { id: 'reports', label: 'Relatórios', icon: <FileText size={16} /> }, 
+    ];
+    
+    return (
+        <div className={`bg-slate-900 text-slate-300 shadow-xl transition-all duration-300 ease-in-out flex flex-col ${isCollapsed ? 'w-14' : 'w-56'} h-full z-20`}>
+            <div className="h-14 flex items-center justify-between px-3 border-b border-slate-700 bg-slate-950 shrink-0">
+                {!isCollapsed ? (
+                     <img src="https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png" alt="MAK" className="h-8 object-contain" />
+                ) : (
+                    <div className="w-full flex justify-center">
+                        <span className="font-bold text-yellow-500 text-xs">MAK</span>
+                    </div>
+                )}
+                <button 
+                    onClick={() => setIsCollapsed(!isCollapsed)} 
+                    className="p-1 rounded text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                >
+                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                </button>
+            </div>
+            
+            <nav className="flex-1 overflow-y-auto custom-scrollbar py-2">
+                <ul className="space-y-1 px-2">
+                    {navItems.map(item => {
+                        const isAdmin = user.user_type === 'admin';
+                        const canAccessRefuelingRelated = user.podeAcessarAbastecimento || isAdmin;
+
+                        if ((item.id === 'refueling' || item.id === 'comboio' || item.id === 'admin_solicitacoes') && !canAccessRefuelingRelated) {
+                            return null;
+                        }
+                        
+                        if (item.restricted && !item.restricted.includes(user.user_type) && user.user_type !== 'admin') {
+                            return null;
+                        }
+                        
+                        const isActive = currentPage === item.id || (item.id === 'supervisor_dashboard' && currentPage === 'supervisor_detail'); 
+                        const isDimmed = item.dimmed;
+
+                        return (
+                            <li key={item.id}>
+                                <button 
+                                    onClick={() => setCurrentPage(item.id)} 
+                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-all duration-200 group relative ${ 
+                                        isActive 
+                                        ? 'bg-yellow-500 text-slate-900 shadow-md' 
+                                        : 'hover:bg-slate-800 hover:text-white' 
+                                    } ${isDimmed && !isActive ? 'opacity-50 hover:opacity-100' : ''}`}
+                                    title={isCollapsed ? item.label : ''}
+                                >
+                                    <span className={`${isActive ? 'text-slate-900' : 'text-slate-400 group-hover:text-white'}`}>
+                                        {item.icon}
+                                    </span>
+                                    {!isCollapsed && <span className="ml-3 text-xs font-bold truncate">{item.label}</span>}
+                                    
+                                    {item.badge > 0 && (
+                                        <span className={`absolute ${isCollapsed ? 'top-0 right-0' : 'right-2'} bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm animate-pulse`}>
+                                            {item.badge}
+                                        </span>
+                                    )}
+                                </button>
+                            </li>
+                        );
+                    })}
+                    
+                    {user && user.user_type === 'admin' && (
+                        <>
+                            <div className="my-2 border-t border-slate-700 mx-2"></div>
+                            <li>
+                                <button 
+                                    onClick={() => setCurrentPage('admin')} 
+                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-all duration-200 ${ 
+                                        currentPage === 'admin' 
+                                        ? 'bg-red-600 text-white shadow-md' 
+                                        : 'text-red-400 hover:bg-red-900/30 hover:text-red-300' 
+                                    }`}
+                                >
+                                    <Shield size={16} />
+                                    {!isCollapsed && <span className="ml-3 text-xs font-bold truncate">Admin</span>}
+                                </button>
+                            </li>
+                        </>
+                    )}
+                </ul>
+            </nav>
+            
+            <div className="p-2 border-t border-slate-700 bg-slate-950 shrink-0">
+                <div className={`mb-2 px-2 flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
+                    <div className="w-6 h-6 rounded-full bg-yellow-500 text-slate-900 flex items-center justify-center font-bold text-xs">
+                        {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                    </div>
+                    {!isCollapsed && (
+                         <div className="ml-2 overflow-hidden">
+                             <p className="text-xs text-white truncate font-medium">{user.name}</p>
+                             <button onClick={onChangePassword} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                 <Key size={10} /> Trocar Senha
+                             </button>
+                         </div>
+                    )}
+                </div>
+                <button 
+                    onClick={logout} 
+                    className="flex items-center w-full px-2 py-1.5 rounded-md transition-colors duration-200 hover:bg-red-900/50 text-slate-400 hover:text-red-400"
+                    title="Sair"
+                >
+                    <LogOut size={16}/>
+                    {!isCollapsed && <span className="ml-3 text-xs font-bold">Sair</span>}
+                </button>
+            </div>
+        </div>
+    );
+};
 
 // ==========================================
 // Conteúdo Principal (App Content)
@@ -705,10 +838,8 @@ const AppContent = () => {
                 return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
             case 'obras': 
                 return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
-            case 'billing':
-                return <BillingPage {...commonProps} initialFilter={pageFilter} />;
-            case 'operacional':
-                return <OperacionalPage {...commonProps} />;
+            case 'billing': 
+                return <BillingPage {...commonProps} />;
             case 'controleDiario': 
                 return <ControleDiarioPage {...commonProps} />;
             case 'revisions': 

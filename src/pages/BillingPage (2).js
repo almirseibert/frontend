@@ -18,25 +18,34 @@ const BillingPage = ({
     employees = [],
     vehicleGroups = {},
     setAlertMessage,
-    PasswordConfirmationModal,
-    initialFilter = null,
+    PasswordConfirmationModal
 }) => {
     const { isViewer } = useAuth();
 
     // --- ESTADOS GERAIS ---
-    const [activeTab, setActiveTab] = useState(() => {
-        if (isViewer) return 'relatorio';
-        if (initialFilter?.tab) return initialFilter.tab;
-        return 'lancamentos';
-    });
+    const [activeTab, setActiveTab] = useState(isViewer ? 'relatorio' : 'dashboard');
+
+    // --- ESTADOS DASHBOARD ---
+    const [dashboardObraId, setDashboardObraId] = useState('');
+    const [dashboardLogs, setDashboardLogs] = useState([]);
+    const [loadingDashboard, setLoadingDashboard] = useState(false);
+    const [filterSearch, setFilterSearch] = useState('');
+    const [filterRisk, setFilterRisk] = useState('');
+    const [filterStatus, setFilterStatus] = useState('ativas');
+    const [filterHasActive, setFilterHasActive] = useState('');
+    const [sortBy, setSortBy] = useState('risco');
+
+    // --- ESTADOS DETALHE DA OBRA ---
+    const [detailFilterStatus, setDetailFilterStatus] = useState('todos');
+    const [detailSortBy, setDetailSortBy] = useState('padrao');
 
     // --- ESTADOS LANÇAMENTOS ---
-    const [selectedObraId, setSelectedObraId] = useState(() => initialFilter?.obraId ? String(initialFilter.obraId) : '');
+    const [selectedObraId, setSelectedObraId] = useState('');
     const [controlMonth, setControlMonth] = useState(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
-    const [controlVehicleId, setControlVehicleId] = useState(() => initialFilter?.vehicleId ? String(initialFilter.vehicleId) : '');
+    const [controlVehicleId, setControlVehicleId] = useState('');
     const [dailyLogs, setDailyLogs] = useState([]);
     const [localChanges, setLocalChanges] = useState({});
     const [isSaving, setIsSaving] = useState(false);
@@ -54,6 +63,11 @@ const BillingPage = ({
     useEffect(() => {
         if (isViewer && activeTab !== 'relatorio') setActiveTab('relatorio');
     }, [isViewer, activeTab]);
+
+    useEffect(() => {
+        if (dashboardObraId && activeTab === 'dashboard') fetchDashboardData();
+        if (!dashboardObraId) setDashboardLogs([]);
+    }, [dashboardObraId, activeTab]);
 
     useEffect(() => {
         if (selectedObraId && activeTab === 'lancamentos' && controlVehicleId && controlMonth) {
@@ -132,19 +146,110 @@ const BillingPage = ({
     // MEMOS
     // ===================================================================================
 
-    const obrasOrdenadas = useMemo(() => {
+    // Risco de cada obra calculado a partir dos dados já carregados (sem chamada extra de API)
+    const obrasComRisco = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        return obras.map(o => ({
-            obra: o,
-            isFinished: o.status === 'finalizada' || o.status === 'Finalizada' ||
-                o.status === 'Concluída' || o.status === 'Inativa' ||
-                Boolean(o.dataFim && new Date(o.dataFim) < today),
-        })).sort((a, b) => {
+
+        return obras.map(obra => {
+            const isFinished = obra.status === 'finalizada' || obra.status === 'Finalizada' ||
+                obra.status === 'Concluída' || obra.status === 'Inativa' ||
+                (obra.dataFim && new Date(obra.dataFim) < today);
+
+            const historico = obra.historicoVeiculos || [];
+
+            const pesados = historico.filter(h => {
+                const v = vehicles.find(vv => vv.id === h.veiculoId);
+                return v && isHeavyVehicle(v.tipo);
+            });
+
+            const ativos = pesados.filter(h => !h.dataSaida).length;
+            const inativos = new Set(pesados.filter(h => !!h.dataSaida).map(h => h.veiculoId)).size;
+            const totalUnicos = new Set(pesados.map(h => h.veiculoId)).size;
+            const totalHoras = parseFloat(obra.totalHorasRealizadas) || 0;
+
+            const inicio = obra.dataInicio ? new Date(obra.dataInicio) : null;
+            inicio?.setHours(0, 0, 0, 0);
+            const diasDeObra = inicio ? Math.max(1, Math.floor((today - inicio) / 86400000)) : 0;
+
+            // Score de risco: quanto maior, mais crítico
+            let riskScore = 0;
+            let riskLevel = 'ok';
+            const riskReasons = [];
+
+            if (!isFinished) {
+                if (ativos > 0 && totalHoras === 0 && diasDeObra > 5) {
+                    riskScore += 10;
+                    riskReasons.push(`${ativos} equip. ativo${ativos > 1 ? 's' : ''} sem nenhum lançamento após ${diasDeObra}d de obra`);
+                }
+                if (inativos > 0) {
+                    riskScore += 3;
+                    riskReasons.push(`${inativos} equip. realocado${inativos > 1 ? 's' : ''} com lacunas de lançamento permanentes`);
+                }
+                if (ativos > 0 && diasDeObra > 20 && totalHoras < ativos * 10) {
+                    riskScore += 2;
+                    const mediaHoras = ativos > 0 ? (totalHoras / ativos).toFixed(0) : 0;
+                    riskReasons.push(`Obra com ${diasDeObra}d mas média baixa: ${mediaHoras}h/equip. (esperado ≥ 10h)`);
+                }
+                if (riskReasons.length === 0) {
+                    riskReasons.push('Nenhum fator de risco identificado.');
+                    riskReasons.push(`${ativos} equip. ativo${ativos > 1 ? 's' : ''} com lançamentos registrados.`);
+                }
+            } else {
+                riskReasons.push('Obra finalizada — avaliação do período encerrado.');
+                if (totalHoras > 0) riskReasons.push(`Total registrado: ${formatDecimalToTime(totalHoras)}h.`);
+            }
+
+            if (riskScore >= 10) riskLevel = 'critico';
+            else if (riskScore >= 3) riskLevel = 'atencao';
+            else riskLevel = 'ok';
+
+            return { obra, isFinished, ativos, inativos, totalUnicos, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons };
+        }).sort((a, b) => {
+            // Finalizadas sempre por último
             if (a.isFinished !== b.isFinished) return a.isFinished ? 1 : -1;
+            // Mais crítico primeiro
+            if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore;
+            // Mais equipamentos ativos primeiro
+            if (b.ativos !== a.ativos) return b.ativos - a.ativos;
             return a.obra.nome.localeCompare(b.obra.nome);
         });
-    }, [obras]);
+    }, [obras, vehicles, vehicleGroups]);
+
+    const obrasFiltradas = useMemo(() => {
+        let result = [...obrasComRisco];
+
+        if (filterStatus === 'ativas') result = result.filter(o => !o.isFinished);
+        else if (filterStatus === 'finalizadas') result = result.filter(o => o.isFinished);
+
+        if (filterRisk) result = result.filter(o => o.riskLevel === filterRisk);
+        if (filterHasActive === 'sim') result = result.filter(o => o.ativos > 0);
+        else if (filterHasActive === 'nao') result = result.filter(o => o.ativos === 0);
+        if (filterSearch.trim()) result = result.filter(o => o.obra.nome.toLowerCase().includes(filterSearch.toLowerCase().trim()));
+
+        if (sortBy === 'dataInicio') {
+            result = [...result].sort((a, b) => new Date(a.obra.dataInicio) - new Date(b.obra.dataInicio));
+        } else if (sortBy === 'semLancamento') {
+            result = [...result].sort((a, b) => {
+                const scoreA = a.totalHoras === 0 ? a.diasDeObra * 1000 : a.diasDeObra / Math.max(1, a.totalHoras);
+                const scoreB = b.totalHoras === 0 ? b.diasDeObra * 1000 : b.diasDeObra / Math.max(1, b.totalHoras);
+                return scoreB - scoreA;
+            });
+        }
+        // sortBy === 'risco' mantém a ordem do obrasComRisco
+
+        return result;
+    }, [obrasComRisco, filterSearch, filterRisk, filterStatus, filterHasActive, sortBy]);
+
+    const hasActiveFilters = filterSearch !== '' || filterRisk !== '' || filterStatus !== 'ativas' || filterHasActive !== '' || sortBy !== 'risco';
+
+    const clearFilters = () => {
+        setFilterSearch('');
+        setFilterRisk('');
+        setFilterStatus('ativas');
+        setFilterHasActive('');
+        setSortBy('risco');
+    };
 
     const getObraVehiclesForObra = (obraId) => {
         const obra = obras.find(o => o.id === obraId);
@@ -172,9 +277,133 @@ const BillingPage = ({
     const getObraVehicles = useMemo(() => getObraVehiclesForObra(selectedObraId), [selectedObraId, obras, vehicles, vehicleGroups]);
     const getReportObraVehicles = useMemo(() => getObraVehiclesForObra(reportObraId), [reportObraId, obras, vehicles, vehicleGroups]);
 
+    const dashboardStats = useMemo(() => {
+        if (!dashboardObraId) return { vehicleStats: [], summary: null };
+        const obra = obras.find(o => o.id === dashboardObraId);
+        if (!obra?.historicoVeiculos) return { vehicleStats: [], summary: null };
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const horasContratadasRaw = obra.horasContratadasPorTipo;
+        const horasContratadas = typeof horasContratadasRaw === 'string'
+            ? JSON.parse(horasContratadasRaw || '{}')
+            : (horasContratadasRaw || {});
+        const totalContratado = Object.values(horasContratadas).reduce((s, h) => s + (parseFloat(h) || 0), 0);
+
+        const vehicleHistoryMap = {};
+        obra.historicoVeiculos.forEach(h => {
+            if (!vehicleHistoryMap[h.veiculoId]) vehicleHistoryMap[h.veiculoId] = [];
+            vehicleHistoryMap[h.veiculoId].push(h);
+        });
+
+        const vehicleStats = Object.entries(vehicleHistoryMap).map(([vehicleId, periods]) => {
+            const vehicle = vehicles.find(v => String(v.id) === String(vehicleId));
+            if (!vehicle || !isHeavyVehicle(vehicle.tipo)) return null;
+
+            const vehicleLogs = dashboardLogs.filter(l => String(l.vehicleId) === String(vehicleId));
+            const logDateSet = new Set(vehicleLogs.map(l => l.date.split('T')[0]));
+            const isActive = periods.some(p => !p.dataSaida);
+
+            const allDaysSet = new Set();
+            periods.forEach(p => {
+                let d = new Date(p.dataEntrada);
+                d.setHours(0, 0, 0, 0);
+                const end = p.dataSaida ? new Date(p.dataSaida) : today;
+                end.setHours(0, 0, 0, 0);
+                while (d <= end) { allDaysSet.add(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1); }
+            });
+
+            const allDays = [...allDaysSet].sort();
+            const totalDays = allDays.length;
+            const daysWithLogs = allDays.filter(d => logDateSet.has(d)).length;
+            const totalHours = vehicleLogs.reduce((acc, l) => acc + parseFloat(l.totalHours || 0), 0);
+
+            let maxGapHistorico = 0, currentGap = 0;
+            allDays.forEach(d => { if (!logDateSet.has(d)) { currentGap++; maxGapHistorico = Math.max(maxGapHistorico, currentGap); } else currentGap = 0; });
+
+            const sortedLogs = [...vehicleLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
+            const lastLogDate = sortedLogs[0]?.date?.split('T')[0] || null;
+            const daysSinceLast = lastLogDate ? Math.floor((today - new Date(lastLogDate)) / 86400000) : null;
+
+            // Se ativo, o gap atual (dias sem lançamento desde o último) pode ser maior que qualquer gap passado
+            const maxGap = isActive ? Math.max(maxGapHistorico, daysSinceLast ?? 0) : maxGapHistorico;
+
+            const contractedHours = parseFloat(horasContratadas[vehicle.tipo] || 0);
+            // Cobertura baseada em horas lançadas vs contratadas para o tipo
+            const coveragePercent = contractedHours > 0 ? (totalHours / contractedHours) * 100 : null;
+
+            let status = 'ok';
+            if (totalHours === 0 && totalDays > 3) status = 'nunca';
+            else if (maxGap > GAP_THRESHOLD_DAYS) status = 'atencao';
+
+            return {
+                vehicleId: String(vehicleId), vehicle, isActive,
+                periods: [...periods].sort((a, b) => new Date(a.dataEntrada) - new Date(b.dataEntrada)),
+                totalDays, daysWithLogs, totalHours, contractedHours, lastLogDate, daysSinceLast,
+                maxGap, status, coveragePercent,
+            };
+        }).filter(Boolean).sort((a, b) => {
+            const order = { nunca: 0, atencao: 1, ok: 2 };
+            if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+            return (a.vehicle.registroInterno || '').localeCompare(b.vehicle.registroInterno || '');
+        });
+
+        const withAlerts = vehicleStats.filter(v => v.status !== 'ok').length;
+        const totalHorasObra = vehicleStats.reduce((acc, v) => acc + v.totalHours, 0);
+        const allLogDates = [...dashboardLogs].map(l => l.date.split('T')[0]).sort();
+
+        return {
+            vehicleStats,
+            summary: {
+                total: vehicleStats.length,
+                active: vehicleStats.filter(v => v.isActive).length,
+                withAlerts,
+                totalHoras: totalHorasObra,
+                totalContratado,
+                lastLog: allLogDates[allLogDates.length - 1] || null,
+            }
+        };
+    }, [dashboardObraId, dashboardLogs, obras, vehicles, vehicleGroups]);
+
+    const dashboardVehicleStatsFiltered = useMemo(() => {
+        let stats = [...(dashboardStats.vehicleStats || [])];
+        if (detailFilterStatus === 'ativos') stats = stats.filter(s => s.isActive);
+        else if (detailFilterStatus === 'inativos') stats = stats.filter(s => !s.isActive);
+        if (detailSortBy === 'horas') {
+            stats = stats.sort((a, b) => b.totalHours - a.totalHours);
+        } else if (detailSortBy === 'gap') {
+            stats = stats.sort((a, b) => b.maxGap - a.maxGap);
+        } else if (detailSortBy === 'cobertura') {
+            stats = stats.sort((a, b) => {
+                if (a.coveragePercent === null && b.coveragePercent === null) return 0;
+                if (a.coveragePercent === null) return 1;
+                if (b.coveragePercent === null) return -1;
+                return a.coveragePercent - b.coveragePercent;
+            });
+        }
+        return stats;
+    }, [dashboardStats.vehicleStats, detailFilterStatus, detailSortBy]);
+
     // ===================================================================================
     // API CALLS
     // ===================================================================================
+
+    const fetchDashboardData = async () => {
+        const obra = obras.find(o => o.id === dashboardObraId);
+        if (!obra) return;
+        setLoadingDashboard(true);
+        try {
+            const startDate = obra.dataInicio.split('T')[0];
+            const endDate = obra.dataFim ? obra.dataFim.split('T')[0] : new Date().toISOString().split('T')[0];
+            const logs = await apiClient.getDailyLogs(dashboardObraId, { startDate, endDate });
+            setDashboardLogs(logs || []);
+        } catch {
+            setAlertMessage('Erro ao carregar dados do dashboard.');
+        } finally {
+            setLoadingDashboard(false);
+        }
+    };
 
     const fetchDailyLogsForControl = async () => {
         setLoadingLogs(true);
@@ -431,8 +660,8 @@ const BillingPage = ({
     };
 
     const renderObraSelect = (value, onChange, id = 'obra-select') => {
-        const active = obrasOrdenadas.filter(o => !o.isFinished);
-        const inactive = obrasOrdenadas.filter(o => o.isFinished);
+        const active = obrasComRisco.filter(o => !o.isFinished);
+        const inactive = obrasComRisco.filter(o => o.isFinished);
         return (
             <div className="bg-white p-4 rounded-lg shadow mb-6">
                 <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">Selecione a Obra</label>
@@ -452,21 +681,331 @@ const BillingPage = ({
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                <FileText className="text-yellow-500" /> Relatório de Horas
+                <FileText className="text-yellow-500" /> Faturamento & Controle
             </h1>
 
             {/* Abas */}
             <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-lg shadow-sm px-2">
+                {!isViewer && (
+                    <button onClick={() => setActiveTab('dashboard')} className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeTab === 'dashboard' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                        <BarChart2 size={16} /> Dashboard
+                    </button>
+                )}
                 {!isViewer && (
                     <button onClick={() => setActiveTab('lancamentos')} className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeTab === 'lancamentos' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                         <Clock size={16} /> Lançamentos
                     </button>
                 )}
                 <button onClick={() => setActiveTab('relatorio')} className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeTab === 'relatorio' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    <Download size={16} /> Exportar PDF
+                    <Download size={16} /> Relatórios & Faturamento
                 </button>
             </div>
 
+            {/* ===== ABA: DASHBOARD ===== */}
+            {activeTab === 'dashboard' && !isViewer && (
+                <div className="space-y-6">
+                    {!dashboardObraId ? (
+                        <>
+                            {/* Sumário global */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-4">
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Obras Ativas</p>
+                                    <p className="text-2xl font-bold text-gray-800">{obrasComRisco.filter(o => !o.isFinished).length}</p>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-red-500 p-4">
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Críticas</p>
+                                    <p className="text-2xl font-bold text-red-600">{obrasComRisco.filter(o => o.riskLevel === 'critico').length}</p>
+                                    <p className="text-xs text-gray-400 mt-1">equip. sem nenhum lançamento</p>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-orange-400 p-4">
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Em Atenção</p>
+                                    <p className="text-2xl font-bold text-orange-500">{obrasComRisco.filter(o => o.riskLevel === 'atencao').length}</p>
+                                    <p className="text-xs text-gray-400 mt-1">com equip. realocados</p>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-green-500 p-4">
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Em Dia</p>
+                                    <p className="text-2xl font-bold text-green-600">{obrasComRisco.filter(o => o.riskLevel === 'ok' && !o.isFinished).length}</p>
+                                </div>
+                            </div>
+
+                            {/* Barra de filtros */}
+                            <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+                                <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
+                                    {/* Busca */}
+                                    <div className="relative w-full md:w-64">
+                                        <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                                        <input
+                                            type="text"
+                                            placeholder="Buscar obra..."
+                                            value={filterSearch}
+                                            onChange={e => setFilterSearch(e.target.value)}
+                                            className="pl-9 pr-4 py-2 border rounded-lg w-full text-sm focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none"
+                                        />
+                                    </div>
+
+                                    {/* Status */}
+                                    <div className="flex bg-gray-100 p-1 rounded-lg text-sm">
+                                        {[['ativas', 'Ativas'], ['finalizadas', 'Finalizadas'], ['todas', 'Todas']].map(([val, label]) => (
+                                            <button key={val} onClick={() => setFilterStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${filterStatus === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                        ))}
+                                    </div>
+
+                                    {/* Ordenação */}
+                                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="text-sm border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
+                                        <option value="risco">Ordenar: Por risco</option>
+                                        <option value="dataInicio">Ordenar: Data de início</option>
+                                        <option value="semLancamento">Ordenar: Sem lançamento</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    {/* Risco */}
+                                    <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
+                                        {[['', 'Todos'], ['critico', 'Crítico'], ['atencao', 'Atenção'], ['ok', 'Em dia']].map(([val, label]) => (
+                                            <button key={val} onClick={() => setFilterRisk(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${filterRisk === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                        ))}
+                                    </div>
+
+                                    {/* Equipamentos ativos */}
+                                    <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
+                                        {[['', 'Todos equip.'], ['sim', 'Com ativos'], ['nao', 'Sem ativos']].map(([val, label]) => (
+                                            <button key={val} onClick={() => setFilterHasActive(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${filterHasActive === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                        ))}
+                                    </div>
+
+                                    <div className="ml-auto flex items-center gap-3">
+                                        <span className="text-xs text-gray-400">{obrasFiltradas.length} {obrasFiltradas.length === 1 ? 'obra' : 'obras'} encontradas</span>
+                                        {hasActiveFilters && (
+                                            <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors">
+                                                <X size={13} /> Limpar filtros
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Grid de cards */}
+                            <div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                                    {obrasFiltradas.map(({ obra, isFinished, ativos, inativos, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons }) => {
+                                        const cfg = riskConfig[riskLevel];
+                                        return (
+                                            <div
+                                                key={obra.id}
+                                                onClick={() => setDashboardObraId(obra.id)}
+                                                className={`bg-white rounded-xl shadow-sm border-l-4 ${cfg.border} hover:shadow-md transition-all cursor-pointer p-5 flex flex-col justify-between`}
+                                            >
+                                                {/* Header */}
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div className="flex-1 min-w-0">
+                                                        <h3 className="text-base font-bold text-gray-800 truncate" title={obra.nome}>{obra.nome}</h3>
+                                                        <p className="text-xs text-gray-400 mt-0.5">{isFinished ? 'Finalizada' : `Em andamento · ${diasDeObra}d`}</p>
+                                                    </div>
+                                                    <div className="ml-3 shrink-0">{renderRiskBadge(riskLevel, riskScore, riskReasons)}</div>
+                                                </div>
+
+                                                {/* Métricas */}
+                                                <div className="space-y-2 text-sm mb-4">
+                                                    <div className="flex justify-between border-b border-dashed border-gray-100 pb-2">
+                                                        <span className="text-gray-500 flex items-center gap-1"><Truck size={13} /> Equip. pesados ativos</span>
+                                                        <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${ativos > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{ativos}</span>
+                                                    </div>
+                                                    {inativos > 0 && (
+                                                        <div className="flex justify-between border-b border-dashed border-gray-100 pb-2">
+                                                            <span className="text-gray-500 flex items-center gap-1"><AlertTriangle size={13} className="text-orange-400" /> Realocados (histórico)</span>
+                                                            <span className="font-bold px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-600">{inativos}</span>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex justify-between">
+                                                        <span className="text-gray-500 flex items-center gap-1"><TrendingUp size={13} /> Horas lançadas</span>
+                                                        <span className="font-bold text-gray-700">{formatDecimalToTime(totalHoras)}</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Rodapé */}
+                                                <div className="pt-3 border-t border-gray-100">
+                                                    <span className="text-xs text-yellow-600 font-semibold">Ver cobertura detalhada →</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {obrasFiltradas.length === 0 && (
+                                    <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                                        <AlertTriangle className="mx-auto text-gray-300 mb-4" size={48} />
+                                        <p className="text-gray-400 font-medium">Nenhuma obra encontrada.</p>
+                                        {hasActiveFilters && (
+                                            <button onClick={clearFilters} className="mt-3 text-sm text-yellow-600 hover:text-yellow-700 font-semibold">
+                                                Limpar filtros
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        /* DETALHE DA OBRA SELECIONADA */
+                        <div className="space-y-6">
+                            <button
+                                onClick={() => { setDashboardObraId(''); setDashboardLogs([]); }}
+                                className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
+                            >
+                                <ChevronLeft size={16} /> Voltar para todas as obras
+                            </button>
+
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-xl font-bold text-gray-800">
+                                    {obras.find(o => o.id === dashboardObraId)?.nome}
+                                </h2>
+                                {(() => {
+                                    const r = obrasComRisco.find(o => o.obra.id === dashboardObraId);
+                                    if (!r) return null;
+                                    return renderRiskBadge(r.riskLevel, r.riskScore, r.riskReasons, 'md');
+                                })()}
+                            </div>
+
+                            {loadingDashboard ? (
+                                <div className="py-16 text-center text-gray-400">Carregando dados de cobertura...</div>
+                            ) : (
+                                <>
+                                    {/* Cards de resumo da obra */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-4">
+                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Equipamentos</p>
+                                            <p className="text-2xl font-bold text-gray-800">{dashboardStats.summary?.total ?? '—'}</p>
+                                            <p className="text-xs text-gray-400 mt-1">{dashboardStats.summary?.active ?? 0} ativos na obra</p>
+                                        </div>
+                                        <div className={`bg-white rounded-xl shadow-sm border-l-4 p-4 ${(dashboardStats.summary?.withAlerts ?? 0) > 0 ? 'border-red-500' : 'border-green-500'}`}>
+                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Com Alertas</p>
+                                            <p className={`text-2xl font-bold ${(dashboardStats.summary?.withAlerts ?? 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>{dashboardStats.summary?.withAlerts ?? '—'}</p>
+                                            <p className="text-xs text-gray-400 mt-1">{(dashboardStats.summary?.withAlerts ?? 0) === 0 ? 'Nenhum gap crítico' : 'requerem atenção'}</p>
+                                        </div>
+                                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-yellow-500 p-4">
+                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Total Lançado</p>
+                                            <p className="text-2xl font-bold text-gray-800">{formatDecimalToTime(dashboardStats.summary?.totalHoras ?? 0)}</p>
+                                            {(dashboardStats.summary?.totalContratado ?? 0) > 0 ? (() => {
+                                                const pct = Math.min(((dashboardStats.summary.totalHoras / dashboardStats.summary.totalContratado) * 100), 100);
+                                                const barColor = pct < 50 ? 'bg-orange-400' : pct < 80 ? 'bg-yellow-400' : 'bg-green-500';
+                                                return (
+                                                    <>
+                                                        <p className="text-xs text-gray-400 mt-1">de {formatDecimalToTime(dashboardStats.summary.totalContratado)}h contratadas</p>
+                                                        <div className="mt-2 bg-gray-200 rounded-full h-1.5">
+                                                            <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 mt-1">{Math.round((dashboardStats.summary.totalHoras / dashboardStats.summary.totalContratado) * 100)}% do contrato</p>
+                                                    </>
+                                                );
+                                            })() : <p className="text-xs text-gray-400 mt-1">horas na obra</p>}
+                                        </div>
+                                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-gray-300 p-4">
+                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Último Lançamento</p>
+                                            <p className="text-xl font-bold text-gray-800">{dashboardStats.summary?.lastLog ? formatDateToBR(dashboardStats.summary.lastLog) : '—'}</p>
+                                            <p className="text-xs text-gray-400 mt-1">em qualquer equip.</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Tabela de cobertura */}
+                                    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                                        <div className="px-5 py-4 border-b border-gray-100">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h2 className="font-bold text-gray-700 flex items-center gap-2">
+                                                    <Activity size={16} className="text-yellow-500" />
+                                                    Cobertura de Lançamentos por Equipamento
+                                                </h2>
+                                                <span className="text-xs text-gray-400">Gap crítico: &gt; {GAP_THRESHOLD_DAYS} dias consecutivos</span>
+                                            </div>
+                                            {/* Filtros internos */}
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
+                                                    {[['todos', 'Todos'], ['ativos', 'Somente Ativos'], ['inativos', 'Somente Inativos']].map(([val, label]) => (
+                                                        <button key={val} onClick={() => setDetailFilterStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${detailFilterStatus === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                                    ))}
+                                                </div>
+                                                <select
+                                                    value={detailSortBy}
+                                                    onChange={e => setDetailSortBy(e.target.value)}
+                                                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-yellow-400 outline-none"
+                                                >
+                                                    <option value="padrao">Ordenar: Padrão (status)</option>
+                                                    <option value="horas">Ordenar: Mais horas</option>
+                                                    <option value="gap">Ordenar: Maior gap</option>
+                                                    <option value="cobertura">Ordenar: Menor cobertura</option>
+                                                </select>
+                                                <span className="text-xs text-gray-400 ml-auto">{dashboardVehicleStatsFiltered.length} equipamento{dashboardVehicleStatsFiltered.length !== 1 ? 's' : ''}</span>
+                                            </div>
+                                        </div>
+                                        {dashboardStats.vehicleStats.length === 0 ? (
+                                            <div className="py-12 text-center text-gray-400">
+                                                <PackageX size={36} className="mx-auto mb-2 opacity-30" />
+                                                <p>Nenhum equipamento pesado registrado nesta obra.</p>
+                                            </div>
+                                        ) : dashboardVehicleStatsFiltered.length === 0 ? (
+                                            <div className="py-10 text-center text-gray-400 text-sm">Nenhum equipamento corresponde ao filtro selecionado.</div>
+                                        ) : (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                                                        <tr>
+                                                            <th className="px-4 py-3 text-left">Equipamento</th>
+                                                            <th className="px-4 py-3 text-left">Situação</th>
+                                                            <th className="px-4 py-3 text-left">Status</th>
+                                                            <th className="px-4 py-3 text-left">Cobertura contratada</th>
+                                                            <th className="px-4 py-3 text-center">Maior gap</th>
+                                                            <th className="px-4 py-3 text-left">Último lançamento</th>
+                                                            <th className="px-4 py-3 text-right">Horas</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {dashboardVehicleStatsFiltered.map(stat => (
+                                                            <tr key={stat.vehicleId} className={`hover:bg-gray-50 ${stat.status === 'nunca' ? 'bg-red-50' : stat.status === 'atencao' ? 'bg-orange-50' : ''}`}>
+                                                                <td className="px-4 py-3">
+                                                                    <p className="font-semibold text-gray-800">{stat.vehicle.registroInterno}</p>
+                                                                    <p className="text-xs text-gray-400">{stat.vehicle.tipo} · {stat.vehicle.marca} {stat.vehicle.modelo}</p>
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    {stat.isActive
+                                                                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Ativo</span>
+                                                                        : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">Inativo</span>
+                                                                    }
+                                                                    {!stat.isActive && stat.status !== 'ok' && (
+                                                                        <p className="text-[10px] text-red-500 mt-1 leading-tight">Período encerrado — gaps permanentes</p>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3">{renderStatusBadge(stat.status, stat.isActive)}</td>
+                                                                <td className="px-4 py-3 min-w-[150px]">{renderCoverageBar(stat.coveragePercent, stat.totalHours, stat.contractedHours)}</td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <span className={`text-xs font-bold ${stat.maxGap > GAP_THRESHOLD_DAYS ? 'text-red-600' : stat.maxGap > 5 ? 'text-orange-500' : 'text-gray-500'}`}>{stat.maxGap}d</span>
+                                                                    {stat.isActive && stat.daysSinceLast !== null && stat.daysSinceLast === stat.maxGap && stat.maxGap > 0 && (
+                                                                        <p className="text-[10px] text-orange-400 leading-tight">atual</p>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    {stat.lastLogDate ? (
+                                                                        <div>
+                                                                            <span className="text-gray-700">{formatDateToBR(stat.lastLogDate)}</span>
+                                                                            {stat.daysSinceLast !== null && (
+                                                                                <span className={`ml-2 text-xs ${stat.daysSinceLast > GAP_THRESHOLD_DAYS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>({stat.daysSinceLast}d atrás)</span>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-red-400 font-semibold text-xs">Nunca preenchido</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right font-bold text-gray-700">{formatDecimalToTime(stat.totalHours)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* ===== ABA: LANÇAMENTOS ===== */}
             {activeTab === 'lancamentos' && !isViewer && (

@@ -1,127 +1,269 @@
-import React, { useState } from 'react';
-import { 
-    Home, Truck, Fuel, Settings, Users, AlertTriangle, 
-    FileText, ShoppingCart, Clipboard, LogOut, ChevronRight, ChevronLeft, Droplet, Disc, Bell, Wrench
-} from 'lucide-react'; 
-import ChangePasswordModal from './ChangePasswordModal'; // Certifique-se de criar este arquivo
+import React, { useState, useEffect } from 'react';
+import {
+    Building, HardHat, ClipboardCheck, FileText,
+    Fuel, Wrench, User, Shield, LogOut, Key,
+    ChevronLeft, ChevronRight, ChevronDown, ChevronUp
+} from 'lucide-react';
 
-const Sidebar = ({ currentPage, setCurrentPage, user, logout }) => {
+const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
-    // Mapeamento dos itens de menu
-    const navItems = [
-        { id: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
-        { id: 'vehicles', label: 'Veículos', icon: <Truck size={18} /> },
-        { id: 'employees', label: 'Funcionários', icon: <Users size={18} /> },
-        
-        // Itens Condicionais
-        { 
-            id: 'refueling', 
-            label: 'Abastecimento', 
-            icon: <Fuel size={18} />,
-            restricted: true // Flag customizada
-        },
-        { 
-            id: 'comboio', 
-            label: 'Comboio', 
-            icon: <Truck size={18} className="transform scale-x-[-1]" />,
-            restricted: true 
-        },
+    const isAdmin = user?.user_type === 'admin';
+    const isSupervisor = user?.user_type === 'supervisor';
+    const isViewer = user?.user_type === 'viewer' || user?.user_type === 'visualizador';
+    const canRefuel = user?.podeAcessarAbastecimento || isAdmin;
 
-        // Gestão
-        { id: 'revisions', label: 'Revisões & Manutenções', icon: <Wrench size={18} /> },
-        { id: 'tires', label: 'Gestão de Pneus', icon: <Disc size={18} /> },
-        { id: 'partners', label: 'Parceiros/Postos', icon: <Droplet size={18} /> },
-        
-        // Itens em Desuso (Dimmed)
-        { id: 'controleDiario', label: 'Controle Diário', icon: <Clipboard size={18} />, dimmed: true },
-        { id: 'orders', label: 'Compras/Serviço', icon: <ShoppingCart size={18} />, dimmed: true },
+    const navGroups = [
+        {
+            id: 'dashboard',
+            label: 'Dashboard',
+            icon: <Building size={16} />,
+            items: [
+                { id: 'dashboard', label: 'Painel Geral' },
+            ],
+        },
+        {
+            id: 'obras',
+            label: 'Obras',
+            icon: <HardHat size={16} />,
+            items: [
+                { id: 'obras',                label: 'Obras' },
+                { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', hidden: !isAdmin && !isSupervisor },
+                { id: 'expenses',             label: 'Despesas' },
+            ],
+        },
+        {
+            id: 'faturamento',
+            label: 'Faturamento',
+            icon: <ClipboardCheck size={16} />,
+            items: [
+                { id: 'operacional', label: 'Central Operacional',    hidden: isViewer },
+                { id: 'billing',     label: 'Relatório de Horas' },
+            ],
+        },
+        {
+            id: 'relatorios',
+            label: 'Relatórios',
+            icon: <FileText size={16} />,
+            items: [
+                { id: 'reports', label: 'Relatórios' },
+            ],
+        },
+        {
+            id: 'operacoes',
+            label: 'Operações',
+            icon: <Fuel size={16} />,
+            hidden: !canRefuel,
+            items: [
+                { id: 'refueling',          label: 'Abastecimento' },
+                { id: 'comboio',            label: 'Comboio' },
+                { id: 'admin_solicitacoes', label: 'Solicitações (App)', badge: pendingSolicitacoesCount },
+            ],
+        },
+        {
+            id: 'oficina',
+            label: 'Oficina',
+            icon: <Wrench size={16} />,
+            items: [
+                { id: 'revisions', label: 'Revisões & Manutenções' },
+                { id: 'tires',     label: 'Gestão de Pneus' },
+                { id: 'orders',    label: 'Ordens (C/S)' },
+            ],
+        },
+        {
+            id: 'cadastros',
+            label: 'Cadastros',
+            icon: <User size={16} />,
+            items: [
+                { id: 'vehicles',  label: 'Veículos' },
+                { id: 'employees', label: 'Funcionários' },
+                { id: 'partners',  label: 'Fornecedores' },
+                { id: 'inventory', label: 'Estoque / Peças' },
+                { id: 'fines',     label: 'Multas' },
+            ],
+        },
+        {
+            id: 'admin',
+            label: 'Administração',
+            icon: <Shield size={16} />,
+            hidden: !isAdmin,
+            items: [
+                { id: 'admin', label: 'Admin' },
+            ],
+        },
     ];
 
-    const canRefuel = user?.canAccessRefueling || user?.role === 'admin' || user?.user_type === 'admin';
-    const isAdmin = user?.role === 'admin' || user?.user_type === 'admin';
+    const visibleGroups = navGroups.filter(g => !g.hidden);
+
+    const getActiveGroupId = (pageId) => {
+        for (const g of navGroups) {
+            if (g.items.some(item => item.id === pageId)) return g.id;
+        }
+        // supervisor_detail é subpágina de supervisor_dashboard
+        if (pageId === 'supervisor_detail') return 'obras';
+        return null;
+    };
+
+    const [expandedGroups, setExpandedGroups] = useState(() => {
+        const active = getActiveGroupId(currentPage);
+        return new Set(active ? [active] : []);
+    });
+
+    useEffect(() => {
+        const active = getActiveGroupId(currentPage);
+        if (active) setExpandedGroups(prev => new Set([...prev, active]));
+    }, [currentPage]);
+
+    const toggleGroup = (groupId) => {
+        setExpandedGroups(prev => {
+            const next = new Set(prev);
+            next.has(groupId) ? next.delete(groupId) : next.add(groupId);
+            return next;
+        });
+    };
+
+    const isGroupActive = (group) =>
+        group.items.some(item => item.id === currentPage) ||
+        (group.id === 'obras' && currentPage === 'supervisor_detail');
+
+    const renderItem = (item, inFlyout = false) => {
+        if (item.hidden) return null;
+        const isActive = currentPage === item.id;
+        const base = inFlyout
+            ? `flex items-center w-full px-3 py-1.5 text-xs transition-colors ${item.dimmed && !isActive ? 'opacity-50' : ''}`
+            : `flex items-center w-full px-2 py-1.5 rounded-md text-xs transition-all duration-200 group relative ${item.dimmed && !isActive ? 'opacity-50 hover:opacity-100' : ''}`;
+        const active = isActive
+            ? inFlyout ? 'bg-yellow-500 text-slate-900 font-bold' : 'bg-yellow-500 text-slate-900 shadow-md font-bold'
+            : inFlyout ? 'text-slate-300 hover:bg-slate-800 hover:text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white';
+
+        return (
+            <li key={item.id}>
+                <button onClick={() => setCurrentPage(item.id)} className={`${base} ${active}`}>
+                    <span className="flex-1 text-left truncate">{item.label}</span>
+                    {item.badge > 0 && (
+                        <span className={`${inFlyout ? '' : 'absolute right-2'} bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm animate-pulse`}>
+                            {item.badge}
+                        </span>
+                    )}
+                </button>
+            </li>
+        );
+    };
 
     return (
-        <>
-            <div className={`bg-gray-900 text-white shadow-xl flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'} h-full z-20`}>
-                {/* Header */}
-                <div className="h-16 flex items-center justify-between px-4 bg-gray-950 border-b border-gray-800">
-                    {!isCollapsed && <span className="font-bold text-lg tracking-wider">FROTAS<span className="text-yellow-500">MAK</span></span>}
-                    <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-1 rounded hover:bg-gray-800 text-gray-400">
-                        {isCollapsed ? <ChevronRight size={20}/> : <ChevronLeft size={20}/>}
-                    </button>
-                </div>
+        <div className={`bg-slate-900 text-slate-300 shadow-xl transition-all duration-300 ease-in-out flex flex-col ${isCollapsed ? 'w-14' : 'w-56'} h-full z-20`}>
 
-                {/* Nav */}
-                <nav className="flex-1 overflow-y-auto py-4 space-y-1">
-                    {navItems.map(item => {
-                        // Lógica de Ocultação
-                        if (item.restricted && !canRefuel) return null;
-
-                        const isActive = currentPage === item.id;
-                        const isDimmed = item.dimmed; // Itens em desuso
-
-                        return (
-                            <button
-                                key={item.id}
-                                onClick={() => setCurrentPage(item.id)}
-                                className={`w-full flex items-center px-4 py-3 transition-colors duration-200 border-l-4 
-                                    ${isActive 
-                                        ? 'bg-gray-800 border-yellow-500 text-white' 
-                                        : 'border-transparent hover:bg-gray-800 text-gray-400 hover:text-white'}
-                                    ${isDimmed && !isActive ? 'opacity-50 hover:opacity-100' : ''}
-                                `}
-                                title={isCollapsed ? item.label : ''}
-                            >
-                                <span className={isActive ? 'text-yellow-500' : ''}>{item.icon}</span>
-                                {!isCollapsed && <span className={`ml-3 font-medium text-sm ${isDimmed ? 'font-normal' : ''}`}>{item.label}</span>}
-                            </button>
-                        );
-                    })}
-
-                    {/* Área Admin */}
-                    {isAdmin && (
-                        <div className="mt-4 pt-4 border-t border-gray-800">
-                            {!isCollapsed && <p className="px-4 text-xs font-bold text-gray-600 uppercase mb-2">Administração</p>}
-                            <button
-                                onClick={() => setCurrentPage('admin')}
-                                className={`w-full flex items-center px-4 py-3 transition-colors border-l-4 
-                                    ${currentPage === 'admin' ? 'bg-red-900/20 border-red-500 text-red-400' : 'border-transparent hover:bg-gray-800 text-gray-400'}`}
-                            >
-                                <Settings size={18} />
-                                {!isCollapsed && <span className="ml-3 font-medium text-sm">Painel Admin</span>}
-                            </button>
-                        </div>
-                    )}
-                </nav>
-
-                {/* Footer User Profile */}
-                <div className="p-4 bg-gray-950 border-t border-gray-800">
-                    <div className={`flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
-                        <div className="w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center text-gray-900 font-bold text-xs shrink-0">
-                            {user?.name?.charAt(0).toUpperCase()}
-                        </div>
-                        {!isCollapsed && (
-                            <div className="ml-3 overflow-hidden">
-                                <p className="text-sm font-medium text-white truncate">{user?.name}</p>
-                                <button onClick={() => setIsPasswordModalOpen(true)} className="text-xs text-blue-400 hover:text-blue-300 block">
-                                    Trocar Senha
-                                </button>
-                            </div>
-                        )}
+            {/* Header */}
+            <div className="h-14 flex items-center justify-between px-3 border-b border-slate-700 bg-slate-950 shrink-0">
+                {!isCollapsed ? (
+                    <img src="https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png" alt="MAK" className="h-8 object-contain" />
+                ) : (
+                    <div className="w-full flex justify-center">
+                        <span className="font-bold text-yellow-500 text-xs">MAK</span>
                     </div>
-                    {!isCollapsed && (
-                        <button onClick={logout} className="mt-3 w-full flex items-center justify-center py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded">
-                            <LogOut size={14} className="mr-2"/> SAIR
-                        </button>
-                    )}
-                </div>
+                )}
+                <button
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="p-1 rounded text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                >
+                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                </button>
             </div>
 
-            {/* Modal de Troca de Senha Renderizado Aqui */}
-            <ChangePasswordModal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} />
-        </>
+            {/* Nav */}
+            <nav className="flex-1 overflow-y-auto custom-scrollbar py-2">
+                {isCollapsed ? (
+                    /* ── Modo recolhido: ícone do grupo + flyout ao hover ── */
+                    <ul className="space-y-1 px-2">
+                        {visibleGroups.map(group => (
+                            <li key={group.id} className="relative group/flyout">
+                                <button
+                                    className={`flex items-center justify-center w-full p-2 rounded-md transition-all duration-200 ${
+                                        isGroupActive(group)
+                                            ? 'bg-yellow-500 text-slate-900 shadow-md'
+                                            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                                    }`}
+                                    title={group.label}
+                                >
+                                    {group.icon}
+                                    {/* badge no ícone do grupo se algum item tiver */}
+                                    {group.items.some(i => i.badge > 0) && (
+                                        <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                                    )}
+                                </button>
+                                {/* Flyout */}
+                                <div className="hidden group-hover/flyout:block absolute left-full top-0 ml-1 z-50 w-52 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-2 pointer-events-auto">
+                                    <div className="px-3 pb-1.5 mb-1 border-b border-slate-700">
+                                        <p className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest">{group.label}</p>
+                                    </div>
+                                    <ul>
+                                        {group.items.map(item => renderItem(item, true))}
+                                    </ul>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    /* ── Modo expandido: accordion por grupo ── */
+                    <ul className="space-y-0.5 px-2">
+                        {visibleGroups.map(group => (
+                            <li key={group.id}>
+                                {/* Header do grupo */}
+                                <button
+                                    onClick={() => toggleGroup(group.id)}
+                                    className={`flex items-center w-full px-2 py-1.5 rounded-md transition-colors text-xs font-bold uppercase tracking-wide group/gh ${
+                                        isGroupActive(group)
+                                            ? 'text-yellow-500'
+                                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                                    }`}
+                                >
+                                    <span className="mr-2">{group.icon}</span>
+                                    <span className="flex-1 text-left">{group.label}</span>
+                                    <span className="text-slate-600 group-hover/gh:text-slate-400 transition-colors">
+                                        {expandedGroups.has(group.id) ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                    </span>
+                                </button>
+
+                                {/* Itens do grupo — animação por max-height */}
+                                <div
+                                    className="overflow-hidden transition-all duration-200 ease-in-out"
+                                    style={{ maxHeight: expandedGroups.has(group.id) ? '600px' : '0px' }}
+                                >
+                                    <ul className="ml-3 pl-2 border-l border-slate-700 mt-0.5 mb-1 space-y-0.5">
+                                        {group.items.map(item => renderItem(item))}
+                                    </ul>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </nav>
+
+            {/* Footer */}
+            <div className="p-2 border-t border-slate-700 bg-slate-950 shrink-0">
+                <div className={`mb-2 px-2 flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
+                    <div className="w-6 h-6 rounded-full bg-yellow-500 text-slate-900 flex items-center justify-center font-bold text-xs shrink-0">
+                        {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                    </div>
+                    {!isCollapsed && (
+                        <div className="ml-2 overflow-hidden">
+                            <p className="text-xs text-white truncate font-medium">{user?.name}</p>
+                            <button onClick={onChangePassword} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                <Key size={10} /> Trocar Senha
+                            </button>
+                        </div>
+                    )}
+                </div>
+                <button
+                    onClick={logout}
+                    className="flex items-center w-full px-2 py-1.5 rounded-md transition-colors duration-200 hover:bg-red-900/50 text-slate-400 hover:text-red-400"
+                    title="Sair"
+                >
+                    <LogOut size={16} />
+                    {!isCollapsed && <span className="ml-3 text-xs font-bold">Sair</span>}
+                </button>
+            </div>
+        </div>
     );
 };
 
