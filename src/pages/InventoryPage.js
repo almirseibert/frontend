@@ -658,7 +658,7 @@ const MovementModal = ({ isOpen, onClose, item, onSave, user }) => {
 // ==========================================================
 // PÁGINA PRINCIPAL: ESTOQUE
 // ==========================================================
-const InventoryPage = ({ user, setAlertMessage }) => {
+const InventoryPage = ({ user, setAlertMessage, socket }) => {
     const [items, setItems] = useState([]);
     const [categories, setCategories] = useState([]);
     const [summary, setSummary] = useState(null);
@@ -720,6 +720,29 @@ const InventoryPage = ({ user, setAlertMessage }) => {
     useEffect(() => {
         loadInitialData();
     }, [loadInitialData]);
+
+    // -------------------------------------------------------
+    // INTEGRAÇÃO REAL-TIME COM SOCKET.IO
+    // -------------------------------------------------------
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleSync = (data) => {
+            // O backend envia: { targets: ['inventory'] }
+            if (data?.targets?.includes('inventory')) {
+                console.log('🔄 Atualização de estoque recebida via Socket.io');
+                // true = recarrega os dados em background exibindo apenas o ícone girando
+                loadInitialData(true); 
+            }
+        };
+
+        socket.on('server:sync', handleSync);
+
+        // Limpa o listener ao sair da página
+        return () => {
+            socket.off('server:sync', handleSync);
+        };
+    }, [socket, loadInitialData]);
 
     // -------------------------------------------------------
     // CRUD – Categoria
