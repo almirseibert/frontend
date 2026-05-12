@@ -729,15 +729,15 @@ const InventoryPage = ({ user, setAlertMessage }) => {
         try {
             if (selectedCategory) {
                 await apiClient.put(`/inventory/categories/${selectedCategory.id}`, formData);
-                setAlertMessage({ type: 'success', message: 'Categoria atualizada!' });
+                setAlertMessage('Categoria atualizada!');
             } else {
                 await apiClient.post('/inventory/categories', formData);
-                setAlertMessage({ type: 'success', message: 'Categoria criada!' });
+                setAlertMessage('Categoria criada!');
             }
             setSelectedCategory(null);
             await loadInitialData(true);
         } catch (error) {
-            setAlertMessage({ type: 'error', message: 'Erro ao salvar categoria.' });
+            setAlertMessage('Erro ao salvar categoria.');
         }
     };
 
@@ -745,10 +745,10 @@ const InventoryPage = ({ user, setAlertMessage }) => {
         if (!window.confirm('Desativar esta categoria?')) return;
         try {
             await apiClient.delete(`/inventory/categories/${catId}`);
-            setAlertMessage({ type: 'success', message: 'Categoria desativada.' });
+            setAlertMessage('Categoria desativada.');
             await loadInitialData(true);
         } catch (error) {
-            setAlertMessage({ type: 'error', message: error.message || 'Erro ao desativar categoria.' });
+            setAlertMessage(error.message || 'Erro ao desativar categoria.');
         }
     };
 
@@ -759,15 +759,15 @@ const InventoryPage = ({ user, setAlertMessage }) => {
         try {
             if (selectedItem) {
                 await apiClient.put(`/inventory/items/${selectedItem.id}`, { ...formData, userEmail: user?.email });
-                setAlertMessage({ type: 'success', message: 'Item atualizado!' });
+                setAlertMessage('Item atualizado!');
             } else {
                 await apiClient.post('/inventory/items', { ...formData, userEmail: user?.email });
-                setAlertMessage({ type: 'success', message: 'Item criado!' });
+                setAlertMessage('Item criado!');
             }
             setSelectedItem(null);
             await loadInitialData(true);
         } catch (error) {
-            setAlertMessage({ type: 'error', message: error.message || 'Erro ao salvar item.' });
+            setAlertMessage(error.message || 'Erro ao salvar item.');
         }
     };
 
@@ -775,10 +775,10 @@ const InventoryPage = ({ user, setAlertMessage }) => {
         if (!window.confirm('Tem certeza que deseja desativar este item?')) return;
         try {
             await apiClient.delete(`/inventory/items/${itemId}`);
-            setAlertMessage({ type: 'success', message: 'Item desativado.' });
+            setAlertMessage('Item desativado.');
             await loadInitialData(true);
         } catch (error) {
-            setAlertMessage({ type: 'error', message: 'Erro ao desativar item.' });
+            setAlertMessage('Erro ao desativar item.');
         }
     };
 
