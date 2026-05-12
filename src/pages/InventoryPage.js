@@ -121,7 +121,6 @@ const CategoryModal = ({ isOpen, onClose, onSave, category = null }) => {
 // ==========================================================
 const ReferencesModal = ({ isOpen, onClose, item, allItems = [], onSave }) => {
     const [refs, setRefs] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [newRef, setNewRef] = useState({ referenceItemId: '', type: 'equivalencia', notes: '', priority: 0 });
 
@@ -863,8 +862,9 @@ const InventoryPage = ({ user, setAlertMessage }) => {
                     <div className="bg-green-100 p-3 rounded-lg text-green-600 shrink-0"><DollarSign size={22} /></div>
                     <div>
                         <p className="text-xs text-gray-500 font-bold uppercase leading-tight">Valor em Estoque</p>
+                        {/* Correção de casting seguro usando Number() e parseFloat() */}
                         <p className="text-xl font-black text-gray-800">
-                            R$ {(summary?.totalValue ?? items.reduce((a, i) => a + ((i.quantity || 0) * (i.unitPrice || 0)), 0)).toFixed(2)}
+                            R$ {Number(summary?.totalValue ?? items.reduce((a, i) => a + ((i.quantity || 0) * (parseFloat(i.unitPrice) || 0)), 0)).toFixed(2)}
                         </p>
                     </div>
                 </div>
@@ -1018,9 +1018,10 @@ const InventoryPage = ({ user, setAlertMessage }) => {
                                         </span>
                                     </td>
                                     <td className="p-3 text-center text-gray-600 text-xs">{item.minQuantity}</td>
-                                    <td className="p-3 text-right text-gray-700 text-xs">R$ {(parseFloat(item.unitPrice) || 0).toFixed(2)}</td>
+                                    {/* Correções com Number e parseFloat */}
+                                    <td className="p-3 text-right text-gray-700 text-xs">R$ {Number(parseFloat(item.unitPrice) || 0).toFixed(2)}</td>
                                     <td className="p-3 text-right font-bold text-gray-800 text-xs">
-                                        R$ {((item.quantity || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}
+                                        R$ {Number((item.quantity || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}
                                     </td>
                                     <td className="p-3">
                                         <div className="flex justify-center gap-1">
@@ -1070,11 +1071,12 @@ const InventoryPage = ({ user, setAlertMessage }) => {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Preço Unit.:</span>
-                                    <span className="font-semibold">R$ {(parseFloat(item.unitPrice) || 0).toFixed(2)}</span>
+                                    {/* Correções aplicadas aqui */}
+                                    <span className="font-semibold">R$ {Number(parseFloat(item.unitPrice) || 0).toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between border-t pt-1.5">
                                     <span className="text-gray-500">Valor Total:</span>
-                                    <span className="font-black text-purple-600">R$ {((item.quantity || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}</span>
+                                    <span className="font-black text-purple-600">R$ {Number((item.quantity || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}</span>
                                 </div>
                             </div>
                             <div className="flex gap-1 mt-3 border-t pt-3">
