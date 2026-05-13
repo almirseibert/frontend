@@ -70,7 +70,7 @@ const WhatsAppStatusPanel = () => {
         fetchStatus();
         const intervalId = setInterval(() => {
             setStatusData(prev => {
-                if (prev.status !== 'PRONTO') {
+                if (prev.status !== 'PRONTO' && prev.status !== 'AUTENTICADO') {
                     fetchStatus();
                 }
                 return prev;
