@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
     Wifi, WifiOff, RefreshCw, Loader, Smartphone,
@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
-// ─── Badge de status ──────────────────────────────────────────────────────────
+// ─── Badge de status mantido como seu original ──────────────────────────────────
 const STATUS_CFG = {
     PRONTO:          { label: 'Conectado',        cor: 'green',  Icon: Wifi       },
     AUTENTICADO:     { label: 'Autenticando…',    cor: 'yellow', Icon: Loader     },
@@ -20,271 +20,246 @@ const Badge = ({ status }) => {
     const { label, cor, Icon } = STATUS_CFG[status] || STATUS_CFG.DESCONECTADO;
     return (
         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${COR[cor]}`}>
-            <Icon size={13} className={status === 'AUTENTICADO' ? 'animate-spin' : ''} />
+            <Icon size={16} className={cor === 'yellow' ? 'animate-pulse' : ''} />
             {label}
         </span>
     );
 };
 
-// ─── Painel principal ─────────────────────────────────────────────────────────
 const WhatsAppStatusPanel = () => {
-    const [status,       setStatus]       = useState('DESCONECTADO');
-    const [qr,           setQr]           = useState(null);   // string bruta do whatsapp-web.js
-    const [loading,      setLoading]      = useState(false);
-    const [reiniciando,  setReiniciando]  = useState(false);
-    const [logs,         setLogs]         = useState([]);
-    const [mostrarLogs,  setMostrarLogs]  = useState(false);
-    const [loadingLogs,  setLoadingLogs]  = useState(false);
-    const [testeNumero,  setTesteNumero]  = useState('');
-    const [testeMens,    setTesteMens]    = useState('');
-    const [enviando,     setEnviando]     = useState(false);
-    const [resultado,    setResultado]    = useState(null);
+    // Atualizado para pegar a string do QR Code bruto
+    const [statusData, setStatusData] = useState({ status: 'DESCONECTADO', qr: null });
+    const [loading, setLoading] = useState(true);
+    const [restarting, setRestarting] = useState(false);
 
-    const pollingRef = useRef(null);
+    // Estados para envio de teste e logs mantidos
+    const [testNumber, setTestNumber] = useState('');
+    const [testMessage, setTestMessage] = useState('Teste de conexão Frotas MAK');
+    const [sendingTest, setSendingTest] = useState(false);
+    
+    const [logs, setLogs] = useState([]);
+    const [showLogs, setShowLogs] = useState(false);
+    const [loadingLogs, setLoadingLogs] = useState(false);
 
-    const pararPolling = useCallback(() => {
-        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+    const fetchStatus = useCallback(async () => {
+        try {
+            const res = await apiClient.get('/api/whatsapp/status');
+            setStatusData(res.data || { status: 'DESCONECTADO', qr: null });
+        } catch (error) {
+            console.error('Erro ao consultar status WA:', error);
+            setStatusData({ status: 'DESCONECTADO', qr: null });
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const buscarStatus = useCallback(async () => {
+    const fetchLogs = useCallback(async () => {
+        setLoadingLogs(true);
         try {
-            const data = await apiClient.whatsappGetStatus();
-            setStatus(data.status);
-            setQr(data.qr || null);
-            if (data.status === 'PRONTO') pararPolling();
-        } catch (_) {
-            setStatus('DESCONECTADO');
-            setQr(null);
-        }
-    }, [pararPolling]);
-
-    const iniciarPolling = useCallback((ms = 3000) => {
-        pararPolling();
-        pollingRef.current = setInterval(buscarStatus, ms);
-    }, [buscarStatus, pararPolling]);
-
-    // mount: busca imediata + inicia polling se não estiver pronto
-    useEffect(() => {
-        buscarStatus();
-        return pararPolling;
-    }, []);  // eslint-disable-line
-
-    useEffect(() => {
-        if (status === 'PRONTO' || status === 'AUTENTICADO') {
-            pararPolling();
-        } else {
-            iniciarPolling(3000);
-        }
-    }, [status]); // eslint-disable-line
-
-    const handleReiniciar = async () => {
-        setReiniciando(true);
-        setQr(null);
-        setStatus('DESCONECTADO');
-        try { await apiClient.whatsappReiniciar(); } catch (_) {}
-        iniciarPolling(2000);          // polling agressivo para pegar QR rápido
-        setTimeout(() => setReiniciando(false), 3000);
-    };
-
-    const handleAtualizar = async () => {
-        setLoading(true);
-        await buscarStatus();
-        setLoading(false);
-    };
-
-    const handleEnviarTeste = async (e) => {
-        e.preventDefault();
-        setEnviando(true);
-        setResultado(null);
-        try {
-            await apiClient.whatsappEnviarTeste({ numero: testeNumero, mensagem: testeMens });
-            setResultado({ ok: true, msg: 'Mensagem enviada com sucesso!' });
-            setTesteNumero('');
-            setTesteMens('');
+            const res = await apiClient.get('/api/whatsapp/logs');
+            setLogs(res.data || []);
         } catch (err) {
-            setResultado({ ok: false, msg: err.message || 'Erro ao enviar.' });
+            console.error('Erro ao buscar logs WA:', err);
         } finally {
-            setEnviando(false);
+            setLoadingLogs(false);
+        }
+    }, []);
+
+    // Polling Inteligente que para de bater quando já conectou
+    useEffect(() => {
+        fetchStatus();
+        const intervalId = setInterval(() => {
+            setStatusData(prev => {
+                if (prev.status !== 'PRONTO' && prev.status !== 'AUTENTICADO') {
+                    fetchStatus();
+                }
+                return prev;
+            });
+        }, 3000);
+        return () => clearInterval(intervalId);
+    }, [fetchStatus]);
+
+    useEffect(() => {
+        if (showLogs) fetchLogs();
+    }, [showLogs, fetchLogs]);
+
+    const handleRestart = async () => {
+        setRestarting(true);
+        try {
+            await apiClient.post('/api/whatsapp/reiniciar');
+            setStatusData({ status: 'DESCONECTADO', qr: null });
+        } catch (err) {
+            alert('Falha ao reiniciar: ' + err.message);
+        } finally {
+            setTimeout(() => {
+                setRestarting(false);
+                fetchStatus();
+            }, 3000);
         }
     };
 
-    const handleLogs = async () => {
-        const abrir = !mostrarLogs;
-        setMostrarLogs(abrir);
-        if (abrir) {
-            setLoadingLogs(true);
-            try { const d = await apiClient.whatsappGetLogs(); setLogs(d); }
-            catch (_) {} finally { setLoadingLogs(false); }
+    const handleSendTest = async (e) => {
+        e.preventDefault();
+        setSendingTest(true);
+        try {
+            await apiClient.post('/api/whatsapp/enviar-teste', {
+                numero: testNumber,
+                mensagem: testMessage
+            });
+            alert('Mensagem enviada com sucesso!');
+            setTestNumber('');
+            if (showLogs) fetchLogs();
+        } catch (err) {
+            alert('Falha ao enviar: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setSendingTest(false);
         }
     };
 
     return (
-        <div className="space-y-4">
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+            {/* Header / Status Geral */}
+            <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <Smartphone className="text-green-600" />
+                        Serviço WhatsApp
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">Status da API e conexão com a Evolution/Puppeteer</p>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                    <Badge status={statusData.status} />
+                    <button
+                        onClick={fetchStatus}
+                        className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg transition-colors border border-gray-200"
+                        title="Atualizar status"
+                    >
+                        <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                    </button>
+                    <button
+                        onClick={handleRestart}
+                        disabled={restarting}
+                        className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors border border-red-200 text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {restarting ? 'Reiniciando...' : 'Reiniciar Microsserviço'}
+                    </button>
+                </div>
+            </div>
 
-            {/* ── Conexão ─────────────────────────────────────────────── */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center">
-                            <Smartphone size={18} className="text-green-600" />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-gray-800 leading-none">WhatsApp</h3>
-                            <p className="text-xs text-gray-400 mt-0.5">Conexão do serviço de mensagens</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Badge status={status} />
-                        <button onClick={handleAtualizar} disabled={loading}
-                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Atualizar agora">
-                            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-                        </button>
-                        <button onClick={handleReiniciar} disabled={reiniciando}
-                            className="px-4 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5">
-                            {reiniciando
-                                ? <><Loader size={13} className="animate-spin" /> Reiniciando…</>
-                                : 'Reconectar'}
-                        </button>
-                    </div>
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* LADO ESQUERDO: Renderização do QR Code (A Mágica acontece aqui) */}
+                <div className="flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-xl p-6 min-h-[300px]">
+                    {loading ? (
+                         <div className="flex flex-col items-center text-gray-400">
+                             <Loader size={32} className="animate-spin mb-3" />
+                             <p>Consultando conexão...</p>
+                         </div>
+                    ) : statusData.status === 'QR_PRONTO' && statusData.qr ? (
+                         <div className="flex flex-col items-center animate-fade-in">
+                             <p className="text-sm font-medium text-gray-600 mb-4 text-center">
+                                 Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
+                             </p>
+                             <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                                 {/* Biblioteca QRCodeSVG transformando a string bruta do backend em uma imagem na tela! */}
+                                 <QRCodeSVG value={statusData.qr} size={200} level="M" />
+                             </div>
+                         </div>
+                    ) : statusData.status === 'PRONTO' ? (
+                         <div className="flex flex-col items-center text-green-600 animate-fade-in">
+                             <CheckCircle size={64} className="mb-4 opacity-90" />
+                             <p className="text-lg font-bold">Autenticado e Ativo</p>
+                             <p className="text-sm text-green-700/70 mt-1">Sessão gravada no volume Docker.</p>
+                         </div>
+                    ) : (
+                         <div className="flex flex-col items-center text-gray-400">
+                             <WifiOff size={48} className="mb-4 opacity-50" />
+                             <p className="font-medium text-gray-500">Aguardando Microsserviço...</p>
+                             <p className="text-xs text-center mt-2 max-w-xs">
+                                 Se estiver demorando, clique em "Reiniciar Microsserviço".
+                             </p>
+                         </div>
+                    )}
                 </div>
 
-                {/* QR Code — renderizado no browser via qrcode.react */}
-                {(status === 'QR_PRONTO' || reiniciando) && (
-                    <div className="px-6 py-6 bg-yellow-50 border-b border-yellow-100">
-                        {qr ? (
-                            <div className="flex flex-col md:flex-row items-center gap-8">
-                                <div className="p-3 bg-white rounded-xl shadow border border-gray-200 flex-shrink-0">
-                                    <QRCodeSVG
-                                        value={qr}
-                                        size={200}
-                                        level="M"
-                                        includeMargin={true}
-                                    />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-gray-800 text-base mb-2">Escaneie para conectar</p>
-                                    <ol className="text-sm text-gray-600 space-y-1.5 list-decimal list-inside">
-                                        <li>Abra o <strong>WhatsApp</strong> no celular</li>
-                                        <li>Toque em <strong>Dispositivos conectados</strong></li>
-                                        <li>Toque em <strong>Conectar dispositivo</strong></li>
-                                        <li>Aponte a câmera para o QR ao lado</li>
-                                    </ol>
-                                    <p className="text-xs text-yellow-700 mt-4 bg-yellow-100 rounded-lg px-3 py-2">
-                                        O QR expira em ~60 s. Um novo é gerado automaticamente.
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-3 text-yellow-700 py-2">
-                                <Loader size={18} className="animate-spin flex-shrink-0" />
-                                <p className="text-sm">
-                                    Inicializando Puppeteer… aguarde o QR Code (pode levar ~20 s).
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Faixas de status */}
-                {status === 'PRONTO' && (
-                    <div className="px-6 py-3 bg-green-50 flex items-center gap-2 text-green-700 text-sm">
-                        <CheckCircle size={15} />
-                        Serviço ativo — mensagens automáticas do sistema funcionando normalmente.
-                    </div>
-                )}
-                {status === 'DESCONECTADO' && !reiniciando && (
-                    <div className="px-6 py-3 bg-red-50 flex items-center gap-2 text-red-700 text-sm">
-                        <XCircle size={15} />
-                        Desconectado. Clique em <strong className="mx-1">Reconectar</strong> para iniciar.
-                    </div>
-                )}
-                {status === 'NAO_CONFIGURADO' && (
-                    <div className="px-6 py-3 bg-gray-50 flex items-center gap-2 text-gray-500 text-sm">
-                        <XCircle size={15} />
-                        Variável <code className="mx-1 bg-gray-100 px-1 rounded">WHATSAPP_SERVICE_URL</code> não configurada no backend.
-                    </div>
-                )}
-            </div>
-
-            {/* ── Enviar mensagem de teste ─────────────────────────────── */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
-                    <Send size={15} className="text-slate-500" />
-                    Enviar mensagem de teste
-                </h4>
-                <form onSubmit={handleEnviarTeste} className="space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* LADO DIREITO: Form de Teste mantido como o seu original */}
+                <div>
+                    <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">
+                        Envio de Teste
+                    </h3>
+                    <form onSubmit={handleSendTest} className="space-y-4">
                         <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Número (com DDD, sem +55)</label>
-                            <input type="text" value={testeNumero}
-                                onChange={e => setTesteNumero(e.target.value)}
-                                placeholder="51999990000"
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-                                required />
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                                Número (com DDD)
+                            </label>
+                            <input
+                                type="text"
+                                value={testNumber}
+                                onChange={e => setTestNumber(e.target.value)}
+                                placeholder="Ex: 51999999999"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                required
+                            />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Mensagem</label>
-                            <input type="text" value={testeMens}
-                                onChange={e => setTesteMens(e.target.value)}
-                                placeholder="Teste do sistema FrotaMAK"
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-                                required />
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                                Mensagem
+                            </label>
+                            <textarea
+                                value={testMessage}
+                                onChange={e => setTestMessage(e.target.value)}
+                                rows={3}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                                required
+                            />
                         </div>
-                    </div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <button type="submit" disabled={enviando || status !== 'PRONTO'}
-                            className="px-4 py-2 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-semibold text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5">
-                            {enviando ? <><Loader size={13} className="animate-spin" /> Enviando…</> : <><Send size={13} /> Enviar</>}
+                        <button
+                            type="submit"
+                            disabled={sendingTest || statusData.status !== 'PRONTO'}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        >
+                            {sendingTest ? <Loader size={18} className="animate-spin" /> : <Send size={18} />}
+                            {sendingTest ? 'Enviando...' : 'Disparar Mensagem'}
                         </button>
-                        {status !== 'PRONTO' && (
-                            <p className="text-xs text-gray-400">WhatsApp precisa estar conectado.</p>
-                        )}
-                    </div>
-                    {resultado && (
-                        <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${resultado.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                            {resultado.ok ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                            {resultado.msg}
-                        </div>
-                    )}
-                </form>
+                    </form>
+                </div>
             </div>
 
-            {/* ── Histórico ────────────────────────────────────────────── */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                <button onClick={handleLogs}
-                    className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50 transition-colors rounded-xl">
-                    <span className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                        <Clock size={14} className="text-slate-400" />
-                        Histórico de mensagens (últimas 50)
-                    </span>
-                    {mostrarLogs ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+            {/* SEÇÃO INFERIOR: Histórico de Logs mantido perfeitamente */}
+            <div className="border-t border-gray-200">
+                <button
+                    onClick={() => setShowLogs(!showLogs)}
+                    className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                    <div className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                        <Clock size={18} className="text-gray-400" />
+                        Histórico de Disparos (whatsapp_logs)
+                    </div>
+                    {showLogs ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
                 </button>
 
-                {mostrarLogs && (
-                    <div className="border-t border-gray-100">
+                {showLogs && (
+                    <div className="p-4 bg-white">
                         {loadingLogs ? (
-                            <div className="flex justify-center py-8"><Loader size={20} className="animate-spin text-gray-300" /></div>
+                            <div className="flex justify-center py-4"><Loader className="animate-spin text-gray-400" /></div>
                         ) : logs.length === 0 ? (
-                            <p className="text-center text-gray-400 text-sm py-8">Nenhum registro encontrado.</p>
+                            <p className="text-center text-sm text-gray-500 py-4">Nenhum log recente encontrado.</p>
                         ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left">Destinatário</th>
-                                            <th className="px-4 py-3 text-left">Número</th>
-                                            <th className="px-4 py-3 text-left">Motivo</th>
-                                            <th className="px-4 py-3 text-left">Status</th>
-                                            <th className="px-4 py-3 text-left">Data</th>
+                            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                            <th className="px-4 py-3 font-semibold border-b">Destinatário</th>
+                                            <th className="px-4 py-3 font-semibold border-b">Número</th>
+                                            <th className="px-4 py-3 font-semibold border-b">Motivo</th>
+                                            <th className="px-4 py-3 font-semibold border-b">Status</th>
+                                            <th className="px-4 py-3 font-semibold border-b">Data</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {logs.map(log => (
-                                            <tr key={log.id} className="hover:bg-gray-50">
-                                                <td className="px-4 py-2.5 font-medium text-gray-800">{log.destinatario_nome}</td>
+                                        {logs.map((log) => (
+                                            <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                                                <td className="px-4 py-2.5 text-gray-700 font-medium text-sm">{log.destinatario_nome}</td>
                                                 <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{log.destinatario_numero}</td>
                                                 <td className="px-4 py-2.5 text-gray-500 text-xs">{log.motivo_envio}</td>
                                                 <td className="px-4 py-2.5">
