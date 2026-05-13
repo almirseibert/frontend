@@ -258,6 +258,8 @@ const apiClient = {
     // --- WhatsApp (Admin) ---
     whatsappGetStatus: async () => apiFetch('/whatsapp/status'),
     whatsappReiniciar: async () => apiFetch('/whatsapp/reiniciar', { method: 'POST' }),
+    whatsappEnviarTeste: async (data) => apiFetch('/whatsapp/enviar-teste', { method: 'POST', body: JSON.stringify(data) }),
+    whatsappGetLogs: async () => apiFetch('/whatsapp/logs'),
 
     // --- Defaults & Auxiliares ---
     defaults: { baseURL: API_URL },
