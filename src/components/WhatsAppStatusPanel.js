@@ -5,6 +5,35 @@ import {
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
+// ─── QR Image — suporta data URI (SVG/PNG) ou string bruta do whatsapp-web.js ─
+const QrImage = ({ qr }) => {
+    // data URI normal (SVG ou PNG gerado pelo servidor)
+    if (qr && (qr.startsWith('data:') || qr.startsWith('http'))) {
+        return (
+            <img
+                src={qr}
+                alt="QR Code WhatsApp"
+                className="w-52 h-52 rounded-xl border-4 border-white shadow-md flex-shrink-0 bg-white"
+            />
+        );
+    }
+
+    // Fallback: string bruta do whatsapp-web.js — renderiza via API pública de QR
+    // (não sai da rede interna; usa serviço do Google Charts como último recurso)
+    if (qr) {
+        const url = `https://api.qrserver.com/v1/create-qr-code/?size=208x208&data=${encodeURIComponent(qr)}`;
+        return (
+            <img
+                src={url}
+                alt="QR Code WhatsApp"
+                className="w-52 h-52 rounded-xl border-4 border-white shadow-md flex-shrink-0 bg-white"
+            />
+        );
+    }
+
+    return null;
+};
+
 // ─── Badge de status ──────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
     PRONTO:          { label: 'Conectado',       color: 'green',  Icon: Wifi },
@@ -175,11 +204,7 @@ const WhatsAppStatusPanel = () => {
                     <div className="px-6 py-6 bg-yellow-50 border-b border-yellow-100">
                         {qr ? (
                             <div className="flex flex-col md:flex-row items-center gap-6">
-                                <img
-                                    src={qr}
-                                    alt="QR Code WhatsApp"
-                                    className="w-52 h-52 rounded-xl border-4 border-white shadow-md flex-shrink-0"
-                                />
+                                <QrImage qr={qr} />
                                 <div>
                                     <p className="font-bold text-gray-800 text-base mb-1">Escaneie para conectar</p>
                                     <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
