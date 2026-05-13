@@ -91,9 +91,9 @@ const OperacionalPage = ({
     // ==========================================================
 
     const riskConfig = {
-        critico: { border: 'border-red-500', badge: 'bg-red-100 text-red-700',       label: 'Sem Registro' },
-        atencao: { border: 'border-orange-400', badge: 'bg-orange-100 text-orange-700', label: 'Atenção'    },
-        ok:      { border: 'border-green-500', badge: 'bg-green-100 text-green-700',  label: 'Operando'    },
+        critico: { border: 'border-red-500', badge: 'bg-red-100 text-red-700',    label: 'Crítico'  },
+        atencao: { border: 'border-orange-400', badge: 'bg-orange-100 text-orange-700', label: 'Atenção' },
+        ok:      { border: 'border-green-500', badge: 'bg-green-100 text-green-700',  label: 'Em dia'  },
     };
 
     const obrasComRisco = useMemo(() => {
@@ -121,34 +121,19 @@ const OperacionalPage = ({
             let riskLevel = 'ok';
             const riskReasons = [];
 
-            let equipSemLancamento10d = 0;
             if (!isFinished) {
-                if (ativos > 0 && totalHoras === 0 && diasDeObra > 7) {
+                if (ativos > 0 && totalHoras === 0 && diasDeObra > 5) {
                     riskScore += 10;
                     riskReasons.push(`${ativos} equip. ativo${ativos > 1 ? 's' : ''} sem nenhum lançamento após ${diasDeObra}d de obra`);
                 }
-                const pesadosAtivos = historico.filter(h => {
-                    const v = vehicles.find(vv => vv.id === h.veiculoId);
-                    return v && isHeavyVehicle(v.tipo) && !h.dataSaida;
-                });
-                pesadosAtivos.forEach(h => {
-                    const entrada = new Date(h.dataEntrada);
-                    entrada.setHours(0, 0, 0, 0);
-                    if (Math.floor((today - entrada) / 86400000) <= 10) return;
-                    const vehicleLogs = (dailyWorkLogs || []).filter(l => {
-                        if (String(l.vehicleId) !== String(h.veiculoId)) return false;
-                        const logDate = new Date(l.date.split('T')[0] + 'T00:00:00Z');
-                        return logDate >= entrada;
-                    });
-                    const lastLogDate = [...vehicleLogs].sort((a, b) => new Date(b.date) - new Date(a.date))[0]?.date?.split('T')[0] || null;
-                    const daysSinceLast = lastLogDate
-                        ? Math.floor((today - new Date(lastLogDate + 'T12:00:00Z')) / 86400000)
-                        : Math.floor((today - entrada) / 86400000);
-                    if (daysSinceLast > 10) equipSemLancamento10d++;
-                });
-                if (equipSemLancamento10d > 0) {
+                if (inativos > 0) {
                     riskScore += 3;
-                    riskReasons.push(`${equipSemLancamento10d} equip. ativo${equipSemLancamento10d > 1 ? 's' : ''} sem lançamento há mais de 10 dias`);
+                    riskReasons.push(`${inativos} equip. realocado${inativos > 1 ? 's' : ''} com lacunas de lançamento permanentes`);
+                }
+                if (ativos > 0 && diasDeObra > 20 && totalHoras < ativos * 10) {
+                    riskScore += 2;
+                    const mediaHoras = ativos > 0 ? (totalHoras / ativos).toFixed(0) : 0;
+                    riskReasons.push(`Obra com ${diasDeObra}d mas média baixa: ${mediaHoras}h/equip. (esperado ≥ 10h)`);
                 }
                 if (riskReasons.length === 0) {
                     riskReasons.push('Nenhum fator de risco identificado.');
@@ -163,14 +148,14 @@ const OperacionalPage = ({
             else if (riskScore >= 3) riskLevel = 'atencao';
             else riskLevel = 'ok';
 
-            return { obra, isFinished, ativos, inativos, equipSemLancamento10d, totalUnicos, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons };
+            return { obra, isFinished, ativos, inativos, totalUnicos, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons };
         }).sort((a, b) => {
             if (a.isFinished !== b.isFinished) return a.isFinished ? 1 : -1;
             if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore;
             if (b.ativos !== a.ativos) return b.ativos - a.ativos;
             return a.obra.nome.localeCompare(b.obra.nome);
         });
-    }, [obras, vehicles, vehicleGroups, dailyWorkLogs, today]);
+    }, [obras, vehicles, vehicleGroups, today]);
 
     const obrasFiltradas = useMemo(() => {
         let result = [...obrasComRisco];
@@ -180,15 +165,7 @@ const OperacionalPage = ({
         if (obraHasActive === 'sim') result = result.filter(o => o.ativos > 0);
         else if (obraHasActive === 'nao') result = result.filter(o => o.ativos === 0);
         if (obraSearch.trim()) result = result.filter(o => o.obra.nome.toLowerCase().includes(obraSearch.toLowerCase().trim()));
-        if (obraSort === 'risco') {
-            const riskOrder = { critico: 0, atencao: 1, ok: 2 };
-            result = [...result].sort((a, b) => {
-                if (a.isFinished !== b.isFinished) return a.isFinished ? 1 : -1;
-                if (riskOrder[a.riskLevel] !== riskOrder[b.riskLevel]) return riskOrder[a.riskLevel] - riskOrder[b.riskLevel];
-                if (b.ativos !== a.ativos) return b.ativos - a.ativos;
-                return a.obra.nome.localeCompare(b.obra.nome);
-            });
-        } else if (obraSort === 'dataInicio') {
+        if (obraSort === 'dataInicio') {
             result = [...result].sort((a, b) => new Date(a.obra.dataInicio) - new Date(b.obra.dataInicio));
         } else if (obraSort === 'semLancamento') {
             result = [...result].sort((a, b) => {
@@ -249,7 +226,7 @@ const OperacionalPage = ({
             const sortedLogs = [...vehicleLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
             const lastLogDate = sortedLogs[0]?.date?.split('T')[0] || null;
             const daysSinceLast = lastLogDate ? Math.floor((today - new Date(lastLogDate)) / 86400000) : null;
-            const maxGap = Math.max(maxGapHistorico, daysSinceLast ?? 0);
+            const maxGap = isActive ? Math.max(maxGapHistorico, daysSinceLast ?? 0) : maxGapHistorico;
             const contractedHours = parseFloat(horasContratadas[vehicle.tipo] || 0);
             const coveragePercent = contractedHours > 0 ? (totalHours / contractedHours) * 100 : null;
 
@@ -325,7 +302,7 @@ const OperacionalPage = ({
                     {riskScore > 0 && (
                         <p className="mt-2.5 pt-2 border-t border-gray-700 text-gray-400 text-[10px]">
                             Score: <span className="font-bold text-white">{riskScore} pts</span>
-                            {riskScore >= 10 ? ' — Sem Registro (≥ 10)' : riskScore >= 3 ? ' — Atenção (3–9)' : ''}
+                            {riskScore >= 10 ? ' — Crítico (≥ 10)' : riskScore >= 3 ? ' — Atenção (3–9)' : ''}
                         </p>
                     )}
                 </div>
@@ -403,29 +380,11 @@ const OperacionalPage = ({
 
             const vehicleLogs = (dailyWorkLogs || []).filter(l => String(l.vehicleId) === String(vehicle.id));
             const sortedLogs = [...vehicleLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
-            const lastLogDate = sortedLogs[0]?.date?.split('T')[0] || null; // sem filtro — usado em gapAfterReallocation
-
-            // Para máquinas inativas, o gap é: último lançamento → dataSaida (não → hoje)
-            let displayLastLogDate = lastLogDate;
+            const lastLog = sortedLogs[0] || null;
+            const lastLogDate = lastLog?.date?.split('T')[0] || null;
             let daysSinceLastLog = null;
-            if (!currentObra) {
-                const lastPeriod = allPeriods.find(p => p.dataSaida); // allPeriods já está ordenado por dataEntrada desc
-                const reallocationDate = lastPeriod
-                    ? new Date(lastPeriod.dataSaida.split('T')[0] + 'T12:00:00Z')
-                    : null;
-                if (reallocationDate) {
-                    const logsBeforeReallocation = sortedLogs.filter(l =>
-                        new Date(l.date.split('T')[0] + 'T12:00:00Z') <= reallocationDate
-                    );
-                    displayLastLogDate = logsBeforeReallocation[0]?.date?.split('T')[0] || null;
-                    if (displayLastLogDate) {
-                        daysSinceLastLog = Math.floor((reallocationDate - new Date(displayLastLogDate + 'T12:00:00Z')) / 86400000);
-                    }
-                }
-            } else {
-                if (lastLogDate) {
-                    daysSinceLastLog = Math.floor((today - new Date(lastLogDate + 'T12:00:00Z')) / 86400000);
-                }
+            if (lastLogDate) {
+                daysSinceLastLog = Math.floor((today - new Date(lastLogDate + 'T12:00:00Z')) / 86400000);
             }
 
             const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000);
@@ -450,7 +409,7 @@ const OperacionalPage = ({
             else if (daysSinceLastLog > 3) criticality = 'atencao';
             else criticality = 'ok';
 
-            return { vehicle, currentObra, operator, lastLogDate: displayLastLogDate, daysSinceLastLog, neverLogged: vehicleLogs.length === 0, criticality, gapAfterReallocation, recentDepartureObra };
+            return { vehicle, currentObra, operator, lastLogDate, daysSinceLastLog, neverLogged: vehicleLogs.length === 0, criticality, gapAfterReallocation, recentDepartureObra };
         });
     }, [vehicles, obras, dailyWorkLogs, employees, vehicleGroups, today]);
 
@@ -560,17 +519,17 @@ const OperacionalPage = ({
                                     <p className="text-2xl font-bold text-gray-800">{obrasComRisco.filter(o => !o.isFinished).length}</p>
                                 </div>
                                 <div className="bg-white rounded-xl shadow-sm border-l-4 border-red-500 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Sem Registro</p>
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Críticas</p>
                                     <p className="text-2xl font-bold text-red-600">{obrasComRisco.filter(o => o.riskLevel === 'critico').length}</p>
-                                    <p className="text-xs text-gray-400 mt-1">+7d sem nenhum lançamento</p>
+                                    <p className="text-xs text-gray-400 mt-1">equip. sem nenhum lançamento</p>
                                 </div>
                                 <div className="bg-white rounded-xl shadow-sm border-l-4 border-orange-400 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Atenção</p>
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Em Atenção</p>
                                     <p className="text-2xl font-bold text-orange-500">{obrasComRisco.filter(o => o.riskLevel === 'atencao').length}</p>
-                                    <p className="text-xs text-gray-400 mt-1">equip. sem lançar há +10d</p>
+                                    <p className="text-xs text-gray-400 mt-1">com equip. realocados</p>
                                 </div>
                                 <div className="bg-white rounded-xl shadow-sm border-l-4 border-green-500 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Operando</p>
+                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Em Dia</p>
                                     <p className="text-2xl font-bold text-green-600">{obrasComRisco.filter(o => o.riskLevel === 'ok' && !o.isFinished).length}</p>
                                 </div>
                             </div>
@@ -596,7 +555,7 @@ const OperacionalPage = ({
                                 </div>
                                 <div className="flex flex-wrap gap-2 items-center">
                                     <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
-                                        {[['', 'Todos'], ['critico', 'Sem Registro'], ['atencao', 'Atenção'], ['ok', 'Operando']].map(([val, label]) => (
+                                        {[['', 'Todos'], ['critico', 'Crítico'], ['atencao', 'Atenção'], ['ok', 'Em dia']].map(([val, label]) => (
                                             <button key={val} onClick={() => setObraRisk(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraRisk === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
                                         ))}
                                     </div>
@@ -618,7 +577,7 @@ const OperacionalPage = ({
 
                             {/* Grid de cards de obras */}
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                                {obrasFiltradas.map(({ obra, isFinished, ativos, equipSemLancamento10d, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons }) => {
+                                {obrasFiltradas.map(({ obra, isFinished, ativos, inativos, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons }) => {
                                     const cfg = riskConfig[riskLevel];
                                     return (
                                         <div key={obra.id} onClick={() => setObraId(obra.id)}
@@ -636,10 +595,10 @@ const OperacionalPage = ({
                                                     <span className="text-gray-500 flex items-center gap-1"><Truck size={13} /> Equip. pesados ativos</span>
                                                     <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${ativos > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{ativos}</span>
                                                 </div>
-                                                {equipSemLancamento10d > 0 && (
+                                                {inativos > 0 && (
                                                     <div className="flex justify-between border-b border-dashed border-gray-100 pb-2">
-                                                        <span className="text-gray-500 flex items-center gap-1"><AlertTriangle size={13} className="text-orange-400" /> Sem lançamento há +10d</span>
-                                                        <span className="font-bold px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-600">{equipSemLancamento10d}</span>
+                                                        <span className="text-gray-500 flex items-center gap-1"><AlertTriangle size={13} className="text-orange-400" /> Realocados (histórico)</span>
+                                                        <span className="font-bold px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-600">{inativos}</span>
                                                     </div>
                                                 )}
                                                 <div className="flex justify-between">

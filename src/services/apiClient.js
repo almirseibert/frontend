@@ -255,6 +255,10 @@ const apiClient = {
     getTireHistory: async (id) => apiFetch(`/tires/${id}/history`),
     getVehicleTireHistory: async (vehicleId) => apiFetch(`/tires/vehicle/${vehicleId}/history`),
 
+    // --- WhatsApp (Admin) ---
+    whatsappGetStatus: async () => apiFetch('/whatsapp/status'),
+    whatsappReiniciar: async () => apiFetch('/whatsapp/reiniciar', { method: 'POST' }),
+
     // --- Defaults & Auxiliares ---
     defaults: { baseURL: API_URL },
     get: (url, config) => apiFetch(url, { method: 'GET', ...config }),

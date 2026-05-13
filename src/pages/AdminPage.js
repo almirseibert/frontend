@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, UserCog, Loader, AlertTriangle, Check, Trash2, UserPlus } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import WhatsAppStatusPanel from '../components/WhatsAppStatusPanel';
 
-const AdminPage = () => {
+const AdminPage = ({ socket }) => {
   // Estados para Solicitações (Usuários Inativos)
   const [requests, setRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -222,6 +223,11 @@ const AdminPage = () => {
                   </button>
               </form>
           </div>
+      </div>
+
+      {/* 4. WhatsApp */}
+      <div className="mt-8">
+          <WhatsAppStatusPanel socket={socket} />
       </div>
     </div>
   );

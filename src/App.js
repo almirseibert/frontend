@@ -292,6 +292,9 @@ const AppContent = () => {
     // Estado para os alertas em Real-Time da Agenda
     const [agendaAlerts, setAgendaAlerts] = useState([]);
 
+    // Instância do socket.io (para passar a componentes que precisam ouvir eventos)
+    const [socketInstance, setSocketInstance] = useState(null);
+
     // Implementação do Socket.io
     useEffect(() => {
         const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
@@ -300,6 +303,8 @@ const AppContent = () => {
         const socket = io(cleanSocketUrl, {
             transports: ['websocket', 'polling']
         });
+
+        setSocketInstance(socket);
 
         socket.on('connect', () => {
             console.log("🟢 Conectado ao servidor Socket.io");
@@ -410,8 +415,9 @@ const AppContent = () => {
             console.log("🔴 Desconectado do servidor Socket.io");
         });
 
-        return () => { 
-            socket.disconnect(); 
+        return () => {
+            socket.disconnect();
+            setSocketInstance(null);
         };
     }, [user]);
 
@@ -685,7 +691,8 @@ const AppContent = () => {
             fines, 
             diarioDeBordoLogs, 
             dailyWorkLogs,
-            orders // Agora repassando as Ordens Globalmente
+            orders, // Agora repassando as Ordens Globalmente
+            socket: socketInstance
         };
 
         const Denied = () => (
