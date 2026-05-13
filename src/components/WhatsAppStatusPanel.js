@@ -43,7 +43,7 @@ const WhatsAppStatusPanel = () => {
 
     const fetchStatus = useCallback(async () => {
         try {
-            const res = await apiClient.get('/api/whatsapp/status');
+            const res = await apiClient.get('/whatsapp/status');
             setStatusData(res.data || { status: 'DESCONECTADO', qr: null });
         } catch (error) {
             console.error('Erro ao consultar status WA:', error);
@@ -56,7 +56,7 @@ const WhatsAppStatusPanel = () => {
     const fetchLogs = useCallback(async () => {
         setLoadingLogs(true);
         try {
-            const res = await apiClient.get('/api/whatsapp/logs');
+            const res = await apiClient.get('/whatsapp/logs');
             setLogs(res.data || []);
         } catch (err) {
             console.error('Erro ao buscar logs WA:', err);
@@ -86,7 +86,7 @@ const WhatsAppStatusPanel = () => {
     const handleRestart = async () => {
         setRestarting(true);
         try {
-            await apiClient.post('/api/whatsapp/reiniciar');
+            await apiClient.post('/whatsapp/reiniciar');
             setStatusData({ status: 'DESCONECTADO', qr: null });
         } catch (err) {
             alert('Falha ao reiniciar: ' + err.message);
@@ -102,7 +102,7 @@ const WhatsAppStatusPanel = () => {
         e.preventDefault();
         setSendingTest(true);
         try {
-            await apiClient.post('/api/whatsapp/enviar-teste', {
+            await apiClient.post('/whatsapp/enviar-teste', {
                 numero: testNumber,
                 mensagem: testMessage
             });
