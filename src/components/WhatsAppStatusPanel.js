@@ -3,23 +3,8 @@ import {
     Wifi, WifiOff, RefreshCw, Loader, Smartphone,
     Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
-
-// Em seu ambiente real, descomente a importação abaixo e remova este mock do apiClient:
-// import apiClient from '../services/apiClient';
-const apiClient = {
-    get: async (url) => {
-        const res = await fetch(url);
-        return res.json();
-    },
-    post: async (url, data) => {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data || {})
-        });
-        return res.json();
-    }
-};
+import { QRCodeSVG } from 'qrcode.react';
+import apiClient from '../services/apiClient';
 
 // ─── Badge de status mantido como seu original ──────────────────────────────────
 const STATUS_CFG = {
@@ -59,7 +44,6 @@ const WhatsAppStatusPanel = () => {
         try {
             const res = await apiClient.get('/whatsapp/status');
             
-            // Agora sabemos que o apiClient retorna o objeto JSON diretamente
             console.log('📡 Payload recebido do Backend Principal:', res);
             
             // Extrai o payload considerando a estrutura limpa
@@ -77,7 +61,6 @@ const WhatsAppStatusPanel = () => {
         setLoadingLogs(true);
         try {
             const res = await apiClient.get('/whatsapp/logs');
-            // Como o apiClient pode retornar a array direto:
             setLogs(Array.isArray(res) ? res : (res?.data || []));
         } catch (err) {
             console.error('Erro ao buscar logs WA:', err);
@@ -183,7 +166,7 @@ const WhatsAppStatusPanel = () => {
                                      Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
                                  </p>
                                  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
-                                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(statusData.qr)}`} alt="WhatsApp QR Code" width="200" height="200" />
+                                     <QRCodeSVG value={statusData.qr} size={200} level="M" />
                                  </div>
                              </div>
                          ) : (
