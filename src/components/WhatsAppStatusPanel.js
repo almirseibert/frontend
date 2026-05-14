@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
     Wifi, WifiOff, RefreshCw, Loader, Smartphone,
     Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
 import apiClient from '../services/apiClient';
 
 // ─── Badge de status mantido como seu original ──────────────────────────────────
@@ -44,6 +44,7 @@ const WhatsAppStatusPanel = () => {
         try {
             const res = await apiClient.get('/whatsapp/status');
             
+            // Agora sabemos que o apiClient retorna o objeto JSON diretamente
             console.log('📡 Payload recebido do Backend Principal:', res);
             
             // Extrai o payload considerando a estrutura limpa
@@ -61,6 +62,7 @@ const WhatsAppStatusPanel = () => {
         setLoadingLogs(true);
         try {
             const res = await apiClient.get('/whatsapp/logs');
+            // Como o apiClient pode retornar a array direto:
             setLogs(Array.isArray(res) ? res : (res?.data || []));
         } catch (err) {
             console.error('Erro ao buscar logs WA:', err);

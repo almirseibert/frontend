@@ -791,7 +791,7 @@ const OperacionalPage = ({
                                                                     {stat.lastLogDate ? (
                                                                         <div>
                                                                             <span className="text-gray-700">{formatDateToBR(stat.lastLogDate)}</span>
-                                                                            {stat.isActive && stat.daysSinceLast !== null && (
+                                                                            {stat.daysSinceLast !== null && (
                                                                                 <span className={`ml-2 text-xs ${stat.daysSinceLast > GAP_THRESHOLD_DAYS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>({stat.daysSinceLast}d atrás)</span>
                                                                             )}
                                                                         </div>
