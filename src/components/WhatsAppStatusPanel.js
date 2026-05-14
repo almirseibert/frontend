@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
     Wifi, WifiOff, RefreshCw, Loader, Smartphone,
-    Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp
+    Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
@@ -43,8 +43,14 @@ const WhatsAppStatusPanel = () => {
 
     const fetchStatus = useCallback(async () => {
         try {
-            const res = await apiClient.get('/whatsapp/status');
-            setStatusData(res.data || { status: 'DESCONECTADO', qr: null });
+            const res = await apiClient.get('/api/whatsapp/status');
+            
+            // DEBUG CRUCIAL: Exibe no console o que realmente chegou do Backend Node
+            console.log('📡 Payload recebido do Backend Principal:', res.data);
+            
+            // Extrai o payload de forma robusta
+            const payload = res.data?.status ? res.data : (res.data?.data || { status: 'DESCONECTADO', qr: null });
+            setStatusData(payload);
         } catch (error) {
             console.error('Erro ao consultar status WA:', error);
             setStatusData({ status: 'DESCONECTADO', qr: null });
@@ -56,7 +62,7 @@ const WhatsAppStatusPanel = () => {
     const fetchLogs = useCallback(async () => {
         setLoadingLogs(true);
         try {
-            const res = await apiClient.get('/whatsapp/logs');
+            const res = await apiClient.get('/api/whatsapp/logs');
             setLogs(res.data || []);
         } catch (err) {
             console.error('Erro ao buscar logs WA:', err);
@@ -86,7 +92,7 @@ const WhatsAppStatusPanel = () => {
     const handleRestart = async () => {
         setRestarting(true);
         try {
-            await apiClient.post('/whatsapp/reiniciar');
+            await apiClient.post('/api/whatsapp/reiniciar');
             setStatusData({ status: 'DESCONECTADO', qr: null });
         } catch (err) {
             alert('Falha ao reiniciar: ' + err.message);
@@ -102,7 +108,7 @@ const WhatsAppStatusPanel = () => {
         e.preventDefault();
         setSendingTest(true);
         try {
-            await apiClient.post('/whatsapp/enviar-teste', {
+            await apiClient.post('/api/whatsapp/enviar-teste', {
                 numero: testNumber,
                 mensagem: testMessage
             });
@@ -155,16 +161,31 @@ const WhatsAppStatusPanel = () => {
                              <Loader size={32} className="animate-spin mb-3" />
                              <p>Consultando conexão...</p>
                          </div>
-                    ) : statusData.status === 'QR_PRONTO' && statusData.qr ? (
-                         <div className="flex flex-col items-center animate-fade-in">
-                             <p className="text-sm font-medium text-gray-600 mb-4 text-center">
-                                 Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
-                             </p>
-                             <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
-                                 {/* Biblioteca QRCodeSVG transformando a string bruta do backend em uma imagem na tela! */}
-                                 <QRCodeSVG value={statusData.qr} size={200} level="M" />
+                    ) : statusData.status === 'QR_PRONTO' ? (
+                         statusData.qr ? (
+                             <div className="flex flex-col items-center animate-fade-in">
+                                 <p className="text-sm font-medium text-gray-600 mb-4 text-center">
+                                     Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
+                                 </p>
+                                 <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                                     {/* Biblioteca QRCodeSVG transformando a string bruta do backend em uma imagem na tela! */}
+                                     <QRCodeSVG value={statusData.qr} size={200} level="M" />
+                                 </div>
                              </div>
-                         </div>
+                         ) : (
+                             // DIAGNÓSTICO: Se caiu aqui, o problema é na ponte do seu backend Node!
+                             <div className="flex flex-col items-center animate-fade-in text-yellow-600 p-4 bg-yellow-50 rounded-xl border border-yellow-200 max-w-sm text-center">
+                                 <AlertTriangle size={42} className="mb-3 opacity-80" />
+                                 <p className="font-bold text-base">QR Code gerado no Servidor!</p>
+                                 <p className="text-sm mt-1 text-yellow-800">
+                                     O WhatsApp Web emitiu o QR, mas a string de imagem foi perdida no meio do caminho e não chegou a esta interface.
+                                 </p>
+                                 <div className="mt-3 bg-yellow-100/50 p-3 rounded text-xs text-yellow-900 border border-yellow-200/50 text-left w-full">
+                                     <span className="font-bold block mb-1">🔧 Como consertar:</span>
+                                     Vá no seu arquivo <b>whatsappRoutes.js</b> (Back-end) e verifique a rota <code>/status</code>. Ela deve retornar <code>res.json(data)</code> inteiro, contendo a propriedade `qr`.
+                                 </div>
+                             </div>
+                         )
                     ) : statusData.status === 'PRONTO' ? (
                          <div className="flex flex-col items-center text-green-600 animate-fade-in">
                              <CheckCircle size={64} className="mb-4 opacity-90" />
@@ -269,7 +290,7 @@ const WhatsAppStatusPanel = () => {
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap">
-                                                    {log.criado_em ? new Date(log.criado_em).toLocaleString('pt-BR') : '—'}
+                                                    {log.data_envio ? new Date(log.data_envio).toLocaleString('pt-BR') : '—'}
                                                 </td>
                                             </tr>
                                         ))}
