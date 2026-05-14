@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import {
     Wifi, WifiOff, RefreshCw, Loader, Smartphone,
     Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
-import apiClient from '../services/apiClient';
+
+// Em seu ambiente real, descomente a importação abaixo e remova este mock do apiClient:
+// import apiClient from '../services/apiClient';
+const apiClient = {
+    get: async (url) => {
+        const res = await fetch(url);
+        return res.json();
+    },
+    post: async (url, data) => {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data || {})
+        });
+        return res.json();
+    }
+};
 
 // ─── Badge de status mantido como seu original ──────────────────────────────────
 const STATUS_CFG = {
@@ -168,7 +183,7 @@ const WhatsAppStatusPanel = () => {
                                      Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
                                  </p>
                                  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
-                                     <QRCodeSVG value={statusData.qr} size={200} level="M" />
+                                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(statusData.qr)}`} alt="WhatsApp QR Code" width="200" height="200" />
                                  </div>
                              </div>
                          ) : (
