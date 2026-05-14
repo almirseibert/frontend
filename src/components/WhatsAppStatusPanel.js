@@ -27,7 +27,6 @@ const Badge = ({ status }) => {
 };
 
 const WhatsAppStatusPanel = () => {
-    // Atualizado para pegar a string do QR Code bruto
     const [statusData, setStatusData] = useState({ status: 'DESCONECTADO', qr: null });
     const [loading, setLoading] = useState(true);
     const [restarting, setRestarting] = useState(false);
@@ -45,11 +44,11 @@ const WhatsAppStatusPanel = () => {
         try {
             const res = await apiClient.get('/whatsapp/status');
             
-            // DEBUG CRUCIAL: Exibe no console o que realmente chegou do Backend Node
-            console.log('📡 Payload recebido do Backend Principal:', res.data);
+            // Agora sabemos que o apiClient retorna o objeto JSON diretamente
+            console.log('📡 Payload recebido do Backend Principal:', res);
             
-            // Extrai o payload de forma robusta
-            const payload = res.data?.status ? res.data : (res.data?.data || { status: 'DESCONECTADO', qr: null });
+            // Extrai o payload considerando a estrutura limpa
+            const payload = res?.status ? res : (res?.data || { status: 'DESCONECTADO', qr: null });
             setStatusData(payload);
         } catch (error) {
             console.error('Erro ao consultar status WA:', error);
@@ -63,7 +62,8 @@ const WhatsAppStatusPanel = () => {
         setLoadingLogs(true);
         try {
             const res = await apiClient.get('/whatsapp/logs');
-            setLogs(res.data || []);
+            // Como o apiClient pode retornar a array direto:
+            setLogs(Array.isArray(res) ? res : (res?.data || []));
         } catch (err) {
             console.error('Erro ao buscar logs WA:', err);
         } finally {
@@ -168,21 +168,20 @@ const WhatsAppStatusPanel = () => {
                                      Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
                                  </p>
                                  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
-                                     {/* Biblioteca QRCodeSVG transformando a string bruta do backend em uma imagem na tela! */}
                                      <QRCodeSVG value={statusData.qr} size={200} level="M" />
                                  </div>
                              </div>
                          ) : (
-                             // DIAGNÓSTICO: Se caiu aqui, o problema é na ponte do seu backend Node!
+                             // DIAGNÓSTICO
                              <div className="flex flex-col items-center animate-fade-in text-yellow-600 p-4 bg-yellow-50 rounded-xl border border-yellow-200 max-w-sm text-center">
                                  <AlertTriangle size={42} className="mb-3 opacity-80" />
                                  <p className="font-bold text-base">QR Code gerado no Servidor!</p>
                                  <p className="text-sm mt-1 text-yellow-800">
-                                     O WhatsApp Web emitiu o QR, mas a string de imagem foi perdida no meio do caminho e não chegou a esta interface.
+                                     O WhatsApp Web emitiu o QR, mas a string de imagem não chegou a esta interface.
                                  </p>
                                  <div className="mt-3 bg-yellow-100/50 p-3 rounded text-xs text-yellow-900 border border-yellow-200/50 text-left w-full">
                                      <span className="font-bold block mb-1">🔧 Como consertar:</span>
-                                     Vá no seu arquivo <b>whatsappRoutes.js</b> (Back-end) e verifique a rota <code>/status</code>. Ela deve retornar <code>res.json(data)</code> inteiro, contendo a propriedade `qr`.
+                                     No seu arquivo <b>whatsappRoutes.js</b> (Back-end), a rota <code>/status</code> deve retornar <code>res.json(data)</code> inteiro, para manter a propriedade `qr`.
                                  </div>
                              </div>
                          )
@@ -246,7 +245,7 @@ const WhatsAppStatusPanel = () => {
                 </div>
             </div>
 
-            {/* SEÇÃO INFERIOR: Histórico de Logs mantido perfeitamente */}
+            {/* SEÇÃO INFERIOR: Histórico de Logs */}
             <div className="border-t border-gray-200">
                 <button
                     onClick={() => setShowLogs(!showLogs)}
