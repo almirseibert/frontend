@@ -6,21 +6,25 @@ import {
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
-// ─── Badge de status mantido como seu original ──────────────────────────────────
 const STATUS_CFG = {
     PRONTO:          { label: 'Conectado',        cor: 'green',  Icon: Wifi       },
+    AUTENTICANDO:    { label: 'Carregando Dados…',cor: 'yellow', Icon: Loader     },
     AUTENTICADO:     { label: 'Autenticando…',    cor: 'yellow', Icon: Loader     },
     QR_PRONTO:       { label: 'Aguardando QR',    cor: 'yellow', Icon: Smartphone },
     DESCONECTADO:    { label: 'Desconectado',     cor: 'red',    Icon: WifiOff    },
     NAO_CONFIGURADO: { label: 'Não configurado',  cor: 'red',    Icon: WifiOff    },
 };
+
 const COR = { green: 'bg-green-100 text-green-800', yellow: 'bg-yellow-100 text-yellow-800', red: 'bg-red-100 text-red-800' };
 
 const Badge = ({ status }) => {
-    const { label, cor, Icon } = STATUS_CFG[status] || STATUS_CFG.DESCONECTADO;
+    // Fallback mapeia qualquer status não conhecido para DESCONECTADO visualmente
+    const cfg = STATUS_CFG[status] || STATUS_CFG.DESCONECTADO;
+    const { label, cor, Icon } = cfg;
+    
     return (
         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${COR[cor]}`}>
-            <Icon size={16} className={cor === 'yellow' ? 'animate-pulse' : ''} />
+            <Icon size={16} className={cor === 'yellow' ? 'animate-spin' : ''} />
             {label}
         </span>
     );
@@ -31,7 +35,6 @@ const WhatsAppStatusPanel = () => {
     const [loading, setLoading] = useState(true);
     const [restarting, setRestarting] = useState(false);
 
-    // Estados para envio de teste e logs mantidos
     const [testNumber, setTestNumber] = useState('');
     const [testMessage, setTestMessage] = useState('Teste de conexão Frotas MAK');
     const [sendingTest, setSendingTest] = useState(false);
@@ -43,16 +46,13 @@ const WhatsAppStatusPanel = () => {
     const fetchStatus = useCallback(async () => {
         try {
             const res = await apiClient.get('/whatsapp/status');
-            
-            // Agora sabemos que o apiClient retorna o objeto JSON diretamente
-            console.log('📡 Payload recebido do Backend Principal:', res);
-            
-            // Extrai o payload considerando a estrutura limpa
             const payload = res?.status ? res : (res?.data || { status: 'DESCONECTADO', qr: null });
+            
+            // Atualiza o estado
             setStatusData(payload);
         } catch (error) {
             console.error('Erro ao consultar status WA:', error);
-            setStatusData({ status: 'DESCONECTADO', qr: null });
+            setStatusData(prev => ({ ...prev, status: 'DESCONECTADO' }));
         } finally {
             setLoading(false);
         }
@@ -62,7 +62,6 @@ const WhatsAppStatusPanel = () => {
         setLoadingLogs(true);
         try {
             const res = await apiClient.get('/whatsapp/logs');
-            // Como o apiClient pode retornar a array direto:
             setLogs(Array.isArray(res) ? res : (res?.data || []));
         } catch (err) {
             console.error('Erro ao buscar logs WA:', err);
@@ -71,17 +70,20 @@ const WhatsAppStatusPanel = () => {
         }
     }, []);
 
-    // Polling Inteligente que para de bater quando já conectou
+    // Polling Agressivo: Se estiver aguardando QR, consulta a cada 2 segundos.
+    // Isso evita que o celular escaneie um QR Code que já expirou no backend.
     useEffect(() => {
-        fetchStatus();
+        fetchStatus(); // Busca inicial
+        
         const intervalId = setInterval(() => {
-            setStatusData(prev => {
-                if (prev.status !== 'PRONTO' && prev.status !== 'AUTENTICADO') {
+            setStatusData(current => {
+                if (current.status !== 'PRONTO') {
                     fetchStatus();
                 }
-                return prev;
+                return current;
             });
-        }, 3000);
+        }, 2000); // Reduzido de 3s para 2s para garantir QR Fresco
+
         return () => clearInterval(intervalId);
     }, [fetchStatus]);
 
@@ -148,13 +150,13 @@ const WhatsAppStatusPanel = () => {
                         disabled={restarting}
                         className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors border border-red-200 text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
                     >
-                        {restarting ? 'Reiniciando...' : 'Reiniciar Microsserviço'}
+                        {restarting ? 'Limpando...' : 'Limpar e Reiniciar'}
                     </button>
                 </div>
             </div>
 
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* LADO ESQUERDO: Renderização do QR Code (A Mágica acontece aqui) */}
+                {/* LADO ESQUERDO: Renderização do QR Code */}
                 <div className="flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-300 rounded-xl p-6 min-h-[300px]">
                     {loading ? (
                          <div className="flex flex-col items-center text-gray-400">
@@ -168,41 +170,41 @@ const WhatsAppStatusPanel = () => {
                                      Abra o WhatsApp no celular,<br/>vá em "Aparelhos Conectados" e escaneie:
                                  </p>
                                  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
-                                     <QRCodeSVG value={statusData.qr} size={200} level="M" />
+                                     <QRCodeSVG value={statusData.qr} size={200} level="L" />
                                  </div>
                              </div>
                          ) : (
-                             // DIAGNÓSTICO
-                             <div className="flex flex-col items-center animate-fade-in text-yellow-600 p-4 bg-yellow-50 rounded-xl border border-yellow-200 max-w-sm text-center">
-                                 <AlertTriangle size={42} className="mb-3 opacity-80" />
-                                 <p className="font-bold text-base">QR Code gerado no Servidor!</p>
-                                 <p className="text-sm mt-1 text-yellow-800">
-                                     O WhatsApp Web emitiu o QR, mas a string de imagem não chegou a esta interface.
-                                 </p>
-                                 <div className="mt-3 bg-yellow-100/50 p-3 rounded text-xs text-yellow-900 border border-yellow-200/50 text-left w-full">
-                                     <span className="font-bold block mb-1">🔧 Como consertar:</span>
-                                     No seu arquivo <b>whatsappRoutes.js</b> (Back-end), a rota <code>/status</code> deve retornar <code>res.json(data)</code> inteiro, para manter a propriedade `qr`.
-                                 </div>
+                             <div className="flex flex-col items-center text-yellow-600">
+                                 <Loader size={32} className="animate-spin mb-3" />
+                                 <p>Gerando QR Code...</p>
                              </div>
                          )
+                    ) : (statusData.status === 'AUTENTICANDO' || statusData.status === 'AUTENTICADO') ? (
+                         <div className="flex flex-col items-center text-yellow-600 animate-fade-in">
+                             <Loader size={48} className="mb-4 animate-spin opacity-80" />
+                             <p className="text-lg font-bold text-center">Sincronizando Mensagens...</p>
+                             <p className="text-sm text-yellow-700/70 mt-1 text-center max-w-xs">
+                                 Isso pode levar alguns minutos se houver muitas conversas no aparelho. Mantenha a tela do celular ligada.
+                             </p>
+                         </div>
                     ) : statusData.status === 'PRONTO' ? (
                          <div className="flex flex-col items-center text-green-600 animate-fade-in">
                              <CheckCircle size={64} className="mb-4 opacity-90" />
                              <p className="text-lg font-bold">Autenticado e Ativo</p>
-                             <p className="text-sm text-green-700/70 mt-1">Sessão gravada no volume Docker.</p>
+                             <p className="text-sm text-green-700/70 mt-1">O sistema está pronto para disparos automáticos.</p>
                          </div>
                     ) : (
                          <div className="flex flex-col items-center text-gray-400">
                              <WifiOff size={48} className="mb-4 opacity-50" />
                              <p className="font-medium text-gray-500">Aguardando Microsserviço...</p>
                              <p className="text-xs text-center mt-2 max-w-xs">
-                                 Se estiver demorando, clique em "Reiniciar Microsserviço".
+                                 Se estiver demorando, clique em "Limpar e Reiniciar".
                              </p>
                          </div>
                     )}
                 </div>
 
-                {/* LADO DIREITO: Form de Teste mantido como o seu original */}
+                {/* LADO DIREITO: Form de Teste */}
                 <div>
                     <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">
                         Envio de Teste
