@@ -8,6 +8,13 @@ import { useAuth } from '../contexts/AuthContext';
 
 const GAP_THRESHOLD_DAYS = 10;
 
+const JUSTIFICATIVA_LABELS = {
+    chuva: 'Chuva',
+    maquina_parada: 'Máquina Parada',
+    feriado: 'Feriado / Folga',
+    outro: 'Outro',
+};
+
 const OperacionalPage = ({
     vehicles = [],
     obras = [],
@@ -262,6 +269,7 @@ const OperacionalPage = ({
                 periods: [...periods].sort((a, b) => new Date(a.dataEntrada) - new Date(b.dataEntrada)),
                 totalDays: allDays.length, daysWithLogs, totalHours, contractedHours,
                 lastLogDate, daysSinceLast, maxGap, status, coveragePercent,
+                lastLogJustificativaTipo: sortedLogs[0]?.justificativaTipo || null,
             };
         }).filter(Boolean).sort((a, b) => {
             const order = { nunca: 0, atencao: 1, ok: 2 };
@@ -791,6 +799,11 @@ const OperacionalPage = ({
                                                                     {stat.lastLogDate ? (
                                                                         <div>
                                                                             <span className="text-gray-700">{formatDateToBR(stat.lastLogDate)}</span>
+                                                                            {stat.lastLogJustificativaTipo && (
+                                                                                <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">
+                                                                                    {JUSTIFICATIVA_LABELS[stat.lastLogJustificativaTipo] || stat.lastLogJustificativaTipo}
+                                                                                </span>
+                                                                            )}
                                                                             {stat.isActive && stat.daysSinceLast !== null && (
                                                                                 <span className={`ml-2 text-xs ${stat.daysSinceLast > GAP_THRESHOLD_DAYS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>({stat.daysSinceLast}d atrás)</span>
                                                                             )}

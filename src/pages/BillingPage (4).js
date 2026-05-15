@@ -1,15 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-    Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
-    Download, Search, Save, Lock, ArrowRight, User, Printer, X
+import { 
+    Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle, 
+    Download, Search, Save, Lock, ArrowRight, User, Printer 
 } from 'lucide-react';
-
-const JUSTIFICATIVA_LABELS = {
-    chuva: 'Chuva',
-    maquina_parada: 'Máquina Parada',
-    feriado: 'Feriado / Folga',
-    outro: 'Outro',
-};
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
@@ -44,7 +37,6 @@ const BillingPage = ({
     const [dailyLogs, setDailyLogs] = useState([]); 
     const [localChanges, setLocalChanges] = useState({}); 
     const [isSaving, setIsSaving] = useState(false);
-    const [justificativaOpenDate, setJustificativaOpenDate] = useState(null);
 
     // --- ESTADOS RELATÓRIO/FATURAMENTO ---
     const [reportStartDate, setReportStartDate] = useState('');
@@ -297,27 +289,23 @@ const BillingPage = ({
             const changes = localChanges[dateKey];
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
             
-            const justificativaTipo = changes.justificativaTipo !== undefined
-                ? changes.justificativaTipo
-                : (existingLog?.justificativaTipo || null);
-
             const payload = {
                 id: existingLog ? existingLog.id : null,
                 obraId: selectedObraId,
-                vehicleId: controlVehicleId,
+                vehicleId: controlVehicleId, 
                 date: dateKey,
+                // Garante que pegamos o operador atual se não houver mudança local
                 employeeId: changes.employeeId || existingLog?.employeeId || getDefaultOperator(),
-                morningStart: justificativaTipo ? null : (changes.morningStart !== undefined ? changes.morningStart : (existingLog?.morningStart || null)),
-                morningEnd: justificativaTipo ? null : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog?.morningEnd || null)),
-                afternoonStart: justificativaTipo ? null : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog?.afternoonStart || null)),
-                afternoonEnd: justificativaTipo ? null : (changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog?.afternoonEnd || null)),
+                morningStart: changes.morningStart !== undefined ? changes.morningStart : (existingLog?.morningStart || null),
+                morningEnd: changes.morningEnd !== undefined ? changes.morningEnd : (existingLog?.morningEnd || null),
+                afternoonStart: changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog?.afternoonStart || null),
+                afternoonEnd: changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog?.afternoonEnd || null),
                 observation: changes.observation !== undefined ? changes.observation : (existingLog?.observation || null),
-                justificativaTipo,
             };
 
             const morning = calculateTimeDiffDecimal(payload.morningStart, payload.morningEnd);
             const afternoon = calculateTimeDiffDecimal(payload.afternoonStart, payload.afternoonEnd);
-            payload.totalHours = justificativaTipo ? '0.00' : (morning + afternoon).toFixed(2);
+            payload.totalHours = (morning + afternoon).toFixed(2);
 
             promises.push(apiClient.upsertDailyLog(payload));
         });
@@ -337,28 +325,6 @@ const BillingPage = ({
         setLocalChanges(prev => ({
             ...prev,
             [dateKey]: { ...prev[dateKey], [field]: value }
-        }));
-    };
-
-    const handleSetJustificativa = (dateKey, tipo) => {
-        setLocalChanges(prev => ({
-            ...prev,
-            [dateKey]: {
-                ...prev[dateKey],
-                justificativaTipo: tipo,
-                morningStart: null,
-                morningEnd: null,
-                afternoonStart: null,
-                afternoonEnd: null,
-            }
-        }));
-        setJustificativaOpenDate(null);
-    };
-
-    const handleRemoveJustificativa = (dateKey) => {
-        setLocalChanges(prev => ({
-            ...prev,
-            [dateKey]: { ...prev[dateKey], justificativaTipo: null }
         }));
     };
 
@@ -464,9 +430,12 @@ const BillingPage = ({
         doc.setFont('helvetica', 'normal');
         doc.text(operatorLabel, 40, 52);
 
-        const sortedReportData = [...reportData]
-            .filter(log => !log.justificativaTipo)
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
+        // CORREÇÃO: Ordenar os dados por data (ascendente: menor -> maior)
+        const sortedReportData = [...reportData].sort((a, b) => {
+            const dateA = new Date(a.date);
+            const dateB = new Date(b.date);
+            return dateA - dateB;
+        });
 
         const tableBody = sortedReportData.map(log => {
             const morningHours = calculateTimeDiffDecimal(log.morningStart, log.morningEnd);
@@ -525,7 +494,7 @@ const BillingPage = ({
             alternateRowStyles: { fillColor: [255, 255, 255] }
         });
 
-        const totalDecimal = reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
+        const totalDecimal = reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
         const finalY = doc.lastAutoTable.finalY + 5;
 
         doc.setFontSize(10);
@@ -546,10 +515,10 @@ const BillingPage = ({
         const typeSummary = {};
         const vehicleSummary = {};
 
-        reportData.filter(log => !log.justificativaTipo).forEach(log => {
+        reportData.forEach(log => {
             const type = log.tipo || 'Outros';
             const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
-
+            
             if (!typeSummary[type]) typeSummary[type] = { hours: 0, vehicles: new Set() };
             typeSummary[type].hours += parseFloat(log.totalHours);
             typeSummary[type].vehicles.add(log.registroInterno);
@@ -557,7 +526,7 @@ const BillingPage = ({
             if (!groupSummary[group]) groupSummary[group] = { hours: 0 };
             groupSummary[group].hours += parseFloat(log.totalHours);
 
-            const vId = log.vehicleId;
+            const vId = log.vehicleId; 
             if (!vehicleSummary[vId]) {
                 vehicleSummary[vId] = {
                     label: `${log.registroInterno} - ${log.modelo}`,
@@ -725,23 +694,18 @@ const BillingPage = ({
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Tarde (Início - Fim)</th>
                                                     <th className="px-4 py-3">Total</th>
                                                     <th className="px-4 py-3">Obs</th>
-                                                    <th className="px-4 py-3">Justificativa</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
                                                 {getDaysInMonth(controlMonth).map(dayDate => {
                                                     const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
                                                     const changes = localChanges[dayDate] || {};
-
-                                                    const justificativaTipo = changes.justificativaTipo !== undefined
-                                                        ? changes.justificativaTipo
-                                                        : (existingLog.justificativaTipo || null);
-
+                                                    
                                                     const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
-                                                    const mStart = justificativaTipo ? '' : (changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || ''));
-                                                    const mEnd = justificativaTipo ? '' : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || ''));
-                                                    const aStart = justificativaTipo ? '' : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || ''));
-                                                    const aEnd = justificativaTipo ? '' : (changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || ''));
+                                                    const mStart = changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || '');
+                                                    const mEnd = changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || '');
+                                                    const aStart = changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || '');
+                                                    const aEnd = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || '');
                                                     const obs = changes.observation !== undefined ? changes.observation : (existingLog.observation || '');
 
                                                     const calcDiff = (s, e) => {
@@ -750,24 +714,22 @@ const BillingPage = ({
                                                         const [h2, m2] = e.split(':').map(Number);
                                                         return Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
                                                     };
-                                                    const totalDecimal = justificativaTipo ? 0 : (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
-
-                                                    const hasHours = !!(mStart || mEnd || aStart || aEnd);
-
+                                                    const totalDecimal = (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
+                                                    
                                                     const now = new Date();
                                                     const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                                                     const isToday = dayDate === todayStr;
                                                     const dayNumber = dayDate.split('-')[2];
 
                                                     return (
-                                                        <tr key={dayDate} className={`hover:bg-gray-50 ${justificativaTipo ? 'bg-yellow-50' : isToday ? 'bg-blue-50' : ''}`}>
+                                                        <tr key={dayDate} className={`hover:bg-gray-50 ${isToday ? 'bg-yellow-50' : ''}`}>
                                                             <td className="px-4 py-2 font-medium border-r w-24">
                                                                 {dayNumber} <span className="text-xs text-gray-400 font-normal">/ {dayDate.split('-')[1]}</span>
                                                                 {isToday && <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">Hoje</span>}
                                                             </td>
                                                             <td className="px-2 py-2 w-48">
-                                                                <select
-                                                                    value={employeeId}
+                                                                <select 
+                                                                    value={employeeId} 
                                                                     onChange={(e) => handleInputChange(dayDate, 'employeeId', e.target.value)}
                                                                     className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500"
                                                                 >
@@ -777,59 +739,21 @@ const BillingPage = ({
                                                                     ))}
                                                                 </select>
                                                             </td>
-                                                            <td className="px-1 py-2 w-20"><input type="time" value={mStart} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className="px-1 py-2 w-20"><input type="time" value={aStart} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className={`px-4 py-2 font-bold text-center w-24 ${justificativaTipo ? 'text-yellow-600 bg-yellow-100' : 'text-blue-600 bg-blue-50'}`}>
+                                                            <td className="px-1 py-2 w-20"><input type="time" value={mStart} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-1 py-2 w-20"><input type="time" value={aStart} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center"/></td>
+                                                            <td className="px-4 py-2 font-bold text-center text-blue-600 bg-blue-50 w-24">
                                                                 {formatDecimalToTime(totalDecimal)}
                                                             </td>
                                                             <td className="px-2 py-2">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder={justificativaTipo === 'outro' ? 'Descreva o motivo...' : 'Obs...'}
+                                                                <input 
+                                                                    type="text" 
+                                                                    placeholder="Obs..." 
                                                                     value={obs}
                                                                     onChange={(e) => handleInputChange(dayDate, 'observation', e.target.value)}
                                                                     className="w-full text-xs p-1 border-b focus:border-yellow-500 outline-none bg-transparent"
                                                                 />
-                                                            </td>
-                                                            <td className="px-2 py-2 w-40">
-                                                                {justificativaTipo ? (
-                                                                    <div className="flex items-center gap-1">
-                                                                        <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
-                                                                            {JUSTIFICATIVA_LABELS[justificativaTipo]}
-                                                                        </span>
-                                                                        <button
-                                                                            onClick={() => handleRemoveJustificativa(dayDate)}
-                                                                            title="Remover justificativa"
-                                                                            className="text-red-400 hover:text-red-600 flex-shrink-0"
-                                                                        >
-                                                                            <X size={14}/>
-                                                                        </button>
-                                                                    </div>
-                                                                ) : !hasHours ? (
-                                                                    <div className="relative">
-                                                                        <button
-                                                                            onClick={() => setJustificativaOpenDate(justificativaOpenDate === dayDate ? null : dayDate)}
-                                                                            className="text-xs text-yellow-700 hover:text-yellow-900 border border-yellow-300 bg-yellow-50 hover:bg-yellow-100 px-2 py-0.5 rounded whitespace-nowrap"
-                                                                        >
-                                                                            + Justificativa
-                                                                        </button>
-                                                                        {justificativaOpenDate === dayDate && (
-                                                                            <div className="absolute z-20 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-max">
-                                                                                {Object.entries(JUSTIFICATIVA_LABELS).map(([tipo, label]) => (
-                                                                                    <button
-                                                                                        key={tipo}
-                                                                                        onClick={() => handleSetJustificativa(dayDate, tipo)}
-                                                                                        className="block w-full text-left text-xs px-3 py-2 hover:bg-yellow-50 rounded text-gray-700 hover:text-yellow-800"
-                                                                                    >
-                                                                                        {label}
-                                                                                    </button>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                ) : null}
                                                             </td>
                                                         </tr>
                                                     );
@@ -895,7 +819,7 @@ const BillingPage = ({
 
                             {/* Resumo por GRUPOS */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {Object.entries(reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => {
+                                {Object.entries(reportData.reduce((acc, curr) => {
                                     const type = curr.tipo || 'Outros';
                                     const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
                                     acc[group] = (acc[group] || 0) + parseFloat(curr.totalHours);
@@ -910,7 +834,7 @@ const BillingPage = ({
 
                             {/* Resumo por TIPOS */}
                             <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                                {Object.entries(reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => {
+                                {Object.entries(reportData.reduce((acc, curr) => {
                                     const type = curr.tipo || 'Outros';
                                     acc[type] = (acc[type] || 0) + parseFloat(curr.totalHours);
                                     return acc;
@@ -923,7 +847,7 @@ const BillingPage = ({
                                 <div className="bg-blue-600 p-3 rounded shadow text-white md:col-span-1">
                                     <h3 className="text-[10px] font-bold uppercase opacity-80">Total Geral</h3>
                                     <p className="text-lg font-bold">
-                                        {formatDecimalToTime(reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0))} h
+                                        {formatDecimalToTime(reportData.reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0))} h
                                     </p>
                                 </div>
                             </div>
