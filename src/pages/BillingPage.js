@@ -3,6 +3,10 @@ import {
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
     Download, Search, Save, Lock, ArrowRight, User, Printer, X
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import apiClient from '../services/apiClient';
+import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
 
 const JUSTIFICATIVA_LABELS = {
     chuva: 'Chuva',
@@ -10,10 +14,6 @@ const JUSTIFICATIVA_LABELS = {
     feriado: 'Feriado / Folga',
     outro: 'Outro',
 };
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import apiClient from '../services/apiClient';
-import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
 
 const BillingPage = ({ 
     user: userProp, // Renomeado para evitar conflito com user do hook

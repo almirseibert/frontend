@@ -1272,6 +1272,81 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                 console.warn('[WhatsApp] Falha ao gerar/upload do PDF — WhatsApp será enviado sem anexo:', uploadErr.message);
             }
         }
+// -----------------------------------------------------------------------
+        // Monta os dados finais da ordem (injeta PDF nos anexos se existir)
+        // -----------------------------------------------------------------------
+        const anexosList = [...(formData.anexos || [])];
+        if (pdfAnexo) {
+            // Coloca o PDF gerado como primeiro anexo para o backend priorizá-lo
+            anexosList.unshift(pdfAnexo);
+        }
+
+        const finalOrderData = {
+            supplier:       formData.supplier,
+            supplierId:     formData.supplierId,
+            date:           new Date(formData.date + 'T12:00:00Z').toISOString(),
+            employeeId:     formData.employeeId,
+            operatorId:     formData.operatorId || null,
+            obraId:         formData.obraId,
+            vehicleId:      formData.vehicleId || null,
+            items:          formData.items.map(item => ({
+                quantity:    parseFloat(item.quantity) || 0,
+                description: item.description,
+                unitPrice:   isPricePending ? 0 : (parseFloat(item.unitPrice) || 0),
+                itemId:      item.itemId || null,
+            })),
+            payment:        formData.payment,
+            anexos:         JSON.stringify(anexosList),   // ← inclui o PDF se houver
+            totalValue:     isPricePending ? 0 : totalValue,
+            status:         isPricePending ? 'Pendente de Valor' : 'Ativa',
+            notifyEmail:    formData.notifyEmail,
+            notifyWhatsapp: formData.notifyWhatsapp,
+            createdBy:      orderToEdit ? formData.createdBy : { userEmail: user?.email, userId: user?.id || user?.uid },
+            editedBy:       orderToEdit ? { userEmail: user?.email, userId: user?.id || user?.uid } : null
+        };
+
+        if (orderToEdit && isClosedOrder && editUnlocked) {
+            finalOrderData.status = 'Concluída';
+        }
+
+        try {
+            let savedOrderData;
+            if (orderToEdit) {
+                if (typeof apiClient.updateOrder === 'function') {
+                    savedOrderData = await apiClient.updateOrder(orderToEdit.id, finalOrderData);
+                } else {
+                    const res = await apiClient.put(`/orders/${orderToEdit.id}`, finalOrderData);
+                    savedOrderData = res.data || res;
+                }
+                setAlertMessage(`Ordem atualizada com sucesso!${formData.notifyWhatsapp ? ' 📱 Notificação WhatsApp enviada.' : ''}`);
+            } else {
+                if (typeof apiClient.createOrder === 'function') {
+                    savedOrderData = await apiClient.createOrder(finalOrderData);
+                } else {
+                    const res = await apiClient.post('/orders', finalOrderData);
+                    savedOrderData = res.data || res;
+                }
+                setAlertMessage(`Ordem criada com sucesso!${formData.notifyWhatsapp ? ' 📱 Notificação WhatsApp enviada.' : ''}`);
+            }
+
+            if (reloadData) await reloadData();
+
+            // Abre o PDF no navegador com o número correto da ordem (agora que temos o ID)
+            if (savedOrderData) {
+                const pdfData = { ...finalOrderData, ...savedOrderData };
+                if (!pdfData.orderNumber && savedOrderData.orderNumber) pdfData.orderNumber = savedOrderData.orderNumber;
+                pdfData.createdBy = finalOrderData.createdBy;
+                generatePDF(pdfData); // handleOpenPDF — abre no navegador normalmente
+            }
+
+            onClose();
+        } catch (error) {
+            console.error("Erro ao salvar ordem:", error);
+            setAlertMessage(error.message || "Falha ao salvar a ordem.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     const isReadOnly = isClosedOrder && !editUnlocked;
 
@@ -1543,80 +1618,4 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         </div>
     );
 };
-// -----------------------------------------------------------------------
-        // Monta os dados finais da ordem (injeta PDF nos anexos se existir)
-        // -----------------------------------------------------------------------
-        const anexosList = [...(formData.anexos || [])];
-        if (pdfAnexo) {
-            // Coloca o PDF gerado como primeiro anexo para o backend priorizá-lo
-            anexosList.unshift(pdfAnexo);
-        }
-
-        const finalOrderData = {
-            supplier:       formData.supplier,
-            supplierId:     formData.supplierId,
-            date:           new Date(formData.date + 'T12:00:00Z').toISOString(),
-            employeeId:     formData.employeeId,
-            operatorId:     formData.operatorId || null,
-            obraId:         formData.obraId,
-            vehicleId:      formData.vehicleId || null,
-            items:          formData.items.map(item => ({
-                quantity:    parseFloat(item.quantity) || 0,
-                description: item.description,
-                unitPrice:   isPricePending ? 0 : (parseFloat(item.unitPrice) || 0),
-                itemId:      item.itemId || null,
-            })),
-            payment:        formData.payment,
-            anexos:         JSON.stringify(anexosList),   // ← inclui o PDF se houver
-            totalValue:     isPricePending ? 0 : totalValue,
-            status:         isPricePending ? 'Pendente de Valor' : 'Ativa',
-            notifyEmail:    formData.notifyEmail,
-            notifyWhatsapp: formData.notifyWhatsapp,
-            createdBy:      orderToEdit ? formData.createdBy : { userEmail: user?.email, userId: user?.id || user?.uid },
-            editedBy:       orderToEdit ? { userEmail: user?.email, userId: user?.id || user?.uid } : null
-        };
-
-        if (orderToEdit && isClosedOrder && editUnlocked) {
-            finalOrderData.status = 'Concluída';
-        }
-
-        try {
-            let savedOrderData;
-            if (orderToEdit) {
-                if (typeof apiClient.updateOrder === 'function') {
-                    savedOrderData = await apiClient.updateOrder(orderToEdit.id, finalOrderData);
-                } else {
-                    const res = await apiClient.put(`/orders/${orderToEdit.id}`, finalOrderData);
-                    savedOrderData = res.data || res;
-                }
-                setAlertMessage(`Ordem atualizada com sucesso!${formData.notifyWhatsapp ? ' 📱 Notificação WhatsApp enviada.' : ''}`);
-            } else {
-                if (typeof apiClient.createOrder === 'function') {
-                    savedOrderData = await apiClient.createOrder(finalOrderData);
-                } else {
-                    const res = await apiClient.post('/orders', finalOrderData);
-                    savedOrderData = res.data || res;
-                }
-                setAlertMessage(`Ordem criada com sucesso!${formData.notifyWhatsapp ? ' 📱 Notificação WhatsApp enviada.' : ''}`);
-            }
-
-            if (reloadData) await reloadData();
-
-            // Abre o PDF no navegador com o número correto da ordem (agora que temos o ID)
-            if (savedOrderData) {
-                const pdfData = { ...finalOrderData, ...savedOrderData };
-                if (!pdfData.orderNumber && savedOrderData.orderNumber) pdfData.orderNumber = savedOrderData.orderNumber;
-                pdfData.createdBy = finalOrderData.createdBy;
-                generatePDF(pdfData); // handleOpenPDF — abre no navegador normalmente
-            }
-
-            onClose();
-        } catch (error) {
-            console.error("Erro ao salvar ordem:", error);
-            setAlertMessage(error.message || "Falha ao salvar a ordem.");
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
 export default OrdersPage;
