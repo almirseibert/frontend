@@ -14,6 +14,15 @@ import Sidebar from './components/Sidebar';
 // LoginScreen carrega de forma síncrona (necessário antes do login, sem autenticação)
 import LoginScreen from './components/LoginScreen'; 
 
+import apiClient from './services/apiClient'; 
+import { 
+    vehicleGroups, 
+    extraObraOptions, 
+    operationalSubGroups, 
+    equipmentTypesForHours, 
+    getVehicleMainReading
+} from './utils/vehicleRules';
+
 // ==========================================
 // Lazy Loading de Páginas (Code Splitting)
 // O bundle inicial fica enxuto — cada página só
@@ -42,15 +51,6 @@ const SupervisorDashboard          = lazy(() => import('./pages/SupervisorDashbo
 const SupervisorObraDetail         = lazy(() => import('./pages/SupervisorObraDetail'));
 const SolicitacaoAbastecimentoPage = lazy(() => import('./pages/SolicitacaoAbastecimentoPage'));
 const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
-
-import apiClient from './services/apiClient'; 
-import { 
-    vehicleGroups, 
-    extraObraOptions, 
-    operationalSubGroups, 
-    equipmentTypesForHours, 
-    getVehicleMainReading
-} from './utils/vehicleRules';
 
 // ==========================================
 // Fallback de Carregamento de Página
