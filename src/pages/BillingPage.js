@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
-    Download, Search, Save, Lock, ArrowRight, User, Printer, X
+    Download, Search, Save, Lock, ArrowRight, User, Printer, X,
+    Trash2, Copy, ChevronLeft, ChevronRight, Building2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -45,6 +46,7 @@ const BillingPage = ({
     const [localChanges, setLocalChanges] = useState({}); 
     const [isSaving, setIsSaving] = useState(false);
     const [justificativaOpenDate, setJustificativaOpenDate] = useState(null);
+    const [activeRowDate, setActiveRowDate] = useState(null);
 
     // --- ESTADOS RELATÓRIO/FATURAMENTO ---
     const [reportStartDate, setReportStartDate] = useState('');
@@ -53,6 +55,25 @@ const BillingPage = ({
     const [reportData, setReportData] = useState([]);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [pendingDateChange, setPendingDateChange] = useState(null);
+    const [periodPreset, setPeriodPreset] = useState('custom');
+
+    // --- ESTADOS COMBOBOX DE OBRA ---
+    const [obraSearch, setObraSearch] = useState('');
+    const [obraDropdownOpen, setObraDropdownOpen] = useState(false);
+    const obraComboboxRef = useRef(null);
+
+    // --- ESTADOS SELETOR DE MÊS (RELATÓRIO) ---
+    const [showMonthPickerReport, setShowMonthPickerReport] = useState(false);
+    const [reportPickerYear, setReportPickerYear] = useState(new Date().getFullYear());
+    const monthPickerReportRef = useRef(null);
+
+    // --- ESTADOS SELETOR DE MÊS (CONTROLE) ---
+    const [showMonthPickerControl, setShowMonthPickerControl] = useState(false);
+    const [controlPickerYear, setControlPickerYear] = useState(new Date().getFullYear());
+    const monthPickerControlRef = useRef(null);
+
+    // --- REFS ---
+    const todayRowRef = useRef(null);
 
     // Efeito para garantir que visualizador nunca acesse a aba controle
     useEffect(() => {
@@ -60,6 +81,23 @@ const BillingPage = ({
             setActiveTab('relatorio');
         }
     }, [isViewer, activeTab]);
+
+    // Fechar combobox ao clicar fora
+    useEffect(() => {
+        const handleMouseDown = (e) => {
+            if (obraComboboxRef.current && !obraComboboxRef.current.contains(e.target)) {
+                setObraDropdownOpen(false);
+            }
+            if (monthPickerReportRef.current && !monthPickerReportRef.current.contains(e.target)) {
+                setShowMonthPickerReport(false);
+            }
+            if (monthPickerControlRef.current && !monthPickerControlRef.current.contains(e.target)) {
+                setShowMonthPickerControl(false);
+            }
+        };
+        document.addEventListener('mousedown', handleMouseDown);
+        return () => document.removeEventListener('mousedown', handleMouseDown);
+    }, []);
 
     // ===================================================================================
     // HELPERS DE DATA E HORA
@@ -77,6 +115,20 @@ const BillingPage = ({
         const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
         const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
         return days[date.getUTCDay()];
+    };
+
+    const getDayOfWeekShort = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
+        const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        return days[date.getUTCDay()];
+    };
+
+    const isWeekend = (dateString) => {
+        if (!dateString) return false;
+        const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
+        const day = date.getUTCDay();
+        return day === 0 || day === 6;
     };
 
     const getDaysInMonth = (yearMonth) => {
@@ -222,6 +274,56 @@ const BillingPage = ({
     }, [obras]);
 
 
+    // Filtragem de obras para o combobox
+    const filteredObras = useMemo(() => {
+        const normalize = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+        const q = normalize(obraSearch);
+        const filter = list => q ? list.filter(o => normalize(o.nome).includes(q)) : list;
+        return { active: filter(activeObras), inactive: filter(inactiveObras) };
+    }, [obraSearch, activeObras, inactiveObras]);
+
+    // Obra selecionada e status
+    const selectedObra = useMemo(() => obras.find(o => o.id === selectedObraId), [selectedObraId, obras]);
+    const obraIsActive = useMemo(() => {
+        if (!selectedObra) return false;
+        if (selectedObra.status === 'Finalizada' || selectedObra.status === 'Concluída' || selectedObra.status === 'Inativa') return false;
+        if (selectedObra.dataFim) {
+            const fim = new Date(selectedObra.dataFim);
+            fim.setHours(23, 59, 59, 999);
+            return fim >= new Date();
+        }
+        return true;
+    }, [selectedObra]);
+
+    // Progresso de preenchimento do mês
+    const monthProgress = useMemo(() => {
+        if (!controlVehicleId) return null;
+        const days = getDaysInMonth(controlMonth);
+        const workdays = days.filter(d => !isWeekend(d));
+        const filled = workdays.filter(d => {
+            const log = dailyLogs.find(l => l.date.startsWith(d)) || {};
+            const changes = localChanges[d] || {};
+            if (changes._clear) return false;
+            const justTipo = changes.justificativaTipo !== undefined ? changes.justificativaTipo : (log.justificativaTipo || null);
+            if (justTipo) return true;
+            const mS = changes.morningStart !== undefined ? changes.morningStart : (log.morningStart || '');
+            const mE = changes.morningEnd !== undefined ? changes.morningEnd : (log.morningEnd || '');
+            const aS = changes.afternoonStart !== undefined ? changes.afternoonStart : (log.afternoonStart || '');
+            const aE = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (log.afternoonEnd || '');
+            return !!(mS || mE || aS || aE);
+        });
+        return { filled: filled.length, total: workdays.length };
+    }, [controlMonth, dailyLogs, localChanges, controlVehicleId]);
+
+    // Equipamentos que possuem horas no período selecionado
+    const vehiclesWithDataInPeriod = useMemo(() => {
+        if (!reportData.length || !reportStartDate || !reportEndDate) return getObraVehicles;
+        const idsWithData = new Set(
+            reportData.filter(l => parseFloat(l.totalHours || 0) > 0 || l.justificativaTipo).map(l => l.vehicleId)
+        );
+        return getObraVehicles.filter(v => idsWithData.has(v.id));
+    }, [reportData, getObraVehicles, reportStartDate, reportEndDate]);
+
     const getDefaultOperator = () => {
     // 1. Tenta pegar do último log preenchido nesta tela (comportamento atual)
     if (dailyLogs.length > 0) {
@@ -241,6 +343,90 @@ const BillingPage = ({
     // Retorna o operador da alocação mais recente encontrada
     return allocations.length > 0 ? allocations[0].employeeId : '';
 };
+
+    // --- HELPERS DE NAVEGAÇÃO E COMBOBOX ---
+
+    const formatMonthLabel = (yearMonth) => {
+        if (!yearMonth) return '';
+        const [year, month] = yearMonth.split('-').map(Number);
+        const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        return `${months[month - 1]} ${year}`;
+    };
+
+    const navigateMonth = (direction) => {
+        const [year, month] = controlMonth.split('-').map(Number);
+        const date = new Date(year, month - 1 + direction, 1);
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        setControlMonth(`${y}-${m}`);
+    };
+
+    const scrollToToday = () => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const todayMonth = `${y}-${m}`;
+        if (controlMonth !== todayMonth) {
+            setControlMonth(todayMonth);
+            setTimeout(() => {
+                if (todayRowRef.current) todayRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 200);
+        } else {
+            if (todayRowRef.current) todayRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+
+    const applyPreset = (preset) => {
+        const now = new Date();
+        let start, end;
+        if (preset === 'week') {
+            const day = now.getDay();
+            start = new Date(now); start.setDate(now.getDate() - day);
+            end = new Date(now); end.setDate(now.getDate() + (6 - day));
+        } else if (preset === 'month') {
+            start = new Date(now.getFullYear(), now.getMonth(), 1);
+            end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        } else if (preset === 'lastmonth') {
+            start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            end = new Date(now.getFullYear(), now.getMonth(), 0);
+        } else if (preset === '3months') {
+            start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+            end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        }
+        const fmt = d => d.toISOString().split('T')[0];
+        setReportStartDate(fmt(start));
+        setReportEndDate(fmt(end));
+        setPeriodPreset(preset);
+    };
+
+    const applyMonthToReport = (year, monthIndex) => {
+        const start = new Date(year, monthIndex, 1);
+        const end = new Date(year, monthIndex + 1, 0);
+        const fmt = d => d.toISOString().split('T')[0];
+        setReportStartDate(fmt(start));
+        setReportEndDate(fmt(end));
+        setPeriodPreset('specificMonth');
+        setShowMonthPickerReport(false);
+    };
+
+    const applyMonthToControl = (year, monthIndex) => {
+        const m = String(monthIndex + 1).padStart(2, '0');
+        setControlMonth(`${year}-${m}`);
+        setShowMonthPickerControl(false);
+    };
+
+    const handleObraSelect = (obra) => {
+        setSelectedObraId(obra.id);
+        setObraSearch(obra.nome);
+        setObraDropdownOpen(false);
+    };
+
+    const handleObraClear = () => {
+        setSelectedObraId('');
+        setObraSearch('');
+        setObraDropdownOpen(false);
+    };
 
     // --- API CALLS ---
 
@@ -296,7 +482,12 @@ const BillingPage = ({
         Object.keys(localChanges).forEach(dateKey => {
             const changes = localChanges[dateKey];
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
-            
+
+            if (changes._clear) {
+                if (existingLog?.id) promises.push(apiClient.deleteDailyLog(existingLog.id));
+                return;
+            }
+
             const justificativaTipo = changes.justificativaTipo !== undefined
                 ? changes.justificativaTipo
                 : (existingLog?.justificativaTipo || null);
@@ -318,6 +509,11 @@ const BillingPage = ({
             const morning = calculateTimeDiffDecimal(payload.morningStart, payload.morningEnd);
             const afternoon = calculateTimeDiffDecimal(payload.afternoonStart, payload.afternoonEnd);
             payload.totalHours = justificativaTipo ? '0.00' : (morning + afternoon).toFixed(2);
+
+            if (!justificativaTipo && payload.totalHours === '0.00' && !payload.observation) {
+                if (existingLog?.id) promises.push(apiClient.deleteDailyLog(existingLog.id));
+                return;
+            }
 
             promises.push(apiClient.upsertDailyLog(payload));
         });
@@ -362,6 +558,56 @@ const BillingPage = ({
         }));
     };
 
+    const handleClearDay = (dateKey) => {
+        setLocalChanges(prev => ({
+            ...prev,
+            [dateKey]: {
+                employeeId: '',
+                morningStart: null,
+                morningEnd: null,
+                afternoonStart: null,
+                afternoonEnd: null,
+                justificativaTipo: null,
+                observation: null,
+                _clear: true,
+            }
+        }));
+    };
+
+    const handleCloneFromLastDay = (dateKey) => {
+        const allDays = getDaysInMonth(controlMonth);
+        const currentIndex = allDays.indexOf(dateKey);
+
+        for (let i = currentIndex - 1; i >= 0; i--) {
+            const d = allDays[i];
+            const existingLog = dailyLogs.find(l => l.date.startsWith(d));
+            const changes = localChanges[d];
+
+            const localHasHours = changes && !changes._clear &&
+                (changes.morningStart || changes.morningEnd || changes.afternoonStart || changes.afternoonEnd);
+            const dbHasHours = existingLog && parseFloat(existingLog.totalHours || 0) > 0;
+
+            if (dbHasHours || localHasHours) {
+                const source = { ...existingLog, ...(changes || {}) };
+                setLocalChanges(prev => ({
+                    ...prev,
+                    [dateKey]: {
+                        ...prev[dateKey],
+                        employeeId: source.employeeId || '',
+                        morningStart: source.morningStart || null,
+                        morningEnd: source.morningEnd || null,
+                        afternoonStart: source.afternoonStart || null,
+                        afternoonEnd: source.afternoonEnd || null,
+                        justificativaTipo: null,
+                        _clear: false,
+                    }
+                }));
+                return;
+            }
+        }
+        setAlertMessage("Nenhum dia anterior com horas lançadas encontrado neste mês.");
+    };
+
     const handleDateRangeChange = (field, value) => {
         const obra = obras.find(o => o.id === selectedObraId);
         if (obra) {
@@ -380,6 +626,7 @@ const BillingPage = ({
         }
         if (field === 'start') setReportStartDate(value);
         else setReportEndDate(value);
+        setPeriodPreset('custom');
     };
 
     const confirmDateChange = () => {
@@ -600,54 +847,129 @@ const BillingPage = ({
                 <FileText className="text-yellow-500" /> Faturamento & Controle
             </h1>
 
-            {/* Seleção de Obra com Grupo Ativas/Inativas */}
+            {/* Seleção de Obra — Combobox com busca */}
             <div className="bg-white p-4 rounded-lg shadow mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Selecione a Obra</label>
-                <select 
-                    value={selectedObraId} 
-                    onChange={(e) => setSelectedObraId(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
-                >
-                    <option value="">-- Selecione --</option>
-                    
-                    {/* Obras Ativas */}
-                    <optgroup label="Obras Ativas">
-                        {activeObras.map(obra => (
-                            <option key={obra.id} value={obra.id} className="text-gray-900 font-medium">
-                                {obra.nome}
-                            </option>
-                        ))}
-                    </optgroup>
+                <div className="relative" ref={obraComboboxRef}>
+                    <div className="flex items-center border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-yellow-400 focus-within:border-yellow-500">
+                        <Search size={16} className="ml-3 text-gray-400 flex-shrink-0" />
+                        <input
+                            type="text"
+                            className="flex-1 p-2 outline-none text-sm bg-transparent"
+                            placeholder="Buscar obra pelo nome..."
+                            value={obraDropdownOpen ? obraSearch : (selectedObra?.nome || '')}
+                            onFocus={() => { setObraSearch(''); setObraDropdownOpen(true); }}
+                            onChange={(e) => setObraSearch(e.target.value)}
+                        />
+                        {selectedObraId && (
+                            <button onClick={handleObraClear} className="p-2 text-gray-400 hover:text-red-500 transition">
+                                <X size={16} />
+                            </button>
+                        )}
+                    </div>
 
-                    {/* Obras Finalizadas (se houver) */}
-                    {inactiveObras.length > 0 && (
-                        <optgroup label="Obras Finalizadas (Arquivo)" className="text-red-600 font-bold">
-                            {inactiveObras.map(obra => (
-                                <option key={obra.id} value={obra.id} className="text-red-600">
-                                    {obra.nome} (Finalizada)
-                                </option>
-                            ))}
-                        </optgroup>
+                    {obraDropdownOpen && (
+                        <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+                            {filteredObras.active.length === 0 && filteredObras.inactive.length === 0 && (
+                                <p className="p-4 text-sm text-gray-500 text-center">Nenhuma obra encontrada.</p>
+                            )}
+                            {filteredObras.active.length > 0 && (
+                                <>
+                                    <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b">Obras Ativas</div>
+                                    {filteredObras.active.map(obra => (
+                                        <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-yellow-50 hover:text-yellow-800 transition flex items-center gap-2 ${selectedObraId === obra.id ? 'bg-yellow-50 font-semibold text-yellow-800' : 'text-gray-800'}`}>
+                                            <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                                            {obra.nome}
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                            {filteredObras.inactive.length > 0 && (
+                                <>
+                                    <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-t mt-1">Obras Finalizadas</div>
+                                    {filteredObras.inactive.map(obra => (
+                                        <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 hover:text-red-700 transition flex items-center gap-2 ${selectedObraId === obra.id ? 'bg-red-50 font-semibold text-red-700' : 'text-gray-500'}`}>
+                                            <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                                            {obra.nome} <span className="text-xs opacity-60">(Finalizada)</span>
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                        </div>
                     )}
-                </select>
+                </div>
             </div>
+
+            {/* Estado vazio orientado */}
+            {!selectedObraId && (
+                <div className="bg-white rounded-lg shadow p-12 flex flex-col items-center text-center">
+                    <Building2 size={48} className="text-gray-200 mb-4" />
+                    <p className="text-gray-500 font-medium mb-1">Nenhuma obra selecionada</p>
+                    <p className="text-gray-400 text-sm mb-6">Selecione uma obra acima para acessar o controle de horas ou gerar relatórios.</p>
+                    {activeObras.length > 0 && (
+                        <div className="flex flex-wrap justify-center gap-2">
+                            <span className="text-xs text-gray-400 w-full mb-1">Acesso rápido:</span>
+                            {activeObras.slice(0, 4).map(obra => (
+                                <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                    className="px-3 py-1.5 text-xs bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-full hover:bg-yellow-100 transition font-medium">
+                                    {obra.nome}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {selectedObraId && (
                 <>
+                    {/* Card de contexto da obra */}
+                    <div className={`flex flex-wrap items-center gap-4 px-4 py-3 rounded-lg mb-4 border ${obraIsActive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        <Building2 size={20} className={obraIsActive ? 'text-green-600' : 'text-red-500'} />
+                        <div className="flex-1 min-w-0">
+                            <p className={`font-bold text-sm truncate ${obraIsActive ? 'text-green-800' : 'text-red-700'}`}>{selectedObra?.nome}</p>
+                            <p className="text-xs text-gray-500">
+                                {selectedObra?.dataInicio ? formatDateToBR(selectedObra.dataInicio) : '?'}
+                                {' → '}
+                                {selectedObra?.dataFim ? formatDateToBR(selectedObra.dataFim) : 'Em andamento'}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                            <span className="text-gray-500">
+                                <span className="font-bold text-gray-700">{getObraVehicles.filter(v => v.statusNaObra === 'presente').length}</span> equip. ativos
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full font-bold ${obraIsActive ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-700'}`}>
+                                {obraIsActive ? 'Ativa' : 'Finalizada'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Aviso de alterações não salvas */}
+                    {activeTab === 'controle' && Object.keys(localChanges).length > 0 && (
+                        <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-2.5 mb-4 text-sm">
+                            <p className="text-amber-800 font-medium">
+                                <AlertTriangle size={15} className="inline mr-1.5 mb-0.5" />
+                                Você tem <span className="font-bold">{Object.keys(localChanges).length}</span> dia(s) com alterações não salvas.
+                            </p>
+                            <button onClick={handleSaveDailyLogs} disabled={isSaving}
+                                className="px-3 py-1 bg-amber-500 text-white rounded text-xs font-bold hover:bg-amber-600 disabled:opacity-60 transition">
+                                {isSaving ? 'Salvando...' : 'Salvar agora'}
+                            </button>
+                        </div>
+                    )}
+
                     {/* Abas */}
                     <div className="flex border-b border-gray-300 mb-6">
-                        {/* TRAVA DE VISUALIZADOR:
-                            Se isViewer for true, esta aba NÃO é renderizada.
-                        */}
                         {!isViewer && (
-                            <button 
+                            <button
                                 onClick={() => setActiveTab('controle')}
                                 className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
                             >
                                 <Clock size={18}/> Controle Diário
                             </button>
                         )}
-                        <button 
+                        <button
                             onClick={() => setActiveTab('relatorio')}
                             className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'relatorio' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
                         >
@@ -661,49 +983,114 @@ const BillingPage = ({
                             <div className="flex flex-col md:flex-row items-end gap-4 bg-gray-50 p-4 rounded-md border">
                                 <div className="flex-1 w-full">
                                     <label className="block text-xs font-medium text-gray-700 mb-1">Equipamento</label>
-                                    <select 
-                                        value={controlVehicleId} 
+                                    <select
+                                        value={controlVehicleId}
                                         onChange={(e) => setControlVehicleId(e.target.value)}
                                         className="w-full p-2 border rounded text-sm bg-white"
                                     >
                                         <option value="">-- Selecione o Equipamento --</option>
-                                        {getObraVehicles.map(v => {
-                                            const label = `${v.registroInterno} - ${v.tipo} - ${v.marca} - ${v.modelo}`;
-                                            const isPresent = v.statusNaObra === 'presente';
-                                            const statusText = isPresent ? '(PRESENTE)' : '(NÃO ESTÁ MAIS NA OBRA)';
-                                            const colorStyle = isPresent ? 'green' : 'red';
-
-                                            return (
-                                                <option 
-                                                    key={v.id} 
-                                                    value={v.id} 
-                                                    style={{ color: colorStyle, fontWeight: isPresent ? 'bold' : 'normal' }}
-                                                >
-                                                    {label} {statusText}
-                                                </option>
-                                            );
-                                        })}
+                                        {getObraVehicles.filter(v => v.statusNaObra === 'presente').length > 0 && (
+                                            <optgroup label="Presentes na obra">
+                                                {getObraVehicles.filter(v => v.statusNaObra === 'presente').map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                        {getObraVehicles.filter(v => v.statusNaObra === 'historico').length > 0 && (
+                                            <optgroup label="Saíram da obra (histórico)">
+                                                {getObraVehicles.filter(v => v.statusNaObra === 'historico').map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
                                     </select>
                                 </div>
                                 <div className="w-full md:w-auto">
                                     <label className="block text-xs font-medium text-gray-700 mb-1">Mês de Referência</label>
-                                    <input 
-                                        type="month" 
-                                        value={controlMonth} 
-                                        onChange={(e) => setControlMonth(e.target.value)}
-                                        className="w-full p-2 border rounded text-sm"
-                                    />
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => navigateMonth(-1)} title="Mês anterior"
+                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <div className="relative" ref={monthPickerControlRef}>
+                                            <button
+                                                onClick={() => { setControlPickerYear(parseInt(controlMonth.split('-')[0])); setShowMonthPickerControl(v => !v); }}
+                                                className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-yellow-50 hover:border-yellow-400 transition"
+                                                title="Selecionar mês/ano"
+                                            >
+                                                {formatMonthLabel(controlMonth)}
+                                            </button>
+                                            {showMonthPickerControl && (
+                                                <div className="absolute z-40 top-full mt-1 left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <button onClick={() => setControlPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
+                                                        <span className="font-bold text-sm text-gray-700">{controlPickerYear}</span>
+                                                        <button onClick={() => setControlPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
+                                                    </div>
+                                                    <div className="grid grid-cols-3 gap-1">
+                                                        {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
+                                                            const isSelected = controlMonth === `${controlPickerYear}-${String(i+1).padStart(2,'0')}`;
+                                                            return (
+                                                                <button key={i} onClick={() => applyMonthToControl(controlPickerYear, i)}
+                                                                    className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                                                                    {m}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button onClick={() => navigateMonth(1)} title="Próximo mês"
+                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
+                                            <ChevronRight size={16} />
+                                        </button>
+                                        <button onClick={scrollToToday} title="Ir para hoje"
+                                            className="px-2 py-2 rounded border bg-white hover:bg-yellow-50 hover:border-yellow-400 transition text-xs font-bold text-yellow-600 whitespace-nowrap">
+                                            Hoje
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="w-full md:w-auto">
-                                    <button 
-                                        onClick={handleSaveDailyLogs} 
+                                    <button
+                                        onClick={handleSaveDailyLogs}
                                         disabled={isSaving || Object.keys(localChanges).length === 0}
                                         className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm font-semibold"
                                     >
-                                        {isSaving ? 'Salvando...' : 'Salvar Mês'} <Save size={16} />
+                                        {isSaving ? 'Salvando...' : (
+                                            <>
+                                                Salvar Mês
+                                                {Object.keys(localChanges).length > 0 && (
+                                                    <span className="bg-white text-green-700 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                                                        {Object.keys(localChanges).length}
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
+                                        <Save size={16} />
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Indicador de progresso do mês */}
+                            {monthProgress && (
+                                <div className="bg-white rounded-lg shadow px-4 py-3">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1.5">
+                                        <span>{monthProgress.filled} de {monthProgress.total} dias úteis preenchidos</span>
+                                        <span className="font-bold">{monthProgress.total > 0 ? Math.round((monthProgress.filled / monthProgress.total) * 100) : 0}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-100 rounded-full h-2">
+                                        <div
+                                            className={`h-2 rounded-full transition-all duration-300 ${monthProgress.total > 0 && (monthProgress.filled / monthProgress.total) >= 0.8 ? 'bg-green-500' : 'bg-yellow-400'}`}
+                                            style={{ width: `${monthProgress.total > 0 ? (monthProgress.filled / monthProgress.total) * 100 : 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Tabela de Dias do Mês */}
                             <div className="bg-white shadow rounded-lg overflow-hidden">
@@ -723,118 +1110,188 @@ const BillingPage = ({
                                                     <th className="px-4 py-3">Operador</th>
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Manhã (Início - Fim)</th>
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Tarde (Início - Fim)</th>
-                                                    <th className="px-4 py-3">Total</th>
+                                                    <th className="px-4 py-3 text-center">Total</th>
                                                     <th className="px-4 py-3">Obs</th>
-                                                    <th className="px-4 py-3">Justificativa</th>
+                                                    <th className="px-4 py-3 text-center">Ações</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
-                                                {getDaysInMonth(controlMonth).map(dayDate => {
-                                                    const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
-                                                    const changes = localChanges[dayDate] || {};
-
-                                                    const justificativaTipo = changes.justificativaTipo !== undefined
-                                                        ? changes.justificativaTipo
-                                                        : (existingLog.justificativaTipo || null);
-
-                                                    const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
-                                                    const mStart = justificativaTipo ? '' : (changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || ''));
-                                                    const mEnd = justificativaTipo ? '' : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || ''));
-                                                    const aStart = justificativaTipo ? '' : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || ''));
-                                                    const aEnd = justificativaTipo ? '' : (changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || ''));
-                                                    const obs = changes.observation !== undefined ? changes.observation : (existingLog.observation || '');
-
+                                                {(() => {
+                                                    const now = new Date();
+                                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
                                                     const calcDiff = (s, e) => {
-                                                        if(!s || !e) return 0;
+                                                        if (!s || !e) return 0;
                                                         const [h1, m1] = s.split(':').map(Number);
                                                         const [h2, m2] = e.split(':').map(Number);
                                                         return Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
                                                     };
-                                                    const totalDecimal = justificativaTipo ? 0 : (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
 
-                                                    const hasHours = !!(mStart || mEnd || aStart || aEnd);
+                                                    return getDaysInMonth(controlMonth).map(dayDate => {
+                                                        const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
+                                                        const changes = localChanges[dayDate] || {};
+                                                        const isCleared = !!changes._clear;
 
-                                                    const now = new Date();
-                                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-                                                    const isToday = dayDate === todayStr;
-                                                    const dayNumber = dayDate.split('-')[2];
+                                                        const justificativaTipo = isCleared ? null : (
+                                                            changes.justificativaTipo !== undefined
+                                                                ? changes.justificativaTipo
+                                                                : (existingLog.justificativaTipo || null)
+                                                        );
 
-                                                    return (
-                                                        <tr key={dayDate} className={`hover:bg-gray-50 ${justificativaTipo ? 'bg-yellow-50' : isToday ? 'bg-blue-50' : ''}`}>
-                                                            <td className="px-4 py-2 font-medium border-r w-24">
-                                                                {dayNumber} <span className="text-xs text-gray-400 font-normal">/ {dayDate.split('-')[1]}</span>
-                                                                {isToday && <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">Hoje</span>}
-                                                            </td>
-                                                            <td className="px-2 py-2 w-48">
-                                                                <select
-                                                                    value={employeeId}
-                                                                    onChange={(e) => handleInputChange(dayDate, 'employeeId', e.target.value)}
-                                                                    className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500"
-                                                                >
-                                                                    <option value="">-- Operador --</option>
-                                                                    {employees.sort((a,b)=>a.nome.localeCompare(b.nome)).map(emp => (
-                                                                        <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                                                                    ))}
-                                                                </select>
-                                                            </td>
-                                                            <td className="px-1 py-2 w-20"><input type="time" value={mStart} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className="px-1 py-2 w-20"><input type="time" value={aStart} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                            <td className={`px-4 py-2 font-bold text-center w-24 ${justificativaTipo ? 'text-yellow-600 bg-yellow-100' : 'text-blue-600 bg-blue-50'}`}>
-                                                                {formatDecimalToTime(totalDecimal)}
-                                                            </td>
-                                                            <td className="px-2 py-2">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder={justificativaTipo === 'outro' ? 'Descreva o motivo...' : 'Obs...'}
-                                                                    value={obs}
-                                                                    onChange={(e) => handleInputChange(dayDate, 'observation', e.target.value)}
-                                                                    className="w-full text-xs p-1 border-b focus:border-yellow-500 outline-none bg-transparent"
-                                                                />
-                                                            </td>
-                                                            <td className="px-2 py-2 w-40">
-                                                                {justificativaTipo ? (
-                                                                    <div className="flex items-center gap-1">
-                                                                        <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+                                                        const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
+                                                        const mStart = (justificativaTipo || isCleared) ? '' : (changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || ''));
+                                                        const mEnd = (justificativaTipo || isCleared) ? '' : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || ''));
+                                                        const aStart = (justificativaTipo || isCleared) ? '' : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || ''));
+                                                        const aEnd = (justificativaTipo || isCleared) ? '' : (changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || ''));
+                                                        const obs = isCleared ? '' : (changes.observation !== undefined ? changes.observation : (existingLog.observation || ''));
+
+                                                        const totalDecimal = justificativaTipo ? 0 : (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
+                                                        const hasHours = !!(mStart || mEnd || aStart || aEnd);
+                                                        const isToday = dayDate === todayStr;
+                                                        const isWknd = isWeekend(dayDate);
+                                                        const dow = getDayOfWeekShort(dayDate);
+                                                        const dayNumber = dayDate.split('-')[2];
+                                                        const isActive = activeRowDate === dayDate;
+
+                                                        let rowBg = '';
+                                                        if (isCleared) rowBg = 'bg-red-50';
+                                                        else if (justificativaTipo) rowBg = 'bg-yellow-50';
+                                                        else if (isToday) rowBg = 'bg-blue-50';
+                                                        else if (isWknd) rowBg = 'bg-slate-50';
+
+                                                        return (
+                                                            <tr
+                                                                key={dayDate}
+                                                                ref={isToday ? todayRowRef : null}
+                                                                className={`hover:bg-gray-50 transition-colors ${rowBg} ${isActive ? 'border-l-2 border-yellow-400' : 'border-l-2 border-transparent'}`}
+                                                                onFocus={() => setActiveRowDate(dayDate)}
+                                                            >
+                                                                <td className="px-3 py-2 font-medium border-r w-28">
+                                                                    <div className="flex flex-col leading-tight">
+                                                                        <span>
+                                                                            {dayNumber}
+                                                                            <span className="text-xs text-gray-400 font-normal"> / {dayDate.split('-')[1]}</span>
+                                                                        </span>
+                                                                        <span className={`text-[10px] font-semibold ${isWknd ? 'text-orange-500' : 'text-gray-400'}`}>{dow}</span>
+                                                                    </div>
+                                                                    {isToday && <span className="text-[9px] bg-yellow-200 text-yellow-800 px-1 rounded mt-0.5 inline-block">Hoje</span>}
+                                                                </td>
+                                                                <td className="px-2 py-2 w-48">
+                                                                    <select
+                                                                        value={employeeId}
+                                                                        disabled={isCleared}
+                                                                        onChange={(e) => handleInputChange(dayDate, 'employeeId', e.target.value)}
+                                                                        className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500 disabled:bg-gray-100 disabled:text-gray-400"
+                                                                    >
+                                                                        <option value="">-- Operador --</option>
+                                                                        {employees.sort((a,b)=>a.nome.localeCompare(b.nome)).map(emp => (
+                                                                            <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-1 py-2 w-20"><input type="time" value={mStart} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                                <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                                <td className="px-1 py-2 w-20"><input type="time" value={aStart} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                                <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                                <td className="px-2 py-2 text-center w-28">
+                                                                    {justificativaTipo ? (
+                                                                        <span className="text-[10px] bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
                                                                             {JUSTIFICATIVA_LABELS[justificativaTipo]}
                                                                         </span>
+                                                                    ) : isCleared ? (
+                                                                        <span className="text-[10px] bg-red-100 text-red-500 px-2 py-0.5 rounded-full font-semibold">Limpar</span>
+                                                                    ) : (
+                                                                        <span className={`font-bold text-sm ${totalDecimal > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                                                                            {formatDecimalToTime(totalDecimal)}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder={justificativaTipo === 'outro' ? 'Descreva o motivo...' : 'Obs...'}
+                                                                        value={obs}
+                                                                        disabled={isCleared}
+                                                                        onChange={(e) => handleInputChange(dayDate, 'observation', e.target.value)}
+                                                                        className="w-full text-xs p-1 border-b focus:border-yellow-500 outline-none bg-transparent disabled:text-gray-400"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2 w-28">
+                                                                    <div className="flex items-center justify-center gap-0.5">
+                                                                        <div className="relative">
+                                                                            <button
+                                                                                onClick={() => setJustificativaOpenDate(justificativaOpenDate === dayDate ? null : dayDate)}
+                                                                                disabled={hasHours || isCleared}
+                                                                                title="Justificar ausência"
+                                                                                className={`p-1.5 rounded transition ${justificativaTipo ? 'text-yellow-500 bg-yellow-100' : 'hover:bg-yellow-100 text-yellow-500'} disabled:text-gray-300 disabled:cursor-not-allowed`}
+                                                                            >
+                                                                                <AlertTriangle size={14}/>
+                                                                            </button>
+                                                                            {justificativaOpenDate === dayDate && (
+                                                                                <div className="absolute z-20 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-max">
+                                                                                    {Object.entries(JUSTIFICATIVA_LABELS).map(([tipo, label]) => (
+                                                                                        <button
+                                                                                            key={tipo}
+                                                                                            onClick={() => handleSetJustificativa(dayDate, tipo)}
+                                                                                            className="block w-full text-left text-xs px-3 py-2 hover:bg-yellow-50 rounded text-gray-700 hover:text-yellow-800"
+                                                                                        >
+                                                                                            {label}
+                                                                                        </button>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
                                                                         <button
-                                                                            onClick={() => handleRemoveJustificativa(dayDate)}
-                                                                            title="Remover justificativa"
-                                                                            className="text-red-400 hover:text-red-600 flex-shrink-0"
+                                                                            onClick={() => handleClearDay(dayDate)}
+                                                                            title="Limpar dia (remove horas e justificativa)"
+                                                                            className="p-1.5 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition"
                                                                         >
-                                                                            <X size={14}/>
+                                                                            <Trash2 size={14}/>
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleCloneFromLastDay(dayDate)}
+                                                                            title="Clonar último dia com horas lançadas"
+                                                                            className="p-1.5 rounded hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition"
+                                                                        >
+                                                                            <Copy size={14}/>
                                                                         </button>
                                                                     </div>
-                                                                ) : !hasHours ? (
-                                                                    <div className="relative">
-                                                                        <button
-                                                                            onClick={() => setJustificativaOpenDate(justificativaOpenDate === dayDate ? null : dayDate)}
-                                                                            className="text-xs text-yellow-700 hover:text-yellow-900 border border-yellow-300 bg-yellow-50 hover:bg-yellow-100 px-2 py-0.5 rounded whitespace-nowrap"
-                                                                        >
-                                                                            + Justificativa
-                                                                        </button>
-                                                                        {justificativaOpenDate === dayDate && (
-                                                                            <div className="absolute z-20 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-max">
-                                                                                {Object.entries(JUSTIFICATIVA_LABELS).map(([tipo, label]) => (
-                                                                                    <button
-                                                                                        key={tipo}
-                                                                                        onClick={() => handleSetJustificativa(dayDate, tipo)}
-                                                                                        className="block w-full text-left text-xs px-3 py-2 hover:bg-yellow-50 rounded text-gray-700 hover:text-yellow-800"
-                                                                                    >
-                                                                                        {label}
-                                                                                    </button>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                ) : null}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    });
+                                                })()}
                                             </tbody>
+                                            {controlVehicleId && (
+                                                <tfoot>
+                                                    <tr className="bg-gray-800 text-white text-xs font-bold">
+                                                        <td colSpan={6} className="px-4 py-2 text-right uppercase tracking-wide">Total do Mês</td>
+                                                        <td className="px-2 py-2 text-center text-base">
+                                                            {(() => {
+                                                                const calcDiff = (s, e) => {
+                                                                    if (!s || !e) return 0;
+                                                                    const [h1, m1] = s.split(':').map(Number);
+                                                                    const [h2, m2] = e.split(':').map(Number);
+                                                                    return Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
+                                                                };
+                                                                const total = getDaysInMonth(controlMonth).reduce((acc, dayDate) => {
+                                                                    const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
+                                                                    const changes = localChanges[dayDate] || {};
+                                                                    if (changes._clear) return acc;
+                                                                    const justTipo = changes.justificativaTipo !== undefined ? changes.justificativaTipo : (existingLog.justificativaTipo || null);
+                                                                    if (justTipo) return acc;
+                                                                    const mS = changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || '');
+                                                                    const mE = changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || '');
+                                                                    const aS = changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || '');
+                                                                    const aE = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || '');
+                                                                    return acc + calcDiff(mS, mE) + calcDiff(aS, aE);
+                                                                }, 0);
+                                                                return formatDecimalToTime(total);
+                                                            })()}
+                                                        </td>
+                                                        <td colSpan={2} className="px-4 py-2"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            )}
                                         </table>
                                     </div>
                                 )}
@@ -847,39 +1304,108 @@ const BillingPage = ({
                         <div className="space-y-6">
                             <div className="bg-gray-50 p-4 rounded-lg border grid gap-4">
                                 <h3 className="text-sm font-bold text-gray-700 uppercase flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
+
+                                {/* Atalhos de período */}
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    {[
+                                        { key: 'week', label: 'Esta semana' },
+                                        { key: 'month', label: 'Este mês' },
+                                        { key: 'lastmonth', label: 'Mês anterior' },
+                                        { key: '3months', label: 'Últimos 3 meses' },
+                                        { key: 'custom', label: 'Personalizado' },
+                                    ].map(p => (
+                                        <button key={p.key} onClick={() => p.key === 'custom' ? setPeriodPreset('custom') : applyPreset(p.key)}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${periodPreset === p.key ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
+                                            {p.label}
+                                        </button>
+                                    ))}
+
+                                    {/* Seletor de mês específico */}
+                                    <div className="relative" ref={monthPickerReportRef}>
+                                        <button
+                                            onClick={() => { setReportPickerYear(new Date().getFullYear()); setShowMonthPickerReport(v => !v); }}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1 ${periodPreset === 'specificMonth' ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
+                                            <Calendar size={12}/> Mês específico
+                                        </button>
+                                        {showMonthPickerReport && (
+                                            <div className="absolute z-40 top-full mt-1 left-0 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <button onClick={() => setReportPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
+                                                    <span className="font-bold text-sm text-gray-700">{reportPickerYear}</span>
+                                                    <button onClick={() => setReportPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-1">
+                                                    {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
+                                                        const isSelected = periodPreset === 'specificMonth' &&
+                                                            reportStartDate === `${reportPickerYear}-${String(i+1).padStart(2,'0')}-01`;
+                                                        return (
+                                                            <button key={i} onClick={() => applyMonthToReport(reportPickerYear, i)}
+                                                                className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                                                                {m}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Data Inicial</label>
-                                        <input 
-                                            type="date" 
-                                            value={reportStartDate} 
+                                        <input
+                                            type="date"
+                                            value={reportStartDate}
                                             onChange={(e) => handleDateRangeChange('start', e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Data Final</label>
-                                        <input 
-                                            type="date" 
-                                            value={reportEndDate} 
+                                        <input
+                                            type="date"
+                                            value={reportEndDate}
                                             onChange={(e) => handleDateRangeChange('end', e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Filtrar Equipamento</label>
-                                        <select 
-                                            value={reportVehicleId} 
+                                        <select
+                                            value={reportVehicleId}
                                             onChange={(e) => setReportVehicleId(e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         >
-                                            <option value="">Todos os Equipamentos</option>
-                                            {getObraVehicles.map(v => {
-                                                const label = `${v.registroInterno} - ${v.tipo} - ${v.marca} - ${v.modelo}`;
-                                                return (
-                                                    <option key={v.id} value={v.id}>{label}</option>
-                                                );
-                                            })}
+                                            <option value="">Todos os equipamentos</option>
+                                            {(reportStartDate && reportEndDate) ? (
+                                                <>
+                                                    {vehiclesWithDataInPeriod.length > 0 && (
+                                                        <optgroup label={`Com registros no período (${vehiclesWithDataInPeriod.length})`}>
+                                                            {vehiclesWithDataInPeriod.map(v => (
+                                                                <option key={v.id} value={v.id}>
+                                                                    {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    )}
+                                                    {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).length > 0 && (
+                                                        <optgroup label={`Sem registros no período (${getObraVehicles.length - vehiclesWithDataInPeriod.length})`}>
+                                                            {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).map(v => (
+                                                                <option key={v.id} value={v.id}>
+                                                                    {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                getObraVehicles.map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                    </option>
+                                                ))
+                                            )}
                                         </select>
                                     </div>
                                     <div className="flex gap-2">
