@@ -1,9 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
     Download, Search, Save, Lock, ArrowRight, User, Printer, X,
-    Trash2, Copy, ChevronLeft, ChevronRight, Building2
     Trash2, Copy, ChevronLeft, ChevronRight, Building2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -95,23 +93,6 @@ const BillingPage = ({
             setActiveTab('relatorio');
         }
     }, [isViewer, activeTab]);
-
-    // Fechar combobox ao clicar fora
-    useEffect(() => {
-        const handleMouseDown = (e) => {
-            if (obraComboboxRef.current && !obraComboboxRef.current.contains(e.target)) {
-                setObraDropdownOpen(false);
-            }
-            if (monthPickerReportRef.current && !monthPickerReportRef.current.contains(e.target)) {
-                setShowMonthPickerReport(false);
-            }
-            if (monthPickerControlRef.current && !monthPickerControlRef.current.contains(e.target)) {
-                setShowMonthPickerControl(false);
-            }
-        };
-        document.addEventListener('mousedown', handleMouseDown);
-        return () => document.removeEventListener('mousedown', handleMouseDown);
-    }, []);
 
     // Fechar combobox ao clicar fora
     useEffect(() => {
@@ -363,24 +344,23 @@ const BillingPage = ({
     }, [reportData, getObraVehicles, reportStartDate, reportEndDate]);
 
     const getDefaultOperator = () => {
-    // 1. Tenta pegar do último log preenchido nesta tela (comportamento atual)
-    if (dailyLogs.length > 0) {
-        const lastLog = dailyLogs.find(l => l.employeeId);
-        if (lastLog) return lastLog.employeeId;
-    }
-    
-    const obra = obras.find(o => o.id === selectedObraId);
-    if (!obra) return '';
+        if (dailyLogs.length > 0) {
+            const lastLog = dailyLogs.find(l => l.employeeId);
+            if (lastLog) return lastLog.employeeId;
+        }
+        
+        const obra = obras.find(o => o.id === selectedObraId);
+        if (!obra) return '';
 
-    // 2. MODIFICAÇÃO: Busca no histórico de veículos da obra, 
-    // mesmo que já tenha data de saída (dataSaida)
-    const allocations = obra.historicoVeiculos
-        .filter(h => h.veiculoId === controlVehicleId)
-        .sort((a, b) => new Date(b.dataEntrada) - new Date(a.dataEntrada));
+        // 2. MODIFICAÇÃO: Busca no histórico de veículos da obra, 
+        // mesmo que já tenha data de saída (dataSaida)
+        const allocations = obra.historicoVeiculos
+            .filter(h => h.veiculoId === controlVehicleId)
+            .sort((a, b) => new Date(b.dataEntrada) - new Date(a.dataEntrada));
 
-    // Retorna o operador da alocação mais recente encontrada
-    return allocations.length > 0 ? allocations[0].employeeId : '';
-};
+        // Retorna o operador da alocação mais recente encontrada
+        return allocations.length > 0 ? allocations[0].employeeId : '';
+    };
 
     // --- HELPERS DE NAVEGAÇÃO E COMBOBOX ---
 
@@ -671,7 +651,6 @@ const BillingPage = ({
         }
         if (field === 'start') setReportStartDate(value);
         else setReportEndDate(value);
-        setPeriodPreset('custom');
         setPeriodPreset('custom');
     };
 
@@ -1025,45 +1004,9 @@ const BillingPage = ({
                         </div>
                     )}
 
-                    {/* Card de contexto da obra */}
-                    <div className={`flex flex-wrap items-center gap-4 px-4 py-3 rounded-lg mb-4 border ${obraIsActive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                        <Building2 size={20} className={obraIsActive ? 'text-green-600' : 'text-red-500'} />
-                        <div className="flex-1 min-w-0">
-                            <p className={`font-bold text-sm truncate ${obraIsActive ? 'text-green-800' : 'text-red-700'}`}>{selectedObra?.nome}</p>
-                            <p className="text-xs text-gray-500">
-                                {selectedObra?.dataInicio ? formatDateToBR(selectedObra.dataInicio) : '?'}
-                                {' → '}
-                                {selectedObra?.dataFim ? formatDateToBR(selectedObra.dataFim) : 'Em andamento'}
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs">
-                            <span className="text-gray-500">
-                                <span className="font-bold text-gray-700">{getObraVehicles.filter(v => v.statusNaObra === 'presente').length}</span> equip. ativos
-                            </span>
-                            <span className={`px-2 py-0.5 rounded-full font-bold ${obraIsActive ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-700'}`}>
-                                {obraIsActive ? 'Ativa' : 'Finalizada'}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Aviso de alterações não salvas */}
-                    {activeTab === 'controle' && Object.keys(localChanges).length > 0 && (
-                        <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-2.5 mb-4 text-sm">
-                            <p className="text-amber-800 font-medium">
-                                <AlertTriangle size={15} className="inline mr-1.5 mb-0.5" />
-                                Você tem <span className="font-bold">{Object.keys(localChanges).length}</span> dia(s) com alterações não salvas.
-                            </p>
-                            <button onClick={handleSaveDailyLogs} disabled={isSaving}
-                                className="px-3 py-1 bg-amber-500 text-white rounded text-xs font-bold hover:bg-amber-600 disabled:opacity-60 transition">
-                                {isSaving ? 'Salvando...' : 'Salvar agora'}
-                            </button>
-                        </div>
-                    )}
-
                     {/* Abas */}
                     <div className="flex border-b border-gray-300 mb-6">
                         {!isViewer && (
-                            <button
                             <button
                                 onClick={() => setActiveTab('controle')}
                                 className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
@@ -1071,7 +1014,6 @@ const BillingPage = ({
                                 <Clock size={18}/> Controle Diário
                             </button>
                         )}
-                        <button
                         <button
                             onClick={() => setActiveTab('relatorio')}
                             className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'relatorio' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
@@ -1088,30 +1030,10 @@ const BillingPage = ({
                                     <label className="block text-xs font-medium text-gray-700 mb-1">Equipamento</label>
                                     <select
                                         value={controlVehicleId}
-                                    <select
-                                        value={controlVehicleId}
                                         onChange={(e) => setControlVehicleId(e.target.value)}
                                         className="w-full p-2 border rounded text-sm bg-white"
                                     >
                                         <option value="">-- Selecione o Equipamento --</option>
-                                        {getObraVehicles.filter(v => v.statusNaObra === 'presente').length > 0 && (
-                                            <optgroup label="Presentes na obra">
-                                                {getObraVehicles.filter(v => v.statusNaObra === 'presente').map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        )}
-                                        {getObraVehicles.filter(v => v.statusNaObra === 'historico').length > 0 && (
-                                            <optgroup label="Saíram da obra (histórico)">
-                                                {getObraVehicles.filter(v => v.statusNaObra === 'historico').map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        )}
                                         {getObraVehicles.filter(v => v.statusNaObra === 'presente').length > 0 && (
                                             <optgroup label="Presentes na obra">
                                                 {getObraVehicles.filter(v => v.statusNaObra === 'presente').map(v => (
@@ -1177,49 +1099,6 @@ const BillingPage = ({
                                             Hoje
                                         </button>
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <button onClick={() => navigateMonth(-1)} title="Mês anterior"
-                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
-                                            <ChevronLeft size={16} />
-                                        </button>
-                                        <div className="relative" ref={monthPickerControlRef}>
-                                            <button
-                                                onClick={() => { setControlPickerYear(parseInt(controlMonth.split('-')[0])); setShowMonthPickerControl(v => !v); }}
-                                                className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-yellow-50 hover:border-yellow-400 transition"
-                                                title="Selecionar mês/ano"
-                                            >
-                                                {formatMonthLabel(controlMonth)}
-                                            </button>
-                                            {showMonthPickerControl && (
-                                                <div className="absolute z-40 top-full mt-1 left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <button onClick={() => setControlPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
-                                                        <span className="font-bold text-sm text-gray-700">{controlPickerYear}</span>
-                                                        <button onClick={() => setControlPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
-                                                    </div>
-                                                    <div className="grid grid-cols-3 gap-1">
-                                                        {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
-                                                            const isSelected = controlMonth === `${controlPickerYear}-${String(i+1).padStart(2,'0')}`;
-                                                            return (
-                                                                <button key={i} onClick={() => applyMonthToControl(controlPickerYear, i)}
-                                                                    className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
-                                                                    {m}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <button onClick={() => navigateMonth(1)} title="Próximo mês"
-                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
-                                            <ChevronRight size={16} />
-                                        </button>
-                                        <button onClick={scrollToToday} title="Ir para hoje"
-                                            className="px-2 py-2 rounded border bg-white hover:bg-yellow-50 hover:border-yellow-400 transition text-xs font-bold text-yellow-600 whitespace-nowrap">
-                                            Hoje
-                                        </button>
-                                    </div>
                                 </div>
                                 <div className="w-full md:w-auto">
                                     <button
@@ -1241,22 +1120,6 @@ const BillingPage = ({
                                     </button>
                                 </div>
                             </div>
-
-                            {/* Indicador de progresso do mês */}
-                            {monthProgress && (
-                                <div className="bg-white rounded-lg shadow px-4 py-3">
-                                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1.5">
-                                        <span>{monthProgress.filled} de {monthProgress.total} dias úteis preenchidos</span>
-                                        <span className="font-bold">{monthProgress.total > 0 ? Math.round((monthProgress.filled / monthProgress.total) * 100) : 0}%</span>
-                                    </div>
-                                    <div className="w-full bg-gray-100 rounded-full h-2">
-                                        <div
-                                            className={`h-2 rounded-full transition-all duration-300 ${monthProgress.total > 0 && (monthProgress.filled / monthProgress.total) >= 0.8 ? 'bg-green-500' : 'bg-yellow-400'}`}
-                                            style={{ width: `${monthProgress.total > 0 ? (monthProgress.filled / monthProgress.total) * 100 : 0}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            )}
 
                             {/* Indicador de progresso do mês */}
                             {monthProgress && (
@@ -1343,7 +1206,6 @@ const BillingPage = ({
                                                         return (
                                                             <tr
                                                                 key={dayDate}
-                                                                ref={isToday ? todayRowRef : null}
                                                                 ref={isToday ? todayRowRef : null}
                                                                 className={`hover:bg-gray-50 transition-colors ${rowBg} ${isActive ? 'border-l-2 border-yellow-400' : 'border-l-2 border-transparent'}`}
                                                                 onFocus={() => setActiveRowDate(dayDate)}
@@ -1535,58 +1397,9 @@ const BillingPage = ({
                                 </div>
 
 
-                                {/* Atalhos de período */}
-                                <div className="flex flex-wrap gap-2 items-center">
-                                    {[
-                                        { key: 'week', label: 'Esta semana' },
-                                        { key: 'month', label: 'Este mês' },
-                                        { key: 'lastmonth', label: 'Mês anterior' },
-                                        { key: '3months', label: 'Últimos 3 meses' },
-                                        { key: 'custom', label: 'Personalizado' },
-                                    ].map(p => (
-                                        <button key={p.key} onClick={() => p.key === 'custom' ? setPeriodPreset('custom') : applyPreset(p.key)}
-                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${periodPreset === p.key ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
-                                            {p.label}
-                                        </button>
-                                    ))}
-
-                                    {/* Seletor de mês específico */}
-                                    <div className="relative" ref={monthPickerReportRef}>
-                                        <button
-                                            onClick={() => { setReportPickerYear(new Date().getFullYear()); setShowMonthPickerReport(v => !v); }}
-                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1 ${periodPreset === 'specificMonth' ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
-                                            <Calendar size={12}/> Mês específico
-                                        </button>
-                                        {showMonthPickerReport && (
-                                            <div className="absolute z-40 top-full mt-1 left-0 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <button onClick={() => setReportPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
-                                                    <span className="font-bold text-sm text-gray-700">{reportPickerYear}</span>
-                                                    <button onClick={() => setReportPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
-                                                </div>
-                                                <div className="grid grid-cols-3 gap-1">
-                                                    {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
-                                                        const isSelected = periodPreset === 'specificMonth' &&
-                                                            reportStartDate === `${reportPickerYear}-${String(i+1).padStart(2,'0')}-01`;
-                                                        return (
-                                                            <button key={i} onClick={() => applyMonthToReport(reportPickerYear, i)}
-                                                                className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
-                                                                {m}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Data Inicial</label>
-                                        <input
-                                            type="date"
-                                            value={reportStartDate}
                                         <input
                                             type="date"
                                             value={reportStartDate}
@@ -1599,9 +1412,6 @@ const BillingPage = ({
                                         <input
                                             type="date"
                                             value={reportEndDate}
-                                        <input
-                                            type="date"
-                                            value={reportEndDate}
                                             onChange={(e) => handleDateRangeChange('end', e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         />
@@ -1610,40 +1420,9 @@ const BillingPage = ({
                                         <label className="block text-xs font-medium text-gray-700">Filtrar Equipamento</label>
                                         <select
                                             value={reportVehicleId}
-                                        <select
-                                            value={reportVehicleId}
                                             onChange={(e) => setReportVehicleId(e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         >
-                                            <option value="">Todos os equipamentos</option>
-                                            {(reportStartDate && reportEndDate) ? (
-                                                <>
-                                                    {vehiclesWithDataInPeriod.length > 0 && (
-                                                        <optgroup label={`Com registros no período (${vehiclesWithDataInPeriod.length})`}>
-                                                            {vehiclesWithDataInPeriod.map(v => (
-                                                                <option key={v.id} value={v.id}>
-                                                                    {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
-                                                                </option>
-                                                            ))}
-                                                        </optgroup>
-                                                    )}
-                                                    {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).length > 0 && (
-                                                        <optgroup label={`Sem registros no período (${getObraVehicles.length - vehiclesWithDataInPeriod.length})`}>
-                                                            {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).map(v => (
-                                                                <option key={v.id} value={v.id}>
-                                                                    {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
-                                                                </option>
-                                                            ))}
-                                                        </optgroup>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                getObraVehicles.map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
-                                                    </option>
-                                                ))
-                                            )}
                                             <option value="">Todos os equipamentos</option>
                                             {(reportStartDate && reportEndDate) ? (
                                                 <>
