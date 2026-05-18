@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; 
+import React, { useState, useEffect, lazy, Suspense } from 'react'; 
 import { 
     LogOut, HardHat, Building, Clock, Truck, 
     ChevronLeft, ChevronRight, Bell, Wrench, Fuel, Droplet, DollarSign, ShieldAlert,
@@ -11,31 +11,37 @@ import { io } from "socket.io-client";
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 
-// Page Imports
-import Dashboard from './pages/Dashboard';
-import ObrasPage from './pages/ObrasPage';
-import PartnersPage from './pages/PartnersPage';
-import RefuelingPage from './pages/RefuelingPage';
-import ComboioPage from './pages/ComboioPage';
-import ExpensesPage from './pages/ExpensesPage';
-import EmployeesPage from './pages/EmployeesPage';
-import ReportsPage from './pages/ReportsPage'; 
-import FinesPage from './pages/FinesPage';
-import VehiclePage from './pages/VehiclePage';
-import RevisionsPage from './pages/RevisionsPage';
-import DiarioDeBordoPage from './pages/DiarioDeBordoPage';
-import AdminPage from './pages/AdminPage'; 
-import ControleDiarioPage from './pages/ControleDiarioPage';
-import OrdersPage from './pages/OrdersPage'; 
-import InventoryPage from './pages/InventoryPage'; // NOVO MÓDULO ESTOQUE
+// LoginScreen carrega de forma síncrona (necessário antes do login, sem autenticação)
 import LoginScreen from './components/LoginScreen'; 
-import TiresPage from './pages/TiresPage'; 
-import BillingPage from './pages/BillingPage';
-import OperacionalPage from './pages/OperacionalPage';
-import SupervisorDashboard from './pages/SupervisorDashboard'; 
-import SupervisorObraDetail from './pages/SupervisorObraDetail'; 
-import SolicitacaoAbastecimentoPage from './pages/SolicitacaoAbastecimentoPage';
-import AdminSolicitacoesPage from './pages/AdminSolicitacoesPage';
+
+// ==========================================
+// Lazy Loading de Páginas (Code Splitting)
+// O bundle inicial fica enxuto — cada página só
+// é baixada quando o usuário navegar até ela.
+// ==========================================
+const Dashboard                    = lazy(() => import('./pages/Dashboard'));
+const ObrasPage                    = lazy(() => import('./pages/ObrasPage'));
+const PartnersPage                 = lazy(() => import('./pages/PartnersPage'));
+const RefuelingPage                = lazy(() => import('./pages/RefuelingPage'));
+const ComboioPage                  = lazy(() => import('./pages/ComboioPage'));
+const ExpensesPage                 = lazy(() => import('./pages/ExpensesPage'));
+const EmployeesPage                = lazy(() => import('./pages/EmployeesPage'));
+const ReportsPage                  = lazy(() => import('./pages/ReportsPage'));
+const FinesPage                    = lazy(() => import('./pages/FinesPage'));
+const VehiclePage                  = lazy(() => import('./pages/VehiclePage'));
+const RevisionsPage                = lazy(() => import('./pages/RevisionsPage'));
+const DiarioDeBordoPage            = lazy(() => import('./pages/DiarioDeBordoPage'));
+const AdminPage                    = lazy(() => import('./pages/AdminPage'));
+const ControleDiarioPage           = lazy(() => import('./pages/ControleDiarioPage'));
+const OrdersPage                   = lazy(() => import('./pages/OrdersPage'));
+const InventoryPage                = lazy(() => import('./pages/InventoryPage'));
+const TiresPage                    = lazy(() => import('./pages/TiresPage'));
+const BillingPage                  = lazy(() => import('./pages/BillingPage'));
+const OperacionalPage              = lazy(() => import('./pages/OperacionalPage'));
+const SupervisorDashboard          = lazy(() => import('./pages/SupervisorDashboard'));
+const SupervisorObraDetail         = lazy(() => import('./pages/SupervisorObraDetail'));
+const SolicitacaoAbastecimentoPage = lazy(() => import('./pages/SolicitacaoAbastecimentoPage'));
+const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
 
 import apiClient from './services/apiClient'; 
 import { 
@@ -45,6 +51,16 @@ import {
     equipmentTypesForHours, 
     getVehicleMainReading
 } from './utils/vehicleRules';
+
+// ==========================================
+// Fallback de Carregamento de Página
+// Reutiliza o mesmo Loader amarelo do sistema
+// ==========================================
+const PageFallback = () => (
+    <div className="flex items-center justify-center h-full text-lg font-semibold text-gray-500">
+        <Loader size={32} className="animate-spin mr-3 text-yellow-500" /> Carregando...
+    </div>
+);
 
 // ==========================================
 // Modais Globais
@@ -656,14 +672,16 @@ const AppContent = () => {
             );
         }
         return (
-            <SolicitacaoAbastecimentoPage 
-                apiClient={apiClient} 
-                user={user} 
-                vehicles={vehicles} 
-                obras={obras} 
-                partners={partners} 
-                setAlertMessage={setAlertMessage} 
-            />
+            <Suspense fallback={<PageFallback />}>
+                <SolicitacaoAbastecimentoPage 
+                    apiClient={apiClient} 
+                    user={user} 
+                    vehicles={vehicles} 
+                    obras={obras} 
+                    partners={partners} 
+                    setAlertMessage={setAlertMessage} 
+                />
+            </Suspense>
         );
     }
 
@@ -810,7 +828,11 @@ const AppContent = () => {
                             <Loader size={32} className="animate-spin mr-3 text-yellow-500" /> Sincronizando dados...
                         </div>
                     ) : (
-                        renderPage()
+                        // Suspense envolve apenas a área de conteúdo (dentro do main),
+                        // mantendo a Sidebar sempre visível durante a transição de páginas.
+                        <Suspense fallback={<PageFallback />}>
+                            {renderPage()}
+                        </Suspense>
                     )}
                 </div>
             </main>

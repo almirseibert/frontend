@@ -194,3 +194,22 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
 
     return issues;
 };
+
+// =============================================================================
+// COMPATIBILIDADE CommonJS (Node.js / Backend)
+// Permite que o cronService.js e outros módulos backend façam:
+//   const { vehicleGroups } = require('../utils/vehicleRules');
+// sem quebrar os imports ES Module do frontend React.
+// =============================================================================
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        vehicleGroups,
+        extraObraOptions,
+        operationalSubGroups,
+        equipmentTypesForHours,
+        getAllowedReadingTypes,
+        getVehicleMainReading,
+        checkReadingConsistency,
+        checkVehicleRestrictions,
+    };
+}
