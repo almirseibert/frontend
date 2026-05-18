@@ -1,13 +1,15 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
     Download, Search, Save, Lock, ArrowRight, User, Printer, X,
-    Trash2, Copy
+    Trash2, Copy, ChevronLeft, ChevronRight, Building2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
+
+const RECENT_OBRAS_KEY = 'mak_billing_recent_obras';
 
 const JUSTIFICATIVA_LABELS = {
     chuva: 'Chuva',
@@ -55,6 +57,35 @@ const BillingPage = ({
     const [reportData, setReportData] = useState([]);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [pendingDateChange, setPendingDateChange] = useState(null);
+    const [periodPreset, setPeriodPreset] = useState('custom');
+
+    // --- HISTÓRICO DE OBRAS RECENTES ---
+    const [recentObraIds, setRecentObraIds] = useState(() => {
+        try {
+            const stored = localStorage.getItem(RECENT_OBRAS_KEY);
+            return stored ? JSON.parse(stored) : [];
+        } catch {
+            return [];
+        }
+    });
+
+    // --- ESTADOS COMBOBOX DE OBRA ---
+    const [obraSearch, setObraSearch] = useState('');
+    const [obraDropdownOpen, setObraDropdownOpen] = useState(false);
+    const obraComboboxRef = useRef(null);
+
+    // --- ESTADOS SELETOR DE MÊS (RELATÓRIO) ---
+    const [showMonthPickerReport, setShowMonthPickerReport] = useState(false);
+    const [reportPickerYear, setReportPickerYear] = useState(new Date().getFullYear());
+    const monthPickerReportRef = useRef(null);
+
+    // --- ESTADOS SELETOR DE MÊS (CONTROLE) ---
+    const [showMonthPickerControl, setShowMonthPickerControl] = useState(false);
+    const [controlPickerYear, setControlPickerYear] = useState(new Date().getFullYear());
+    const monthPickerControlRef = useRef(null);
+
+    // --- REFS ---
+    const todayRowRef = useRef(null);
 
     // Efeito para garantir que visualizador nunca acesse a aba controle
     useEffect(() => {
@@ -62,6 +93,23 @@ const BillingPage = ({
             setActiveTab('relatorio');
         }
     }, [isViewer, activeTab]);
+
+    // Fechar combobox ao clicar fora
+    useEffect(() => {
+        const handleMouseDown = (e) => {
+            if (obraComboboxRef.current && !obraComboboxRef.current.contains(e.target)) {
+                setObraDropdownOpen(false);
+            }
+            if (monthPickerReportRef.current && !monthPickerReportRef.current.contains(e.target)) {
+                setShowMonthPickerReport(false);
+            }
+            if (monthPickerControlRef.current && !monthPickerControlRef.current.contains(e.target)) {
+                setShowMonthPickerControl(false);
+            }
+        };
+        document.addEventListener('mousedown', handleMouseDown);
+        return () => document.removeEventListener('mousedown', handleMouseDown);
+    }, []);
 
     // ===================================================================================
     // HELPERS DE DATA E HORA
@@ -238,6 +286,63 @@ const BillingPage = ({
     }, [obras]);
 
 
+    // Filtragem de obras para o combobox
+    const filteredObras = useMemo(() => {
+        const normalize = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+        const q = normalize(obraSearch);
+        const filter = list => q ? list.filter(o => normalize(o.nome).includes(q)) : list;
+        return { active: filter(activeObras), inactive: filter(inactiveObras) };
+    }, [obraSearch, activeObras, inactiveObras]);
+
+    // Obra selecionada e status
+    const selectedObra = useMemo(() => obras.find(o => o.id === selectedObraId), [selectedObraId, obras]);
+    const obraIsActive = useMemo(() => {
+        if (!selectedObra) return false;
+        if (selectedObra.status === 'Finalizada' || selectedObra.status === 'Concluída' || selectedObra.status === 'Inativa') return false;
+        if (selectedObra.dataFim) {
+            const fim = new Date(selectedObra.dataFim);
+            fim.setHours(23, 59, 59, 999);
+            return fim >= new Date();
+        }
+        return true;
+    }, [selectedObra]);
+
+    // Progresso de preenchimento do mês
+    const monthProgress = useMemo(() => {
+        if (!controlVehicleId) return null;
+        const days = getDaysInMonth(controlMonth);
+        const workdays = days.filter(d => !isWeekend(d));
+        const filled = workdays.filter(d => {
+            const log = dailyLogs.find(l => l.date.startsWith(d)) || {};
+            const changes = localChanges[d] || {};
+            if (changes._clear) return false;
+            const justTipo = changes.justificativaTipo !== undefined ? changes.justificativaTipo : (log.justificativaTipo || null);
+            if (justTipo) return true;
+            const mS = changes.morningStart !== undefined ? changes.morningStart : (log.morningStart || '');
+            const mE = changes.morningEnd !== undefined ? changes.morningEnd : (log.morningEnd || '');
+            const aS = changes.afternoonStart !== undefined ? changes.afternoonStart : (log.afternoonStart || '');
+            const aE = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (log.afternoonEnd || '');
+            return !!(mS || mE || aS || aE);
+        });
+        return { filled: filled.length, total: workdays.length };
+    }, [controlMonth, dailyLogs, localChanges, controlVehicleId]);
+
+    // Obras recentes resolvidas (filtra IDs que não existem mais)
+    const recentObras = useMemo(() => {
+        return recentObraIds
+            .map(id => obras.find(o => o.id === id))
+            .filter(Boolean);
+    }, [recentObraIds, obras]);
+
+    // Equipamentos que possuem horas no período selecionado
+    const vehiclesWithDataInPeriod = useMemo(() => {
+        if (!reportData.length || !reportStartDate || !reportEndDate) return getObraVehicles;
+        const idsWithData = new Set(
+            reportData.filter(l => parseFloat(l.totalHours || 0) > 0 || l.justificativaTipo).map(l => l.vehicleId)
+        );
+        return getObraVehicles.filter(v => idsWithData.has(v.id));
+    }, [reportData, getObraVehicles, reportStartDate, reportEndDate]);
+
     const getDefaultOperator = () => {
     // 1. Tenta pegar do último log preenchido nesta tela (comportamento atual)
     if (dailyLogs.length > 0) {
@@ -257,6 +362,97 @@ const BillingPage = ({
     // Retorna o operador da alocação mais recente encontrada
     return allocations.length > 0 ? allocations[0].employeeId : '';
 };
+
+    // --- HELPERS DE NAVEGAÇÃO E COMBOBOX ---
+
+    const formatMonthLabel = (yearMonth) => {
+        if (!yearMonth) return '';
+        const [year, month] = yearMonth.split('-').map(Number);
+        const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        return `${months[month - 1]} ${year}`;
+    };
+
+    const navigateMonth = (direction) => {
+        const [year, month] = controlMonth.split('-').map(Number);
+        const date = new Date(year, month - 1 + direction, 1);
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        setControlMonth(`${y}-${m}`);
+    };
+
+    const scrollToToday = () => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const todayMonth = `${y}-${m}`;
+        if (controlMonth !== todayMonth) {
+            setControlMonth(todayMonth);
+            setTimeout(() => {
+                if (todayRowRef.current) todayRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 200);
+        } else {
+            if (todayRowRef.current) todayRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+
+    const applyPreset = (preset) => {
+        const now = new Date();
+        let start, end;
+        if (preset === 'week') {
+            const day = now.getDay();
+            start = new Date(now); start.setDate(now.getDate() - day);
+            end = new Date(now); end.setDate(now.getDate() + (6 - day));
+        } else if (preset === 'month') {
+            start = new Date(now.getFullYear(), now.getMonth(), 1);
+            end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        } else if (preset === 'lastmonth') {
+            start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            end = new Date(now.getFullYear(), now.getMonth(), 0);
+        } else if (preset === '3months') {
+            start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+            end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        }
+        const fmt = d => d.toISOString().split('T')[0];
+        setReportStartDate(fmt(start));
+        setReportEndDate(fmt(end));
+        setPeriodPreset(preset);
+    };
+
+    const applyMonthToReport = (year, monthIndex) => {
+        const start = new Date(year, monthIndex, 1);
+        const end = new Date(year, monthIndex + 1, 0);
+        const fmt = d => d.toISOString().split('T')[0];
+        setReportStartDate(fmt(start));
+        setReportEndDate(fmt(end));
+        setPeriodPreset('specificMonth');
+        setShowMonthPickerReport(false);
+    };
+
+    const applyMonthToControl = (year, monthIndex) => {
+        const m = String(monthIndex + 1).padStart(2, '0');
+        setControlMonth(`${year}-${m}`);
+        setShowMonthPickerControl(false);
+    };
+
+    const saveRecentObra = (obraId) => {
+        const updated = [obraId, ...recentObraIds.filter(id => id !== obraId)].slice(0, 10);
+        setRecentObraIds(updated);
+        try { localStorage.setItem(RECENT_OBRAS_KEY, JSON.stringify(updated)); } catch {}
+    };
+
+    const handleObraSelect = (obra) => {
+        setSelectedObraId(obra.id);
+        setObraSearch(obra.nome);
+        setObraDropdownOpen(false);
+        saveRecentObra(obra.id);
+    };
+
+    const handleObraClear = () => {
+        setSelectedObraId('');
+        setObraSearch('');
+        setObraDropdownOpen(false);
+    };
 
     // --- API CALLS ---
 
@@ -456,6 +652,7 @@ const BillingPage = ({
         }
         if (field === 'start') setReportStartDate(value);
         else setReportEndDate(value);
+        setPeriodPreset('custom');
     };
 
     const confirmDateChange = () => {
@@ -676,54 +873,148 @@ const BillingPage = ({
                 <FileText className="text-yellow-500" /> Faturamento & Controle
             </h1>
 
-            {/* Seleção de Obra com Grupo Ativas/Inativas */}
+            {/* Seleção de Obra — Combobox com busca */}
             <div className="bg-white p-4 rounded-lg shadow mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Selecione a Obra</label>
-                <select 
-                    value={selectedObraId} 
-                    onChange={(e) => setSelectedObraId(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
-                >
-                    <option value="">-- Selecione --</option>
-                    
-                    {/* Obras Ativas */}
-                    <optgroup label="Obras Ativas">
-                        {activeObras.map(obra => (
-                            <option key={obra.id} value={obra.id} className="text-gray-900 font-medium">
-                                {obra.nome}
-                            </option>
-                        ))}
-                    </optgroup>
+                <div className="relative" ref={obraComboboxRef}>
+                    <div className="flex items-center border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-yellow-400 focus-within:border-yellow-500">
+                        <Search size={16} className="ml-3 text-gray-400 flex-shrink-0" />
+                        <input
+                            type="text"
+                            className="flex-1 p-2 outline-none text-sm bg-transparent"
+                            placeholder="Buscar obra pelo nome..."
+                            value={obraDropdownOpen ? obraSearch : (selectedObra?.nome || '')}
+                            onFocus={() => { setObraSearch(''); setObraDropdownOpen(true); }}
+                            onChange={(e) => setObraSearch(e.target.value)}
+                        />
+                        {selectedObraId && (
+                            <button onClick={handleObraClear} className="p-2 text-gray-400 hover:text-red-500 transition">
+                                <X size={16} />
+                            </button>
+                        )}
+                    </div>
 
-                    {/* Obras Finalizadas (se houver) */}
-                    {inactiveObras.length > 0 && (
-                        <optgroup label="Obras Finalizadas (Arquivo)" className="text-red-600 font-bold">
-                            {inactiveObras.map(obra => (
-                                <option key={obra.id} value={obra.id} className="text-red-600">
-                                    {obra.nome} (Finalizada)
-                                </option>
-                            ))}
-                        </optgroup>
+                    {obraDropdownOpen && (
+                        <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-72 overflow-y-auto">
+                            {filteredObras.active.length === 0 && filteredObras.inactive.length === 0 && (
+                                <p className="p-4 text-sm text-gray-500 text-center">Nenhuma obra encontrada.</p>
+                            )}
+                            {filteredObras.active.length > 0 && (
+                                <>
+                                    <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b">Obras Ativas</div>
+                                    {filteredObras.active.map(obra => (
+                                        <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-yellow-50 hover:text-yellow-800 transition flex items-center gap-2 ${selectedObraId === obra.id ? 'bg-yellow-50 font-semibold text-yellow-800' : 'text-gray-800'}`}>
+                                            <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                                            {obra.nome}
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                            {filteredObras.inactive.length > 0 && (
+                                <>
+                                    <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-t mt-1">Obras Finalizadas</div>
+                                    {filteredObras.inactive.map(obra => (
+                                        <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 hover:text-red-700 transition flex items-center gap-2 ${selectedObraId === obra.id ? 'bg-red-50 font-semibold text-red-700' : 'text-gray-500'}`}>
+                                            <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                                            {obra.nome} <span className="text-xs opacity-60">(Finalizada)</span>
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                        </div>
                     )}
-                </select>
+                </div>
             </div>
+
+            {/* Estado vazio orientado */}
+            {!selectedObraId && (
+                <div className="bg-white rounded-lg shadow p-12 flex flex-col items-center text-center">
+                    <Building2 size={48} className="text-gray-200 mb-4" />
+                    <p className="text-gray-500 font-medium mb-1">Nenhuma obra selecionada</p>
+                    <p className="text-gray-400 text-sm mb-6">Selecione uma obra acima para acessar o controle de horas ou gerar relatórios.</p>
+
+                    {recentObras.length > 0 ? (
+                        <div className="flex flex-wrap justify-center gap-2">
+                            <span className="text-xs text-gray-400 w-full mb-1">Acessadas recentemente:</span>
+                            {recentObras.slice(0, 5).map(obra => {
+                                const isActive = activeObras.some(a => a.id === obra.id);
+                                return (
+                                    <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                        className={`px-3 py-1.5 text-xs rounded-full border transition font-medium ${
+                                            isActive
+                                                ? 'bg-yellow-50 border-yellow-200 text-yellow-800 hover:bg-yellow-100'
+                                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                                        }`}>
+                                        {obra.nome}
+                                        {!isActive && <span className="ml-1 opacity-50 text-[10px]">(finalizada)</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : activeObras.length > 0 && (
+                        <div className="flex flex-wrap justify-center gap-2">
+                            <span className="text-xs text-gray-400 w-full mb-1">Acesso rápido:</span>
+                            {activeObras.slice(0, 4).map(obra => (
+                                <button key={obra.id} onClick={() => handleObraSelect(obra)}
+                                    className="px-3 py-1.5 text-xs bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-full hover:bg-yellow-100 transition font-medium">
+                                    {obra.nome}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {selectedObraId && (
                 <>
+                    {/* Card de contexto da obra */}
+                    <div className={`flex flex-wrap items-center gap-4 px-4 py-3 rounded-lg mb-4 border ${obraIsActive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        <Building2 size={20} className={obraIsActive ? 'text-green-600' : 'text-red-500'} />
+                        <div className="flex-1 min-w-0">
+                            <p className={`font-bold text-sm truncate ${obraIsActive ? 'text-green-800' : 'text-red-700'}`}>{selectedObra?.nome}</p>
+                            <p className="text-xs text-gray-500">
+                                {selectedObra?.dataInicio ? formatDateToBR(selectedObra.dataInicio) : '?'}
+                                {' → '}
+                                {selectedObra?.dataFim ? formatDateToBR(selectedObra.dataFim) : 'Em andamento'}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                            <span className="text-gray-500">
+                                <span className="font-bold text-gray-700">{getObraVehicles.filter(v => v.statusNaObra === 'presente').length}</span> equip. ativos
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full font-bold ${obraIsActive ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-700'}`}>
+                                {obraIsActive ? 'Ativa' : 'Finalizada'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Aviso de alterações não salvas */}
+                    {activeTab === 'controle' && Object.keys(localChanges).length > 0 && (
+                        <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-2.5 mb-4 text-sm">
+                            <p className="text-amber-800 font-medium">
+                                <AlertTriangle size={15} className="inline mr-1.5 mb-0.5" />
+                                Você tem <span className="font-bold">{Object.keys(localChanges).length}</span> dia(s) com alterações não salvas.
+                            </p>
+                            <button onClick={handleSaveDailyLogs} disabled={isSaving}
+                                className="px-3 py-1 bg-amber-500 text-white rounded text-xs font-bold hover:bg-amber-600 disabled:opacity-60 transition">
+                                {isSaving ? 'Salvando...' : 'Salvar agora'}
+                            </button>
+                        </div>
+                    )}
+
                     {/* Abas */}
                     <div className="flex border-b border-gray-300 mb-6">
-                        {/* TRAVA DE VISUALIZADOR:
-                            Se isViewer for true, esta aba NÃO é renderizada.
-                        */}
                         {!isViewer && (
-                            <button 
+                            <button
                                 onClick={() => setActiveTab('controle')}
                                 className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
                             >
                                 <Clock size={18}/> Controle Diário
                             </button>
                         )}
-                        <button 
+                        <button
                             onClick={() => setActiveTab('relatorio')}
                             className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'relatorio' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
                         >
@@ -737,38 +1028,77 @@ const BillingPage = ({
                             <div className="flex flex-col md:flex-row items-end gap-4 bg-gray-50 p-4 rounded-md border">
                                 <div className="flex-1 w-full">
                                     <label className="block text-xs font-medium text-gray-700 mb-1">Equipamento</label>
-                                    <select 
-                                        value={controlVehicleId} 
+                                    <select
+                                        value={controlVehicleId}
                                         onChange={(e) => setControlVehicleId(e.target.value)}
                                         className="w-full p-2 border rounded text-sm bg-white"
                                     >
                                         <option value="">-- Selecione o Equipamento --</option>
-                                        {getObraVehicles.map(v => {
-                                            const label = `${v.registroInterno} - ${v.tipo} - ${v.marca} - ${v.modelo}`;
-                                            const isPresent = v.statusNaObra === 'presente';
-                                            const statusText = isPresent ? '(PRESENTE)' : '(NÃO ESTÁ MAIS NA OBRA)';
-                                            const colorStyle = isPresent ? 'green' : 'red';
-
-                                            return (
-                                                <option 
-                                                    key={v.id} 
-                                                    value={v.id} 
-                                                    style={{ color: colorStyle, fontWeight: isPresent ? 'bold' : 'normal' }}
-                                                >
-                                                    {label} {statusText}
-                                                </option>
-                                            );
-                                        })}
+                                        {getObraVehicles.filter(v => v.statusNaObra === 'presente').length > 0 && (
+                                            <optgroup label="Presentes na obra">
+                                                {getObraVehicles.filter(v => v.statusNaObra === 'presente').map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                        {getObraVehicles.filter(v => v.statusNaObra === 'historico').length > 0 && (
+                                            <optgroup label="Saíram da obra (histórico)">
+                                                {getObraVehicles.filter(v => v.statusNaObra === 'historico').map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
                                     </select>
                                 </div>
                                 <div className="w-full md:w-auto">
                                     <label className="block text-xs font-medium text-gray-700 mb-1">Mês de Referência</label>
-                                    <input 
-                                        type="month" 
-                                        value={controlMonth} 
-                                        onChange={(e) => setControlMonth(e.target.value)}
-                                        className="w-full p-2 border rounded text-sm"
-                                    />
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => navigateMonth(-1)} title="Mês anterior"
+                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <div className="relative" ref={monthPickerControlRef}>
+                                            <button
+                                                onClick={() => { setControlPickerYear(parseInt(controlMonth.split('-')[0])); setShowMonthPickerControl(v => !v); }}
+                                                className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-yellow-50 hover:border-yellow-400 transition"
+                                                title="Selecionar mês/ano"
+                                            >
+                                                {formatMonthLabel(controlMonth)}
+                                            </button>
+                                            {showMonthPickerControl && (
+                                                <div className="absolute z-40 top-full mt-1 left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <button onClick={() => setControlPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
+                                                        <span className="font-bold text-sm text-gray-700">{controlPickerYear}</span>
+                                                        <button onClick={() => setControlPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
+                                                    </div>
+                                                    <div className="grid grid-cols-3 gap-1">
+                                                        {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
+                                                            const isSelected = controlMonth === `${controlPickerYear}-${String(i+1).padStart(2,'0')}`;
+                                                            return (
+                                                                <button key={i} onClick={() => applyMonthToControl(controlPickerYear, i)}
+                                                                    className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                                                                    {m}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button onClick={() => navigateMonth(1)} title="Próximo mês"
+                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
+                                            <ChevronRight size={16} />
+                                        </button>
+                                        <button onClick={scrollToToday} title="Ir para hoje"
+                                            className="px-2 py-2 rounded border bg-white hover:bg-yellow-50 hover:border-yellow-400 transition text-xs font-bold text-yellow-600 whitespace-nowrap">
+                                            Hoje
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="w-full md:w-auto">
                                     <button
@@ -790,6 +1120,22 @@ const BillingPage = ({
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Indicador de progresso do mês */}
+                            {monthProgress && (
+                                <div className="bg-white rounded-lg shadow px-4 py-3">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1.5">
+                                        <span>{monthProgress.filled} de {monthProgress.total} dias úteis preenchidos</span>
+                                        <span className="font-bold">{monthProgress.total > 0 ? Math.round((monthProgress.filled / monthProgress.total) * 100) : 0}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-100 rounded-full h-2">
+                                        <div
+                                            className={`h-2 rounded-full transition-all duration-300 ${monthProgress.total > 0 && (monthProgress.filled / monthProgress.total) >= 0.8 ? 'bg-green-500' : 'bg-yellow-400'}`}
+                                            style={{ width: `${monthProgress.total > 0 ? (monthProgress.filled / monthProgress.total) * 100 : 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Tabela de Dias do Mês */}
                             <div className="bg-white shadow rounded-lg overflow-hidden">
@@ -860,6 +1206,7 @@ const BillingPage = ({
                                                         return (
                                                             <tr
                                                                 key={dayDate}
+                                                                ref={isToday ? todayRowRef : null}
                                                                 className={`hover:bg-gray-50 transition-colors ${rowBg} ${isActive ? 'border-l-2 border-yellow-400' : 'border-l-2 border-transparent'}`}
                                                                 onFocus={() => setActiveRowDate(dayDate)}
                                                             >
@@ -1002,39 +1349,108 @@ const BillingPage = ({
                         <div className="space-y-6">
                             <div className="bg-gray-50 p-4 rounded-lg border grid gap-4">
                                 <h3 className="text-sm font-bold text-gray-700 uppercase flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
+
+                                {/* Atalhos de período */}
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    {[
+                                        { key: 'week', label: 'Esta semana' },
+                                        { key: 'month', label: 'Este mês' },
+                                        { key: 'lastmonth', label: 'Mês anterior' },
+                                        { key: '3months', label: 'Últimos 3 meses' },
+                                        { key: 'custom', label: 'Personalizado' },
+                                    ].map(p => (
+                                        <button key={p.key} onClick={() => p.key === 'custom' ? setPeriodPreset('custom') : applyPreset(p.key)}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${periodPreset === p.key ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
+                                            {p.label}
+                                        </button>
+                                    ))}
+
+                                    {/* Seletor de mês específico */}
+                                    <div className="relative" ref={monthPickerReportRef}>
+                                        <button
+                                            onClick={() => { setReportPickerYear(new Date().getFullYear()); setShowMonthPickerReport(v => !v); }}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1 ${periodPreset === 'specificMonth' ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
+                                            <Calendar size={12}/> Mês específico
+                                        </button>
+                                        {showMonthPickerReport && (
+                                            <div className="absolute z-40 top-full mt-1 left-0 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <button onClick={() => setReportPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
+                                                    <span className="font-bold text-sm text-gray-700">{reportPickerYear}</span>
+                                                    <button onClick={() => setReportPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-1">
+                                                    {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
+                                                        const isSelected = periodPreset === 'specificMonth' &&
+                                                            reportStartDate === `${reportPickerYear}-${String(i+1).padStart(2,'0')}-01`;
+                                                        return (
+                                                            <button key={i} onClick={() => applyMonthToReport(reportPickerYear, i)}
+                                                                className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                                                                {m}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Data Inicial</label>
-                                        <input 
-                                            type="date" 
-                                            value={reportStartDate} 
+                                        <input
+                                            type="date"
+                                            value={reportStartDate}
                                             onChange={(e) => handleDateRangeChange('start', e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Data Final</label>
-                                        <input 
-                                            type="date" 
-                                            value={reportEndDate} 
+                                        <input
+                                            type="date"
+                                            value={reportEndDate}
                                             onChange={(e) => handleDateRangeChange('end', e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Filtrar Equipamento</label>
-                                        <select 
-                                            value={reportVehicleId} 
+                                        <select
+                                            value={reportVehicleId}
                                             onChange={(e) => setReportVehicleId(e.target.value)}
                                             className="w-full p-2 border rounded mt-1 text-sm"
                                         >
-                                            <option value="">Todos os Equipamentos</option>
-                                            {getObraVehicles.map(v => {
-                                                const label = `${v.registroInterno} - ${v.tipo} - ${v.marca} - ${v.modelo}`;
-                                                return (
-                                                    <option key={v.id} value={v.id}>{label}</option>
-                                                );
-                                            })}
+                                            <option value="">Todos os equipamentos</option>
+                                            {(reportStartDate && reportEndDate) ? (
+                                                <>
+                                                    {vehiclesWithDataInPeriod.length > 0 && (
+                                                        <optgroup label={`Com registros no período (${vehiclesWithDataInPeriod.length})`}>
+                                                            {vehiclesWithDataInPeriod.map(v => (
+                                                                <option key={v.id} value={v.id}>
+                                                                    {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    )}
+                                                    {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).length > 0 && (
+                                                        <optgroup label={`Sem registros no período (${getObraVehicles.length - vehiclesWithDataInPeriod.length})`}>
+                                                            {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).map(v => (
+                                                                <option key={v.id} value={v.id}>
+                                                                    {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                getObraVehicles.map(v => (
+                                                    <option key={v.id} value={v.id}>
+                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}
+                                                    </option>
+                                                ))
+                                            )}
                                         </select>
                                     </div>
                                     <div className="flex gap-2">
