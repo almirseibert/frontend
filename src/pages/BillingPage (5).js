@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
-    Download, Search, Save, Lock, ArrowRight, User, Printer, X,
-    Trash2, Copy
+    Download, Search, Save, Lock, ArrowRight, User, Printer, X
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -46,7 +45,6 @@ const BillingPage = ({
     const [localChanges, setLocalChanges] = useState({}); 
     const [isSaving, setIsSaving] = useState(false);
     const [justificativaOpenDate, setJustificativaOpenDate] = useState(null);
-    const [activeRowDate, setActiveRowDate] = useState(null);
 
     // --- ESTADOS RELATÓRIO/FATURAMENTO ---
     const [reportStartDate, setReportStartDate] = useState('');
@@ -79,20 +77,6 @@ const BillingPage = ({
         const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
         const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
         return days[date.getUTCDay()];
-    };
-
-    const getDayOfWeekShort = (dateString) => {
-        if (!dateString) return '';
-        const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
-        const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-        return days[date.getUTCDay()];
-    };
-
-    const isWeekend = (dateString) => {
-        if (!dateString) return false;
-        const date = new Date(dateString.split('T')[0] + 'T12:00:00Z');
-        const day = date.getUTCDay();
-        return day === 0 || day === 6;
     };
 
     const getDaysInMonth = (yearMonth) => {
@@ -312,12 +296,7 @@ const BillingPage = ({
         Object.keys(localChanges).forEach(dateKey => {
             const changes = localChanges[dateKey];
             const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
-
-            if (changes._clear) {
-                if (existingLog?.id) promises.push(apiClient.deleteDailyLog(existingLog.id));
-                return;
-            }
-
+            
             const justificativaTipo = changes.justificativaTipo !== undefined
                 ? changes.justificativaTipo
                 : (existingLog?.justificativaTipo || null);
@@ -339,11 +318,6 @@ const BillingPage = ({
             const morning = calculateTimeDiffDecimal(payload.morningStart, payload.morningEnd);
             const afternoon = calculateTimeDiffDecimal(payload.afternoonStart, payload.afternoonEnd);
             payload.totalHours = justificativaTipo ? '0.00' : (morning + afternoon).toFixed(2);
-
-            if (!justificativaTipo && payload.totalHours === '0.00' && !payload.observation) {
-                if (existingLog?.id) promises.push(apiClient.deleteDailyLog(existingLog.id));
-                return;
-            }
 
             promises.push(apiClient.upsertDailyLog(payload));
         });
@@ -386,56 +360,6 @@ const BillingPage = ({
             ...prev,
             [dateKey]: { ...prev[dateKey], justificativaTipo: null }
         }));
-    };
-
-    const handleClearDay = (dateKey) => {
-        setLocalChanges(prev => ({
-            ...prev,
-            [dateKey]: {
-                employeeId: '',
-                morningStart: null,
-                morningEnd: null,
-                afternoonStart: null,
-                afternoonEnd: null,
-                justificativaTipo: null,
-                observation: null,
-                _clear: true,
-            }
-        }));
-    };
-
-    const handleCloneFromLastDay = (dateKey) => {
-        const allDays = getDaysInMonth(controlMonth);
-        const currentIndex = allDays.indexOf(dateKey);
-
-        for (let i = currentIndex - 1; i >= 0; i--) {
-            const d = allDays[i];
-            const existingLog = dailyLogs.find(l => l.date.startsWith(d));
-            const changes = localChanges[d];
-
-            const localHasHours = changes && !changes._clear &&
-                (changes.morningStart || changes.morningEnd || changes.afternoonStart || changes.afternoonEnd);
-            const dbHasHours = existingLog && parseFloat(existingLog.totalHours || 0) > 0;
-
-            if (dbHasHours || localHasHours) {
-                const source = { ...existingLog, ...(changes || {}) };
-                setLocalChanges(prev => ({
-                    ...prev,
-                    [dateKey]: {
-                        ...prev[dateKey],
-                        employeeId: source.employeeId || '',
-                        morningStart: source.morningStart || null,
-                        morningEnd: source.morningEnd || null,
-                        afternoonStart: source.afternoonStart || null,
-                        afternoonEnd: source.afternoonEnd || null,
-                        justificativaTipo: null,
-                        _clear: false,
-                    }
-                }));
-                return;
-            }
-        }
-        setAlertMessage("Nenhum dia anterior com horas lançadas encontrado neste mês.");
     };
 
     const handleDateRangeChange = (field, value) => {
@@ -771,22 +695,12 @@ const BillingPage = ({
                                     />
                                 </div>
                                 <div className="w-full md:w-auto">
-                                    <button
-                                        onClick={handleSaveDailyLogs}
+                                    <button 
+                                        onClick={handleSaveDailyLogs} 
                                         disabled={isSaving || Object.keys(localChanges).length === 0}
                                         className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm font-semibold"
                                     >
-                                        {isSaving ? 'Salvando...' : (
-                                            <>
-                                                Salvar Mês
-                                                {Object.keys(localChanges).length > 0 && (
-                                                    <span className="bg-white text-green-700 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                                                        {Object.keys(localChanges).length}
-                                                    </span>
-                                                )}
-                                            </>
-                                        )}
-                                        <Save size={16} />
+                                        {isSaving ? 'Salvando...' : 'Salvar Mês'} <Save size={16} />
                                     </button>
                                 </div>
                             </div>
@@ -809,187 +723,118 @@ const BillingPage = ({
                                                     <th className="px-4 py-3">Operador</th>
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Manhã (Início - Fim)</th>
                                                     <th className="px-4 py-3 text-center" colSpan={2}>Tarde (Início - Fim)</th>
-                                                    <th className="px-4 py-3 text-center">Total</th>
+                                                    <th className="px-4 py-3">Total</th>
                                                     <th className="px-4 py-3">Obs</th>
-                                                    <th className="px-4 py-3 text-center">Ações</th>
+                                                    <th className="px-4 py-3">Justificativa</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-200">
-                                                {(() => {
-                                                    const now = new Date();
-                                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                {getDaysInMonth(controlMonth).map(dayDate => {
+                                                    const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
+                                                    const changes = localChanges[dayDate] || {};
+
+                                                    const justificativaTipo = changes.justificativaTipo !== undefined
+                                                        ? changes.justificativaTipo
+                                                        : (existingLog.justificativaTipo || null);
+
+                                                    const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
+                                                    const mStart = justificativaTipo ? '' : (changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || ''));
+                                                    const mEnd = justificativaTipo ? '' : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || ''));
+                                                    const aStart = justificativaTipo ? '' : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || ''));
+                                                    const aEnd = justificativaTipo ? '' : (changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || ''));
+                                                    const obs = changes.observation !== undefined ? changes.observation : (existingLog.observation || '');
+
                                                     const calcDiff = (s, e) => {
-                                                        if (!s || !e) return 0;
+                                                        if(!s || !e) return 0;
                                                         const [h1, m1] = s.split(':').map(Number);
                                                         const [h2, m2] = e.split(':').map(Number);
                                                         return Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
                                                     };
+                                                    const totalDecimal = justificativaTipo ? 0 : (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
 
-                                                    return getDaysInMonth(controlMonth).map(dayDate => {
-                                                        const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
-                                                        const changes = localChanges[dayDate] || {};
-                                                        const isCleared = !!changes._clear;
+                                                    const hasHours = !!(mStart || mEnd || aStart || aEnd);
 
-                                                        const justificativaTipo = isCleared ? null : (
-                                                            changes.justificativaTipo !== undefined
-                                                                ? changes.justificativaTipo
-                                                                : (existingLog.justificativaTipo || null)
-                                                        );
+                                                    const now = new Date();
+                                                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                                                    const isToday = dayDate === todayStr;
+                                                    const dayNumber = dayDate.split('-')[2];
 
-                                                        const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
-                                                        const mStart = (justificativaTipo || isCleared) ? '' : (changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || ''));
-                                                        const mEnd = (justificativaTipo || isCleared) ? '' : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || ''));
-                                                        const aStart = (justificativaTipo || isCleared) ? '' : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || ''));
-                                                        const aEnd = (justificativaTipo || isCleared) ? '' : (changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || ''));
-                                                        const obs = isCleared ? '' : (changes.observation !== undefined ? changes.observation : (existingLog.observation || ''));
-
-                                                        const totalDecimal = justificativaTipo ? 0 : (calcDiff(mStart, mEnd) + calcDiff(aStart, aEnd));
-                                                        const hasHours = !!(mStart || mEnd || aStart || aEnd);
-                                                        const isToday = dayDate === todayStr;
-                                                        const isWknd = isWeekend(dayDate);
-                                                        const dow = getDayOfWeekShort(dayDate);
-                                                        const dayNumber = dayDate.split('-')[2];
-                                                        const isActive = activeRowDate === dayDate;
-
-                                                        let rowBg = '';
-                                                        if (isCleared) rowBg = 'bg-red-50';
-                                                        else if (justificativaTipo) rowBg = 'bg-yellow-50';
-                                                        else if (isToday) rowBg = 'bg-blue-50';
-                                                        else if (isWknd) rowBg = 'bg-slate-50';
-
-                                                        return (
-                                                            <tr
-                                                                key={dayDate}
-                                                                className={`hover:bg-gray-50 transition-colors ${rowBg} ${isActive ? 'border-l-2 border-yellow-400' : 'border-l-2 border-transparent'}`}
-                                                                onFocus={() => setActiveRowDate(dayDate)}
-                                                            >
-                                                                <td className="px-3 py-2 font-medium border-r w-28">
-                                                                    <div className="flex flex-col leading-tight">
-                                                                        <span>
-                                                                            {dayNumber}
-                                                                            <span className="text-xs text-gray-400 font-normal"> / {dayDate.split('-')[1]}</span>
-                                                                        </span>
-                                                                        <span className={`text-[10px] font-semibold ${isWknd ? 'text-orange-500' : 'text-gray-400'}`}>{dow}</span>
-                                                                    </div>
-                                                                    {isToday && <span className="text-[9px] bg-yellow-200 text-yellow-800 px-1 rounded mt-0.5 inline-block">Hoje</span>}
-                                                                </td>
-                                                                <td className="px-2 py-2 w-48">
-                                                                    <select
-                                                                        value={employeeId}
-                                                                        disabled={isCleared}
-                                                                        onChange={(e) => handleInputChange(dayDate, 'employeeId', e.target.value)}
-                                                                        className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500 disabled:bg-gray-100 disabled:text-gray-400"
-                                                                    >
-                                                                        <option value="">-- Operador --</option>
-                                                                        {employees.sort((a,b)=>a.nome.localeCompare(b.nome)).map(emp => (
-                                                                            <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </td>
-                                                                <td className="px-1 py-2 w-20"><input type="time" value={mStart} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                                <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                                <td className="px-1 py-2 w-20"><input type="time" value={aStart} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                                <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} disabled={!!justificativaTipo || isCleared} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
-                                                                <td className="px-2 py-2 text-center w-28">
-                                                                    {justificativaTipo ? (
-                                                                        <span className="text-[10px] bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                                                    return (
+                                                        <tr key={dayDate} className={`hover:bg-gray-50 ${justificativaTipo ? 'bg-yellow-50' : isToday ? 'bg-blue-50' : ''}`}>
+                                                            <td className="px-4 py-2 font-medium border-r w-24">
+                                                                {dayNumber} <span className="text-xs text-gray-400 font-normal">/ {dayDate.split('-')[1]}</span>
+                                                                {isToday && <span className="ml-2 text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">Hoje</span>}
+                                                            </td>
+                                                            <td className="px-2 py-2 w-48">
+                                                                <select
+                                                                    value={employeeId}
+                                                                    onChange={(e) => handleInputChange(dayDate, 'employeeId', e.target.value)}
+                                                                    className="w-full text-xs p-1 border rounded bg-white focus:border-yellow-500"
+                                                                >
+                                                                    <option value="">-- Operador --</option>
+                                                                    {employees.sort((a,b)=>a.nome.localeCompare(b.nome)).map(emp => (
+                                                                        <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </td>
+                                                            <td className="px-1 py-2 w-20"><input type="time" value={mStart} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'morningStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={mEnd} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'morningEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                            <td className="px-1 py-2 w-20"><input type="time" value={aStart} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'afternoonStart', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                            <td className="px-1 py-2 w-20 border-r"><input type="time" value={aEnd} disabled={!!justificativaTipo} onChange={(e) => handleInputChange(dayDate, 'afternoonEnd', e.target.value)} className="w-full text-xs p-1 border rounded text-center disabled:bg-gray-100 disabled:text-gray-400"/></td>
+                                                            <td className={`px-4 py-2 font-bold text-center w-24 ${justificativaTipo ? 'text-yellow-600 bg-yellow-100' : 'text-blue-600 bg-blue-50'}`}>
+                                                                {formatDecimalToTime(totalDecimal)}
+                                                            </td>
+                                                            <td className="px-2 py-2">
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder={justificativaTipo === 'outro' ? 'Descreva o motivo...' : 'Obs...'}
+                                                                    value={obs}
+                                                                    onChange={(e) => handleInputChange(dayDate, 'observation', e.target.value)}
+                                                                    className="w-full text-xs p-1 border-b focus:border-yellow-500 outline-none bg-transparent"
+                                                                />
+                                                            </td>
+                                                            <td className="px-2 py-2 w-40">
+                                                                {justificativaTipo ? (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
                                                                             {JUSTIFICATIVA_LABELS[justificativaTipo]}
                                                                         </span>
-                                                                    ) : isCleared ? (
-                                                                        <span className="text-[10px] bg-red-100 text-red-500 px-2 py-0.5 rounded-full font-semibold">Limpar</span>
-                                                                    ) : (
-                                                                        <span className={`font-bold text-sm ${totalDecimal > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                                                                            {formatDecimalToTime(totalDecimal)}
-                                                                        </span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-2 py-2">
-                                                                    <input
-                                                                        type="text"
-                                                                        placeholder={justificativaTipo === 'outro' ? 'Descreva o motivo...' : 'Obs...'}
-                                                                        value={obs}
-                                                                        disabled={isCleared}
-                                                                        onChange={(e) => handleInputChange(dayDate, 'observation', e.target.value)}
-                                                                        className="w-full text-xs p-1 border-b focus:border-yellow-500 outline-none bg-transparent disabled:text-gray-400"
-                                                                    />
-                                                                </td>
-                                                                <td className="px-2 py-2 w-28">
-                                                                    <div className="flex items-center justify-center gap-0.5">
-                                                                        <div className="relative">
-                                                                            <button
-                                                                                onClick={() => setJustificativaOpenDate(justificativaOpenDate === dayDate ? null : dayDate)}
-                                                                                disabled={hasHours || isCleared}
-                                                                                title="Justificar ausência"
-                                                                                className={`p-1.5 rounded transition ${justificativaTipo ? 'text-yellow-500 bg-yellow-100' : 'hover:bg-yellow-100 text-yellow-500'} disabled:text-gray-300 disabled:cursor-not-allowed`}
-                                                                            >
-                                                                                <AlertTriangle size={14}/>
-                                                                            </button>
-                                                                            {justificativaOpenDate === dayDate && (
-                                                                                <div className="absolute z-20 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-max">
-                                                                                    {Object.entries(JUSTIFICATIVA_LABELS).map(([tipo, label]) => (
-                                                                                        <button
-                                                                                            key={tipo}
-                                                                                            onClick={() => handleSetJustificativa(dayDate, tipo)}
-                                                                                            className="block w-full text-left text-xs px-3 py-2 hover:bg-yellow-50 rounded text-gray-700 hover:text-yellow-800"
-                                                                                        >
-                                                                                            {label}
-                                                                                        </button>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
                                                                         <button
-                                                                            onClick={() => handleClearDay(dayDate)}
-                                                                            title="Limpar dia (remove horas e justificativa)"
-                                                                            className="p-1.5 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition"
+                                                                            onClick={() => handleRemoveJustificativa(dayDate)}
+                                                                            title="Remover justificativa"
+                                                                            className="text-red-400 hover:text-red-600 flex-shrink-0"
                                                                         >
-                                                                            <Trash2 size={14}/>
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => handleCloneFromLastDay(dayDate)}
-                                                                            title="Clonar último dia com horas lançadas"
-                                                                            className="p-1.5 rounded hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition"
-                                                                        >
-                                                                            <Copy size={14}/>
+                                                                            <X size={14}/>
                                                                         </button>
                                                                     </div>
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    });
-                                                })()}
+                                                                ) : !hasHours ? (
+                                                                    <div className="relative">
+                                                                        <button
+                                                                            onClick={() => setJustificativaOpenDate(justificativaOpenDate === dayDate ? null : dayDate)}
+                                                                            className="text-xs text-yellow-700 hover:text-yellow-900 border border-yellow-300 bg-yellow-50 hover:bg-yellow-100 px-2 py-0.5 rounded whitespace-nowrap"
+                                                                        >
+                                                                            + Justificativa
+                                                                        </button>
+                                                                        {justificativaOpenDate === dayDate && (
+                                                                            <div className="absolute z-20 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-max">
+                                                                                {Object.entries(JUSTIFICATIVA_LABELS).map(([tipo, label]) => (
+                                                                                    <button
+                                                                                        key={tipo}
+                                                                                        onClick={() => handleSetJustificativa(dayDate, tipo)}
+                                                                                        className="block w-full text-left text-xs px-3 py-2 hover:bg-yellow-50 rounded text-gray-700 hover:text-yellow-800"
+                                                                                    >
+                                                                                        {label}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                ) : null}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
-                                            {controlVehicleId && (
-                                                <tfoot>
-                                                    <tr className="bg-gray-800 text-white text-xs font-bold">
-                                                        <td colSpan={6} className="px-4 py-2 text-right uppercase tracking-wide">Total do Mês</td>
-                                                        <td className="px-2 py-2 text-center text-base">
-                                                            {(() => {
-                                                                const calcDiff = (s, e) => {
-                                                                    if (!s || !e) return 0;
-                                                                    const [h1, m1] = s.split(':').map(Number);
-                                                                    const [h2, m2] = e.split(':').map(Number);
-                                                                    return Math.max(0, ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60);
-                                                                };
-                                                                const total = getDaysInMonth(controlMonth).reduce((acc, dayDate) => {
-                                                                    const existingLog = dailyLogs.find(l => l.date.startsWith(dayDate)) || {};
-                                                                    const changes = localChanges[dayDate] || {};
-                                                                    if (changes._clear) return acc;
-                                                                    const justTipo = changes.justificativaTipo !== undefined ? changes.justificativaTipo : (existingLog.justificativaTipo || null);
-                                                                    if (justTipo) return acc;
-                                                                    const mS = changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || '');
-                                                                    const mE = changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || '');
-                                                                    const aS = changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || '');
-                                                                    const aE = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (existingLog.afternoonEnd || '');
-                                                                    return acc + calcDiff(mS, mE) + calcDiff(aS, aE);
-                                                                }, 0);
-                                                                return formatDecimalToTime(total);
-                                                            })()}
-                                                        </td>
-                                                        <td colSpan={2} className="px-4 py-2"></td>
-                                                    </tr>
-                                                </tfoot>
-                                            )}
                                         </table>
                                     </div>
                                 )}
