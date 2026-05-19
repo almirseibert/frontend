@@ -261,6 +261,72 @@ const apiClient = {
     whatsappEnviarTeste: async (data) => apiFetch('/whatsapp/enviar-teste', { method: 'POST', body: JSON.stringify(data) }),
     whatsappGetLogs: async () => apiFetch('/whatsapp/logs'),
 
+    // --- Usuários Admin CRUD (TODO: backend) ---
+    adminCreateUser: async (data) => apiFetch('/admin/users', { method: 'POST', body: JSON.stringify(data) }),
+    adminUpdateUser: async (id, data) => apiFetch(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    adminToggleUserStatus: async (id) => apiFetch(`/admin/users/${id}/status`, { method: 'PATCH' }),
+    adminResetUserPassword: async (id) => apiFetch(`/admin/users/${id}/reset-password`, { method: 'POST' }),
+
+    // --- Grupos de Acesso (TODO: backend) ---
+    adminGetGroups: async () => apiFetch('/admin/groups'),
+    adminCreateGroup: async (data) => apiFetch('/admin/groups', { method: 'POST', body: JSON.stringify(data) }),
+    adminUpdateGroup: async (id, data) => apiFetch(`/admin/groups/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    adminDeleteGroup: async (id) => apiFetch(`/admin/groups/${id}`, { method: 'DELETE' }),
+
+    // --- Configuração de E-mail (TODO: backend) ---
+    adminGetEmailConfig: async () => apiFetch('/admin/email-config'),
+    adminSaveEmailConfig: async (data) => apiFetch('/admin/email-config', { method: 'PUT', body: JSON.stringify(data) }),
+    adminSendTestEmail: async (data) => apiFetch('/admin/email-config/test', { method: 'POST', body: JSON.stringify(data) }),
+
+    // --- Roteamento de Notificações (TODO: backend) ---
+    adminGetNotificationRouting: async () => apiFetch('/admin/notification-routing'),
+    adminSaveNotificationRouting: async (data) => apiFetch('/admin/notification-routing', { method: 'PUT', body: JSON.stringify(data) }),
+
+    // --- Templates de Mensagens (TODO: backend) ---
+    adminGetMessageTemplates: async () => apiFetch('/admin/message-templates'),
+    adminCreateMessageTemplate: async (data) => apiFetch('/admin/message-templates', { method: 'POST', body: JSON.stringify(data) }),
+    adminUpdateMessageTemplate: async (id, data) => apiFetch(`/admin/message-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    adminDeleteMessageTemplate: async (id) => apiFetch(`/admin/message-templates/${id}`, { method: 'DELETE' }),
+
+    // --- Configurações de Alertas (TODO: backend) ---
+    adminGetAlertConfig: async () => apiFetch('/admin/alert-config'),
+    adminSaveAlertConfig: async (data) => apiFetch('/admin/alert-config', { method: 'PUT', body: JSON.stringify(data) }),
+
+    // --- Relatórios Programados (TODO: backend) ---
+    adminGetScheduledReports: async () => apiFetch('/admin/scheduled-reports'),
+    adminCreateScheduledReport: async (data) => apiFetch('/admin/scheduled-reports', { method: 'POST', body: JSON.stringify(data) }),
+    adminUpdateScheduledReport: async (id, data) => apiFetch(`/admin/scheduled-reports/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    adminDeleteScheduledReport: async (id) => apiFetch(`/admin/scheduled-reports/${id}`, { method: 'DELETE' }),
+
+    // --- Workflows de Aprovação (TODO: backend) ---
+    adminGetApprovalWorkflows: async () => apiFetch('/admin/approval-workflows'),
+    adminSaveApprovalWorkflows: async (data) => apiFetch('/admin/approval-workflows', { method: 'PUT', body: JSON.stringify(data) }),
+
+    // --- Feriados (TODO: backend) ---
+    adminGetHolidays: async () => apiFetch('/admin/holidays'),
+    adminCreateHoliday: async (data) => apiFetch('/admin/holidays', { method: 'POST', body: JSON.stringify(data) }),
+    adminDeleteHoliday: async (id) => apiFetch(`/admin/holidays/${id}`, { method: 'DELETE' }),
+
+    // --- Broadcast (TODO: backend) ---
+    adminBroadcast: async (data) => apiFetch('/admin/broadcast', { method: 'POST', body: JSON.stringify(data) }),
+
+    // --- Health Check & Métricas (TODO: backend) ---
+    adminGetSystemHealth: async () => apiFetch('/admin/system/health'),
+    adminGetUsageStats: async () => apiFetch('/admin/usage-stats'),
+
+    // --- Log de Auditoria (TODO: backend) ---
+    adminGetAuditLog: async (params) => {
+        const q = new URLSearchParams(params).toString();
+        return apiFetch(`/admin/audit-log?${q}`);
+    },
+
+    // --- Sessões Ativas (TODO: backend) ---
+    adminGetActiveSessions: async () => apiFetch('/admin/sessions'),
+    adminForceLogout: async (sessionId) => apiFetch(`/admin/sessions/${sessionId}`, { method: 'DELETE' }),
+
+    // --- Backup & Export (TODO: backend) ---
+    adminExportData: async (module) => apiFetch(`/admin/export/${module}`),
+
     // --- Defaults & Auxiliares ---
     defaults: { baseURL: API_URL },
     get: (url, config) => apiFetch(url, { method: 'GET', ...config }),
