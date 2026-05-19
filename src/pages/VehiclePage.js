@@ -1,25 +1,45 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle, 
-    Upload, Download, ChevronsUpDown, Info, AlertTriangle, Briefcase, Truck,
-    FileText, Ban, ClipboardCheck, Power // Adicionado Power para Inativar/Ativar
+    HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle,
+    Download, ChevronsUpDown, AlertTriangle, Truck,
+    FileText, Ban, ClipboardCheck, Power, Package, Search, SlidersHorizontal,
+    CheckCircle2, Briefcase
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
-import VehicleModal from '../components/VehicleModal'; 
+import VehicleModal from '../components/VehicleModal';
 import MaintenanceModal from '../components/MaintenanceModal';
-import VehicleFinesModal from '../components/VehicleFinesModal'; 
+import VehicleFinesModal from '../components/VehicleFinesModal';
 import VehicleDetailModal from '../components/VehicleDetailModal';
 import OperationalAssignmentModal from '../components/OperationalAssignmentModal';
 import ObraAllocationModal from '../components/ObraAllocationModal';
 import HistoryModal from '../components/HistoryModal';
-import ChecklistModal from '../components/ChecklistModal'; 
+import ChecklistModal from '../components/ChecklistModal';
 
 import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
 
-const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], setAlertMessage, initialFilter, PasswordConfirmationModal, vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData }) => {
-    
-    // --- Configurações Iniciais ---
+// ─── Constantes de Status ────────────────────────────────────────────────────
+
+const STATUS_CONFIG = {
+    'Disponível':            { color: 'bg-emerald-100 text-emerald-800 border-emerald-200', dot: 'bg-emerald-500' },
+    'Em Obra':               { color: 'bg-sky-100 text-sky-800 border-sky-200',             dot: 'bg-sky-500' },
+    'Em Operação':           { color: 'bg-violet-100 text-violet-800 border-violet-200',    dot: 'bg-violet-500' },
+    'Em Manutenção':         { color: 'bg-orange-100 text-orange-800 border-orange-200',    dot: 'bg-orange-500' },
+    'Aguardando Manutenção': { color: 'bg-amber-100 text-amber-800 border-amber-200',       dot: 'bg-amber-400 animate-pulse' },
+    'Sucata':                { color: 'bg-zinc-200 text-zinc-700 border-zinc-300',          dot: 'bg-zinc-500' },
+    'Inativo':               { color: 'bg-gray-100 text-gray-500 border-gray-200',          dot: 'bg-gray-400' },
+};
+
+const ALL_STATUS_OPTIONS = ['Disponível', 'Em Obra', 'Em Operação', 'Em Manutenção', 'Aguardando Manutenção', 'Sucata'];
+
+// ─── Componente Principal ─────────────────────────────────────────────────────
+
+const VehiclePage = ({
+    user, vehicles = [], obras = [], revisions = [], employees = [], fines = [],
+    setAlertMessage, initialFilter, PasswordConfirmationModal,
+    vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData
+}) => {
+
     const vehicleTypes = useMemo(() => {
         const existingTypes = (vehicles || []).map(v => v.tipo).filter(Boolean);
         const predefinedTypes = Object.values(vehicleGroups || {}).flat();
@@ -36,93 +56,115 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const [isFinesModalOpen, setIsFinesModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
     const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
-    
-    // Novo estado para inativação
     const [vehicleToToggleStatus, setVehicleToToggleStatus] = useState(null);
-
     const [selectedVehicle, setSelectedVehicle] = useState(null);
-    const [filters, setFilters] = useState({ type: 'todos', status: 'todos', search: '', group: 'todos', showInactive: false });
-    
-    // Regra 5: Ordenação Padrão Alfabética
+    const [showFilters, setShowFilters] = useState(false);
+
+    const [filters, setFilters] = useState({
+        type: 'todos', status: 'todos', search: '',
+        group: 'todos', showInactive: false, showSucata: false
+    });
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
 
-    useEffect(() => { if (initialFilter) { setFilters(prev => ({ ...prev, ...initialFilter })); } }, [initialFilter]);
-    
-    const handleFilterChange = (e) => { 
-        const { name, value, type, checked } = e.target; 
-        setFilters(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value })); 
+    useEffect(() => {
+        if (initialFilter) setFilters(prev => ({ ...prev, ...initialFilter }));
+    }, [initialFilter]);
+
+    const handleFilterChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFilters(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
-    // --- Processamento de Dados (Regra 4: Alertas e Status) ---
+    // --- Processamento de Dados ---
     const processedVehicles = useMemo(() => {
         return (vehicles || []).map(v => {
+            // "Sucata" é status permanente — não sofre override por alocações
             let currentStatus = v.status;
-            // Normaliza status
-            if (!currentStatus || currentStatus === 'Disponível') {
-                if (v.obraAtualId) currentStatus = 'Em Obra';
-                else if (v.operationalAssignment) currentStatus = 'Em Operação';
-                else if (v.maintenanceLocation) currentStatus = 'Em Manutenção';
-                else currentStatus = 'Disponível';
+            if (currentStatus !== 'Sucata') {
+                if (!currentStatus || currentStatus === 'Disponível') {
+                    if (v.obraAtualId) currentStatus = 'Em Obra';
+                    else if (v.operationalAssignment) currentStatus = 'Em Operação';
+                    else if (v.maintenanceLocation) currentStatus = 'Em Manutenção';
+                    else currentStatus = 'Disponível';
+                }
             }
-             
-             const readingData = getVehicleMainReading(v);
-             // Verifica restrições (Regra 4)
-             const restrictions = checkVehicleRestrictions(v, revisions);
-             
-             // Encontra a obra se existir
-             const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
+            const isSucata = currentStatus === 'Sucata';
+            const readingData = getVehicleMainReading(v);
+            const restrictions = isSucata ? [] : checkVehicleRestrictions(v, revisions);
+            const obra = v.obraAtualId ? obras.find(o => o.id === v.obraAtualId) : null;
 
-            return { 
-                ...v, 
+            return {
+                ...v,
                 computedStatus: currentStatus,
-                obra, // Anexa o objeto obra para uso no display
+                isSucata,
+                obra,
                 vehicleReading: `${readingData.value ?? 'N/A'} ${readingData.unit}`,
                 vehicleReadingRaw: readingData.raw,
-                restrictions: restrictions, // Array de problemas
-                ativo: v.ativo === undefined ? true : Boolean(v.ativo) // Normaliza o booleano (para os antigos que eram NULL)
+                restrictions,
+                ativo: v.ativo === undefined ? true : Boolean(v.ativo)
             };
         });
-    }, [vehicles, revisions, obras]); 
+    }, [vehicles, revisions, obras]);
+
+    // --- Cards de sumário ---
+    const summary = useMemo(() => {
+        // Frota própria: ativos, não-sucata, não-terceirizados
+        const proprios = processedVehicles.filter(v => v.ativo && !v.isSucata && !v.isOutsourced);
+        // Terceiros: ativos e não-sucata
+        const terceiros = processedVehicles.filter(v => v.ativo && !v.isSucata && v.isOutsourced);
+        return {
+            // Frota própria (excluí terceiros de todos os contadores)
+            total:       proprios.length,
+            disponiveis: proprios.filter(v => v.computedStatus === 'Disponível').length,
+            emObra:      proprios.filter(v => v.computedStatus === 'Em Obra').length,
+            manutencao:  proprios.filter(v => ['Em Manutenção', 'Aguardando Manutenção'].includes(v.computedStatus)).length,
+            comAlerta:   proprios.filter(v => v.restrictions.length > 0).length,
+            sucata:      processedVehicles.filter(v => v.isSucata && !v.isOutsourced).length,
+            // Terceiros (card próprio)
+            terceiros:            terceiros.length,
+            terceirosDisponiveis: terceiros.filter(v => v.computedStatus === 'Disponível').length,
+            terceirosEmObra:      terceiros.filter(v => v.computedStatus === 'Em Obra').length,
+            terceirosManutencao:  terceiros.filter(v => ['Em Manutenção', 'Aguardando Manutenção'].includes(v.computedStatus)).length,
+        };
+    }, [processedVehicles]);
 
     // --- Filtragem e Ordenação ---
     const filteredVehicles = useMemo(() => {
         let items = processedVehicles.filter(v => {
             const groups = vehicleGroups || {};
             const searchLower = filters.search.toLowerCase();
-            
-            const searchMatch = (v.placa || '').toLowerCase().includes(searchLower) ||
-                                (v.registroInterno || '').toLowerCase().includes(searchLower) ||
-                                (v.marca || '').toLowerCase().includes(searchLower) ||
-                                (v.modelo || '').toLowerCase().includes(searchLower);
-            
-            const typeMatch = filters.type === 'todos' || v.tipo === filters.type;
-            const statusMatch = filters.status === 'todos' || v.computedStatus === filters.status;
-            const groupMatch = filters.group === 'todos' || (groups[filters.group] && groups[filters.group].includes(v.tipo));
-            const activeMatch = filters.showInactive ? true : v.ativo;
-            
-            return searchMatch && typeMatch && statusMatch && groupMatch && activeMatch;
+
+            const searchMatch = !searchLower ||
+                (v.placa || '').toLowerCase().includes(searchLower) ||
+                (v.registroInterno || '').toLowerCase().includes(searchLower) ||
+                (v.marca || '').toLowerCase().includes(searchLower) ||
+                (v.modelo || '').toLowerCase().includes(searchLower);
+
+            const typeMatch   = filters.type   === 'todos' || v.tipo             === filters.type;
+            const statusMatch = filters.status  === 'todos' || v.computedStatus  === filters.status;
+            const groupMatch  = filters.group   === 'todos' || (groups[filters.group] && groups[filters.group].includes(v.tipo));
+
+            if (v.isSucata   && !filters.showSucata)   return false;
+            if (!v.ativo && !v.isSucata && !filters.showInactive) return false;
+
+            return searchMatch && typeMatch && statusMatch && groupMatch;
         });
 
-        // Ordenação
         items.sort((a, b) => {
             if (sortConfig.key === 'vehicleReading') {
-                 return sortConfig.direction === 'ascending' 
-                    ? (a.vehicleReadingRaw - b.vehicleReadingRaw) 
-                    : (b.vehicleReadingRaw - a.vehicleReadingRaw);
+                return sortConfig.direction === 'ascending'
+                    ? a.vehicleReadingRaw - b.vehicleReadingRaw
+                    : b.vehicleReadingRaw - a.vehicleReadingRaw;
             }
             const valA = String(a[sortConfig.key] || '').toLowerCase();
             const valB = String(b[sortConfig.key] || '').toLowerCase();
-            
-            // Ordem numérica inteligente para registros (ex: RE1 < RE10)
             const numA = parseInt(valA.replace(/\D/g, '')) || 0;
             const numB = parseInt(valB.replace(/\D/g, '')) || 0;
-            
             if (valA.startsWith('re') && valB.startsWith('re') && numA !== numB) {
                 return sortConfig.direction === 'ascending' ? numA - numB : numB - numA;
             }
-
-            return sortConfig.direction === 'ascending' 
-                ? valA.localeCompare(valB) 
+            return sortConfig.direction === 'ascending'
+                ? valA.localeCompare(valB)
                 : valB.localeCompare(valA);
         });
 
@@ -137,45 +179,45 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
 
     // --- Helpers Visuais ---
     const getRowStyle = (vehicle) => {
-        if (!vehicle.ativo) return 'bg-gray-100 opacity-60 hover:opacity-100 grayscale hover:grayscale-0 border-l-4 border-gray-400';
-        if (vehicle.isOutsourced) return 'bg-purple-50 hover:bg-purple-100 border-l-4 border-purple-500';
-        // Prioridade para bloqueios manuais ou críticos
-        if (vehicle.restrictions.some(r => r.category === 'bloqueio' || r.type === 'bloqueio')) return 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500';
-        if (vehicle.restrictions.some(r => r.type === 'aviso')) return 'bg-yellow-50 hover:bg-yellow-100 border-l-4 border-yellow-400';
-        return 'bg-white hover:bg-gray-50 border-l-4 border-transparent';
+        if (vehicle.isSucata)  return 'opacity-70 hover:opacity-100 bg-zinc-50 border-l-4 border-l-zinc-300';
+        if (!vehicle.ativo)    return 'opacity-60 hover:opacity-100 bg-gray-50 border-l-4 border-l-gray-200';
+        if (vehicle.isOutsourced) return 'bg-purple-50/30 hover:bg-purple-50 border-l-4 border-l-purple-300';
+        if (vehicle.restrictions.some(r => r.category === 'bloqueio' || r.type === 'bloqueio')) return 'bg-red-50/60 hover:bg-red-50 border-l-4 border-l-red-400';
+        if (vehicle.restrictions.some(r => r.type === 'error'))   return 'bg-orange-50/40 hover:bg-orange-50 border-l-4 border-l-orange-400';
+        if (vehicle.restrictions.some(r => r.type === 'warning')) return 'bg-yellow-50/40 hover:bg-yellow-50 border-l-4 border-l-yellow-300';
+        return 'bg-white hover:bg-gray-50/80 border-l-4 border-l-transparent';
     };
 
-    // --- Renderização dos Badges de Alerta ---
-    const renderAlertBadges = (restrictions, isInactive) => {
-        if (isInactive) return (
-             <div className="flex gap-1 flex-wrap mt-1">
-                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-500 text-white cursor-help">
-                    <Ban size={10}/> VEÍCULO INATIVO
-                </span>
-             </div>
+    const renderAlertBadges = (restrictions, vehicle) => {
+        if (vehicle.isSucata) return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500 text-white">
+                <Package size={9}/> SUCATA
+            </span>
         );
-
+        if (!vehicle.ativo) return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-400 text-white">
+                <Ban size={9}/> INATIVO
+            </span>
+        );
         if (!restrictions || !restrictions.length) return null;
-
-        const manuntencao = restrictions.filter(r => r.category === 'manutencao');
+        const manutencao = restrictions.filter(r => r.category === 'manutencao');
         const documentos = restrictions.filter(r => r.category === 'documento');
-        const bloqueio = restrictions.filter(r => r.category === 'bloqueio' || r.type === 'bloqueio');
-
+        const bloqueio   = restrictions.filter(r => r.category === 'bloqueio' || r.type === 'bloqueio');
         return (
-            <div className="flex gap-1 flex-wrap mt-1">
+            <div className="flex gap-1 flex-wrap mt-0.5">
                 {bloqueio.length > 0 && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white cursor-help" title={bloqueio[0].message}>
-                        <Ban size={10}/> BLOQUEADO
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white" title={bloqueio[0].message}>
+                        <Ban size={9}/> BLOQUEADO
                     </span>
                 )}
-                {manuntencao.length > 0 && (
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-help ${manuntencao.some(r=>r.type==='error' || r.type==='vencido') ? 'bg-orange-500 text-white' : 'bg-yellow-400 text-black'}`} title={manuntencao.map(r=>r.message).join('\n')}>
-                        <Wrench size={10}/> {manuntencao.some(r=>r.type==='error' || r.type==='vencido') ? 'VENCIDA' : 'PREV.'}
+                {manutencao.length > 0 && (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${manutencao.some(r => r.type === 'error') ? 'bg-orange-500 text-white' : 'bg-amber-400 text-amber-900'}`} title={manutencao.map(r => r.message).join('\n')}>
+                        <Wrench size={9}/> {manutencao.some(r => r.type === 'error') ? 'VENCIDA' : 'PREV.'}
                     </span>
                 )}
                 {documentos.length > 0 && (
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-help ${documentos.some(r=>r.type==='error' || r.type==='vencido') ? 'bg-blue-600 text-white' : 'bg-blue-200 text-blue-800'}`} title={documentos.map(r=>r.message).join('\n')}>
-                        <FileText size={10}/> DOCS
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${documentos.some(r => r.type === 'error') ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-800'}`} title={documentos.map(r => r.message).join('\n')}>
+                        <FileText size={9}/> DOCS
                     </span>
                 )}
             </div>
@@ -183,14 +225,14 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     };
 
     // --- Ações ---
-    const handleEdit = (v) => { setSelectedVehicle(v); setIsModalOpen(true); };
-    const handleNew = () => { setSelectedVehicle(null); setIsModalOpen(true); };
-    
+    const handleEdit   = (v) => { setSelectedVehicle(v); setIsModalOpen(true); };
+    const handleNew    = ()  => { setSelectedVehicle(null); setIsModalOpen(true); };
+
     const handleDelete = async () => {
         try {
             await apiClient.deleteVehicle(selectedVehicle.id);
             setAlertMessage('Veículo excluído com sucesso.');
-            reloadData(); 
+            reloadData();
         } catch (error) {
             setAlertMessage('Erro ao excluir: ' + error.message);
         } finally {
@@ -201,7 +243,6 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
     const handleToggleStatus = async () => {
         if (!vehicleToToggleStatus) return;
         try {
-            // Usa o update existente para enviar apenas o campo ativo invertido
             const novoStatus = vehicleToToggleStatus.ativo ? 0 : 1;
             await apiClient.updateVehicle(vehicleToToggleStatus.id, { ativo: novoStatus });
             setAlertMessage(`Veículo ${novoStatus === 1 ? 'ativado' : 'inativado'} com sucesso.`);
@@ -212,12 +253,12 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
             setVehicleToToggleStatus(null);
         }
     };
-    
-    // Exportar CSV
+
     const exportToCSV = () => {
         const headers = ['Registro', 'Placa', 'Marca', 'Modelo', 'Tipo', 'Leitura', 'Status', 'Terceiro?', 'Ativo'];
         const rows = filteredVehicles.map(v => [
-            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo, v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO', v.ativo ? 'SIM' : 'NÃO'
+            v.registroInterno, v.placa, v.marca, v.modelo, v.tipo,
+            v.vehicleReading, v.computedStatus, v.isOutsourced ? 'SIM' : 'NÃO', v.ativo ? 'SIM' : 'NÃO'
         ]);
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(","))].join("\n");
         const link = document.createElement("a");
@@ -228,228 +269,404 @@ const VehiclePage = ({ user, vehicles = [], obras = [], revisions = [], employee
         document.body.removeChild(link);
     };
 
-    const truncateText = (text, limit = 22) => {
+    const trunc = (text, limit = 22) => {
         if (!text) return '';
-        if (text.length <= limit) return text;
-        return text.substring(0, limit) + '...';
+        return text.length <= limit ? text : text.substring(0, limit) + '…';
     };
 
+    const SortHeader = ({ label, sortKey, className = '' }) => (
+        <button
+            onClick={() => requestSort(sortKey)}
+            className={`flex items-center gap-1 text-left font-semibold text-xs text-gray-500 uppercase tracking-wider hover:text-gray-800 transition-colors ${className}`}
+        >
+            {label}
+            <ChevronsUpDown size={11} className={sortConfig.key === sortKey ? 'text-yellow-500' : 'text-gray-300'} />
+        </button>
+    );
+
+    const activeFiltersCount = [filters.group, filters.type, filters.status].filter(f => f !== 'todos').length
+        + (filters.showInactive ? 1 : 0) + (filters.showSucata ? 1 : 0);
+
+    // ─── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fade-in">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
-                        <Truck className="text-yellow-500"/> Gestão da Frota
-                    </h1>
-                    <p className="text-gray-500 text-sm mt-1">Gerencie veículos, máquinas e caminhões.</p>
-                </div>
-                
-                <ProtectedComponent requiredPermission="editor">
-                    <div className="flex gap-2">
-                        <button onClick={exportToCSV} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-50 transition text-sm">
-                            <Download size={18} /> CSV
-                        </button>
-                        <button onClick={handleNew} className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 font-bold rounded-lg shadow-md hover:bg-yellow-500 transition text-sm transform hover:-translate-y-0.5">
-                            <PlusCircle size={18} /> Novo Veículo
-                        </button>
+        <div className="min-h-screen bg-gray-50/50">
+            <div className="max-w-screen-2xl mx-auto px-4 py-6 md:px-6 md:py-8 space-y-5">
+
+                {/* ── Header ──────────────────────────────────────────────── */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2.5">
+                            <div className="p-2 bg-yellow-400 rounded-lg shadow-sm"><Truck size={20} className="text-gray-900" /></div>
+                            Gestão da Frota
+                        </h1>
+                        <p className="text-gray-400 text-sm mt-1 ml-1">
+                            {summary.total} veículos ativos &middot; {summary.disponiveis} disponíveis
+                        </p>
                     </div>
-                </ProtectedComponent>
-            </div>
-
-             {/* Filtros */}
-            <div className="mb-6 p-4 bg-white rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-4 text-sm items-center">
-                <input type="text" name="search" placeholder="🔍 Buscar Placa, Registro..." value={filters.search} onChange={handleFilterChange} className="w-full px-4 py-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 outline-none transition" />
-                <select name="group" value={filters.group} onChange={handleFilterChange} className="w-full px-4 py-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 outline-none cursor-pointer">
-                    <option value="todos">📂 Todos os Grupos</option>
-                    {Object.keys(vehicleGroups).map(g => <option key={g} value={g}>{g}</option>)}
-                 </select>
-                <select name="type" value={filters.type} onChange={handleFilterChange} className="w-full px-4 py-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 outline-none cursor-pointer">
-                    <option value="todos">🚜 Todos os Tipos</option>
-                    {vehicleTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <select name="status" value={filters.status} onChange={handleFilterChange} className="w-full px-4 py-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 outline-none cursor-pointer">
-                    <option value="todos">📊 Todos os Status</option>
-                    {['Disponível', 'Em Obra', 'Em Operação', 'Em Manutenção'].map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                
-                {/* Toggle de Inativos */}
-                <div className="flex items-center gap-2 px-2">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" name="showInactive" checked={filters.showInactive} onChange={handleFilterChange} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                        <span className="ml-3 text-sm font-medium text-gray-700">Mostrar Inativos</span>
-                    </label>
-                </div>
-            </div>
-
-            {/* Tabela Restaurada */}
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                <div className="hidden md:grid grid-cols-12 gap-4 p-4 font-semibold text-xs text-gray-600 border-b bg-gray-50 uppercase tracking-wider items-center">
-                    <div className="col-span-4 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Veículo <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('placa')}>Placa <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="col-span-1 cursor-pointer hover:text-gray-900" onClick={() => requestSort('registroInterno')}>Reg. <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="col-span-2 text-right cursor-pointer hover:text-gray-900" onClick={() => requestSort('vehicleReading')}>Leitura <ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="col-span-2 text-center cursor-pointer hover:text-gray-900" onClick={() => requestSort('status')}>Status<ChevronsUpDown size={12} className="inline-block ml-1"/></div>
-                    <div className="col-span-2 text-center">Ações</div>
+                    <ProtectedComponent requiredPermission="editor">
+                        <div className="flex gap-2">
+                            <button onClick={exportToCSV} className="flex items-center gap-2 px-3.5 py-2 bg-white border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 transition text-sm shadow-sm">
+                                <Download size={14}/> Exportar
+                            </button>
+                            <button onClick={handleNew} className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 font-bold rounded-lg hover:bg-yellow-500 transition text-sm shadow-sm">
+                                <PlusCircle size={15}/> Novo Veículo
+                            </button>
+                        </div>
+                    </ProtectedComponent>
                 </div>
 
-                <div className="divide-y divide-gray-100">
-                    {filteredVehicles.length === 0 ? (
-                        <div className="p-8 text-center text-gray-500">Nenhum veículo encontrado.</div>
-                    ) : filteredVehicles.map(vehicle => {
-                        const statusColors = {
-                            'Em Manutenção': 'bg-red-100 text-red-800',
-                            'Aguardando Manutenção': 'bg-red-100 text-red-800 animate-pulse', 
-                            'Em Obra': 'bg-green-100 text-green-800',
-                            'Em Operação': 'bg-blue-100 text-blue-800',
-                            'Disponível': 'bg-gray-100 text-gray-800'
-                        };
-                        
-                        const statusText = vehicle.computedStatus === 'Disponível'
-                            ? `${vehicle.computedStatus} - ${vehicle.localizacaoAtual || 'Pátio'}`
-                            : vehicle.computedStatus === 'Em Obra' && vehicle.obra
-                                ? `Obra: ${vehicle.obra.nome}`
-                                : vehicle.computedStatus;
-
-                        const hasCritical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'vencido');
-                        
-                        const hasChecklists = vehicle.checklistCount > 0;
-                        const checklistBtnClass = hasChecklists
-                            ? "p-1.5 text-purple-600 hover:text-purple-800 hover:bg-purple-100 rounded-md transition"
-                            : "p-1.5 text-gray-400 hover:text-purple-600 hover:bg-gray-100 rounded-md transition";
-
-                        return (
-                            <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center p-3 md:p-4 transition-all ${getRowStyle(vehicle)}`}>
-                                {/* Info Veículo */}
-                                <div className="md:col-span-4 flex items-center gap-3">
-                                    <div className="relative shrink-0 cursor-pointer group" onClick={() => { setSelectedVehicle(vehicle); setIsDetailModalOpen(true); }}>
-                                        <div className="w-16 h-12 bg-gray-200 rounded-md overflow-hidden shadow-sm">
-                                            <img src={vehicle.fotoURL ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${(process.env.REACT_APP_API_URL || '').replace('/api','')}${vehicle.fotoURL}`) : 'https://placehold.co/100?text=Foto'} 
-                                                 alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform"/>
-                                        </div>
-                                        {hasCritical && vehicle.ativo && (
-                                            <div className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 shadow-lg animate-bounce" title="Atenção Necessária">
-                                                <AlertTriangle size={12} fill="white" />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="overflow-hidden w-full">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-extrabold text-gray-900 text-base">{vehicle.registroInterno}</span>
-                                            {vehicle.isOutsourced && <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 font-bold uppercase">Terceiro</span>}
-                                        </div>
-                                        <p className="text-sm text-gray-600 font-medium truncate" title={`${vehicle.marca} ${vehicle.modelo}`}>{vehicle.marca} {vehicle.modelo}</p>
-                                        
-                                        <div className="flex justify-between items-center">
-                                            <p className="text-xs text-gray-400">{vehicle.tipo}</p>
-                                            {renderAlertBadges(vehicle.restrictions, !vehicle.ativo)}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="md:col-span-1 text-sm font-mono text-gray-700 md:block hidden truncate" title={vehicle.placa}>
-                                    {vehicle.placa}
-                                </div>
-                                <div className="md:col-span-1 text-sm font-mono text-gray-700 md:block hidden truncate">
-                                    {vehicle.registroInterno}
-                                </div>
-
-                                <div className="md:col-span-2 text-right text-sm font-bold text-gray-800 md:block flex justify-between">
-                                    <span className="md:hidden font-bold text-gray-500">Leitura:</span>
-                                    {vehicle.vehicleReading}
-                                </div>
-
-                                <div className="md:col-span-2 flex justify-center md:justify-center justify-between items-center">
-                                    <span className="md:hidden font-bold text-gray-500 text-sm">Status:</span>
-                                    <div className={`px-2 py-0.5 rounded-full text-xs font-semibold inline-block whitespace-nowrap max-w-full truncate ${vehicle.ativo ? (statusColors[vehicle.computedStatus] || 'bg-gray-100 text-gray-800') : 'bg-gray-300 text-gray-600'}`} title={statusText}>
-                                        {vehicle.ativo ? truncateText(statusText, 25) : 'Inativo'}
-                                    </div>
-                                </div>
-
-                                {/* Botões de Ação */}
-                                <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
-                                    
-                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsChecklistModalOpen(true); }} className={checklistBtnClass} title="Checklists">
-                                        <ClipboardCheck size={14}/>
-                                    </button>
-
-                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsFinesModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-md transition" title="Multas"><ShieldAlert size={14}/></button>
-                                    <button onClick={() => { setSelectedVehicle(vehicle); setIsHistoryModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Histórico"><Clock size={14}/></button>
-                                    
-                                    <ProtectedComponent requiredPermission="editor">
-                                        <button onClick={() => handleEdit(vehicle)} className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition" title="Editar"><Edit size={14}/></button>
-                                        
-                                        {/* Ações Dinâmicas - Só exibe se ativo */}
-                                        {vehicle.ativo && vehicle.computedStatus === 'Disponível' && (
-                                            <>
-                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition" title="Alocar Obra"><HardHat size={14}/></button>
-                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-md transition" title="Alocar Operação"><Users size={14}/></button>
-                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Manutenção"><Wrench size={14}/></button>
-                                            </>
-                                        )}
-                                        {vehicle.ativo && vehicle.computedStatus === 'Em Obra' && (
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-md transition border border-red-200" title="Desalocar"><HardHat size={14}/></button>
-                                        )}
-                                        {vehicle.ativo && vehicle.computedStatus === 'Em Operação' && (
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-md transition border border-red-200" title="Desalocar"><Users size={14}/></button>
-                                        )}
-                                        {vehicle.ativo && (vehicle.computedStatus === 'Em Manutenção' || vehicle.computedStatus === 'Aguardando Manutenção') && (
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-md transition border border-green-200" title="Finalizar"><Wrench size={14}/></button>
-                                        )}
-
-                                        {/* Botão de Ativar/Inativar (Substitui o Delete de exclusão dura para o usuário comum) */}
-                                        <button 
-                                            onClick={() => setVehicleToToggleStatus(vehicle)} 
-                                            className={`p-1.5 rounded-md transition ${vehicle.ativo ? 'text-gray-400 hover:text-red-600 hover:bg-red-50' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`} 
-                                            title={vehicle.ativo ? "Inativar Veículo" : "Reativar Veículo"}
-                                        >
-                                            <Power size={14}/>
-                                        </button>
-                                        
-                                        {/* Lixeira mantida apenas por precaução, idealmente poderia ser protegida por admin */}
-                                        <ProtectedComponent requiredPermission="admin">
-                                            <button onClick={() => { setSelectedVehicle(vehicle); setIsDeleteModalOpen(true); }} className="p-1.5 text-gray-300 hover:text-red-700 hover:bg-red-100 rounded-md transition" title="Exclusão Permanente"><Trash2 size={14}/></button>
-                                        </ProtectedComponent>
-                                    </ProtectedComponent>
+                {/* ── Cards de Sumário ────────────────────────────────────── */}
+                {/* Frota Própria — terceirizados excluídos de todos os contadores */}
+                <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 ml-0.5">Frota Própria</p>
+                    <div className="grid grid-cols-3 lg:grid-cols-6 gap-2.5">
+                        {[
+                            { label: 'Ativos',      value: summary.total,       icon: Truck,         bg: 'bg-white',      text: 'text-gray-800',    sub: 'text-gray-400'    },
+                            { label: 'Disponíveis', value: summary.disponiveis, icon: CheckCircle2,  bg: 'bg-emerald-50', text: 'text-emerald-700', sub: 'text-emerald-400' },
+                            { label: 'Em Obra',     value: summary.emObra,      icon: HardHat,       bg: 'bg-sky-50',     text: 'text-sky-700',     sub: 'text-sky-400'     },
+                            { label: 'Manutenção',  value: summary.manutencao,  icon: Wrench,        bg: 'bg-orange-50',  text: 'text-orange-700',  sub: 'text-orange-400'  },
+                            { label: 'Alertas',     value: summary.comAlerta,   icon: AlertTriangle, bg: summary.comAlerta > 0 ? 'bg-red-50' : 'bg-white', text: summary.comAlerta > 0 ? 'text-red-600' : 'text-gray-500', sub: 'text-red-300' },
+                            { label: 'Sucata',      value: summary.sucata,      icon: Package,       bg: 'bg-zinc-100',   text: 'text-zinc-600',    sub: 'text-zinc-400'    },
+                        ].map(({ label, value, icon: Icon, bg, text, sub }) => (
+                            <div key={label} className={`${bg} rounded-xl border border-gray-100 shadow-sm p-3 md:p-4 flex items-center gap-2.5`}>
+                                <Icon size={18} className={`${text} shrink-0 opacity-70`}/>
+                                <div>
+                                    <p className={`text-lg md:text-xl font-bold leading-none ${text}`}>{value}</p>
+                                    <p className={`text-[10px] md:text-xs mt-0.5 ${sub}`}>{label}</p>
                                 </div>
                             </div>
-                        );
-                    })}
+                        ))}
+                    </div>
                 </div>
+
+                {/* Card de Terceirizados — contagem separada, não soma à frota própria */}
+                {summary.terceiros > 0 && (
+                    <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 ml-0.5">Veículos Terceirizados</p>
+                        <div className="bg-purple-50 border border-purple-200 rounded-xl shadow-sm p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                            <div className="flex items-center gap-3 pr-0 sm:pr-5 sm:border-r border-purple-200">
+                                <div className="p-2 bg-purple-100 rounded-lg shrink-0">
+                                    <Briefcase size={18} className="text-purple-700"/>
+                                </div>
+                                <div>
+                                    <p className="text-2xl font-bold text-purple-800 leading-none">{summary.terceiros}</p>
+                                    <p className="text-xs text-purple-500 mt-0.5">Total cadastrado</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2.5 flex-1">
+                                <div className="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"/>
+                                    <span className="text-sm font-bold text-gray-800">{summary.terceirosDisponiveis}</span>
+                                    <span className="text-xs text-gray-500">Disponíveis</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2">
+                                    <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0"/>
+                                    <span className="text-sm font-bold text-gray-800">{summary.terceirosEmObra}</span>
+                                    <span className="text-xs text-gray-500">Em Obra</span>
+                                </div>
+                                {summary.terceirosManutencao > 0 && (
+                                    <div className="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2">
+                                        <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0"/>
+                                        <span className="text-sm font-bold text-gray-800">{summary.terceirosManutencao}</span>
+                                        <span className="text-xs text-gray-500">Manutenção</span>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="hidden sm:block text-[10px] text-purple-400 whitespace-nowrap self-center">
+                                Não contabilizados na frota própria
+                            </p>
+                        </div>
+                    </div>
+                )}
+                {/* ── Filtros ─────────────────────────────────────────────── */}
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-3 p-3 border-b border-gray-100">
+                        <div className="relative flex-1">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+                            <input
+                                type="text" name="search"
+                                placeholder="Buscar por placa, registro, marca ou modelo…"
+                                value={filters.search} onChange={handleFilterChange}
+                                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition"
+                            />
+                        </div>
+                        <button
+                            onClick={() => setShowFilters(p => !p)}
+                            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition ${showFilters ? 'bg-yellow-50 border-yellow-300 text-yellow-700' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                        >
+                            <SlidersHorizontal size={14}/>
+                            Filtros
+                            {activeFiltersCount > 0 && (
+                                <span className="bg-yellow-400 text-gray-900 text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{activeFiltersCount}</span>
+                            )}
+                        </button>
+                    </div>
+
+                    {showFilters && (
+                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-gray-50/60 border-b border-gray-100">
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Grupo</label>
+                                <select name="group" value={filters.group} onChange={handleFilterChange} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
+                                    <option value="todos">Todos os grupos</option>
+                                    {Object.keys(vehicleGroups).map(g => <option key={g} value={g}>{g}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Tipo</label>
+                                <select name="type" value={filters.type} onChange={handleFilterChange} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
+                                    <option value="todos">Todos os tipos</option>
+                                    {vehicleTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Status</label>
+                                <select name="status" value={filters.status} onChange={handleFilterChange} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
+                                    <option value="todos">Todos os status</option>
+                                    {ALL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex flex-col justify-center gap-3 pt-1">
+                                {[
+                                    { name: 'showInactive', label: 'Ver inativos',   activeColor: 'peer-checked:bg-yellow-400' },
+                                    { name: 'showSucata',   label: 'Ver sucatas',    activeColor: 'peer-checked:bg-zinc-500',  extra: `(${summary.sucata})` },
+                                ].map(({ name, label, activeColor, extra }) => (
+                                    <label key={name} className="flex items-center gap-2.5 cursor-pointer">
+                                        <div className="relative">
+                                            <input type="checkbox" name={name} checked={filters[name]} onChange={handleFilterChange} className="sr-only peer"/>
+                                            <div className={`w-9 h-5 bg-gray-200 rounded-full transition-colors ${activeColor}`}/>
+                                            <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4"/>
+                                        </div>
+                                        <span className="text-sm text-gray-600">{label} {extra && <span className="text-gray-400 text-[11px]">{extra}</span>}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+                        <span>{filteredVehicles.length} veículo{filteredVehicles.length !== 1 ? 's' : ''} exibido{filteredVehicles.length !== 1 ? 's' : ''}</span>
+                        {activeFiltersCount > 0 && (
+                            <button
+                                onClick={() => setFilters({ type: 'todos', status: 'todos', search: '', group: 'todos', showInactive: false, showSucata: false })}
+                                className="text-yellow-600 hover:text-yellow-700 font-medium"
+                            >
+                                Limpar filtros
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* ── Tabela ──────────────────────────────────────────────── */}
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+
+                    {/* Cabeçalho */}
+                    <div className="hidden md:grid grid-cols-12 gap-4 px-5 py-3 bg-gray-50 border-b border-gray-100">
+                        <div className="col-span-3"><SortHeader label="Veículo" sortKey="registroInterno"/></div>
+                        <div className="col-span-1"><SortHeader label="Reg." sortKey="registroInterno"/></div>
+                        <div className="col-span-2"><SortHeader label="Placa" sortKey="placa"/></div>
+                        <div className="col-span-2"><SortHeader label="Leitura" sortKey="vehicleReading" className="justify-center"/></div>
+                        <div className="col-span-2"><SortHeader label="Status" sortKey="computedStatus" className="justify-center"/></div>
+                        <div className="col-span-2 flex justify-center">
+                            <span className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Ações</span>
+                        </div>
+                    </div>
+
+                    {/* Linhas */}
+                    <div className="divide-y divide-gray-100">
+                        {filteredVehicles.length === 0 ? (
+                            <div className="py-16 text-center">
+                                <Truck size={32} className="mx-auto text-gray-200 mb-3"/>
+                                <p className="text-gray-400 font-medium text-sm">Nenhum veículo encontrado</p>
+                                <p className="text-gray-300 text-xs mt-1">Ajuste os filtros ou cadastre um novo veículo</p>
+                            </div>
+                        ) : filteredVehicles.map(vehicle => {
+                            const statusKey = vehicle.isSucata ? 'Sucata' : (!vehicle.ativo ? 'Inativo' : vehicle.computedStatus);
+                            const statusCfg = STATUS_CONFIG[statusKey] || STATUS_CONFIG['Disponível'];
+                            const hasCritical = vehicle.restrictions.some(r => r.type === 'bloqueio' || r.type === 'error');
+                            const hasChecklists = vehicle.checklistCount > 0;
+
+                            const statusDisplay = (!vehicle.isSucata && vehicle.ativo && vehicle.computedStatus === 'Em Obra' && vehicle.obra)
+                                ? `Obra: ${trunc(vehicle.obra.nome, 18)}`
+                                : (!vehicle.isSucata && vehicle.ativo && vehicle.computedStatus === 'Disponível')
+                                    ? `${vehicle.computedStatus} · ${vehicle.localizacaoAtual || 'Pátio'}`
+                                    : statusKey;
+
+                            return (
+                                <div key={vehicle.id} className={`grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center px-3 md:px-5 py-3.5 transition-all ${getRowStyle(vehicle)}`}>
+
+                                    {/* Veículo */}
+                                    <div className="md:col-span-3 flex items-center gap-3">
+                                        <div
+                                            className="relative shrink-0 cursor-pointer group"
+                                            onClick={() => { setSelectedVehicle(vehicle); setIsDetailModalOpen(true); }}
+                                        >
+                                            <div className={`w-16 h-11 rounded-lg overflow-hidden border ${vehicle.isSucata ? 'border-zinc-200 grayscale opacity-70' : 'border-gray-100'}`}>
+                                                <img
+                                                    src={vehicle.fotoURL
+                                                        ? (vehicle.fotoURL.startsWith('http') ? vehicle.fotoURL : `${(process.env.REACT_APP_API_URL || '').replace('/api', '')}${vehicle.fotoURL}`)
+                                                        : 'https://placehold.co/80x56/f1f5f9/94a3b8?text=S%2FF'}
+                                                    alt=""
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                                />
+                                            </div>
+                                            {hasCritical && vehicle.ativo && !vehicle.isSucata && (
+                                                <div className="absolute -top-1.5 -left-1.5 bg-red-500 text-white rounded-full p-0.5 shadow" title="Requer atenção">
+                                                    <AlertTriangle size={10} fill="white"/>
+                                                </div>
+                                            )}
+                                            {vehicle.isSucata && (
+                                                <div className="absolute -top-1.5 -left-1.5 bg-zinc-500 text-white rounded-full p-0.5 shadow" title="Sucata">
+                                                    <Package size={10}/>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-bold text-gray-900 text-sm">{vehicle.registroInterno}</span>
+                                                {vehicle.isOutsourced && (
+                                                    <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded-full border border-purple-200 font-bold uppercase">3º</span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-gray-500 truncate">{vehicle.marca} {vehicle.modelo}</p>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <span className="text-[10px] text-gray-400">{vehicle.tipo}</span>
+                                                {renderAlertBadges(vehicle.restrictions, vehicle)}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Reg. Interno */}
+                                    <div className="md:col-span-1 hidden md:block">
+                                        <span className="text-xs font-bold text-gray-700 font-mono">{vehicle.registroInterno}</span>
+                                    </div>
+
+                                    {/* Placa */}
+                                    <div className="md:col-span-2 hidden md:block">
+                                        <span className="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded-md tracking-wide">{vehicle.placa}</span>
+                                    </div>
+
+                                    {/* Leitura */}
+                                    <div className="md:col-span-2 hidden md:flex justify-center">
+                                        <span className={`text-sm font-mono font-semibold ${vehicle.isSucata ? 'text-zinc-400' : 'text-gray-700'}`}>
+                                            {vehicle.vehicleReading}
+                                        </span>
+                                    </div>
+
+                                    {/* Status */}
+                                    <div className="md:col-span-2 flex justify-start md:justify-center">
+                                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusCfg.color} max-w-[170px]`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusCfg.dot}`}/>
+                                            <span className="truncate" title={statusDisplay}>{trunc(statusDisplay, 22)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Botões */}
+                                    <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center items-center">
+
+                                        <button onClick={() => { setSelectedVehicle(vehicle); setIsChecklistModalOpen(true); }}
+                                            className={`p-1.5 rounded-md transition-colors ${hasChecklists ? 'text-purple-600 bg-purple-50 hover:bg-purple-100' : 'text-gray-400 hover:text-purple-500 hover:bg-purple-50'}`}
+                                            title="Checklists">
+                                            <ClipboardCheck size={15}/>
+                                        </button>
+                                        <button onClick={() => { setSelectedVehicle(vehicle); setIsFinesModalOpen(true); }}
+                                            className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-md transition-colors" title="Multas">
+                                            <ShieldAlert size={15}/>
+                                        </button>
+                                        <button onClick={() => { setSelectedVehicle(vehicle); setIsHistoryModalOpen(true); }}
+                                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Histórico">
+                                            <Clock size={15}/>
+                                        </button>
+
+                                        <ProtectedComponent requiredPermission="editor">
+                                            <button onClick={() => handleEdit(vehicle)}
+                                                className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-md transition-colors" title="Editar">
+                                                <Edit size={15}/>
+                                            </button>
+
+                                            {/* Ações de alocação — apenas ativos e não-sucata */}
+                                            {vehicle.ativo && !vehicle.isSucata && vehicle.computedStatus === 'Disponível' && (<>
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors" title="Alocar Obra"><HardHat size={15}/></button>
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-md transition-colors" title="Alocar Operação"><Users size={15}/></button>
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-md transition-colors" title="Enviar p/ Manutenção"><Wrench size={15}/></button>
+                                            </>)}
+                                            {vehicle.ativo && !vehicle.isSucata && vehicle.computedStatus === 'Em Obra' && (
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsObraAllocationModalOpen(true); }} className="p-1.5 text-red-400 bg-red-50 hover:bg-red-100 rounded-md border border-red-100 transition-colors" title="Desalocar de Obra"><HardHat size={15}/></button>
+                                            )}
+                                            {vehicle.ativo && !vehicle.isSucata && vehicle.computedStatus === 'Em Operação' && (
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsOperationalModalOpen(true); }} className="p-1.5 text-red-400 bg-red-50 hover:bg-red-100 rounded-md border border-red-100 transition-colors" title="Desalocar de Operação"><Users size={15}/></button>
+                                            )}
+                                            {vehicle.ativo && !vehicle.isSucata && (vehicle.computedStatus === 'Em Manutenção' || vehicle.computedStatus === 'Aguardando Manutenção') && (
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsMaintenanceModalOpen(true); }} className="p-1.5 text-emerald-500 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-100 transition-colors" title="Finalizar Manutenção"><Wrench size={15}/></button>
+                                            )}
+
+                                            {/* Ativar / Inativar — não exibe para sucata */}
+                                            {!vehicle.isSucata && (
+                                                <button onClick={() => setVehicleToToggleStatus(vehicle)}
+                                                    className={`p-1.5 rounded-md transition-colors ${vehicle.ativo ? 'text-gray-400 hover:text-red-500 hover:bg-red-50' : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50'}`}
+                                                    title={vehicle.ativo ? 'Inativar Veículo' : 'Reativar Veículo'}>
+                                                    <Power size={15}/>
+                                                </button>
+                                            )}
+
+                                            <ProtectedComponent requiredPermission="admin">
+                                                <button onClick={() => { setSelectedVehicle(vehicle); setIsDeleteModalOpen(true); }}
+                                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors" title="Excluir permanentemente">
+                                                    <Trash2 size={15}/>
+                                                </button>
+                                            </ProtectedComponent>
+                                        </ProtectedComponent>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {filteredVehicles.length > 0 && (
+                        <div className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+                            <span>{filteredVehicles.length} registro{filteredVehicles.length !== 1 ? 's' : ''}</span>
+                            <span>Frotas MAK · {new Date().toLocaleDateString('pt-BR')}</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* ── Banner Sucata Oculta ─────────────────────────────────── */}
+                {summary.sucata > 0 && !filters.showSucata && (
+                    <div className="flex items-center gap-3 p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm text-zinc-600">
+                        <Package size={15} className="shrink-0 text-zinc-400"/>
+                        <span>
+                            <strong>{summary.sucata}</strong> veículo{summary.sucata !== 1 ? 's' : ''} em <strong>Sucata</strong> {summary.sucata !== 1 ? 'estão ocultos' : 'está oculto'}.
+                            {' '}Estes veículos ficam excluídos de todos os cálculos do sistema e servem apenas como banco de peças.
+                        </span>
+                        <button
+                            onClick={() => { setShowFilters(true); setFilters(p => ({ ...p, showSucata: true })); }}
+                            className="ml-auto whitespace-nowrap text-zinc-700 font-semibold hover:underline text-xs"
+                        >
+                            Visualizar →
+                        </button>
+                    </div>
+                )}
             </div>
 
-            {/* --- Modais --- */}
-            {isModalOpen && (
-                <VehicleModal user={user} vehicle={selectedVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} vehicleGroups={vehicleGroups} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal} />
-            )}
-            
-            {isObraAllocationModalOpen && (
-                <ObraAllocationModal user={user} vehicle={selectedVehicle} obras={obras} employees={employees} revisions={revisions} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} PasswordConfirmationModal={PasswordConfirmationModal} />
-            )}
-            
-            {isOperationalModalOpen && (
-                <OperationalAssignmentModal user={user} vehicle={selectedVehicle} employees={employees} revisions={revisions} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} PasswordConfirmationModal={PasswordConfirmationModal} />
-            )}
+            {/* ── Modais ──────────────────────────────────────────────────── */}
+            {isModalOpen && <VehicleModal user={user} vehicle={selectedVehicle} vehicles={vehicles} vehicleTypes={vehicleTypes} vehicleGroups={vehicleGroups} onClose={() => setIsModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} PasswordConfirmationModal={PasswordConfirmationModal}/>}
+            {isObraAllocationModalOpen && <ObraAllocationModal user={user} vehicle={selectedVehicle} obras={obras} employees={employees} revisions={revisions} onClose={() => setIsObraAllocationModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} vehicles={vehicles} PasswordConfirmationModal={PasswordConfirmationModal}/>}
+            {isOperationalModalOpen && <OperationalAssignmentModal user={user} vehicle={selectedVehicle} employees={employees} revisions={revisions} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} PasswordConfirmationModal={PasswordConfirmationModal}/>}
+            {isHistoryModalOpen && <HistoryModal vehicle={selectedVehicle} onClose={() => setIsHistoryModalOpen(false)} obras={obras} apiClient={apiClient} employees={employees}/>}
+            {isChecklistModalOpen && <ChecklistModal vehicle={selectedVehicle} onClose={() => setIsChecklistModalOpen(false)} apiClient={apiClient}/>}
+            {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups}/>}
+            {isFinesModalOpen && <VehicleFinesModal vehicle={selectedVehicle} fines={fines} onClose={() => setIsFinesModalOpen(false)}/>}
+            {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={selectedVehicle} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData}/>}
 
-            {isHistoryModalOpen && <HistoryModal vehicle={selectedVehicle} onClose={() => setIsHistoryModalOpen(false)} obras={obras} apiClient={apiClient} employees={employees} />}
-            
-            {isChecklistModalOpen && <ChecklistModal vehicle={selectedVehicle} onClose={() => setIsChecklistModalOpen(false)} apiClient={apiClient} />}
-
-            {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} />}
-            {isFinesModalOpen && <VehicleFinesModal vehicle={selectedVehicle} fines={fines} onClose={() => setIsFinesModalOpen(false)} />}
-            {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={selectedVehicle} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData} />}
-            
             {isDeleteModalOpen && (
-                <PasswordConfirmationModal message={`Tem certeza que deseja excluir PERMANENTEMENTE o veículo ${selectedVehicle?.registroInterno}?`} onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient} />
+                <PasswordConfirmationModal message={`Tem certeza que deseja excluir PERMANENTEMENTE o veículo ${selectedVehicle?.registroInterno}?`} onConfirm={handleDelete} onClose={() => setIsDeleteModalOpen(false)} apiClient={apiClient}/>
             )}
-
             {vehicleToToggleStatus && (
-                <PasswordConfirmationModal 
-                    message={`Tem certeza que deseja ${vehicleToToggleStatus.ativo ? 'INATIVAR' : 'ATIVAR'} o veículo ${vehicleToToggleStatus.registroInterno}? ${vehicleToToggleStatus.ativo ? 'Ele não aparecerá mais nas listas ativas.' : ''}`} 
-                    onConfirm={handleToggleStatus} 
-                    onClose={() => setVehicleToToggleStatus(null)} 
-                    apiClient={apiClient} 
+                <PasswordConfirmationModal
+                    message={`Tem certeza que deseja ${vehicleToToggleStatus.ativo ? 'INATIVAR' : 'ATIVAR'} o veículo ${vehicleToToggleStatus.registroInterno}?${vehicleToToggleStatus.ativo ? ' Ele deixará de aparecer nas listas ativas.' : ''}`}
+                    onConfirm={handleToggleStatus}
+                    onClose={() => setVehicleToToggleStatus(null)}
+                    apiClient={apiClient}
                 />
             )}
         </div>

@@ -267,7 +267,7 @@ const DiarioDeBordoPage = ({
 
         try {
             // Chama a API para iniciar a jornada
-            const createdLog = await apiClient.startJourney(newLogData);
+            const createdLog = await apiClient.startDiarioJourney(newLogData);
 
             setAlertMessage("Jornada iniciada com sucesso!");
             // Define o log ativo com a resposta da API

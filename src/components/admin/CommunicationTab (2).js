@@ -81,8 +81,8 @@ const CommunicationTab = ({ socket, users = [] }) => {
     try {
       await apiClient.adminSaveEmailConfig(emailConfig);
       setEmailMsg('ok');
-    } catch (err) {
-      setEmailMsg(err.message || 'error');
+    } catch (_) {
+      setEmailMsg('error');
     } finally {
       setSavingEmail(false);
       setTimeout(() => setEmailMsg(''), 3000);
@@ -95,8 +95,8 @@ const CommunicationTab = ({ socket, users = [] }) => {
     try {
       await apiClient.adminSendTestEmail({ to: testEmail });
       alert('E-mail de teste enviado!');
-    } catch (err) {
-      alert(`Falha ao enviar e-mail de teste: ${err.message}`);
+    } catch (_) {
+      alert('Funcionalidade disponível em breve (backend pendente).');
     } finally {
       setSendingTest(false);
     }
@@ -219,7 +219,7 @@ const CommunicationTab = ({ socket, users = [] }) => {
             </label>
 
             {emailMsg === 'ok' && <p className="text-sm text-green-600 bg-green-50 border border-green-200 rounded px-3 py-2">Configuração salva com sucesso!</p>}
-            {emailMsg && emailMsg !== 'ok' && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">Erro ao salvar: {emailMsg}</p>}
+            {emailMsg === 'error' && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">Disponível em breve (backend pendente).</p>}
 
             <button type="submit" disabled={savingEmail} className="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold rounded-lg text-sm disabled:opacity-50 transition-colors">
               {savingEmail ? 'Salvando...' : 'Salvar Configuração'}
