@@ -1,318 +1,495 @@
-import React, { useState, useMemo } from 'react';
-import { Loader, X, AlertTriangle, Shield, Calendar, Gauge, MapPin } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Loader, X, AlertTriangle, Shield, Calendar, Gauge, MapPin, ChevronDown, Search, User, Building2 } from 'lucide-react';
 import FinishObraModal from './FinishObraModal';
 import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions, checkReadingConsistency } from '../utils/vehicleRules';
 
-const ObraAllocationModal = ({ 
-    user, 
-    vehicle, 
-    obras = [], 
-    employees = [], 
-    revisions = [], 
-    onClose, 
-    setAlertMessage, 
-    apiClient, 
-    reloadData, 
-    PasswordConfirmationModal 
+// --- Seletor de funcionário com pesquisa ---
+const EmployeeSelector = ({ employees, value, onChange, accentColor = 'green' }) => {
+    const [search, setSearch] = useState('');
+    const [isOpen, setIsOpen] = useState(false);
+    const ref = useRef(null);
+    const inputRef = useRef(null);
+
+    const ring = accentColor === 'green' ? 'focus:ring-green-500 border-green-300' : 'focus:ring-blue-500 border-blue-300';
+    const hover = accentColor === 'green' ? 'hover:bg-green-50' : 'hover:bg-blue-50';
+    const selected_bg = accentColor === 'green' ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800';
+
+    const filtered = useMemo(() =>
+        employees.filter(e =>
+            e.nome.toLowerCase().includes(search.toLowerCase()) ||
+            (e.funcao || '').toLowerCase().includes(search.toLowerCase())
+        ),
+    [employees, search]);
+
+    const selected = employees.find(e => String(e.id) === String(value));
+
+    useEffect(() => {
+        const handleClick = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) setIsOpen(false);
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    useEffect(() => {
+        if (isOpen && inputRef.current) inputRef.current.focus();
+    }, [isOpen]);
+
+    return (
+        <div ref={ref} className="relative">
+            <button
+                type="button"
+                onClick={() => setIsOpen(o => !o)}
+                className={`w-full p-2.5 border rounded-lg text-sm flex justify-between items-center bg-white transition focus:outline-none focus:ring-2 ${ring} ${!selected ? 'text-gray-400' : 'text-gray-800'}`}
+            >
+                <span className="flex items-center gap-2 truncate">
+                    <User size={13} className="text-gray-400 shrink-0" />
+                    {selected ? (
+                        <span className="truncate">
+                            {selected.nome}
+                            {selected.funcao && <span className="text-gray-400 ml-1">· {selected.funcao}</span>}
+                        </span>
+                    ) : 'Selecione um funcionário...'}
+                </span>
+                <ChevronDown size={14} className={`text-gray-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isOpen && (
+                <div className="absolute z-20 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-xl mt-1 flex flex-col overflow-hidden">
+                    <div className="p-2 border-b bg-gray-50">
+                        <div className="relative">
+                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                placeholder="Pesquisar por nome ou função..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                className="w-full pl-7 pr-3 py-1.5 text-xs border rounded focus:ring-1 focus:ring-green-500 focus:border-green-400 outline-none bg-white"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="overflow-y-auto max-h-44 custom-scrollbar">
+                        {filtered.length === 0 ? (
+                            <div className="p-3 text-xs text-gray-400 text-center italic">Nenhum resultado para "{search}"</div>
+                        ) : (
+                            filtered.map(e => (
+                                <button
+                                    key={e.id}
+                                    type="button"
+                                    onClick={() => { onChange(String(e.id)); setIsOpen(false); setSearch(''); }}
+                                    className={`w-full text-left px-3 py-2 text-sm transition flex justify-between items-center ${hover} ${String(value) === String(e.id) ? selected_bg + ' font-semibold' : ''}`}
+                                >
+                                    <span>{e.nome}</span>
+                                    {e.funcao && <span className="text-[11px] text-gray-400 ml-2 shrink-0">{e.funcao}</span>}
+                                </button>
+                            ))
+                        )}
+                    </div>
+
+                    <div className="px-3 py-1.5 border-t bg-gray-50 text-[10px] text-gray-400 text-right">
+                        {filtered.length} de {employees.length} funcionário(s) ativo(s)
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- Modal principal ---
+const ObraAllocationModal = ({
+    user,
+    vehicle,
+    obras = [],
+    employees = [],
+    revisions = [],
+    onClose,
+    setAlertMessage,
+    apiClient,
+    reloadData,
+    PasswordConfirmationModal
 }) => {
-    // --- LÓGICA CORRIGIDA: Detecção de Estado ---
     const isAllocated = !!vehicle.obraAtualId;
-    
-    // Tenta achar o registro histórico aberto correspondente
+
     const currentObraAllocation = useMemo(() => {
         return (Array.isArray(vehicle.history) ? vehicle.history : [])
             .find(h => (h.type === 'obra' || h.historyType === 'obra') && !h.endDate && !h.dataSaida);
     }, [vehicle.history]);
 
-    // Estados Iniciais
     const [obraId, setObraId] = useState(isAllocated ? vehicle.obraAtualId : '');
     const [employeeId, setEmployeeId] = useState(currentObraAllocation?.details?.employeeId || '');
-    
+
     const today = new Date().toISOString().split('T')[0];
-    const [dataEntrada, setDataEntrada] = useState(currentObraAllocation ? new Date(currentObraAllocation.startDate).toISOString().split('T')[0] : today);
-    const [dataSaida, setDataSaida] = useState(today); 
-    
+    const [dataEntrada, setDataEntrada] = useState(
+        currentObraAllocation ? new Date(currentObraAllocation.startDate).toISOString().split('T')[0] : today
+    );
+    const [dataSaida, setDataSaida] = useState(today);
+
     const [locationAfterDeallocate, setLocationAfterDeallocate] = useState('Pátio MAK Lajeado');
     const [observacoes, setObservacoes] = useState('');
-
     const [isSaving, setIsSaving] = useState(false);
 
-    // Estados de Segurança e Alertas
     const [restrictionAlert, setRestrictionAlert] = useState(null);
     const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
-    const [blockedAction, setBlockedAction] = useState(null); 
+    const [blockedAction, setBlockedAction] = useState(null);
 
-    // --- LEITURA ---
-    const allowedTypes = getAllowedReadingTypes(vehicle.tipo); 
+    const allowedTypes = getAllowedReadingTypes(vehicle.tipo);
     const readingType = allowedTypes.includes('horimetro') ? 'horimetro' : 'odometro';
     const readingLabel = readingType === 'horimetro' ? 'Horímetro' : 'Odômetro';
     const currentVehicleReading = getVehicleMainReading(vehicle).value || '';
     const [readingValue, setReadingValue] = useState(currentVehicleReading.toString());
 
-    // Listas filtradas
-    const activeObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
-    const availableEmployees = useMemo(() =>
+    const activeObras = useMemo(() =>
+        obras.filter(o => o.status === 'ativa').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
+    [obras]);
+
+    // Somente funcionários com status 'ativo'
+    const activeEmployees = useMemo(() =>
         (employees || [])
-            .filter(e => e.status !== 'inativo')
+            .filter(e => e.status === 'ativo')
             .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [employees]);
 
     const [isFinishObraModalOpen, setIsFinishObraModalOpen] = useState(false);
     const [obraToFinalize, setObraToFinalize] = useState(null);
 
-    // --- VALIDAÇÃO ---
+    const currentObra = obras.find(o => o.id === vehicle.obraAtualId);
+
     const validateRestrictions = () => {
         setRestrictionAlert(null);
         const staticIssues = checkVehicleRestrictions(vehicle, revisions);
-        
-        // Passa readingType ('horimetro' ou 'odometro') para ativar as travas específicas
         const consistencyIssue = checkReadingConsistency(vehicle, readingValue, readingType);
         if (consistencyIssue.status === 'bloqueio') {
             staticIssues.push({ type: 'bloqueio', message: consistencyIssue.message });
         }
-
         const blockingIssues = staticIssues.filter(i => i.type === 'bloqueio' || i.type === 'vencido' || i.category === 'bloqueio');
         const warningIssues = staticIssues.filter(i => i.type === 'aviso' || i.type === 'warning');
-
         if (blockingIssues.length > 0 || warningIssues.length > 0) {
             setRestrictionAlert(staticIssues.map(i => i.message));
-            return false; 
+            return false;
         }
-        return true; 
+        return true;
     };
 
-    // --- AÇÕES ---
     const handleAllocateClick = (e) => {
         e.preventDefault();
         const readingFloat = parseFloat(readingValue);
         if (!obraId || !employeeId || readingValue === '' || isNaN(readingFloat)) {
-            setAlertMessage(`Preencha todos os campos obrigatórios.`);
+            setAlertMessage('Preencha todos os campos obrigatórios.');
             return;
         }
         if (!validateRestrictions()) {
-            setBlockedAction(() => executeAllocate); 
-            return; 
+            setBlockedAction(() => executeAllocate);
+            return;
         }
         executeAllocate();
     };
 
     const executeAllocate = async () => {
         setIsSaving(true);
-        const selectedEmployee = employees.find(e => e.id.toString() === employeeId.toString());
+        const selectedEmployee = employees.find(e => String(e.id) === String(employeeId));
         const employeeName = selectedEmployee ? selectedEmployee.nome : 'N/A';
         const val = parseFloat(readingValue);
-
         try {
-            const payload = {
-                obraId: obraId, 
-                employeeId: employeeId,
+            await apiClient.allocateVehicleToObra(vehicle.id, {
+                obraId,
+                employeeId,
                 employeeName,
                 dataEntrada,
                 readingType,
                 readingValue: val,
                 observacoes: observacoes || '',
-                
-                horimetroEntrada: readingType === 'horimetro' ? val : 0, 
-                odometroEntrada: readingType === 'odometro' ? val : 0, 
-                
+                horimetroEntrada: readingType === 'horimetro' ? val : 0,
+                odometroEntrada: readingType === 'odometro' ? val : 0,
                 horimetro: readingType === 'horimetro' ? val : 0,
-                odometro: readingType === 'odometro' ? val : 0
-            };
-
-            await apiClient.allocateVehicleToObra(vehicle.id, payload);
-            setAlertMessage("Veículo alocado com sucesso!");
+                odometro: readingType === 'odometro' ? val : 0,
+            });
+            setAlertMessage('Veículo alocado com sucesso!');
             reloadData();
             onClose();
         } catch (error) {
-            console.error("Erro detalhado da API:", error.response?.data);
-            const msg = error.response?.data?.sqlMessage 
-                        ? `Erro SQL: ${error.response.data.sqlMessage}` 
-                        : (error.response?.data?.error || error.message);
-            setAlertMessage("Erro ao alocar: " + msg);
+            const msg = error.response?.data?.sqlMessage
+                ? `Erro SQL: ${error.response.data.sqlMessage}`
+                : (error.response?.data?.error || error.message);
+            setAlertMessage('Erro ao alocar: ' + msg);
         } finally {
             setIsSaving(false);
         }
     };
 
     const handleDeallocateClick = () => {
-         const readingFloat = parseFloat(readingValue);
-         if (readingValue === '' || isNaN(readingFloat)) {
-             setAlertMessage(`Informe a leitura de saída.`);
-             return;
-         }
-         if (!validateRestrictions()) {
+        const readingFloat = parseFloat(readingValue);
+        if (readingValue === '' || isNaN(readingFloat)) {
+            setAlertMessage('Informe a leitura de saída.');
+            return;
+        }
+        if (dataEntrada && dataSaida && new Date(dataSaida) < new Date(dataEntrada)) {
+            setAlertMessage(`A data de saída (${new Date(dataSaida).toLocaleDateString('pt-BR')}) não pode ser anterior à data de entrada (${new Date(dataEntrada).toLocaleDateString('pt-BR')}).`);
+            return;
+        }
+        if (!validateRestrictions()) {
             setBlockedAction(() => checkAndDeallocate);
             return;
-         }
-         checkAndDeallocate();
+        }
+        checkAndDeallocate();
     };
 
     const checkAndDeallocate = () => {
         const obraData = obras.find(o => o.id === vehicle.obraAtualId);
-        if (!obraData) { 
+        if (!obraData) {
             executeDeallocate(false, null);
             return;
         }
-        
-        // Verifica se é o último veículo da obra
         const historico = Array.isArray(obraData.historicoVeiculos) ? obraData.historicoVeiculos : [];
         const otherActiveVehicles = historico.filter(h => h.veiculoId !== vehicle.id && !h.dataSaida);
-
-        if (otherActiveVehicles.length === 0) { 
+        if (otherActiveVehicles.length === 0) {
             setObraToFinalize(obraData);
-            setIsFinishObraModalOpen(true); 
+            setIsFinishObraModalOpen(true);
         } else {
-            executeDeallocate(false, null); 
+            executeDeallocate(false, null);
         }
     };
 
     const executeDeallocate = async (shouldFinalizeObra, dataFimObra) => {
         setIsSaving(true);
         const val = parseFloat(readingValue);
-
         try {
-            // CORREÇÃO CRÍTICA: IDs como string/original
-            const payload = {
+            await apiClient.deallocateVehicleFromObra(vehicle.id, {
                 dataSaida,
                 readingType,
                 readingValue: val,
                 location: locationAfterDeallocate,
                 shouldFinalizeObra,
                 dataFimObra,
-                obraId: vehicle.obraAtualId, // Envia original (pode ser UUID)
+                obraId: vehicle.obraAtualId,
                 observacoes: observacoes || '',
-                
-                // Mapeamento específico
                 horimetroSaida: readingType === 'horimetro' ? val : 0,
                 odometroSaida: readingType === 'odometro' ? val : 0,
-
-                // Compatibilidade
                 horimetro: readingType === 'horimetro' ? val : 0,
-                odometro: readingType === 'odometro' ? val : 0
-            };
-
-            await apiClient.deallocateVehicleFromObra(vehicle.id, payload);
-            setAlertMessage(`Desalocado com sucesso!`);
+                odometro: readingType === 'odometro' ? val : 0,
+            });
+            setAlertMessage('Desalocado com sucesso!');
             reloadData();
             onClose();
         } catch (error) {
-            console.error("Erro detalhado da API:", error.response?.data);
-            const msg = error.response?.data?.sqlMessage 
-                        ? `Erro SQL: ${error.response.data.sqlMessage}` 
-                        : (error.response?.data?.error || error.message);
-            setAlertMessage("Erro ao desalocar: " + msg);
+            const msg = error.response?.data?.sqlMessage
+                ? `Erro SQL: ${error.response.data.sqlMessage}`
+                : (error.response?.data?.error || error.message);
+            setAlertMessage('Erro ao desalocar: ' + msg);
         } finally {
             setIsSaving(false);
         }
     };
 
+    const accentColor = isAllocated ? 'red' : 'green';
+    const headerBg = isAllocated
+        ? 'bg-gradient-to-r from-red-600 to-red-700'
+        : 'bg-gradient-to-r from-green-600 to-green-700';
+
     return (
         <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh] animate-scale-in">
-                    
-                    {/* CABEÇALHO */}
-                    <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                        <h2 className="text-lg font-bold text-gray-800">
-                            {isAllocated ? 'Desalocar Veículo da Obra' : 'Alocar Veículo em Obra'}
-                        </h2>
-                        <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-200" disabled={isSaving}><X size={18}/></button>
+            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[92vh] animate-scale-in overflow-hidden">
+
+                    {/* Cabeçalho colorido */}
+                    <div className={`p-4 flex justify-between items-start ${headerBg} text-white rounded-t-xl`}>
+                        <div>
+                            <h2 className="text-base font-bold">
+                                {isAllocated ? 'Desalocar Veículo da Obra' : 'Alocar Veículo em Obra'}
+                            </h2>
+                            <p className="text-xs opacity-80 mt-0.5">
+                                {vehicle.registroInterno} · {vehicle.placa} · {readingLabel} atual: <strong>{currentVehicleReading}</strong>
+                            </p>
+                        </div>
+                        <button onClick={onClose} disabled={isSaving} className="p-1.5 rounded-full hover:bg-white hover:bg-opacity-20 transition">
+                            <X size={18} />
+                        </button>
                     </div>
 
-                    {/* CONTEÚDO SCROLLÁVEL */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
-                        
-                        {/* Alerta de Restrição Compacto */}
+                    {/* Conteúdo */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+
+                        {/* Alerta de restrição */}
                         {restrictionAlert && (
-                            <div className="bg-red-50 p-3 mb-4 rounded border border-red-200 flex items-start gap-3">
+                            <div className="bg-red-50 p-3 rounded-lg border border-red-200 flex items-start gap-3">
                                 <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={18} />
                                 <div className="flex-1">
-                                    <h3 className="font-bold text-red-800 text-xs uppercase mb-1">Restrições</h3>
-                                    <ul className="list-disc list-inside text-xs text-red-700 mb-2">
+                                    <p className="font-bold text-red-800 text-xs uppercase mb-1">Restrições encontradas</p>
+                                    <ul className="list-disc list-inside text-xs text-red-700 mb-2 space-y-0.5">
                                         {restrictionAlert.map((msg, i) => <li key={i}>{msg}</li>)}
                                     </ul>
-                                    <button onClick={() => setShowPasswordConfirm(true)} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold flex items-center gap-2 hover:bg-red-700 w-full justify-center">
-                                        <Shield size={12} /> LIBERAR COM SENHA
+                                    <button
+                                        onClick={() => setShowPasswordConfirm(true)}
+                                        className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 w-full justify-center"
+                                    >
+                                        <Shield size={12} /> LIBERAR COM SENHA GERENCIAL
                                     </button>
                                 </div>
                             </div>
                         )}
 
-                        <div className="text-xs text-gray-500 mb-3 bg-gray-50 p-2 rounded border border-gray-100 flex justify-between items-center">
-                            <span><strong>Veículo:</strong> {vehicle.registroInterno} - {vehicle.placa}</span>
-                            <span>{readingLabel} Atual: <strong>{currentVehicleReading}</strong></span>
-                        </div>
-
                         {isAllocated ? (
-                            // --- FORMULÁRIO DESALOCAÇÃO (COMPACTO) ---
-                            <div className="space-y-3">
-                                <div className="p-2 bg-blue-50 rounded border border-blue-100 text-xs text-blue-800 grid grid-cols-2 gap-2">
-                                    <span>Obra: <strong>{obras.find(o => o.id === vehicle.obraAtualId)?.nome || '...'}</strong></span>
-                                    <span>Func: <strong>{currentObraAllocation?.details?.employeeName || '...'}</strong></span>
+                            /* ── DESALOCAÇÃO ── */
+                            <div className="space-y-4">
+                                {/* Info da obra atual */}
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-start gap-3">
+                                    <Building2 size={16} className="text-gray-500 shrink-0 mt-0.5" />
+                                    <div className="text-sm">
+                                        <p className="font-semibold text-gray-800">{currentObra?.nome || 'Obra não identificada'}</p>
+                                        <p className="text-xs text-gray-500 mt-0.5">
+                                            Operador: <strong>{currentObraAllocation?.details?.employeeName || '—'}</strong>
+                                            {dataEntrada && (
+                                                <span className="ml-2">· Entrada: <strong>{new Date(dataEntrada + 'T12:00:00').toLocaleDateString('pt-BR')}</strong></span>
+                                            )}
+                                        </p>
+                                    </div>
                                 </div>
 
+                                {/* Data e leitura de saída */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1"><Calendar size={12}/> Data Saída</label>
-                                        <input type="date" value={dataSaida} onChange={e => setDataSaida(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-500" />
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                            <Calendar size={12} /> Data de Saída
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={dataSaida}
+                                            onChange={e => setDataSaida(e.target.value)}
+                                            className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1"><Gauge size={12}/> {readingLabel} Saída</label>
-                                        <input type="number" step="any" value={readingValue} onChange={e => setReadingValue(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-500" placeholder="Leitura final" />
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                            <Gauge size={12} /> {readingLabel} de Saída
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={readingValue}
+                                            onChange={e => setReadingValue(e.target.value)}
+                                            className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none"
+                                            placeholder="Leitura final"
+                                        />
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1"><MapPin size={12}/> Destino (Pátio/Local)</label>
-                                    <input type="text" value={locationAfterDeallocate} onChange={e => setLocationAfterDeallocate(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-500" placeholder="Ex: Pátio Sede" />
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                        <MapPin size={12} /> Destino após saída
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={locationAfterDeallocate}
+                                        onChange={e => setLocationAfterDeallocate(e.target.value)}
+                                        className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none"
+                                        placeholder="Ex: Pátio Sede"
+                                    />
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Observações</label>
-                                    <textarea rows="2" value={observacoes} onChange={e => setObservacoes(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-500" placeholder="Obs sobre a saída..." />
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Observações</label>
+                                    <textarea
+                                        rows="2"
+                                        value={observacoes}
+                                        onChange={e => setObservacoes(e.target.value)}
+                                        className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none resize-none"
+                                        placeholder="Observações sobre a saída..."
+                                    />
                                 </div>
 
-                                <button onClick={handleDeallocateClick} disabled={isSaving} className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-sm text-sm flex items-center justify-center gap-2 mt-2">
-                                     {isSaving ? <Loader className="animate-spin" size={16}/> : "Finalizar & Desalocar"}
+                                <button
+                                    onClick={handleDeallocateClick}
+                                    disabled={isSaving}
+                                    className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-bold rounded-lg shadow text-sm flex items-center justify-center gap-2 transition"
+                                >
+                                    {isSaving ? <Loader className="animate-spin" size={16} /> : 'Finalizar & Desalocar'}
                                 </button>
                             </div>
                         ) : (
-                            // --- FORMULÁRIO ALOCAÇÃO (COMPACTO) ---
-                            <div className="space-y-3">
+                            /* ── ALOCAÇÃO ── */
+                            <div className="space-y-4">
+                                {/* Obra destino */}
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Obra Destino</label>
-                                    <select value={obraId} onChange={(e) => setObraId(e.target.value)} className="w-full p-2 border rounded text-sm bg-white focus:ring-1 focus:ring-green-500">
-                                        <option value="">Selecione...</option>
-                                        {activeObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                        <Building2 size={12} /> Obra Destino <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        value={obraId}
+                                        onChange={e => setObraId(e.target.value)}
+                                        className="w-full p-2.5 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-green-500 focus:border-green-400 outline-none"
+                                    >
+                                        <option value="">Selecione a obra...</option>
+                                        {activeObras.map(o => (
+                                            <option key={o.id} value={o.id}>{o.nome}</option>
+                                        ))}
                                     </select>
+                                    {activeObras.length === 0 && (
+                                        <p className="text-xs text-amber-600 mt-1">Nenhuma obra ativa cadastrada.</p>
+                                    )}
                                 </div>
 
+                                {/* Funcionário com busca */}
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Funcionário</label>
-                                    <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full p-2 border rounded text-sm bg-white focus:ring-1 focus:ring-green-500">
-                                        <option value="">Selecione...</option>
-                                        {availableEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                                    </select>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                        <User size={12} /> Operador Responsável <span className="text-red-500">*</span>
+                                    </label>
+                                    <EmployeeSelector
+                                        employees={activeEmployees}
+                                        value={employeeId}
+                                        onChange={setEmployeeId}
+                                        accentColor="green"
+                                    />
+                                    {activeEmployees.length === 0 && (
+                                        <p className="text-xs text-amber-600 mt-1">Nenhum funcionário ativo encontrado.</p>
+                                    )}
                                 </div>
 
+                                {/* Data e leitura de entrada */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1"><Calendar size={12}/> Data Entrada</label>
-                                        <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-green-500" />
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                            <Calendar size={12} /> Data de Entrada <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={dataEntrada}
+                                            onChange={e => setDataEntrada(e.target.value)}
+                                            className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-400 outline-none"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1"><Gauge size={12}/> {readingLabel} Entrada</label>
-                                        <input type="number" step="any" value={readingValue} onChange={e => setReadingValue(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-green-500" placeholder="Leitura inicial" />
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
+                                            <Gauge size={12} /> {readingLabel} Entrada <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={readingValue}
+                                            onChange={e => setReadingValue(e.target.value)}
+                                            className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-400 outline-none"
+                                            placeholder="Leitura inicial"
+                                        />
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Observações</label>
-                                    <textarea rows="2" value={observacoes} onChange={e => setObservacoes(e.target.value)} className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-green-500" placeholder="Obs iniciais..." />
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Observações</label>
+                                    <textarea
+                                        rows="2"
+                                        value={observacoes}
+                                        onChange={e => setObservacoes(e.target.value)}
+                                        className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-400 outline-none resize-none"
+                                        placeholder="Observações iniciais..."
+                                    />
                                 </div>
 
-                                <button onClick={handleAllocateClick} disabled={isSaving} className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow-sm text-sm flex items-center justify-center gap-2 mt-2">
-                                    {isSaving ? <Loader className="animate-spin" size={16}/> : "Confirmar Alocação"}
+                                <button
+                                    onClick={handleAllocateClick}
+                                    disabled={isSaving}
+                                    className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-bold rounded-lg shadow text-sm flex items-center justify-center gap-2 transition"
+                                >
+                                    {isSaving ? <Loader className="animate-spin" size={16} /> : 'Confirmar Alocação'}
                                 </button>
                             </div>
                         )}
