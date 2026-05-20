@@ -117,13 +117,26 @@ const ObraAllocationModal = ({
             .find(h => (h.type === 'obra' || h.historyType === 'obra') && !h.endDate && !h.dataSaida);
     }, [vehicle.history]);
 
+    // Data de entrada real buscada direto do historicoVeiculos da obra (fonte confiável)
+    const realEntryDate = useMemo(() => {
+        if (!vehicle.obraAtualId) return null;
+        const obraData = obras.find(o => o.id === vehicle.obraAtualId);
+        if (!obraData) return null;
+        const historico = Array.isArray(obraData.historicoVeiculos) ? obraData.historicoVeiculos : [];
+        const entry = historico.find(h => String(h.veiculoId) === String(vehicle.id) && !h.dataSaida);
+        if (!entry?.dataEntrada) return null;
+        try {
+            return new Date(entry.dataEntrada).toISOString().split('T')[0];
+        } catch {
+            return null;
+        }
+    }, [vehicle.obraAtualId, vehicle.id, obras]);
+
     const [obraId, setObraId] = useState(isAllocated ? vehicle.obraAtualId : '');
     const [employeeId, setEmployeeId] = useState(currentObraAllocation?.details?.employeeId || '');
 
     const today = new Date().toISOString().split('T')[0];
-    const [dataEntrada, setDataEntrada] = useState(
-        currentObraAllocation ? new Date(currentObraAllocation.startDate).toISOString().split('T')[0] : today
-    );
+    const [dataEntrada, setDataEntrada] = useState(today);
     const [dataSaida, setDataSaida] = useState(today);
 
     const [locationAfterDeallocate, setLocationAfterDeallocate] = useState('Pátio MAK Lajeado');
@@ -224,8 +237,8 @@ const ObraAllocationModal = ({
             setAlertMessage('Informe a leitura de saída.');
             return;
         }
-        if (dataEntrada && dataSaida && new Date(dataSaida) < new Date(dataEntrada)) {
-            setAlertMessage(`A data de saída (${new Date(dataSaida).toLocaleDateString('pt-BR')}) não pode ser anterior à data de entrada (${new Date(dataEntrada).toLocaleDateString('pt-BR')}).`);
+        if (realEntryDate && dataSaida && new Date(dataSaida) < new Date(realEntryDate)) {
+            setAlertMessage(`A data de saída (${new Date(dataSaida + 'T12:00:00').toLocaleDateString('pt-BR')}) não pode ser anterior à data de entrada (${new Date(realEntryDate + 'T12:00:00').toLocaleDateString('pt-BR')}).`);
             return;
         }
         if (!validateRestrictions()) {
@@ -236,6 +249,10 @@ const ObraAllocationModal = ({
     };
 
     const checkAndDeallocate = () => {
+        if (realEntryDate && dataSaida && new Date(dataSaida) < new Date(realEntryDate)) {
+            setAlertMessage(`A data de saída (${new Date(dataSaida + 'T12:00:00').toLocaleDateString('pt-BR')}) não pode ser anterior à data de entrada (${new Date(realEntryDate + 'T12:00:00').toLocaleDateString('pt-BR')}).`);
+            return;
+        }
         const obraData = obras.find(o => o.id === vehicle.obraAtualId);
         if (!obraData) {
             executeDeallocate(false, null);
@@ -339,8 +356,8 @@ const ObraAllocationModal = ({
                                         <p className="font-semibold text-gray-800">{currentObra?.nome || 'Obra não identificada'}</p>
                                         <p className="text-xs text-gray-500 mt-0.5">
                                             Operador: <strong>{currentObraAllocation?.details?.employeeName || '—'}</strong>
-                                            {dataEntrada && (
-                                                <span className="ml-2">· Entrada: <strong>{new Date(dataEntrada + 'T12:00:00').toLocaleDateString('pt-BR')}</strong></span>
+                                            {realEntryDate && (
+                                                <span className="ml-2">· Entrada: <strong>{new Date(realEntryDate + 'T12:00:00').toLocaleDateString('pt-BR')}</strong></span>
                                             )}
                                         </p>
                                     </div>
@@ -355,6 +372,7 @@ const ObraAllocationModal = ({
                                         <input
                                             type="date"
                                             value={dataSaida}
+                                            min={realEntryDate || undefined}
                                             onChange={e => setDataSaida(e.target.value)}
                                             className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none"
                                         />
