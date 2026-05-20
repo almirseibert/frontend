@@ -235,41 +235,68 @@ const OperacionalPage = ({
             const vehicle = vehicles.find(v => String(v.id) === String(vehicleId));
             if (!vehicle || !isHeavyVehicle(vehicle.tipo)) return null;
 
-            const vehicleLogs = obraLogs.filter(l => String(l.vehicleId) === String(vehicleId));
-            const logDateSet = new Set(vehicleLogs.map(l => l.date.split('T')[0]));
-            const isActive = periods.some(p => !p.dataSaida);
+            const sortedPeriods = [...periods].sort((a, b) => new Date(a.dataEntrada) - new Date(b.dataEntrada));
+            const activePeriod = sortedPeriods.find(p => !p.dataSaida);
+            const isActive = !!activePeriod;
+            const relevantPeriod = activePeriod ?? sortedPeriods[sortedPeriods.length - 1];
+            const entryDate = relevantPeriod?.dataEntrada || null;
 
+            const vehicleLogs = obraLogs.filter(l => String(l.vehicleId) === String(vehicleId));
+            const totalHours = vehicleLogs.reduce((acc, l) => acc + parseFloat(l.totalHours || 0), 0);
+
+            // allDays de todos os períodos — usado apenas para cobertura total (daysWithLogs / totalDays)
             const allDaysSet = new Set();
+            const logDateSet = new Set(vehicleLogs.map(l => l.date.split('T')[0]));
             periods.forEach(p => {
                 let d = new Date(p.dataEntrada); d.setHours(0, 0, 0, 0);
                 const end = p.dataSaida ? new Date(p.dataSaida) : today; end.setHours(0, 0, 0, 0);
                 while (d <= end) { allDaysSet.add(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1); }
             });
-
             const allDays = [...allDaysSet].sort();
             const daysWithLogs = allDays.filter(d => logDateSet.has(d)).length;
-            const totalHours = vehicleLogs.reduce((acc, l) => acc + parseFloat(l.totalHours || 0), 0);
 
-            let maxGapHistorico = 0, currentGap = 0;
-            allDays.forEach(d => { if (!logDateSet.has(d)) { currentGap++; maxGapHistorico = Math.max(maxGapHistorico, currentGap); } else currentGap = 0; });
+            // Gap e lastLogDate calculados apenas no período atual/mais recente
+            const periodStartStr = relevantPeriod.dataEntrada.split('T')[0];
+            const periodEndStr = relevantPeriod.dataSaida
+                ? relevantPeriod.dataSaida.split('T')[0]
+                : new Date().toISOString().split('T')[0];
 
-            const sortedLogs = [...vehicleLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
-            const lastLogDate = sortedLogs[0]?.date?.split('T')[0] || null;
+            const currentPeriodDays = [];
+            { const cur = new Date(periodStartStr + 'T00:00:00Z');
+              const end = new Date(periodEndStr + 'T00:00:00Z');
+              while (cur <= end) { currentPeriodDays.push(cur.toISOString().split('T')[0]); cur.setUTCDate(cur.getUTCDate() + 1); } }
+
+            const currentPeriodLogSet = new Set(
+                vehicleLogs.map(l => l.date.split('T')[0]).filter(d => d >= periodStartStr && d <= periodEndStr)
+            );
+
+            let maxGapHistorico = 0, gapAcc = 0;
+            currentPeriodDays.forEach(d => {
+                if (!currentPeriodLogSet.has(d)) { gapAcc++; maxGapHistorico = Math.max(maxGapHistorico, gapAcc); }
+                else gapAcc = 0;
+            });
+
+            const sortedCurrentLogs = vehicleLogs
+                .filter(l => { const d = l.date.split('T')[0]; return d >= periodStartStr && d <= periodEndStr; })
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+            const lastLogDate = sortedCurrentLogs[0]?.date?.split('T')[0] || null;
             const daysSinceLast = lastLogDate ? Math.floor((today - new Date(lastLogDate)) / 86400000) : null;
             const maxGap = Math.max(maxGapHistorico, daysSinceLast ?? 0);
+
             const contractedHours = parseFloat(horasContratadas[vehicle.tipo] || 0);
             const coveragePercent = contractedHours > 0 ? (totalHours / contractedHours) * 100 : null;
 
             let status = 'ok';
-            if (totalHours === 0 && allDays.length > 3) status = 'nunca';
+            if (currentPeriodLogSet.size === 0 && currentPeriodDays.length > 3) status = 'nunca';
             else if (maxGap > GAP_THRESHOLD_DAYS) status = 'atencao';
 
             return {
                 vehicleId: String(vehicleId), vehicle, isActive,
-                periods: [...periods].sort((a, b) => new Date(a.dataEntrada) - new Date(b.dataEntrada)),
+                periods: sortedPeriods,
                 totalDays: allDays.length, daysWithLogs, totalHours, contractedHours,
                 lastLogDate, daysSinceLast, maxGap, status, coveragePercent,
-                lastLogJustificativaTipo: sortedLogs[0]?.justificativaTipo || null,
+                lastLogJustificativaTipo: sortedCurrentLogs[0]?.justificativaTipo || null,
+                entryDate,
             };
         }).filter(Boolean).sort((a, b) => {
             const order = { nunca: 0, atencao: 1, ok: 2 };
@@ -764,6 +791,7 @@ const OperacionalPage = ({
                                                         <tr>
                                                             <th className="px-4 py-3 text-left">Equipamento</th>
                                                             <th className="px-4 py-3 text-left">Situação</th>
+                                                            <th className="px-4 py-3 text-left">Entrada na Obra</th>
                                                             <th className="px-4 py-3 text-left">Status</th>
                                                             <th className="px-4 py-3 text-left">Cobertura contratada</th>
                                                             <th className="px-4 py-3 text-center">Maior gap</th>
@@ -785,6 +813,24 @@ const OperacionalPage = ({
                                                                     }
                                                                     {!stat.isActive && stat.status !== 'ok' && (
                                                                         <p className="text-[10px] text-red-500 mt-1 leading-tight">Período encerrado — gaps permanentes</p>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    {stat.entryDate ? (
+                                                                        <div>
+                                                                            <span className="text-gray-700 text-sm">{formatDateToBR(stat.entryDate)}</span>
+                                                                            {stat.isActive && (
+                                                                                <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
+                                                                                    {(() => {
+                                                                                        const entry = new Date(stat.entryDate.split('T')[0] + 'T00:00:00Z');
+                                                                                        const dias = Math.floor((today - entry) / 86400000);
+                                                                                        return dias > 0 ? `${dias}d na obra` : 'hoje';
+                                                                                    })()}
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-gray-300 text-xs">—</span>
                                                                     )}
                                                                 </td>
                                                                 <td className="px-4 py-3">{renderStatusBadge(stat.status, stat.isActive)}</td>
