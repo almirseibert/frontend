@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock, RefreshCw, User, ClipboardList } from 'lucide-react'; // Added RefreshCw
+import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock, RefreshCw, User, ClipboardList, Trash2 } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
@@ -82,8 +82,8 @@ const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [],
                         <label className="block text-sm font-medium text-gray-700">Operador *</label>
                         <select name="employeeId" value={editedData.employeeId} onChange={handleInputChange} className="w-full p-2 border rounded mt-1 text-sm bg-white" required>
                              <option value="">Selecione...</option>
-                             {(employees || []).sort((a, b) => (a.nome || '').localeCompare(b.nome || '')).map(emp => (
-                                <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                             {(employees || []).filter(e => e.status === 'ativo').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')).map(emp => (
+                                <option key={emp.id} value={emp.id}>{emp.nome}{emp.funcao ? ` · ${emp.funcao}` : ''}</option>
                              ))}
                         </select>
                     </div>
@@ -168,8 +168,8 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
                         <label className="block text-sm font-medium text-gray-700">Operador</label>
                          <select name="employeeId" value={editedData.employeeId} onChange={handleInputChange} className="w-full p-2 border rounded mt-1 text-sm bg-white">
                              <option value="">Selecione...</option>
-                             {(employees || []).sort((a, b) => (a.nome || '').localeCompare(b.nome || '')).map(emp => (
-                                <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                             {(employees || []).filter(e => e.status === 'ativo').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')).map(emp => (
+                                <option key={emp.id} value={emp.id}>{emp.nome}{emp.funcao ? ` · ${emp.funcao}` : ''}</option>
                              ))}
                         </select>
                     </div>
@@ -220,6 +220,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
     const [assignmentToEdit, setAssignmentToEdit] = useState(null);
     const [isEditPastAssignmentModalOpen, setIsEditPastAssignmentModalOpen] = useState(false);
     const [pastAssignmentToEdit, setPastAssignmentToEdit] = useState(null);
+    const [deletingHistoryId, setDeletingHistoryId] = useState(null);
 
     // --- FUNÇÃO DE BUSCA DE DETALHES ---
     const fetchDetails = async () => {
@@ -360,6 +361,21 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
         fetchDetails();
         reloadData();
         setIsEditPastAssignmentModalOpen(false);
+    };
+
+    const handleDeleteHistoryEntry = async (historyEntryId) => {
+        if (!window.confirm('Deseja excluir este registro de alocação? Esta ação não pode ser desfeita.')) return;
+        setDeletingHistoryId(historyEntryId);
+        try {
+            await apiClient.deleteObraHistoryEntry(obra.id, historyEntryId);
+            setAlertMessage("Registro excluído com sucesso!");
+            fetchDetails();
+            reloadData();
+        } catch (error) {
+            setAlertMessage(error.message || "Erro ao excluir registro.");
+        } finally {
+            setDeletingHistoryId(null);
+        }
     };
 
     const handleSaveChanges = async () => {
@@ -714,13 +730,23 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                                                 onChange={(e) => handleReadingChange(vehicle.id, e.target.value)}
                                                             />
                                                         </div>
-                                                        <button 
+                                                        <button
                                                             onClick={() => { setAssignmentToEdit(h); setIsEditAssignmentModalOpen(true); }}
                                                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full mt-4"
                                                             title="Editar Detalhes da Alocação"
                                                         >
                                                             <Edit size={16} />
                                                         </button>
+                                                        {user?.user_type === 'admin' && (
+                                                            <button
+                                                                onClick={() => handleDeleteHistoryEntry(h.id)}
+                                                                disabled={deletingHistoryId === h.id}
+                                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full mt-4"
+                                                                title="Excluir Alocação (Admin)"
+                                                            >
+                                                                {deletingHistoryId === h.id ? <Loader size={16} className="animate-spin"/> : <Trash2 size={16}/>}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </ProtectedComponent>
                                             </div>
@@ -775,14 +801,27 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                                     </td>
                                                     <td className="px-4 py-2 text-gray-600">{h.employeeName || '-'}</td>
                                                     <td className="px-4 py-2 text-right">
-                                                        <ProtectedComponent requiredPermission="editor">
-                                                            <button 
-                                                                onClick={() => { setPastAssignmentToEdit(h); setIsEditPastAssignmentModalOpen(true); }}
-                                                                className="text-gray-400 hover:text-blue-600"
-                                                            >
-                                                                <Edit size={16}/>
-                                                            </button>
-                                                        </ProtectedComponent>
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <ProtectedComponent requiredPermission="editor">
+                                                                <button
+                                                                    onClick={() => { setPastAssignmentToEdit(h); setIsEditPastAssignmentModalOpen(true); }}
+                                                                    className="text-gray-400 hover:text-blue-600"
+                                                                    title="Editar"
+                                                                >
+                                                                    <Edit size={16}/>
+                                                                </button>
+                                                            </ProtectedComponent>
+                                                            {user?.user_type === 'admin' && (
+                                                                <button
+                                                                    onClick={() => handleDeleteHistoryEntry(h.id)}
+                                                                    disabled={deletingHistoryId === h.id}
+                                                                    className="text-gray-400 hover:text-red-600"
+                                                                    title="Excluir (Admin)"
+                                                                >
+                                                                    {deletingHistoryId === h.id ? <Loader size={16} className="animate-spin"/> : <Trash2 size={16}/>}
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             )) : (

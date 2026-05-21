@@ -112,6 +112,8 @@ const apiClient = {
             body: JSON.stringify(data),
         });
     },
+    deleteObraHistoryEntry: async (obraId, historyId) =>
+        apiFetch(`/obras/${obraId}/historico/${historyId}`, { method: 'DELETE' }),
 
     // --- MÓDULO SUPERVISOR (Novo) ---
     getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),
