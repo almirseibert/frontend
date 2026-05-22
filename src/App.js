@@ -495,6 +495,10 @@ const AppContent = () => {
         socket,
     ]);
 
+    const closeAgendaAlert = useCallback((index) => {
+        setAgendaAlerts(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
     // ---------- Operador: rota especial ----------
     if (user && user.user_type === 'operador') {
         if (bootstrapLoading) {
@@ -579,10 +583,6 @@ const AppContent = () => {
                 return <Dashboard {...commonProps} />; 
         }
     };
-
-    const closeAgendaAlert = useCallback((index) => {
-        setAgendaAlerts(prev => prev.filter((_, i) => i !== index));
-    }, []);
 
     return (
         <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
