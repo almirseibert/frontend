@@ -74,36 +74,95 @@ Operadores são redirecionados diretamente para `SolicitacaoAbastecimentoPage` s
 - Para uploads com `FormData`, remove o header `Content-Type` automaticamente
 - Lança `Error` com a mensagem do backend em caso de resposta não-ok
 
-### Carregamento de dados
+### Carregamento de dados (refatorado — DataContext)
 
-`loadAllData()` no `App.js` usa `Promise.all` para buscar todos os recursos em paralelo na inicialização. Socket.io emite `server:sync` com lista de targets para re-syncs seletivos sem recarregar tudo.
+`src/contexts/DataContext.js` — Context API com **lazy loading + cache**.
+
+**Comportamento:**
+
+1. **Bootstrap (essencial):** após login, carrega apenas `vehicles`, `obras`, `employees`, `partners`. Isso libera a tela em ~1 fetch round-trip (vs. 12 antes).
+2. **Lazy (sob demanda):** `revisions`, `expenses`, `refuelings`, `comboioTransactions`, `fines`, `diarioDeBordoLogs`, `dailyWorkLogs`, `orders` são carregados quando uma página que precise deles for aberta. O resultado fica em cache durante a sessão — abrir a página de novo é instantâneo.
+3. **Pré-fetch por página:** o `App.js` mantém um mapa `PAGE_RESOURCE_REQUIREMENTS` que dispara `ensureAll([...])` ao navegar. As páginas continuam recebendo os dados via props normalmente — não precisam ser alteradas.
+4. **Socket.io seletivo:** `server:sync` invalida apenas os recursos que JÁ ESTÃO em cache. Se ninguém abriu a página de multas, mudanças em `fines` não disparam fetch.
+5. **Deduplicação:** dois `ensure('vehicles')` simultâneos compartilham a mesma promise via `inFlightRef`.
+
+**Hook principal: `useData()`**
+
+```javascript
+const {
+    // Dados (essenciais — sempre disponíveis após bootstrap)
+    vehicles, obras, employees, partners,
+
+    // Dados (lazy — vazios até serem requisitados via ensure)
+    revisions, expenses, refuelings, comboioTransactions, fines,
+    diarioDeBordoLogs, dailyWorkLogs, orders,
+
+    // Status
+    bootstrapLoading,  // true durante o boot inicial
+    syncing,           // true quando há refetch em background
+
+    // API
+    ensure,            // ensure('fines') — carrega se ainda não estiver
+    ensureAll,         // ensureAll(['fines','expenses'])
+    refresh,           // refresh('vehicles') — força refetch
+    invalidate,        // invalidate('fines') — marca como stale
+    reload,            // reload() — recarrega tudo que está cacheado
+
+    // Socket.io
+    socket,
+} = useData();
+```
+
+**Hook auxiliar: `useEnsureResources(keys)`**
+
+Para páginas que sabem de cara o que precisam. Equivalente a `useEffect(() => ensureAll(keys), [...])`:
+
+```javascript
+import { useEnsureResources } from '../contexts/DataContext';
+
+const FinesPage = () => {
+    useEnsureResources(['fines']);
+    const { fines } = useData();
+    // ...
+};
+```
+
+> **Padrão de migração de páginas:** as páginas atuais continuam recebendo `vehicles`, `fines`, etc. via props (vindo de `commonProps` no `App.js`). Não é necessário migrar todas de uma vez. Quando for refatorar uma página, prefira ler do `useData()` direto e usar `useEnsureResources` para garantir o load — isso permite remover a página gradualmente do `commonProps`.
 
 ### Modais globais
 
-Definidos no `App.js` e passados como props para as páginas:
+Definidos no `App.js` como componentes memoizados (`React.memo`) e passados como props para as páginas:
 - `CustomAlert` — alerta simples com texto pré-formatado
 - `ConfirmationModal` — confirmação com botões customizáveis
 - `PasswordConfirmationModal` — confirmação com validação de senha via API
 - `UpdateMessageModal` / `AdminPendingRequestAlert` — notificações do sistema
 
+### Processamento de alertas de veículos
+
+`src/utils/vehicleAlerts.js` — função `processVehiclesWithAlerts(vehicles, revisions, fines)` que anexa `{ possuiAviso, avisoTexto }` a cada veículo.
+
+Anteriormente vivia no `App.js` e era O(V × R × F). Agora pré-indexa `revisions` e `fines` em `Map`/`Set` e processa em O(V + R + F).
+
 ## Estrutura de Pastas
 
 ```
 src/
-├── App.js                  # Raiz: roteamento, socket.io, modais globais, loadAllData
+├── App.js                       # Raiz: roteamento, modais globais, commonProps memoizado
 ├── contexts/
-│   └── AuthContext.js      # Autenticação e permissões
+│   ├── AuthContext.js           # Autenticação e permissões
+│   └── DataContext.js           # Estado global de dados (lazy + cache + socket)
 ├── services/
-│   └── apiClient.js        # Wrapper de fetch com todos os endpoints
+│   └── apiClient.js             # Wrapper de fetch com todos os endpoints
 ├── utils/
-│   └── vehicleRules.js     # Taxonomia de veículos e regras de leitura (Km vs Hr)
-├── pages/                  # Uma página por módulo do sistema
+│   ├── vehicleRules.js          # Taxonomia de veículos e regras de leitura (Km vs Hr)
+│   └── vehicleAlerts.js         # Processamento O(V+R+F) de alertas de veículos
+├── pages/                       # Uma página por módulo do sistema
 └── components/
-    ├── modals/             # Modais de criação e edição
-    ├── dashboard/          # Painéis do dashboard
-    ├── reports/            # Componentes de relatório (PDF)
-    ├── revisions/          # Abas de manutenção (revisões, lavagens)
-    └── supervisor/         # Visão específica de supervisor de obra
+    ├── modals/                  # Modais de criação e edição
+    ├── dashboard/               # Painéis do dashboard
+    ├── reports/                 # Componentes de relatório (PDF)
+    ├── revisions/               # Abas de manutenção (revisões, lavagens)
+    └── supervisor/              # Visão específica de supervisor de obra
 ```
 
 ## Convenções
@@ -113,7 +172,8 @@ src/
 - Componentes em `.js`, não `.tsx` — não criar arquivos TypeScript
 - Componentes funcionais com hooks (`useState`, `useEffect`, `useMemo`, `useCallback`)
 - `useMemo` para listas e cálculos derivados que dependem de estado grande (ex: alertas de veículos, ranking de consumo)
-- Nenhum gerenciador de estado externo (sem Redux, Zustand, etc.) — usar Context API ou props
+- Nenhum gerenciador de estado externo (sem Redux, Zustand, etc.) — usar Context API
+- **Memoizar componentes pesados** com `React.memo` quando recebem props estáveis (modais globais, painéis do dashboard)
 
 ### Estilização
 
@@ -138,6 +198,8 @@ src/
 ### Adicionando novos módulos
 
 1. Criar `src/pages/NovoModuloPage.js`
-2. Importar em `App.js` e adicionar caso em `renderPage()`
+2. Importar em `App.js` (lazy) e adicionar caso em `renderPage()`
 3. Adicionar item de navegação em `Sidebar.js` com controle de role se necessário
 4. Adicionar endpoints correspondentes em `apiClient.js`
+5. Se o módulo tiver recurso próprio, registrar em `DataContext.js` no `RESOURCE_DEFS` (essential ou lazy) e adicionar mapeamento em `TARGET_TO_RESOURCE` para invalidação via socket
+6. Adicionar `currentPage` em `PAGE_RESOURCE_REQUIREMENTS` no `App.js` com os recursos que a página precisa
