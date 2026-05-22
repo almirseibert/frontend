@@ -329,6 +329,18 @@ const apiClient = {
     // --- Backup & Export (TODO: backend) ---
     adminExportData: async (module) => apiFetch(`/admin/export/${module}`),
 
+    // --- SigaSul — Rastreamento Veicular ---
+    sigasulGetPositions: async () => apiFetch('/sigasul/positions'),
+    sigasulGetPositionsByPeriod: async (from, to) =>
+        apiFetch(`/sigasul/positions/period?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    sigasulGetPositionsByPlate: async (plate, from, to) =>
+        apiFetch(`/sigasul/positions/vehicle/${encodeURIComponent(plate)}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    sigasulGetJourneys: async () => apiFetch('/sigasul/journeys'),
+    sigasulGetJourneysSimplified: async (from, to) =>
+        apiFetch(`/sigasul/journeys/simplified?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    sigasulGetJourneysAggregate: async (from, to) =>
+        apiFetch(`/sigasul/journeys/aggregate?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+
     // --- Defaults & Auxiliares ---
     defaults: { baseURL: API_URL },
     get: (url, config) => apiFetch(url, { method: 'GET', ...config }),

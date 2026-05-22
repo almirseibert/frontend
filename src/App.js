@@ -51,6 +51,7 @@ const SupervisorDashboard          = lazy(() => import('./pages/SupervisorDashbo
 const SupervisorObraDetail         = lazy(() => import('./pages/SupervisorObraDetail'));
 const SolicitacaoAbastecimentoPage = lazy(() => import('./pages/SolicitacaoAbastecimentoPage'));
 const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
+const SigaSulPage                  = lazy(() => import('./pages/SigaSulPage'));
 
 // ==========================================
 // Fallback de Carregamento de Página
@@ -760,9 +761,11 @@ const AppContent = () => {
                 return <TiresPage {...commonProps} revisions={revisions} />; 
             case 'reports': 
                 return <ReportsPage {...commonProps} />; 
-            case 'admin': 
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />; 
-            default: 
+            case 'admin':
+                return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />;
+            case 'sigasul':
+                return user.user_type === 'admin' ? <SigaSulPage {...commonProps} /> : <Denied />;
+            default:
                 return <Dashboard {...commonProps} />; 
         }
     };
