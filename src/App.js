@@ -1,32 +1,61 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react'; 
-import { 
-    LogOut, HardHat, Building, Clock, Truck, 
-    ChevronLeft, ChevronRight, Bell, Wrench, Fuel, Droplet, DollarSign, ShieldAlert,
-    User, Shield, CalendarClock, ShoppingCart, Loader, X, Disc, ClipboardCheck, FileText, Key, UserPlus, Smartphone, TrendingUp, Package 
+// src/App.js
+//
+// ============================================================================
+// App.js refatorado — pontos 1 e 2 da análise
+// ============================================================================
+//
+// MUDANÇAS PRINCIPAIS:
+//
+// 1. ELIMINADO `loadAllData` eager:
+//    O carregamento de TODOS os 12 endpoints no login deu lugar ao DataContext,
+//    que carrega só o ESSENCIAL no boot (vehicles, obras, employees, partners)
+//    e busca o resto sob demanda quando cada página é aberta.
+//
+// 2. ELIMINADO o re-render cascade:
+//    Antes, `commonProps` era recriado a cada render como objeto literal novo
+//    — qualquer mudança de qualquer um dos 12 estados disparava re-render
+//    em toda a árvore. Agora `commonProps` é memoizado, e os modais globais
+//    (CustomAlert, ConfirmationModal, PasswordConfirmationModal) também.
+//
+// 3. PROCESSAMENTO DE ALERTAS OTIMIZADO:
+//    A função O(V × R × F) virou O(V + R + F) ao pré-indexar revisions e
+//    fines em Maps. Veja src/utils/vehicleAlerts.js.
+//
+// 4. SOCKET.IO no DataContext:
+//    Centralizamos a conexão Socket.io no DataContext. Não há mais lógica
+//    duplicada de "refetch tudo" — agora só refazemos fetch dos recursos
+//    que JÁ ESTÃO carregados (os outros nem foram puxados ainda).
+//
+// 5. COMPATIBILIDADE TOTAL:
+//    As páginas continuam recebendo as mesmas props que recebiam antes
+//    (vehicles, obras, fines, etc.). Não há necessidade de alterar nenhuma
+//    página existente.
+//
+// ============================================================================
+
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import {
+    Bell, Loader, X, UserPlus
 } from 'lucide-react';
 
-// Importação do Socket.io Client
-import { io } from "socket.io-client";
-
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { DataProvider, useData } from './contexts/DataContext';
 import Sidebar from './components/Sidebar';
 
-// LoginScreen carrega de forma síncrona (necessário antes do login, sem autenticação)
-import LoginScreen from './components/LoginScreen'; 
+// LoginScreen carrega de forma síncrona (necessário antes do login)
+import LoginScreen from './components/LoginScreen';
 
-import apiClient from './services/apiClient'; 
-import { 
-    vehicleGroups, 
-    extraObraOptions, 
-    operationalSubGroups, 
-    equipmentTypesForHours, 
-    getVehicleMainReading
+import apiClient from './services/apiClient';
+import {
+    vehicleGroups,
+    extraObraOptions,
+    operationalSubGroups,
+    equipmentTypesForHours,
 } from './utils/vehicleRules';
+import { processVehiclesWithAlerts } from './utils/vehicleAlerts';
 
 // ==========================================
 // Lazy Loading de Páginas (Code Splitting)
-// O bundle inicial fica enxuto — cada página só
-// é baixada quando o usuário navegar até ela.
 // ==========================================
 const Dashboard                    = lazy(() => import('./pages/Dashboard'));
 const ObrasPage                    = lazy(() => import('./pages/ObrasPage'));
@@ -54,7 +83,6 @@ const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoe
 
 // ==========================================
 // Fallback de Carregamento de Página
-// Reutiliza o mesmo Loader amarelo do sistema
 // ==========================================
 const PageFallback = () => (
     <div className="flex items-center justify-center h-full text-lg font-semibold text-gray-500">
@@ -66,16 +94,20 @@ const PageFallback = () => (
 // Modais Globais
 // ==========================================
 
-const CustomAlert = ({ message, onClose }) => (
+const CustomAlert = React.memo(({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[99999]">
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md text-center">
             <pre className="text-base mb-6 whitespace-pre-wrap text-left font-sans text-gray-700">{message}</pre>
             <button onClick={onClose} className="py-2 px-6 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 transition-colors">OK</button>
         </div>
     </div>
-);
+));
 
-const ConfirmationModal = ({ title, message, onConfirm, onClose, confirmText = 'Confirmar', cancelText = 'Cancelar', confirmColor = 'bg-yellow-400 hover:bg-yellow-500 text-gray-900' }) => (
+const ConfirmationModal = React.memo(({
+    title, message, onConfirm, onClose,
+    confirmText = 'Confirmar', cancelText = 'Cancelar',
+    confirmColor = 'bg-yellow-400 hover:bg-yellow-500 text-gray-900',
+}) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[90]">
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
             <h3 className="text-lg font-bold mb-3 text-gray-800">{title}</h3>
@@ -86,38 +118,39 @@ const ConfirmationModal = ({ title, message, onConfirm, onClose, confirmText = '
             </div>
         </div>
     </div>
-);
+));
 
-const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) => {
+const PasswordConfirmationModalRaw = ({ onConfirm, onClose, message, apiClient: apiClientProp }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
+    const client = apiClientProp || apiClient;
 
     const handleConfirm = async () => {
         setIsVerifying(true);
         setError('');
         try {
-            await apiClient.validatePassword(password);
-            await onConfirm(); 
-            onClose(); 
+            await client.validatePassword(password);
+            await onConfirm();
+            onClose();
         } catch (err) {
-            setError(err.message || "Senha incorreta.");
+            setError(err.message || 'Senha incorreta.');
         } finally {
             setIsVerifying(false);
         }
     };
-    
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[90]">
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
                 <h3 className="text-lg font-bold mb-3 text-gray-800">Confirmação de Segurança</h3>
-                <p className="text-gray-600 mb-4 text-sm">{message || "Insira sua senha para confirmar esta operação sensível."}</p>
+                <p className="text-gray-600 mb-4 text-sm">{message || 'Insira sua senha para confirmar esta operação sensível.'}</p>
                 <div className="mb-4">
-                    <input 
-                        type="password" 
-                        value={password} 
-                        onChange={e => setPassword(e.target.value)} 
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500" 
+                    <input
+                        type="password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                         placeholder="Sua senha"
                         autoFocus
                     />
@@ -125,9 +158,9 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
                 {error && <p className="text-xs text-red-600 mb-3 font-medium">{error}</p>}
                 <div className="flex justify-end gap-3">
                     <button onClick={onClose} className="py-2 px-4 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm">Cancelar</button>
-                    <button 
-                        onClick={handleConfirm} 
-                        disabled={isVerifying} 
+                    <button
+                        onClick={handleConfirm}
+                        disabled={isVerifying}
                         className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 flex items-center gap-2 text-sm font-semibold"
                     >
                         {isVerifying && <Loader size={14} className="animate-spin" />}
@@ -138,19 +171,21 @@ const PasswordConfirmationModal = ({ onConfirm, onClose, message, apiClient }) =
         </div>
     );
 };
+const PasswordConfirmationModal = React.memo(PasswordConfirmationModalRaw);
 
-const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
+const ChangePasswordModalRaw = ({ isOpen, onClose, apiClient: apiClientProp }) => {
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [message, setMessage] = useState(null);
     const [loading, setLoading] = useState(false);
+    const client = apiClientProp || apiClient;
 
     useEffect(() => {
-        if(isOpen) {
-            setCurrentPassword(''); 
-            setNewPassword(''); 
-            setConfirmPassword(''); 
+        if (isOpen) {
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
             setMessage(null);
         }
     }, [isOpen]);
@@ -172,9 +207,9 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
 
         setLoading(true);
         try {
-            await apiClient.changePassword({ currentPassword, newPassword });
+            await client.changePassword({ currentPassword, newPassword });
             setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
-            setTimeout(() => { onClose(); }, 1500);
+            setTimeout(onClose, 1500);
         } catch (error) {
             setMessage({ type: 'error', text: error.message || 'Erro ao alterar senha.' });
         } finally {
@@ -183,19 +218,14 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[110]">
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
-                <div className="flex justify-between items-center mb-4 border-b pb-2">
-                    <h2 className="text-lg font-bold text-gray-800">Alterar Senha</h2>
-                    <button onClick={onClose}><X size={20} className="text-gray-400 hover:text-gray-600"/></button>
-                </div>
-                
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
+                <h2 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Alterar Senha</h2>
                 {message && (
                     <div className={`p-2 mb-3 rounded text-sm text-center ${message.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                         {message.text}
                     </div>
                 )}
-
                 <form onSubmit={handleSubmit} className="space-y-3">
                     <div>
                         <label className="block text-xs font-bold text-gray-600 uppercase">Senha Atual</label>
@@ -209,7 +239,6 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
                         <label className="block text-xs font-bold text-gray-600 uppercase">Confirmar Nova Senha</label>
                         <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
                     </div>
-
                     <div className="flex justify-end gap-2 mt-4">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm font-bold">Cancelar</button>
                         <button type="submit" disabled={loading} className="px-4 py-2 bg-yellow-400 text-gray-900 rounded hover:bg-yellow-500 text-sm font-bold disabled:opacity-50">
@@ -221,17 +250,18 @@ const ChangePasswordModal = ({ isOpen, onClose, apiClient }) => {
         </div>
     );
 };
+const ChangePasswordModal = React.memo(ChangePasswordModalRaw);
 
-const UpdateMessageModal = ({ message, onClose }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[99999]"> 
+const UpdateMessageModal = React.memo(({ message, onClose }) => (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[99999]">
         <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-xl">
             <div className="flex justify-between items-center mb-4">
-                 <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                     <Bell className="text-yellow-500" /> Novidades do Sistema
-                 </h2>
-                 <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-200">
+                </h2>
+                <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-200">
                     <X size={20} />
-                 </button>
+                </button>
             </div>
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-[60vh] overflow-y-auto mb-6">
                 <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{message}</pre>
@@ -241,9 +271,9 @@ const UpdateMessageModal = ({ message, onClose }) => (
             </button>
         </div>
     </div>
-);
+));
 
-const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
+const AdminPendingRequestAlert = React.memo(({ pendingCount, onClose, navigate }) => (
     <div className="fixed bottom-4 right-4 z-[99999] bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm animate-bounce-in">
         <div className="flex justify-between items-start">
             <div className="flex items-center gap-3">
@@ -257,414 +287,216 @@ const AdminPendingRequestAlert = ({ pendingCount, onClose, navigate }) => (
                     </p>
                 </div>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
         </div>
         <div className="mt-4 flex justify-end gap-2">
             <button onClick={onClose} className="text-sm text-gray-500 hover:underline px-2">Agora não</button>
-            <button 
-                onClick={() => { onClose(); navigate('admin'); }} 
+            <button
+                onClick={() => { onClose(); navigate('admin'); }}
                 className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 font-semibold transition-colors"
             >
                 Ver Solicitações
             </button>
         </div>
     </div>
-);
-
+));
 
 // ==========================================
-// Conteúdo Principal (App Content)
+// AppContent — conteúdo principal
 // ==========================================
 
 const AppContent = () => {
-    const { user, logout } = useAuth(); 
+    const { user, logout } = useAuth();
+    const {
+        vehicles, obras, employees, partners,
+        revisions, expenses, refuelings, comboioTransactions, fines,
+        diarioDeBordoLogs, dailyWorkLogs, orders,
+        bootstrapLoading, syncing,
+        reload, ensureAll,
+        socket,
+    } = useData();
+
+    // ---------- Estados de UI ----------
     const [currentPage, setCurrentPage] = useState('dashboard');
-    const [pageFilter, setPageFilter] = useState(null); 
-    const [alertMessage, setAlertMessage] = useState(''); 
+    const [pageFilter, setPageFilter] = useState(null);
+    const [alertMessage, setAlertMessage] = useState('');
     const [selectedObraId, setSelectedObraId] = useState(null);
 
-    // Estados Globais de Dados
-    const [vehicles, setVehicles] = useState([]);
-    const [obras, setObras] = useState([]);
-    const [revisions, setRevisions] = useState([]);
-    const [expenses, setExpenses] = useState([]);
-    const [employees, setEmployees] = useState([]);
-    const [rawPartners, setRawPartners] = useState([]); 
-    const [refuelings, setRefuelings] = useState([]);
-    const [rawComboioTransactions, setRawComboioTransactions] = useState([]);
-    const [rawFines, setRawFines] = useState([]);
-    const [diarioDeBordoLogs, setDiarioDeBordoLogs] = useState([]);
-    const [dailyWorkLogs, setDailyWorkLogs] = useState([]); 
-    const [orders, setOrders] = useState([]); // NOVO ESTADO DAS ORDENS DE SERVIÇO
-    
-    // Estados de Interface e Modais
-    const [loadingData, setLoadingData] = useState(true); 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
-    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false); 
-    const [pendingRequestsCount, setPendingRequestsCount] = useState(0); 
+    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+    const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
     const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
-    
-    // Estado para os alertas em Real-Time da Agenda
+
     const [agendaAlerts, setAgendaAlerts] = useState([]);
 
-    // Instância do socket.io (para passar a componentes que precisam ouvir eventos)
-    const [socketInstance, setSocketInstance] = useState(null);
-
-    // Implementação do Socket.io
+    // ---------- Avisos auxiliares (não bloqueantes do bootstrap) ----------
     useEffect(() => {
-        const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-        const cleanSocketUrl = SOCKET_URL.replace('/api', '');
+        if (!user || user.user_type === 'operador') return;
 
-        const socket = io(cleanSocketUrl, {
-            transports: ['websocket', 'polling']
-        });
-
-        setSocketInstance(socket);
-
-        socket.on('connect', () => {
-            console.log("🟢 Conectado ao servidor Socket.io");
-        });
-
-        // Ouvinte de Alertas da Agenda
-        socket.on('agenda:alerta', (data) => {
-            if (!user) return;
-            const currentUserId = String(user.uid || user.id);
-            const eventUserId = String(data.userId);
-
-            if (currentUserId === eventUserId) {
-                // Tenta tocar o bipe, se não conseguir apenas exibe visualmente
-                try {
-                    const audio = new Audio('/beep.mp3'); 
-                    audio.play().catch(e => console.warn('Sem interação para áudio.', e)); 
-                } catch(e) {
-                    console.warn('Erro ao reproduzir áudio.', e);
+        // Mensagem de update (não bloqueia tela)
+        apiClient.adminGetUpdateMessage?.()
+            .then(msg => {
+                if (msg && msg.showPopup) {
+                    setUpdateMessage(msg.message);
+                    setShowUpdateModal(true);
                 }
-                
-                setAgendaAlerts(prev => [...prev, data]);
-            }
-        });
+            })
+            .catch(e => console.warn('Erro ao buscar mensagem de update:', e));
 
-        // Ouvinte de Sincronização em Lote
-        socket.on('server:sync', async ({ targets }) => {
-            if (!targets || !Array.isArray(targets)) return;
+        // Solicitações de cadastro pendentes (somente admin)
+        if (user.user_type === 'admin') {
+            apiClient.adminGetRegistrationRequests?.()
+                .then(reqs => {
+                    setPendingRequestsCount(reqs && reqs.length > 0 ? reqs.length : 0);
+                })
+                .catch(e => console.warn('Erro ao buscar registrationRequests:', e));
+        }
 
-            const updateActions = {
-                'vehicles': () => apiClient.getVehicles().then(setVehicles),
-                'obras': () => apiClient.getObras().then(setObras),
-                'employees': () => apiClient.getEmployees().then(setEmployees),
-                'revisions': () => { 
-                    if(user.user_type !== 'operador') {
-                        return apiClient.getRevisions().then(setRevisions);
-                    }
-                },
-                'partners': () => apiClient.getPartners().then(setRawPartners), 
-                'orders': () => {
-                    if (user.user_type !== 'operador' && typeof apiClient.getAllOrders === 'function') {
-                        return apiClient.getAllOrders().then(setOrders);
-                    }
-                },
-                'refuelings': () => { 
-                    if(user.podeAcessarAbastecimento || user.user_type === 'admin') {
-                        return apiClient.getRefuelings().then(setRefuelings);
-                    }
-                },
-                'comboio': () => { 
-                    if(user.podeAcessarAbastecimento || user.user_type === 'admin') {
-                        return apiClient.getComboioTransactions().then(setRawComboioTransactions);
-                    }
-                },
-                'fines': () => { 
-                    if(user.user_type !== 'operador') {
-                        return apiClient.getFines().then(setRawFines);
-                    }
-                },
-                'dailyWorkLogs': () => { 
-                    if(user.user_type !== 'operador') {
-                        return apiClient.getDailyLogs('all').then(setDailyWorkLogs);
-                    }
-                },
-                'expenses': () => { 
-                    if(user.user_type !== 'operador') {
-                        return apiClient.getExpenses().then(setExpenses);
-                    }
-                },
-                'solicitacoes': () => { 
-                    if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
-                         return apiClient.get('/solicitacoes?status=PENDENTE')
-                            .then(res => {
-                                const data = Array.isArray(res) ? res : (res.data || []);
-                                if (Array.isArray(data)) {
-                                    setPendingSolicitacoesCount(data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length);
-                                }
-                            }).catch(console.error);
-                    }
-                }
-            };
-
-            for (const target of targets) {
-                if (updateActions[target]) {
-                    try { 
-                        await updateActions[target](); 
-                    } catch (error) { 
-                        console.error(`Erro ao sincronizar target ${target}:`, error); 
-                    }
-                }
-            }
-        });
-
-        // Ouvinte de Notificações Administrativas
-        socket.on('admin:notificacao', (data) => {
-            if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
-                if (data.tipo === 'nova_solicitacao' || data.tipo === 'baixa_pendente') {
-                    try { 
-                        const audio = new Audio('/beep.mp3'); 
-                        audio.play().catch(e => console.warn('Sem interação', e)); 
-                    } catch(e) {}
-                    
-                    setPendingSolicitacoesCount(prev => prev + 1);
-                }
-            }
-        });
-
-        socket.on('disconnect', () => {
-            console.log("🔴 Desconectado do servidor Socket.io");
-        });
-
-        return () => {
-            socket.disconnect();
-            setSocketInstance(null);
-        };
+        // Solicitações de abastecimento pendentes
+        if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
+            apiClient.get?.('/solicitacoes')
+                .then(res => {
+                    const data = Array.isArray(res) ? res : (res?.data || []);
+                    setPendingSolicitacoesCount(
+                        data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length
+                    );
+                })
+                .catch(e => console.warn('Erro ao carregar solicitações:', e));
+        }
     }, [user]);
 
-    // Memorizações de Dados para Otimização de Performance
-    const partners = React.useMemo(() => {
-        return [...rawPartners].sort((a, b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || ''));
-    }, [rawPartners]);
+    // ---------- Socket: eventos específicos do App (agenda, notificações) ----------
+    useEffect(() => {
+        if (!socket || !user) return;
 
-    const comboioTransactions = React.useMemo(() => {
-        return [...rawComboioTransactions].sort((a, b) => (new Date(b.date).getTime()) - (new Date(a.date).getTime()));
-    }, [rawComboioTransactions]);
+        const handleAgendaAlert = (data) => {
+            const currentUserId = String(user.uid || user.id);
+            const eventUserId = String(data.userId);
+            if (currentUserId !== eventUserId) return;
 
-    const fines = React.useMemo(() => {
-        return [...rawFines].sort((a, b) => (new Date(b.dataInfracao).getTime()) - (new Date(a.dataInfracao).getTime()));
-    }, [rawFines]);
-
-    // Processamento de Alertas de Veículos
-    const processVehiclesWithAlerts = (vehiclesData, revisionsData, finesData) => {
-        const now = new Date();
-        const thirtyDaysFromNow = new Date();
-        thirtyDaysFromNow.setDate(now.getDate() + 30);
-
-        return vehiclesData.map(vehicle => {
-            let hasAlert = false;
-            let alertText = '';
-
-            // Bloqueio de Circulação
-            if (vehicle.canCirculate === false || vehicle.canCirculate === 0 || vehicle.canCirculate === '0') { 
-                hasAlert = true; 
-                alertText = `BLOQUEIO: O veículo não pode rodar (Doc/Manutenção).`;
+            try {
+                const audio = new Audio('/beep.mp3');
+                audio.play().catch(e => console.warn('Sem interação para áudio.', e));
+            } catch (e) {
+                console.warn('Erro ao reproduzir áudio.', e);
             }
-
-            // Revisões
-            const revision = revisionsData.find(r => r.vehicleId === vehicle.id); 
-            if (revision && !hasAlert) {
-                const proximaData = revision.proximaRevisaoData ? new Date(revision.proximaRevisaoData) : null;
-                const proximoOdometro = revision.proximaRevisaoOdometro;
-                const proximoHorimetro = revision.proximaRevisaoHorimetro;
-                
-                const readingData = getVehicleMainReading(vehicle); 
-                const currentReading = readingData.raw;
-                const unit = readingData.unit;
-
-                const avisoAntecedencia = parseFloat(revision.avisoAntecedenciaKmHr || 0);
-                const avisoDias = parseInt(revision.avisoAntecedenciaDias || 0);
-                
-                let metaLeitura = unit === 'Hr' ? proximoHorimetro : proximoOdometro;
-                if (!metaLeitura && unit === 'Hr' && proximoOdometro) metaLeitura = proximoOdometro; 
-
-                if (proximaData && now >= proximaData) {
-                    hasAlert = true; 
-                    alertText = 'Atenção: Revisão Vencida (Data)!';
-                } else if (proximaData && avisoDias > 0) {
-                     const warningDate = new Date(proximaData);
-                     warningDate.setDate(warningDate.getDate() - avisoDias);
-                     if (now >= warningDate) { 
-                         hasAlert = true; 
-                         alertText = 'Atenção: Revisão Próxima (Data)!'; 
-                     }
-                }
-
-                if (!hasAlert && metaLeitura > 0) {
-                     if (currentReading >= metaLeitura) {
-                         hasAlert = true; 
-                         alertText = `Atenção: Revisão Vencida (${unit})!`;
-                     } else if (avisoAntecedencia > 0 && currentReading >= (metaLeitura - avisoAntecedencia)) {
-                         hasAlert = true; 
-                         alertText = `Atenção: Revisão Próxima (${unit})!`;
-                     }
-                }
-            }
-
-            // Documentos
-            const isTruck = vehicleGroups['Caminhões'].includes(vehicle.tipo) || vehicleGroups['Caminhões de Trecho'].includes(vehicle.tipo);
-            if (isTruck && !hasAlert) {
-                const docs = [
-                    { type: 'Tacógrafo', date: vehicle.validadeTacografo },
-                    { type: 'AET DAER', date: vehicle.validadeAET_DAER },
-                    { type: 'AET DNIT', date: vehicle.validadeAET_DNIT },
-                ];
-                
-                for (const doc of docs) {
-                    if (doc.date) {
-                        const d = new Date(doc.date);
-                        const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()); 
-                        if (now > compareDate) {
-                            hasAlert = true; 
-                            alertText = `Atenção: ${doc.type} Vencido!`; 
-                            break; 
-                        } else if (compareDate <= thirtyDaysFromNow) {
-                            hasAlert = true; 
-                            alertText = `Atenção: ${doc.type} Vence em breve!`;
-                        }
-                    }
-                }
-            }
-            
-            // Multas
-            const hasPendingFine = finesData.some(fine => fine.vehicleId === vehicle.id && fine.paymentStatus === 'Pendente'); 
-            if(hasPendingFine && !hasAlert) { 
-                hasAlert = true; 
-                alertText = 'Atenção: Há multas pendentes para este veículo.'; 
-            }
-
-            return { ...vehicle, possuiAviso: hasAlert, avisoTexto: alertText };
-        });
-    };
-
-    const processedVehicles = React.useMemo(() => {
-        return processVehiclesWithAlerts(vehicles, revisions || [], fines || []);
-    }, [vehicles, revisions, fines]);
-
-    const navigate = (page, filter = null) => { 
-        setCurrentPage(page); 
-        setPageFilter(filter); 
-    };
-
-    const handleNavigateToObra = (obraId) => { 
-        setSelectedObraId(obraId); 
-        setCurrentPage('supervisor_detail'); 
-    };
-
-    // Carregamento de Todos os Dados
-    const loadAllData = React.useCallback(async () => {
-        if (!user) { 
-            setLoadingData(false); 
-            return; 
-        }
-        
-        setLoadingData(true);
-        setAlertMessage(''); 
-
-        const dataEndpoints = {
-            vehicles: { getter: apiClient.getVehicles, setter: setVehicles },
-            obras: { getter: apiClient.getObras, setter: setObras },
-            revisions: { getter: apiClient.getRevisions, setter: setRevisions },
-            expenses: { getter: apiClient.getExpenses, setter: setExpenses },
-            employees: { getter: apiClient.getEmployees, setter: setEmployees },
-            partners: { getter: apiClient.getPartners, setter: setRawPartners },
-            refuelings: { getter: apiClient.getRefuelings, setter: setRefuelings },
-            comboioTransactions: { getter: apiClient.getComboioTransactions, setter: setRawComboioTransactions },
-            fines: { getter: apiClient.getFines, setter: setRawFines },
-            diarioDeBordo: { getter: apiClient.getDiarioDeBordo, setter: setDiarioDeBordoLogs },
-            dailyWorkLogs: { getter: () => apiClient.getDailyLogs('all'), setter: setDailyWorkLogs },
-            orders: { getter: apiClient.getAllOrders, setter: setOrders } // Busca as ordens (o apiClient pode usar getAllOrders ou getOrders dependendo de como você definiu)
+            setAgendaAlerts(prev => [...prev, data]);
         };
 
-        if (user.user_type === 'operador') { 
-            delete dataEndpoints.revisions; 
-            delete dataEndpoints.expenses; 
-            delete dataEndpoints.comboioTransactions;
-            delete dataEndpoints.fines; 
-            delete dataEndpoints.dailyWorkLogs;
-            delete dataEndpoints.orders;
-        }
-
-        try {
-            const promises = Object.values(dataEndpoints).map(endpoint => {
-                if (typeof endpoint.getter === 'function') {
-                    return endpoint.getter().catch(e => null);
-                }
-                return Promise.resolve(null);
-            });
-            const results = await Promise.all(promises);
-
-            Object.keys(dataEndpoints).forEach((key, index) => {
-                if (results[index] !== null) {
-                    dataEndpoints[key].setter(results[index]);
-                }
-            });
-
-            // Tratativas Adicionais de Admin / Atualizações do Sistema
-            if (user.user_type === 'admin') {
+        const handleAdminNotification = (data) => {
+            if (user.user_type !== 'admin' && !user.podeAcessarAbastecimento) return;
+            if (data.tipo === 'nova_solicitacao' || data.tipo === 'baixa_pendente') {
                 try {
-                    const updateMsg = await apiClient.adminGetUpdateMessage();
-                    if (updateMsg && updateMsg.showPopup) { 
-                        setUpdateMessage(updateMsg.message); 
-                        setShowUpdateModal(true); 
-                    }
-                } catch (e) {
-                    console.warn("Erro ao buscar mensagem de update:", e);
-                }
+                    const audio = new Audio('/beep.mp3');
+                    audio.play().catch(e => console.warn('Sem interação', e));
+                } catch (e) {}
+                setPendingSolicitacoesCount(prev => prev + 1);
+            }
+        };
 
-                try {
-                    const requests = await apiClient.adminGetRegistrationRequests();
-                    setPendingRequestsCount(requests && requests.length > 0 ? requests.length : 0);
-                } catch (e) {
-                    console.warn("Erro ao buscar requisições de cadastro:", e);
-                }
-            } else if (user.user_type !== 'operador') {
-                 try {
-                    const updateMsg = await apiClient.adminGetUpdateMessage();
-                    if (updateMsg && updateMsg.showPopup) { 
-                        setUpdateMessage(updateMsg.message); 
-                        setShowUpdateModal(true); 
-                    }
-                } catch (e) {
-                    console.warn("Erro ao buscar mensagem de update:", e);
-                }
-            }
+        socket.on('agenda:alerta', handleAgendaAlert);
+        socket.on('admin:notificacao', handleAdminNotification);
 
-            // Busca solicitações pendentes no carregamento inicial
-            if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
-                 try {
-                     const res = await apiClient.get('/solicitacoes');
-                     const data = Array.isArray(res) ? res : (res.data || []);
-                     if (Array.isArray(data)) {
-                         setPendingSolicitacoesCount(data.filter(s => s.status === 'PENDENTE' || s.status === 'AGUARDANDO_BAIXA').length);
-                     }
-                 } catch(e) {
-                     console.warn("Erro ao carregar quantidade de solicitações:", e);
-                 }
-            }
-        } catch (error) {
-            console.error("Erro Fatal API no carregamento de dados:", error);
-            setAlertMessage("Erro de conexão com o servidor. Alguns dados podem não ter sido carregados.");
-            if (error.message.includes('401')) {
-                logout();
-            }
-        } finally {
-            setLoadingData(false);
+        return () => {
+            socket.off('agenda:alerta', handleAgendaAlert);
+            socket.off('admin:notificacao', handleAdminNotification);
+        };
+    }, [socket, user]);
+
+    // ---------- Pré-fetch de recursos por página visitada ----------
+    // Define quais recursos extras cada página precisa para funcionar.
+    // O DataContext só busca o que ainda não está em cache.
+    const PAGE_RESOURCE_REQUIREMENTS = useMemo(() => ({
+        dashboard:            ['revisions', 'fines', 'refuelings'],
+        vehicles:             ['revisions', 'fines'],
+        revisions:            ['revisions'],
+        refueling:            ['refuelings', 'revisions'],
+        admin_solicitacoes:   ['refuelings'],
+        comboio:              ['comboioTransactions', 'refuelings'],
+        expenses:             ['expenses'],
+        fines:                ['fines'],
+        tires:                ['revisions'],
+        reports:              ['revisions', 'fines', 'refuelings', 'expenses'],
+        controleDiario:       ['dailyWorkLogs', 'diarioDeBordoLogs'],
+        billing:              ['dailyWorkLogs', 'refuelings', 'expenses'],
+        orders:               ['orders'],
+        obras:                ['revisions'],
+        operacional:          [],
+        supervisor_dashboard: ['revisions', 'fines'],
+        supervisor_detail:    ['revisions', 'fines', 'refuelings', 'expenses'],
+    }), []);
+
+    useEffect(() => {
+        const needed = PAGE_RESOURCE_REQUIREMENTS[currentPage];
+        if (needed && needed.length > 0) {
+            ensureAll(needed);
         }
-    }, [user, logout]); 
+    }, [currentPage, ensureAll, PAGE_RESOURCE_REQUIREMENTS]);
 
-    useEffect(() => { 
-        loadAllData(); 
-    }, [loadAllData]);
+    // ---------- Veículos com alertas (memoizado, agora O(V+R+F)) ----------
+    const processedVehicles = useMemo(
+        () => processVehiclesWithAlerts(vehicles, revisions, fines),
+        [vehicles, revisions, fines]
+    );
 
-    // Renderização Especial para Perfil de Operador
-    if (user && user.user_type === 'operador') { 
-        if (loadingData) {
+    // ---------- Navigate helpers ----------
+    const navigate = useCallback((page, filter = null) => {
+        setCurrentPage(page);
+        setPageFilter(filter);
+    }, []);
+
+    const handleNavigateToObra = useCallback((obraId) => {
+        setSelectedObraId(obraId);
+        setCurrentPage('supervisor_detail');
+    }, []);
+
+    // ---------- Modal injection (PasswordConfirmationModal com apiClient pré-injetado) ----------
+    const PasswordConfirmationModalWrapped = useMemo(
+        () => (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />,
+        []
+    );
+
+    // ---------- commonProps memoizado ----------
+    // Evita re-renders em cascata: filhos só re-renderizam quando o
+    // objeto commonProps realmente muda.
+    const commonProps = useMemo(() => ({
+        user,
+        setAlertMessage,
+        PasswordConfirmationModal: PasswordConfirmationModalWrapped,
+        ConfirmationModal,
+        vehicleGroups,
+        extraObraOptions,
+        equipmentTypesForHours,
+        operationalSubGroups,
+        apiClient,
+        reloadData: reload,
+        navigate,
+        vehicles: processedVehicles,
+        obras,
+        revisions,
+        expenses,
+        employees,
+        partners,
+        refuelings,
+        comboioTransactions,
+        fines,
+        diarioDeBordoLogs,
+        dailyWorkLogs,
+        orders,
+        socket,
+    }), [
+        user,
+        PasswordConfirmationModalWrapped,
+        reload, navigate,
+        processedVehicles, obras, revisions, expenses, employees, partners,
+        refuelings, comboioTransactions, fines, diarioDeBordoLogs, dailyWorkLogs, orders,
+        socket,
+    ]);
+
+    // ---------- Operador: rota especial ----------
+    if (user && user.user_type === 'operador') {
+        if (bootstrapLoading) {
             return (
                 <div className="flex justify-center items-center h-screen">
                     <Loader className="animate-spin text-yellow-500" size={40} />
@@ -673,115 +505,100 @@ const AppContent = () => {
         }
         return (
             <Suspense fallback={<PageFallback />}>
-                <SolicitacaoAbastecimentoPage 
-                    apiClient={apiClient} 
-                    user={user} 
-                    vehicles={vehicles} 
-                    obras={obras} 
-                    partners={partners} 
-                    setAlertMessage={setAlertMessage} 
+                <SolicitacaoAbastecimentoPage
+                    apiClient={apiClient}
+                    user={user}
+                    vehicles={vehicles}
+                    obras={obras}
+                    partners={partners}
+                    setAlertMessage={setAlertMessage}
+                    socket={socket}
                 />
             </Suspense>
         );
     }
 
+    // ---------- Renderização de página ----------
+    const Denied = () => (
+        <div className="p-10 text-center text-red-500 font-bold bg-white rounded shadow m-4">
+            Acesso Negado
+        </div>
+    );
+
     const renderPage = () => {
-        const commonProps = { 
-            user, 
-            setAlertMessage, 
-            PasswordConfirmationModal: (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />, 
-            ConfirmationModal, 
-            vehicleGroups, 
-            extraObraOptions, 
-            equipmentTypesForHours, 
-            operationalSubGroups,
-            apiClient, 
-            reloadData: loadAllData, 
-            navigate, 
-            vehicles: processedVehicles, 
-            obras, 
-            revisions, 
-            expenses, 
-            employees, 
-            partners, 
-            refuelings, 
-            comboioTransactions, 
-            fines, 
-            diarioDeBordoLogs, 
-            dailyWorkLogs,
-            orders, // Agora repassando as Ordens Globalmente
-            socket: socketInstance
-        };
-
-        const Denied = () => (
-            <div className="p-10 text-center text-red-500 font-bold bg-white rounded shadow m-4">
-                Acesso Negado
-            </div>
-        );
-
         switch (currentPage) {
-            case 'dashboard': 
+            case 'dashboard':
                 return <Dashboard {...commonProps} />;
-            case 'supervisor_dashboard': 
+            case 'supervisor_dashboard':
                 return <SupervisorDashboard {...commonProps} onNavigateToDetail={handleNavigateToObra} />;
-            case 'supervisor_detail': 
+            case 'supervisor_detail':
                 return <SupervisorObraDetail obraId={selectedObraId} onBack={() => setCurrentPage('supervisor_dashboard')} />;
-            case 'vehicles': 
+            case 'vehicles':
                 return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
-            case 'obras': 
+            case 'obras':
                 return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
             case 'billing':
                 return <BillingPage {...commonProps} initialFilter={pageFilter} />;
             case 'operacional':
                 return <OperacionalPage {...commonProps} />;
-            case 'controleDiario': 
+            case 'controleDiario':
                 return <ControleDiarioPage {...commonProps} />;
-            case 'revisions': 
+            case 'revisions':
                 return <RevisionsPage {...commonProps} />;
-            case 'partners': 
+            case 'partners':
                 return <PartnersPage {...commonProps} />;
-            case 'refueling': 
-                return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <RefuelingPage {...commonProps} /> : <Denied />;
-            case 'admin_solicitacoes': 
-                return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
-            case 'orders': 
-                return <OrdersPage {...commonProps} />; 
-            case 'inventory': 
-                return <InventoryPage {...commonProps} />; 
-            case 'comboio': 
-                return (user.podeAcessarAbastecimento || user.user_type === 'admin') ? <ComboioPage {...commonProps} /> : <Denied />;
-            case 'expenses': 
+            case 'refueling':
+                return (user.podeAcessarAbastecimento || user.user_type === 'admin')
+                    ? <RefuelingPage {...commonProps} /> : <Denied />;
+            case 'admin_solicitacoes':
+                return (user.podeAcessarAbastecimento || user.user_type === 'admin')
+                    ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
+            case 'orders':
+                return <OrdersPage {...commonProps} />;
+            case 'inventory':
+                return <InventoryPage {...commonProps} />;
+            case 'comboio':
+                return (user.podeAcessarAbastecimento || user.user_type === 'admin')
+                    ? <ComboioPage {...commonProps} /> : <Denied />;
+            case 'expenses':
                 return <ExpensesPage {...commonProps} />;
-            case 'employees': 
+            case 'employees':
                 return <EmployeesPage {...commonProps} />;
-            case 'fines': 
+            case 'fines':
                 return <FinesPage {...commonProps} />;
-            case 'tires': 
-                return <TiresPage {...commonProps} revisions={revisions} />; 
-            case 'reports': 
-                return <ReportsPage {...commonProps} />; 
-            case 'admin': 
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />; 
-            default: 
-                return <Dashboard {...commonProps} />; 
+            case 'tires':
+                return <TiresPage {...commonProps} revisions={revisions} />;
+            case 'reports':
+                return <ReportsPage {...commonProps} />;
+            case 'diarioDeBordo':
+                return <DiarioDeBordoPage {...commonProps} />;
+            case 'admin':
+                return user.user_type === 'admin'
+                    ? <AdminPage {...commonProps} /> : <Denied />;
+            default:
+                return <Dashboard {...commonProps} />;
         }
     };
+
+    const closeAgendaAlert = useCallback((index) => {
+        setAgendaAlerts(prev => prev.filter((_, i) => i !== index));
+    }, []);
 
     return (
         <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
             {showUpdateModal && updateMessage && (
                 <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />
             )}
-            
-            {/* RENDERIZAÇÃO DOS AVISOS REAL-TIME DA AGENDA */}
+
+            {/* Avisos Real-Time da Agenda */}
             <div className="fixed top-20 right-4 z-[99999] flex flex-col gap-3">
                 {agendaAlerts.map((alerta, index) => (
-                    <div key={index} className="bg-white border-l-4 border-yellow-500 shadow-2xl rounded-lg p-4 w-80 animate-bounce-in relative">
-                        <button 
-                            onClick={() => setAgendaAlerts(prev => prev.filter((_, i) => i !== index))} 
+                    <div key={`${alerta.id || index}-${index}`} className="bg-white border-l-4 border-yellow-500 shadow-2xl rounded-lg p-4 w-80 animate-bounce-in relative">
+                        <button
+                            onClick={() => closeAgendaAlert(index)}
                             className="absolute top-2 right-2 text-gray-400 hover:text-gray-800 transition-colors"
                         >
-                            <X size={16}/>
+                            <X size={16} />
                         </button>
                         <div className="flex items-start gap-3 mt-1 text-gray-800">
                             <Bell size={24} className="text-yellow-500 animate-pulse shrink-0" />
@@ -795,26 +612,26 @@ const AppContent = () => {
             </div>
 
             {pendingRequestsCount > 0 && user.user_type === 'admin' && (
-                <AdminPendingRequestAlert 
-                    pendingCount={pendingRequestsCount} 
-                    onClose={() => setPendingRequestsCount(0)} 
-                    navigate={setCurrentPage} 
+                <AdminPendingRequestAlert
+                    pendingCount={pendingRequestsCount}
+                    onClose={() => setPendingRequestsCount(0)}
+                    navigate={setCurrentPage}
                 />
             )}
-            
-            <Sidebar 
-                currentPage={currentPage} 
-                setCurrentPage={setCurrentPage} 
-                user={user} 
-                logout={logout} 
-                onChangePassword={() => setShowChangePasswordModal(true)} 
-                pendingSolicitacoesCount={pendingSolicitacoesCount} 
-            /> 
-            
-            <ChangePasswordModal 
-                isOpen={showChangePasswordModal} 
-                onClose={() => setShowChangePasswordModal(false)} 
-                apiClient={apiClient} 
+
+            <Sidebar
+                currentPage={currentPage}
+                setCurrentPage={setCurrentPage}
+                user={user}
+                logout={logout}
+                onChangePassword={() => setShowChangePasswordModal(true)}
+                pendingSolicitacoesCount={pendingSolicitacoesCount}
+            />
+
+            <ChangePasswordModal
+                isOpen={showChangePasswordModal}
+                onClose={() => setShowChangePasswordModal(false)}
+                apiClient={apiClient}
             />
 
             <main className="flex-1 flex flex-col relative overflow-hidden">
@@ -822,14 +639,21 @@ const AppContent = () => {
                     {alertMessage && (
                         <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />
                     )}
-                    
-                    {loadingData ? (
+
+                    {/* Indicador discreto de sync em background */}
+                    {syncing && (
+                        <div className="fixed bottom-4 left-4 bg-white shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 text-xs font-medium text-gray-600 border border-gray-200 z-[80]">
+                            <Loader size={12} className="animate-spin text-yellow-500" />
+                            Sincronizando...
+                        </div>
+                    )}
+
+                    {bootstrapLoading ? (
                         <div className="flex items-center justify-center h-full text-lg font-semibold text-gray-500">
-                            <Loader size={32} className="animate-spin mr-3 text-yellow-500" /> Sincronizando dados...
+                            <Loader size={32} className="animate-spin mr-3 text-yellow-500" />
+                            Carregando dados iniciais...
                         </div>
                     ) : (
-                        // Suspense envolve apenas a área de conteúdo (dentro do main),
-                        // mantendo a Sidebar sempre visível durante a transição de páginas.
                         <Suspense fallback={<PageFallback />}>
                             {renderPage()}
                         </Suspense>
@@ -841,11 +665,11 @@ const AppContent = () => {
 };
 
 // ==========================================
-// Roteador e Container Principal
+// AppRouter — decide login ou aplicação
 // ==========================================
 
 const AppRouter = () => {
-    const { user, loading } = useAuth(); 
+    const { user, loading } = useAuth();
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-100">
@@ -853,8 +677,14 @@ const AppRouter = () => {
             </div>
         );
     }
-    return !user ? <LoginScreen apiClient={apiClient} /> : <AppContent />;
+    return !user
+        ? <LoginScreen apiClient={apiClient} />
+        : <DataProvider><AppContent /></DataProvider>;
 };
+
+// ==========================================
+// Container raiz
+// ==========================================
 
 export default function AppContainer() {
     return (
