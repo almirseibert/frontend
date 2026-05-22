@@ -567,16 +567,16 @@ const AppContent = () => {
                 return <EmployeesPage {...commonProps} />;
             case 'fines':
                 return <FinesPage {...commonProps} />;
-            case 'tires':
-                return <TiresPage {...commonProps} revisions={revisions} />;
-            case 'reports':
-                return <ReportsPage {...commonProps} />;
+            case 'tires': 
+                return <TiresPage {...commonProps} revisions={revisions} />; 
+            case 'reports': 
+                return <ReportsPage {...commonProps} />; 
             case 'admin':
                 return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />;
             case 'sigasul':
                 return user.user_type === 'admin' ? <SigaSulPage {...commonProps} /> : <Denied />;
             default:
-                return <Dashboard {...commonProps} />;
+                return <Dashboard {...commonProps} />; 
         }
     };
 
