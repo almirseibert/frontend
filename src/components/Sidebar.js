@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
     Building, HardHat, ClipboardCheck, FileText,
     Fuel, Wrench, User, Shield, LogOut, Key,
-    ChevronLeft, ChevronRight, ChevronDown, ChevronUp
+    ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
+    Radio
 } from 'lucide-react';
 
 const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
@@ -80,6 +81,15 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                 { id: 'partners',  label: 'Fornecedores' },
                 { id: 'inventory', label: 'Estoque / Peças' },
                 { id: 'fines',     label: 'Multas' },
+            ],
+        },
+        {
+            id: 'rastreamento',
+            label: 'Rastreamento',
+            icon: <Radio size={16} />,
+            hidden: !isAdmin,
+            items: [
+                { id: 'sigasul', label: 'SigaSul GPS' },
             ],
         },
         {
