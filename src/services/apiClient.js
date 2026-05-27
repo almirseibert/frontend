@@ -262,7 +262,6 @@ const apiClient = {
     whatsappReiniciar: async () => apiFetch('/whatsapp/reiniciar', { method: 'POST' }),
     whatsappEnviarTeste: async (data) => apiFetch('/whatsapp/enviar-teste', { method: 'POST', body: JSON.stringify(data) }),
     whatsappGetLogs: async () => apiFetch('/whatsapp/logs'),
-    whatsappEnviarOrdem: async (data) => apiFetch('/whatsapp/enviar-ordem', { method: 'POST', body: JSON.stringify(data) }),
 
     // --- Usuários Admin CRUD (TODO: backend) ---
     adminCreateUser: async (data) => apiFetch('/admin/users', { method: 'POST', body: JSON.stringify(data) }),

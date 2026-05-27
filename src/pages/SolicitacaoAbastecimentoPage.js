@@ -191,10 +191,6 @@ const SolicitacaoAbastecimentoPage = ({
     const [cupomFile, setCupomFile] = useState(null);
     const [cupomPreview, setCupomPreview] = useState(null);
 
-    const [vehicleSearch, setVehicleSearch] = useState('');
-    const [showVehicleDropdown, setShowVehicleDropdown] = useState(false);
-    const vehicleSearchRef = useRef(null);
-
     // Refs
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
@@ -859,7 +855,7 @@ const SolicitacaoAbastecimentoPage = ({
                             <select 
                                 className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none"
                                 value={formData.obraId}
-                                onChange={e => { setFormData({...formData, obraId: e.target.value, veiculoId: '', funcionarioId: ''}); setVehicleSearch(''); }}
+                                onChange={e => setFormData({...formData, obraId: e.target.value, veiculoId: '', funcionarioId: ''})}
                                 disabled={allowedObras.length === 0}
                             >
                                 <option value="">Selecione a Obra...</option>
@@ -871,76 +867,17 @@ const SolicitacaoAbastecimentoPage = ({
 
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-gray-500 uppercase ml-1">Veículo (na Obra)</label>
-                            <div className="relative">
-                                {formData.veiculoId && veiculoSelecionado ? (
-                                    <div className="w-full p-4 bg-white border-2 border-yellow-400 rounded-xl shadow-sm flex items-center justify-between">
-                                        <div>
-                                            <p className="font-bold text-gray-900 text-base">{veiculoSelecionado.registroInterno} — {veiculoSelecionado.placa}</p>
-                                            <p className="text-sm text-gray-500">{veiculoSelecionado.modelo} ({veiculoSelecionado.tipo})</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => { setFormData(prev => ({...prev, veiculoId: ''})); setVehicleSearch(''); setTimeout(() => vehicleSearchRef.current?.focus(), 50); }}
-                                            className="p-1 text-gray-400 hover:text-red-500 transition"
-                                            aria-label="Trocar veículo"
-                                        >
-                                            <X size={20}/>
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <>
-                                        <input
-                                            ref={vehicleSearchRef}
-                                            type="text"
-                                            className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
-                                            placeholder={formData.obraId ? "Buscar por RE ou Placa..." : "Selecione a obra primeiro"}
-                                            disabled={!formData.obraId}
-                                            value={vehicleSearch}
-                                            onChange={e => { setVehicleSearch(e.target.value); setShowVehicleDropdown(true); }}
-                                            onFocus={() => setShowVehicleDropdown(true)}
-                                            onBlur={() => setTimeout(() => setShowVehicleDropdown(false), 150)}
-                                            autoComplete="off"
-                                        />
-                                        {showVehicleDropdown && formData.obraId && (
-                                            <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                                                {filteredVehicles
-                                                    .filter(v => {
-                                                        const q = vehicleSearch.trim().toLowerCase();
-                                                        if (!q) return true;
-                                                        return (
-                                                            (v.registroInterno || '').toLowerCase().includes(q) ||
-                                                            (v.placa || '').toLowerCase().includes(q) ||
-                                                            (v.modelo || '').toLowerCase().includes(q)
-                                                        );
-                                                    })
-                                                    .map(v => (
-                                                        <button
-                                                            key={v.id}
-                                                            type="button"
-                                                            onMouseDown={() => {
-                                                                setFormData(prev => ({...prev, veiculoId: v.id}));
-                                                                setVehicleSearch('');
-                                                                setShowVehicleDropdown(false);
-                                                            }}
-                                                            className="w-full text-left px-4 py-3 hover:bg-yellow-50 border-b border-gray-100 last:border-0"
-                                                        >
-                                                            <p className="font-bold text-gray-800">{v.registroInterno} — {v.placa}</p>
-                                                            <p className="text-sm text-gray-500">{v.modelo} ({v.tipo})</p>
-                                                        </button>
-                                                    ))
-                                                }
-                                                {filteredVehicles.filter(v => {
-                                                    const q = vehicleSearch.trim().toLowerCase();
-                                                    if (!q) return true;
-                                                    return (v.registroInterno || '').toLowerCase().includes(q) || (v.placa || '').toLowerCase().includes(q) || (v.modelo || '').toLowerCase().includes(q);
-                                                }).length === 0 && (
-                                                    <p className="px-4 py-3 text-sm text-gray-400">Nenhum veículo encontrado.</p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
+                            <select 
+                                className="w-full p-4 bg-white border border-gray-300 rounded-xl shadow-sm text-lg focus:ring-2 focus:ring-yellow-400 outline-none disabled:bg-gray-100"
+                                value={formData.veiculoId}
+                                onChange={e => setFormData({...formData, veiculoId: e.target.value})}
+                                disabled={!formData.obraId}
+                            >
+                                <option value="">Selecione o Veículo...</option>
+                                {filteredVehicles.map(v => (
+                                    <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.modelo})</option>
+                                ))}
+                            </select>
                             
                             {veiculoSelecionado && (
                                 <div className="space-y-2 mt-2 px-1">
