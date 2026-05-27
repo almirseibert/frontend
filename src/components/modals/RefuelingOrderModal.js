@@ -475,12 +475,9 @@ Att,
 Equipe Frotas MAK`;
 
                 window.location.href = `mailto:${partnerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-                return; 
-            } else {
-                 setAlertMessage("Posto sem e-mail. Abrindo WhatsApp...");
             }
 
-            triggerWhatsApp(finalData, partner, vehicle, employee, absoluteLink);
+            await triggerWhatsApp(finalData, partner, vehicle, employee, absoluteLink);
 
         } catch (err) {
             console.error(">>> [DEBUG] Erro na Distribuição:", err);
@@ -489,7 +486,7 @@ Equipe Frotas MAK`;
         }
     };
 
-    const triggerWhatsApp = (finalData, partner, vehicle, employee, pdfLink) => {
+    const triggerWhatsApp = async (finalData, partner, vehicle, employee, pdfLink) => {
         const phone = partner?.whatsapp || partner?.telefone;
         if (!phone) {
             setAlertMessage("Ordem salva! Posto sem WhatsApp/Email.");
@@ -500,7 +497,7 @@ Equipe Frotas MAK`;
         let readingMsg = '';
         const fOdo = parseFloat(finalData.odometro);
         const fHori = parseFloat(finalData.horimetro);
-        
+
         if (allowedReadings.includes('odometro') && fOdo > 0) {
              readingMsg = `*Hodômetro:* ${fOdo} Km`;
         } else if (allowedReadings.includes('horimetro') && fHori > 0) {
@@ -512,14 +509,14 @@ Equipe Frotas MAK`;
         } else {
              readingMsg = `*Leitura:* N/A`;
         }
-        
+
         const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-        const arlaMsg = formData.needsArla 
-            ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
+        const arlaMsg = formData.needsArla
+            ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}`
             : '';
         const outrosMsg = finalData.outros ? `\n*Outros/Obs:* ${finalData.outros}` : '';
 
-        let msg = 
+        const msg =
 `*ORDEM DE ABASTECIMENTO - FROTAS MAK*
 ${pdfLink ? `Baixe a Autorização (PDF): ${pdfLink}` : '(PDF indisponível)'}
 
@@ -533,9 +530,18 @@ ${pdfLink ? `Baixe a Autorização (PDF): ${pdfLink}` : '(PDF indisponível)'}
 *Motorista:* ${employee?.nome || 'N/A'}
 ${readingMsg}`;
 
-        setTimeout(() => {
-            window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }, 500);
+        try {
+            await apiClient.whatsappEnviarOrdem({
+                numero: phone,
+                nome: partner?.razaoSocial || 'Posto',
+                mensagem: msg,
+                documentUrl: pdfLink || null,
+            });
+            setAlertMessage(`✅ WhatsApp enviado para ${partner?.razaoSocial || 'o posto'}!`);
+        } catch (err) {
+            console.error('Erro ao enviar WhatsApp:', err);
+            setAlertMessage(`⚠️ Ordem salva, mas falha ao enviar o WhatsApp. Verifique a conexão do microsserviço e tente reenviar.`);
+        }
     };
 
     const handleSaveClick = (e) => {
