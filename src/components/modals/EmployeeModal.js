@@ -110,13 +110,14 @@ const EmployeeModal = ({
             // Sugere vencimento de toxicológico 2.5 anos (30 meses) após a emissão
             // APENAS se o campo de toxicológico ainda estiver vazio
             if (val && !prev.cnh.exameToxicologicoVencimento) {
-                // Aritmética pura sobre strings YYYY-MM-DD para evitar bugs de fuso horário (UTC vs local)
                 const [year, month, day] = val.split('-').map(Number);
-                let totalMonths = (year * 12 + (month - 1)) + 30;
-                const newYear = Math.floor(totalMonths / 12);
-                const newMonth = (totalMonths % 12) + 1;
-                const newDay = String(day).padStart(2, '0');
-                newData.cnh.exameToxicologicoVencimento = `${newYear}-${String(newMonth).padStart(2, '0')}-${newDay}`;
+                // Aguarda o ano estar completamente preenchido (4 dígitos) antes de calcular
+                if (year >= 1000 && month && day) {
+                    let totalMonths = (year * 12 + (month - 1)) + 30;
+                    const newYear = Math.floor(totalMonths / 12);
+                    const newMonth = (totalMonths % 12) + 1;
+                    newData.cnh.exameToxicologicoVencimento = `${newYear}-${String(newMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                }
             }
             
             return newData;
