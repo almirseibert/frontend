@@ -3,6 +3,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Activity, Printer } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
+import { getGroupUnit, getReadingSourceForUnit, computeConsumption } from '../../utils/vehicleRules';
+import SearchableObraSelect from '../SearchableObraSelect';
 
 // Helper para ordenação alfanumérica
 const sortAlphaNum = (a, b) => (a || '').toString().localeCompare((b || '').toString(), 'pt-BR', { numeric: true, sensitivity: 'base' });
@@ -26,7 +28,7 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
         if (filters.groupId) {
             list = list.filter(v => v.grupo === filters.groupId);
         }
-        return list.sort((a, b) => sortAlphaNum(a.placa || a.nome, b.placa || b.nome));
+        return list.sort((a, b) => sortAlphaNum(a.registroInterno || a.placa, b.registroInterno || b.placa));
     }, [vehicles, filters.groupId]);
 
     const reportData = useMemo(() => {
@@ -43,35 +45,41 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
             filteredRefuelings = filteredRefuelings.filter(r => new Date(r.data || r.dataAbastecimento).getTime() <= end);
         }
         if (filters.obraId) {
-            filteredRefuelings = filteredRefuelings.filter(r => r.obraId === filters.obraId);
+            filteredRefuelings = filteredRefuelings.filter(r => (r.obraId || r.obraAtual) === filters.obraId);
         }
         if (filters.vehicleIds.length > 0) {
-            filteredRefuelings = filteredRefuelings.filter(r => filters.vehicleIds.includes(r.veiculoId));
+            filteredRefuelings = filteredRefuelings.filter(r => filters.vehicleIds.includes(r.vehicleId || r.veiculoId));
         }
 
         const grouped = {};
 
         filteredRefuelings.forEach(r => {
-            const vId = r.veiculoId;
+            const vId = r.vehicleId || r.veiculoId;
+            if (!vId) return;
             if (!grouped[vId]) {
                 const vehicleObj = vehicles.find(v => v.id === vId) || {};
-                const isKm = ['Leves', 'Trecho'].includes(vehicleObj.grupo); 
+                const unit = getGroupUnit(vehicleObj.tipo);
+                const isKm = getReadingSourceForUnit(unit) === 'odometro';
 
                 grouped[vId] = {
                     vehicleId: vId,
                     placa: vehicleObj.placa || 'N/A',
                     nome: vehicleObj.nome || 'Desconhecido',
-                    grupo: vehicleObj.grupo || 'N/A',
+                    grupo: vehicleObj.grupo || vehicleObj.tipo || 'N/A',
                     obraAtual: vehicleObj.obraAtual || 'N/A',
                     isKm: isKm,
+                    consumoUnit: unit,
                     totalLiters: 0,
                     leituras: []
                 };
             }
 
-            grouped[vId].totalLiters += parseFloat(r.quantidade || 0);
-            
-            const leituraAtual = parseFloat(grouped[vId].isKm ? r.odometroAtual : r.horimetroAtual);
+            // Campos reais da tabela refuelings: litrosAbastecidos, odometro, horimetro
+            grouped[vId].totalLiters += parseFloat(r.litrosAbastecidos || r.quantidade || 0);
+
+            const leituraAtual = parseFloat(grouped[vId].isKm
+                ? (r.odometro || r.odometroAtual)
+                : (r.horimetro || r.horimetroAtual));
             if (!isNaN(leituraAtual) && leituraAtual > 0) {
                 grouped[vId].leituras.push(leituraAtual);
             }
@@ -85,15 +93,16 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
                 const min = Math.min(...item.leituras);
                 const max = Math.max(...item.leituras);
                 totalUsage = max - min;
-            } else if (item.leituras.length === 1 && filteredRefuelings.find(r=> r.veiculoId === item.vehicleId)?.odometroAnterior) {
-               const ref = filteredRefuelings.find(r=> r.veiculoId === item.vehicleId);
-               const anterior = parseFloat(item.isKm ? ref.odometroAnterior : ref.horimetroAnterior);
-               if(anterior > 0) totalUsage = item.leituras[0] - anterior;
+            } else if (item.leituras.length === 1) {
+               const ref = filteredRefuelings.find(r => (r.vehicleId || r.veiculoId) === item.vehicleId);
+               const anterior = parseFloat(item.isKm
+                   ? (ref?.odometroAnterior || 0)
+                   : (ref?.horimetroAnterior || 0));
+               if (anterior > 0) totalUsage = item.leituras[0] - anterior;
             }
 
             if (totalUsage > 0 && item.totalLiters > 0) {
-                if (item.isKm) average = totalUsage / item.totalLiters;
-                else average = item.totalLiters / totalUsage;
+                average = computeConsumption(item.consumoUnit, totalUsage, item.totalLiters) || 0;
             }
 
             return {
@@ -101,7 +110,7 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
                 totalUsage,
                 average: average.toFixed(2),
                 unit: item.isKm ? 'Km' : 'Hr',
-                avgUnit: item.isKm ? 'Km/L' : 'L/Hr'
+                avgUnit: item.consumoUnit
             };
         }).sort((a, b) => sortAlphaNum(a.placa, b.placa));
 
@@ -120,7 +129,7 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
         doc.text(`Obra: ${obraNome}`, 14, 27);
         doc.text(`Total Litros Consumidos (Filtro): ${totalLitersGlobal.toFixed(2)} L`, 14, 32);
 
-        const tableColumn = ["Placa/Nome", "Grupo", "Obra Atual", "Tipo", "Total Consumido (L)", "Uso Total (Km/Hr)", "Média"];
+        const tableColumn = ["Placa/Nome", "Tipo", "Obra Atual", "Unidade", "Total Consumido (L)", "Uso Total (Km/Hr)", "Média"];
         const tableRows = reportData.map(item => [
             `${item.placa} - ${item.nome}`,
             item.grupo,
@@ -157,17 +166,18 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
                 </div>
                 <div>
                     <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Filtrar por Obra</label>
-                    <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="w-full p-2 border rounded bg-white text-sm">
-                        <option value="">Todas as Obras</option>
-                        {[...obras].sort((a, b) => sortAlphaNum(a.nome, b.nome)).map(o => (
-                            <option key={o.id} value={o.id}>{o.nome}</option>
-                        ))}
-                    </select>
+                    <SearchableObraSelect
+                        obras={[...obras].sort((a, b) => sortAlphaNum(a.nome, b.nome))}
+                        value={filters.obraId}
+                        onChange={(obra) => setFilters({...filters, obraId: obra?.id || ''})}
+                        placeholder="Todas as Obras"
+                        includeInactive={true}
+                    />
                 </div>
                 <div>
-                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Grupo de Equipamento</label>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Tipo de Equipamento</label>
                     <select value={filters.groupId} onChange={e => setFilters({...filters, groupId: e.target.value, vehicleIds: []})} className="w-full p-2 border rounded bg-white text-sm">
-                        <option value="">Todos os Grupos</option>
+                        <option value="">Todos os Tipos</option>
                         {Object.keys(vehicleGroups).sort(sortAlphaNum).map(g => (
                             <option key={g} value={g}>{g}</option>
                         ))}
@@ -185,9 +195,13 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
                     onChange={handleVehicleSelection} 
                     className="w-full h-32 p-2 border rounded bg-white text-sm custom-scrollbar focus:ring-2 focus:ring-teal-500"
                 >
-                    {filteredVehiclesList.map(v => (
-                        <option key={v.id} value={v.id}>{v.placa} - {v.nome} ({v.grupo})</option>
-                    ))}
+                    {filteredVehiclesList.map(v => {
+                        const grupoOuSubgrupo = v.sub_tipo || v.tipo || v.grupo || '';
+                        const partes = [v.registroInterno, v.placa, grupoOuSubgrupo, v.modelo].filter(Boolean);
+                        return (
+                            <option key={v.id} value={v.id}>{partes.join(' - ')}</option>
+                        );
+                    })}
                 </select>
                 <p className="text-xs text-gray-400 mt-1">Se nenhum for selecionado, todos os visíveis no filtro serão considerados.</p>
             </div>
@@ -209,7 +223,7 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
                         <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
                             <tr>
                                 <th className="p-3 font-bold text-gray-600">Placa / Nome</th>
-                                <th className="p-3 font-bold text-gray-600">Grupo</th>
+                                <th className="p-3 font-bold text-gray-600">Tipo</th>
                                 <th className="p-3 font-bold text-gray-600">Obra Atual</th>
                                 <th className="p-3 font-bold text-gray-600 text-right">Consumo (L)</th>
                                 <th className="p-3 font-bold text-gray-600 text-right">Uso Total (Km/Hr)</th>

@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { PlusCircle, Droplet, Users, X, Trash2, Edit2, CheckCircle, Loader } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
+import SearchableObraSelect from '../SearchableObraSelect';
+import SearchableSelect from '../SearchableSelect';
 
 const getVehicleName = (id, vehicles) => {
     const v = vehicles.find(v => String(v.id) === String(id));
@@ -63,7 +65,7 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
                     <div>
-                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <h3 className="mak-modal-title">
                             <Droplet size={18} className="text-blue-600"/> Histórico de Lavagens
                         </h3>
                         <p className="text-xs text-gray-500">Controle de higienização, com custos alocados por obra.</p>
@@ -158,7 +160,7 @@ const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave })
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-fadeInUp">
+            <div className="mak-modal max-w-sm">
                 <div className="px-4 py-3 border-b bg-blue-50 flex justify-between items-center">
                     <h2 className="text-sm font-bold text-blue-800">Registrar Lavagem</h2>
                     <button onClick={onClose} className="text-gray-500"><X size={16}/></button>
@@ -166,18 +168,25 @@ const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave })
                 <div className="p-4 space-y-3">
                     <div>
                         <label className="block text-xs font-semibold mb-1">Veículo *</label>
-                        <select name="vehicleId" value={formData.vehicleId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required>
-                            <option value="">Selecione...</option>
-                            {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
-                        </select>
+                        <SearchableSelect
+                            items={vehicles}
+                            value={formData.vehicleId}
+                            onChange={(item) => handleChange({ target: { name: 'vehicleId', value: item?.id || '' } })}
+                            getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
+                            getSubLabel={(v) => v.modelo || ''}
+                            placeholder="Selecione..."
+                            required
+                        />
                     </div>
                     <div>
                         <label className="block text-xs font-semibold mb-1">Centro de Custo (Obra) *</label>
-                        <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border border-blue-300 bg-blue-50 text-blue-900 rounded text-sm outline-none" required>
-                            <option value="">Selecione a Obra...</option>
-                            <option value="Patio">Pátio / Não Alocado</option>
-                            {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                        </select>
+                        <SearchableObraSelect
+                            obras={obras}
+                            value={formData.obraId}
+                            onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
+                            placeholder="Selecione a Obra..."
+                            includeInactive={true}
+                        />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -191,10 +200,13 @@ const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave })
                     </div>
                     <div>
                         <label className="block text-xs font-semibold mb-1">Lava-Jato (Parceiro)</label>
-                        <select name="parceiroId" value={formData.parceiroId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none">
-                            <option value="">Selecione (Opcional)...</option>
-                            {washingPartners.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                        </select>
+                        <SearchableSelect
+                            items={washingPartners}
+                            value={formData.parceiroId}
+                            onChange={(item) => handleChange({ target: { name: 'parceiroId', value: item?.id || '' } })}
+                            getLabel={(p) => p.nome}
+                            placeholder="Selecione (Opcional)..."
+                        />
                     </div>
                     <div>
                         <label className="block text-xs font-semibold mb-1">Tipo de Serviço</label>
@@ -266,7 +278,7 @@ const WashingPartnersModal = ({ partners, apiClient, fetchData, setAlertMessage,
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden animate-fadeInUp">
+            <div className="mak-modal max-w-md">
                 <div className="px-4 py-3 border-b bg-gray-100 flex justify-between items-center">
                     <h2 className="text-sm font-bold text-gray-800">Parceiros de Lavagem (Lava-Jatos)</h2>
                     <button onClick={onClose} className="text-gray-500"><X size={16}/></button>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Activity, TrendingUp, TrendingDown, Filter } from 'lucide-react';
-import { getAllowedReadingTypes } from '../../utils/vehicleRules';
+import { getGroupUnit, getReadingSourceForUnit, computeConsumption, isHigherBetter } from '../../utils/vehicleRules';
 
 const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
     const [filterType, setFilterType] = useState('todos');
@@ -14,9 +14,10 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
         if (!vehicles.length || !refuelings.length) return { best: [], worst: [] };
 
         const stats = vehicles.map(vehicle => {
-            const allowedTypes = getAllowedReadingTypes(vehicle.tipo);
-            const isKm = allowedTypes.includes('odometro');
-            const unit = isKm ? 'Km/L' : 'L/Hr';
+            const unit = getGroupUnit(vehicle.tipo);
+            const readingSource = getReadingSourceForUnit(unit);
+            const isKm = readingSource === 'odometro';
+            const higherBetter = isHigherBetter(unit);
 
             // Pega apenas abastecimentos concluídos deste veículo
             const history = refuelings
@@ -47,12 +48,8 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             const diff = endReading - startReading;
             if (diff <= 0 || totalLiters <= 0) return null;
 
-            let average = 0;
-            if (isKm) {
-                average = diff / totalLiters; // Km por Litro (Maior = Melhor)
-            } else {
-                average = totalLiters / diff; // Litros por Hora (Menor = Melhor)
-            }
+            const average = computeConsumption(unit, diff, totalLiters);
+            if (average == null) return null;
 
             return {
                 id: vehicle.id,
@@ -61,7 +58,8 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
                 type: vehicle.tipo,
                 average,
                 unit,
-                isKm 
+                isKm,
+                higherBetter,
             };
         }).filter(Boolean);
 
@@ -69,9 +67,8 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
 
         const sorted = [...filteredStats].sort((a, b) => {
             if (a.unit !== b.unit) return a.unit.localeCompare(b.unit);
-            // Se for Km/L, maior é melhor. Se for L/Hr, menor é melhor.
-            if (a.isKm) return b.average - a.average; 
-            return a.average - b.average; 
+            // Ordena do melhor para o pior conforme o sentido da unidade.
+            return a.higherBetter ? (b.average - a.average) : (a.average - b.average);
         });
 
         return {
@@ -100,10 +97,10 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
     );
 
     return (
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
+        <div className="bg-white p-4 rounded-xl h-full flex flex-col" style={{ border: '1px solid #f0ebe3', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.06)' }}>
             <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    <Activity size={18} className="text-purple-600"/> Eficiência
+                <h3 className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 700, color: '#1e1a14' }}>
+                    <Activity size={16} style={{ color: '#8b5cf6' }}/> Eficiência
                 </h3>
                 <div className="relative">
                     <Filter size={12} className="absolute left-2 top-2 text-gray-400"/>

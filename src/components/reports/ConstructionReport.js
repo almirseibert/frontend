@@ -78,7 +78,7 @@ const ConstructionReport = ({ obras, vehicles, dailyWorkLogs, vehicleGroups }) =
             if (physicalBody.length > 0) {
                 autoTable(doc, {
                     startY: 40,
-                    head: [['Registro', 'Tipo', 'Leitura Inicial', 'Leitura Atual', 'Executado']],
+                    head: [['Registro', 'Grupo', 'Leitura Inicial', 'Leitura Atual', 'Executado']],
                     body: physicalBody,
                     theme: 'striped',
                     headStyles: { fillColor: [44, 62, 80] } 
@@ -128,7 +128,7 @@ const ConstructionReport = ({ obras, vehicles, dailyWorkLogs, vehicleGroups }) =
 
             autoTable(doc, {
                 startY: currentY + 5,
-                head: [['Tipo', 'Hrs Contratadas', 'Hrs Faturadas', 'Saldo', '%']],
+                head: [['Grupo', 'Hrs Contratadas', 'Hrs Faturadas', 'Saldo', '%']],
                 body: financialBody,
                 theme: 'grid',
                 headStyles: { fillColor: [39, 174, 96] },
@@ -158,7 +158,7 @@ const ConstructionReport = ({ obras, vehicles, dailyWorkLogs, vehicleGroups }) =
                     <div>
                         <label className="label">Selecionar Obras</label>
                         <select multiple value={selectedObraIds} onChange={e => setSelectedObraIds(Array.from(e.target.selectedOptions, o => o.value))} className="w-full h-32 p-2 border rounded text-sm custom-scrollbar">
-                            {filteredObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                            {filteredObras.map(o => <option key={o.id} value={o.id}>{o.nome}{o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}</option>)}
                         </select>
                         <p className="text-xs text-gray-500 mt-1">Use Ctrl+Click para selecionar várias.</p>
                     </div>

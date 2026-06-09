@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { PlusCircle, Wrench, X, CheckCircle, ArrowRight, Loader } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
+import SearchableObraSelect from '../SearchableObraSelect';
+import SearchableSelect from '../SearchableSelect';
 
 const getVehicleName = (id, vehicles) => {
     const v = vehicles.find(v => String(v.id) === String(id));
@@ -13,6 +15,7 @@ const getObraName = (id, obras) => {
 }
 
 const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) => {
+    const activeVehicles = vehicles.filter(v => !v.isOutsourced && v.ativo !== 0 && !v.isSucata);
     const [manutencoesProgramadas, setManutencoesProgramadas] = useState([]);
     const [manutencoesExecutadas, setManutencoesExecutadas] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -84,13 +87,13 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex justify-between items-center mb-4">
                     <div>
-                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <h3 className="mak-modal-title">
                             <Wrench size={18} className="text-yellow-600"/> Manutenções Programadas
                         </h3>
                         <p className="text-xs text-gray-500">Defeitos, avarias ou quebras relatadas pela equipe.</p>
                     </div>
                     <ProtectedComponent requiredPermission="editor">
-                        <button onClick={() => setModalNovaProgramada(true)} className="bg-yellow-500 text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-yellow-600 shadow-sm">
+                        <button onClick={() => setModalNovaProgramada(true)} className="bg-[#9E7A42] text-white px-3 py-2 rounded text-xs font-bold flex items-center gap-1 hover:bg-yellow-600 shadow-sm">
                             <PlusCircle size={14} /> Novo Relato
                         </button>
                     </ProtectedComponent>
@@ -138,7 +141,7 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex justify-between items-center mb-4">
                     <div>
-                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <h3 className="mak-modal-title">
                             <CheckCircle size={18} className="text-green-600"/> Manutenções Executadas
                         </h3>
                         <p className="text-xs text-gray-500">Histórico de intervenções realizadas, com custo alocado à obra.</p>
@@ -182,16 +185,16 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
             </div>
 
             {modalNovaProgramada && (
-                <NovaProgramadaModal 
-                    vehicles={vehicles} 
+                <NovaProgramadaModal
+                    vehicles={activeVehicles}
                     onClose={() => setModalNovaProgramada(false)}
                     onSave={onSaveProgramada}
                 />
             )}
 
             {modalNovaExecutada && (
-                <NovaExecutadaModal 
-                    vehicles={vehicles} 
+                <NovaExecutadaModal
+                    vehicles={activeVehicles}
                     obras={obras}
                     defaultData={modalNovaExecutada} 
                     onClose={() => setModalNovaExecutada(null)}
@@ -217,7 +220,7 @@ const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden animate-fadeInUp">
+            <div className="mak-modal max-w-sm">
                 <div className="px-4 py-3 border-b bg-yellow-50 flex justify-between items-center">
                     <h2 className="text-sm font-bold text-yellow-800">Novo Relato / Defeito</h2>
                     <button onClick={onClose} className="text-gray-500"><X size={16}/></button>
@@ -225,10 +228,15 @@ const NovaProgramadaModal = ({ vehicles, onClose, onSave }) => {
                 <div className="p-4 space-y-3">
                     <div>
                         <label className="block text-xs font-semibold mb-1">Veículo *</label>
-                        <select name="vehicleId" value={formData.vehicleId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required>
-                            <option value="">Selecione...</option>
-                            {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
-                        </select>
+                        <SearchableSelect
+                            items={vehicles}
+                            value={formData.vehicleId}
+                            onChange={(item) => handleChange({ target: { name: 'vehicleId', value: item?.id || '' } })}
+                            getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
+                            getSubLabel={(v) => v.modelo || ''}
+                            placeholder="Selecione..."
+                            required
+                        />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -284,7 +292,7 @@ const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden animate-fadeInUp">
+            <div className="mak-modal max-w-md">
                 <div className="px-4 py-3 border-b bg-green-50 flex justify-between items-center">
                     <h2 className="text-sm font-bold text-green-800">
                         {formData.programadaId ? 'Executar Manutenção Programada' : 'Registrar Manutenção Avulsa'}
@@ -295,18 +303,26 @@ const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave
                     <div className="grid grid-cols-2 gap-3">
                         <div className="col-span-2">
                             <label className="block text-xs font-semibold mb-1">Veículo *</label>
-                            <select name="vehicleId" value={formData.vehicleId} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" required disabled={!!formData.programadaId}>
-                                <option value="">Selecione...</option>
-                                {vehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={vehicles}
+                                value={formData.vehicleId}
+                                onChange={(item) => handleChange({ target: { name: 'vehicleId', value: item?.id || '' } })}
+                                getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
+                                getSubLabel={(v) => v.modelo || ''}
+                                placeholder="Selecione..."
+                                disabled={!!formData.programadaId}
+                                required
+                            />
                         </div>
                         <div className="col-span-2">
                             <label className="block text-xs font-semibold mb-1">Centro de Custo (Obra) *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border border-blue-300 bg-blue-50 text-blue-900 rounded text-sm outline-none" required>
-                                <option value="">Selecione a Obra...</option>
-                                <option value="Patio">Pátio / Não Alocado</option>
-                                {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                            </select>
+                            <SearchableObraSelect
+                                obras={obras}
+                                value={formData.obraId}
+                                onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
+                                placeholder="Selecione a Obra..."
+                                includeInactive={true}
+                            />
                             <p className="text-[9px] text-gray-500 mt-0.5">O valor informado será lançado como despesa nesta obra.</p>
                         </div>
                         <div>
@@ -341,3 +357,4 @@ const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave
 };
 
 export default MaintenancesTab;
+

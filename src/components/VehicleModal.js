@@ -1,6 +1,24 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin, Package } from 'lucide-react';
-import { checkReadingConsistency } from '../utils/vehicleRules';
+import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin, Package, Fuel } from 'lucide-react';
+import { checkReadingConsistency, vehicleSubTypes, getGroupUnit } from '../utils/vehicleRules';
+import SearchableSelect from './SearchableSelect';
+
+const ModalBtn = ({ variant = 'primary', onClick, disabled, children }) => {
+    const [h, setH] = React.useState(false);
+    const styles = {
+        primary: { bg: h ? '#8a6a34' : '#9E7A42', color: '#fff', border: 'none' },
+        cancel:  { bg: h ? '#f5f2ed' : '#fff', color: '#6a5e4e', border: '1px solid #e8e0d4' },
+        danger:  { bg: h ? '#9a2e20' : '#b03828', color: '#fff', border: 'none' },
+        dark:    { bg: h ? '#2e2820' : '#1c1a17', color: '#fff', border: 'none' },
+    };
+    const s = styles[variant] || styles.primary;
+    return (
+        <button onClick={onClick} disabled={disabled} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+            style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: disabled ? 0.6 : 1, transition: 'background 0.15s', background: s.bg, color: s.color, border: s.border }}>
+            {children}
+        </button>
+    );
+};
 
 // Statuses que podem ser definidos manualmente no cadastro/edição
 const MANUAL_STATUS_OPTIONS = [
@@ -16,6 +34,7 @@ const VehicleModal = ({
     vehicles = [],
     vehicleTypes = [],
     vehicleGroups = {},
+    vehicleTypeConfigs = [],
     onClose,
     setAlertMessage,
     apiClient,
@@ -61,6 +80,10 @@ const VehicleModal = ({
 
         // Rastreador
         rastreador: vehicle?.rastreador || 'Sem Rastreador',
+
+        sub_tipo: vehicle?.sub_tipo || '',
+        media_consumo: vehicle?.media_consumo?.toString() || '',
+        percentual_tolerancia: vehicle?.percentual_tolerancia?.toString() || '20',
 
         fuelCapacity: vehicle?.fuelCapacity?.toString() || '',
 
@@ -110,6 +133,19 @@ const VehicleModal = ({
     const showOdometro  = useMemo(() => effectiveGroup === 'Veículos Leves'     || effectiveGroup === 'Caminhões de Trecho', [effectiveGroup]);
     const showHorimetro = useMemo(() => effectiveGroup === 'Máquinas Pesadas'   || effectiveGroup === 'Caminhões',           [effectiveGroup]);
 
+    const availableSubTypes = useMemo(() => vehicleSubTypes[formData.tipo] || [], [formData.tipo]);
+
+    // Busca a config padrão do tipo/sub-tipo cadastrada
+    const typeConfigDefault = useMemo(() => {
+        if (!vehicleTypeConfigs.length) return null;
+        // Tenta match exato tipo+sub_tipo, fallback para só o tipo
+        const exact = vehicleTypeConfigs.find(
+            c => c.tipo === formData.tipo && c.sub_tipo === (formData.sub_tipo || null)
+        );
+        if (exact) return exact;
+        return vehicleTypeConfigs.find(c => c.tipo === formData.tipo && !c.sub_tipo) || null;
+    }, [vehicleTypeConfigs, formData.tipo, formData.sub_tipo]);
+
     const canBeComboio = useMemo(() => {
         const type = formData.tipo;
         if (effectiveGroup === 'Máquinas Pesadas') return false;
@@ -133,6 +169,29 @@ const VehicleModal = ({
         const { name, value, type, checked } = e.target;
         if (name === 'naoPodeCircular') {
             setFormData(prev => ({ ...prev, canCirculate: !checked }));
+            return;
+        }
+        if (name === 'tipo') {
+            // Ao trocar tipo: limpa sub_tipo e sugere média do novo tipo (se houver config)
+            const cfg = vehicleTypeConfigs.find(c => c.tipo === value && !c.sub_tipo);
+            setFormData(prev => ({
+                ...prev,
+                tipo: value,
+                sub_tipo: '',
+                media_consumo: !vehicle && cfg?.media_consumo_padrao != null ? cfg.media_consumo_padrao.toString() : prev.media_consumo,
+                percentual_tolerancia: !vehicle && cfg ? cfg.percentual_tolerancia_padrao?.toString() || '20' : prev.percentual_tolerancia,
+            }));
+            return;
+        }
+        if (name === 'sub_tipo') {
+            // Ao selecionar sub-tipo, sugere média específica do sub-tipo (se houver)
+            const cfg = vehicleTypeConfigs.find(c => c.tipo === formData.tipo && c.sub_tipo === value);
+            setFormData(prev => ({
+                ...prev,
+                sub_tipo: value,
+                media_consumo: !vehicle && cfg?.media_consumo_padrao != null ? cfg.media_consumo_padrao.toString() : prev.media_consumo,
+                percentual_tolerancia: !vehicle && cfg ? cfg.percentual_tolerancia_padrao?.toString() || '20' : prev.percentual_tolerancia,
+            }));
             return;
         }
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
@@ -199,6 +258,9 @@ const VehicleModal = ({
             cor:       formData.cor,
             rastreador: formData.rastreador,
             status:     formData.status,
+            sub_tipo:   formData.sub_tipo || null,
+            media_consumo: formData.media_consumo !== '' ? parseFloat(formData.media_consumo) : null,
+            percentual_tolerancia: formData.percentual_tolerancia !== '' ? parseFloat(formData.percentual_tolerancia) : 20,
             // Sucata: força canCirculate = false e remove alocações ativas
             ...(isSucata && { canCirculate: false }),
         };
@@ -264,24 +326,30 @@ const VehicleModal = ({
 
     return (
         <>
-            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
-                <div className={`bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col my-auto border ${isSucata ? 'border-zinc-400' : 'border-gray-100'}`}>
+            <div className="fixed inset-0 flex items-center justify-center z-50 p-2 sm:p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+                <div className="bg-white w-full max-w-5xl max-h-[95vh] flex flex-col" style={{ borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)' }}>
 
                     {/* Cabeçalho */}
-                    <div className={`p-5 border-b flex justify-between items-center rounded-t-xl sticky top-0 z-10 ${isSucata ? 'bg-zinc-100 border-zinc-300' : 'bg-gray-50'}`}>
-                        <div>
-                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                {isSucata && <Package size={18} className="text-zinc-500"/>}
-                                {vehicle ? `Editar ${vehicle.registroInterno}` : 'Novo Veículo'}
-                            </h2>
-                            <p className="text-xs text-gray-500">
-                                {isSucata
-                                    ? '⚠️ Este veículo está marcado como SUCATA — excluído de todos os cálculos.'
-                                    : 'Cadastro Unificado (Odômetro / Horímetro).'}
-                            </p>
+                    <div className="flex justify-between items-start shrink-0 sticky top-0 z-10" style={{ padding: '16px 20px 12px', borderBottom: `1px solid ${isSucata ? '#e8e0d4' : '#f0ebe3'}`, background: isSucata ? '#faf9f7' : '#fff', borderRadius: '12px 12px 0 0' }}>
+                        <div className="flex items-center gap-2">
+                            {isSucata && <Package size={16} style={{ color: '#71717a' }}/>}
+                            <div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#1e1a14' }}>
+                                    {vehicle ? `Editar — ${vehicle.registroInterno}` : 'Novo Veículo'}
+                                </div>
+                                <div style={{ fontSize: 11, color: isSucata ? '#b03828' : '#9a8a78', marginTop: 2 }}>
+                                    {isSucata ? 'Veículo marcado como SUCATA — excluído de todos os cálculos.' : 'Cadastro Unificado · Odômetro / Horímetro'}
+                                </div>
+                            </div>
                         </div>
-                        <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 text-gray-500 transition-colors" disabled={isSaving}>
-                            <X size={20}/>
+                        <button
+                            onClick={onClose}
+                            disabled={isSaving}
+                            style={{ background: 'transparent', border: 'none', color: '#b0a090', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 0, flexShrink: 0 }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#f5f2ed'; e.currentTarget.style.color = '#6a5e4e'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#b0a090'; }}
+                        >
+                            <X size={16}/>
                         </button>
                     </div>
 
@@ -290,7 +358,7 @@ const VehicleModal = ({
 
                             {/* ── Coluna 1: Identificação ── */}
                             <div className="space-y-5">
-                                <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2 text-sm uppercase tracking-wide">
+                                <h3 className="flex items-center gap-1.5 pb-2" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#9a8a78', borderBottom: '1px solid #f0ebe3' }}>
                                     <ShieldCheck size={16}/> Identificação
                                 </h3>
                                 <div className="grid grid-cols-2 gap-4">
@@ -305,12 +373,29 @@ const VehicleModal = ({
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Tipo de Equipamento *</label>
-                                    <select name="tipo" value={formData.tipo} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none text-sm" required>
-                                        <option value="">Selecione...</option>
-                                        {(vehicleTypes || []).map(type => <option key={type} value={type}>{type}</option>)}
-                                    </select>
+                                    <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Grupo de Equipamento *</label>
+                                    <SearchableSelect
+                                        items={(vehicleTypes || []).map(t => ({ id: t, label: t }))}
+                                        value={formData.tipo}
+                                        onChange={(item) => handleChange({ target: { name: 'tipo', value: item?.id || '' } })}
+                                        getLabel={(t) => t.label}
+                                        placeholder="Selecione o tipo..."
+                                        required
+                                    />
                                 </div>
+
+                                {availableSubTypes.length > 0 && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Subgrupo</label>
+                                        <SearchableSelect
+                                            items={availableSubTypes.map(st => ({ id: st, label: st }))}
+                                            value={formData.sub_tipo}
+                                            onChange={(item) => handleChange({ target: { name: 'sub_tipo', value: item?.id || '' } })}
+                                            getLabel={(t) => t.label}
+                                            placeholder="Nenhum"
+                                        />
+                                    </div>
+                                )}
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
@@ -399,7 +484,7 @@ const VehicleModal = ({
 
                             {/* ── Coluna 2: Leituras e Capacidades ── */}
                             <div className="space-y-5">
-                                <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2 text-sm uppercase tracking-wide">
+                                <h3 className="flex items-center gap-1.5 pb-2" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#9a8a78', borderBottom: '1px solid #f0ebe3' }}>
                                     <Gauge size={16}/> Leituras e Capacidades
                                 </h3>
 
@@ -447,11 +532,60 @@ const VehicleModal = ({
                                         <input name="fuelCapacity" value={formData.fuelCapacity} onChange={handleChange} type="number" step="any" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none text-sm"/>
                                     </div>
                                 </div>
+
+                                {/* ── Consumo: média e tolerância ── */}
+                                <div className={`p-3 rounded-lg border ${isSucata ? 'opacity-50' : 'bg-amber-50 border-amber-200'}`}>
+                                    <p className="text-xs font-bold text-amber-800 uppercase mb-2.5 flex items-center gap-1.5">
+                                        <Fuel size={13}/> Parâmetros de Consumo
+                                    </p>
+                                    <div className="space-y-2.5">
+                                        <div>
+                                            <label className="block text-xs text-gray-600 mb-1">
+                                                Média esperada ({getGroupUnit(formData.tipo)})
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    name="media_consumo"
+                                                    value={formData.media_consumo}
+                                                    onChange={handleChange}
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    disabled={isSucata}
+                                                    placeholder={typeConfigDefault?.media_consumo_padrao != null ? `Padrão: ${typeConfigDefault.media_consumo_padrao}` : 'Ex: 15.00'}
+                                                    className="w-full p-2 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-sm font-mono disabled:bg-gray-100"
+                                                />
+                                            </div>
+                                            {typeConfigDefault?.media_consumo_padrao != null && !formData.media_consumo && (
+                                                <p className="text-[10px] text-amber-600 mt-0.5">
+                                                    Usando padrão do grupo: {typeConfigDefault.media_consumo_padrao} {typeConfigDefault.unidade}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-gray-600 mb-1">Tolerância acima da média (%)</label>
+                                            <div className="relative">
+                                                <input
+                                                    name="percentual_tolerancia"
+                                                    value={formData.percentual_tolerancia}
+                                                    onChange={handleChange}
+                                                    type="number"
+                                                    step="1"
+                                                    min="0"
+                                                    max="200"
+                                                    disabled={isSucata}
+                                                    className="w-full p-2 pr-8 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-sm font-mono disabled:bg-gray-100"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* ── Coluna 3: Foto e Documentação ── */}
                             <div className="space-y-5">
-                                <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2 text-sm uppercase tracking-wide">
+                                <h3 className="flex items-center gap-1.5 pb-2" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#9a8a78', borderBottom: '1px solid #f0ebe3' }}>
                                     <Camera size={16}/> Foto e Documentação
                                 </h3>
 
@@ -519,13 +653,12 @@ const VehicleModal = ({
                     </form>
 
                     {/* Rodapé */}
-                    <div className={`p-4 border-t rounded-b-xl flex justify-end gap-3 sticky bottom-0 z-10 ${isSucata ? 'bg-zinc-50 border-zinc-200' : 'bg-gray-50'}`}>
-                        <button onClick={onClose} className="px-5 py-2.5 text-gray-600 font-medium hover:bg-gray-200 rounded-lg transition-colors text-sm" disabled={isSaving}>Cancelar</button>
-                        <button onClick={validateAndPrepareSave} disabled={isSaving}
-                            className={`px-6 py-2.5 font-bold rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed text-sm ${isSucata ? 'bg-zinc-600 hover:bg-zinc-700 text-white' : 'bg-yellow-400 hover:bg-yellow-500 text-gray-900'}`}>
-                            {isSaving ? <Loader size={16} className="animate-spin"/> : <Save size={16}/>}
+                    <div className="flex justify-end gap-2 sticky bottom-0 z-10" style={{ padding: '12px 20px', borderTop: '1px solid #f0ebe3', background: '#fff', borderRadius: '0 0 12px 12px' }}>
+                        <ModalBtn variant="cancel" onClick={onClose} disabled={isSaving}>Cancelar</ModalBtn>
+                        <ModalBtn variant={isSucata ? 'dark' : 'primary'} onClick={validateAndPrepareSave} disabled={isSaving}>
+                            {isSaving ? <Loader size={14} className="animate-spin"/> : <Save size={14}/>}
                             {isSaving ? 'Salvando…' : 'Salvar Veículo'}
-                        </button>
+                        </ModalBtn>
                     </div>
                 </div>
             </div>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+﻿import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
     Download, Search, Save, Lock, ArrowRight, User, Printer, X,
@@ -8,6 +8,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
+import SearchableObraSelect from '../components/SearchableObraSelect';
 
 const RECENT_OBRAS_KEY = 'mak_billing_recent_obras';
 
@@ -69,11 +70,6 @@ const BillingPage = ({
         }
     });
 
-    // --- ESTADOS COMBOBOX DE OBRA ---
-    const [obraSearch, setObraSearch] = useState('');
-    const [obraDropdownOpen, setObraDropdownOpen] = useState(false);
-    const obraComboboxRef = useRef(null);
-
     // --- ESTADOS SELETOR DE MÊS (RELATÓRIO) ---
     const [showMonthPickerReport, setShowMonthPickerReport] = useState(false);
     const [reportPickerYear, setReportPickerYear] = useState(new Date().getFullYear());
@@ -94,12 +90,9 @@ const BillingPage = ({
         }
     }, [isViewer, activeTab]);
 
-    // Fechar combobox ao clicar fora
+    // Fechar month pickers ao clicar fora
     useEffect(() => {
         const handleMouseDown = (e) => {
-            if (obraComboboxRef.current && !obraComboboxRef.current.contains(e.target)) {
-                setObraDropdownOpen(false);
-            }
             if (monthPickerReportRef.current && !monthPickerReportRef.current.contains(e.target)) {
                 setShowMonthPickerReport(false);
             }
@@ -254,7 +247,7 @@ const BillingPage = ({
         const now = new Date();
         now.setHours(0, 0, 0, 0); // Zera hora para comparar apenas datas
 
-        obras.forEach(obra => {
+        obras.filter(o => (o.tipo_registro || 'obra') !== 'centro_custo').forEach(obra => {
             let isFinished = false;
 
             // Critério 1: Status explícito (se existir essa propriedade no futuro)
@@ -285,14 +278,6 @@ const BillingPage = ({
         return { activeObras: active, inactiveObras: inactive };
     }, [obras]);
 
-
-    // Filtragem de obras para o combobox
-    const filteredObras = useMemo(() => {
-        const normalize = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-        const q = normalize(obraSearch);
-        const filter = list => q ? list.filter(o => normalize(o.nome).includes(q)) : list;
-        return { active: filter(activeObras), inactive: filter(inactiveObras) };
-    }, [obraSearch, activeObras, inactiveObras]);
 
     // Obra selecionada e status
     const selectedObra = useMemo(() => obras.find(o => o.id === selectedObraId), [selectedObraId, obras]);
@@ -343,23 +328,31 @@ const BillingPage = ({
         return getObraVehicles.filter(v => idsWithData.has(v.id));
     }, [reportData, getObraVehicles, reportStartDate, reportEndDate]);
 
-    const getDefaultOperator = () => {
-        if (dailyLogs.length > 0) {
-            const lastLog = dailyLogs.find(l => l.employeeId);
-            if (lastLog) return lastLog.employeeId;
-        }
-        
+    // Retorna o funcionário que tinha a máquina na data informada,
+    // consultando o histórico de alocações da obra (dataEntrada/dataSaida).
+    // Se dateKey não for fornecido, usa a alocação mais recente como fallback.
+    const getDefaultOperator = (dateKey) => {
         const obra = obras.find(o => o.id === selectedObraId);
         if (!obra) return '';
 
-        // 2. MODIFICAÇÃO: Busca no histórico de veículos da obra, 
-        // mesmo que já tenha data de saída (dataSaida)
         const allocations = obra.historicoVeiculos
             .filter(h => h.veiculoId === controlVehicleId)
             .sort((a, b) => new Date(b.dataEntrada) - new Date(a.dataEntrada));
 
-        // Retorna o operador da alocação mais recente encontrada
-        return allocations.length > 0 ? allocations[0].employeeId : '';
+        if (!allocations.length) return '';
+
+        if (dateKey) {
+            const date = new Date(dateKey + 'T00:00:00');
+            const active = allocations.find(h => {
+                const entrada = new Date(h.dataEntrada + 'T00:00:00');
+                const saida = h.dataSaida ? new Date(h.dataSaida + 'T23:59:59') : null;
+                return entrada <= date && (!saida || saida >= date);
+            });
+            if (active) return active.employeeId || '';
+        }
+
+        // Fallback: alocação mais recente (para dias sem cobertura no histórico)
+        return allocations[0].employeeId || '';
     };
 
     // --- HELPERS DE NAVEGAÇÃO E COMBOBOX ---
@@ -442,15 +435,11 @@ const BillingPage = ({
 
     const handleObraSelect = (obra) => {
         setSelectedObraId(obra.id);
-        setObraSearch(obra.nome);
-        setObraDropdownOpen(false);
         saveRecentObra(obra.id);
     };
 
     const handleObraClear = () => {
         setSelectedObraId('');
-        setObraSearch('');
-        setObraDropdownOpen(false);
     };
 
     // --- API CALLS ---
@@ -522,7 +511,7 @@ const BillingPage = ({
                 obraId: selectedObraId,
                 vehicleId: controlVehicleId,
                 date: dateKey,
-                employeeId: changes.employeeId || existingLog?.employeeId || getDefaultOperator(),
+                employeeId: changes.employeeId || existingLog?.employeeId || getDefaultOperator(dateKey),
                 morningStart: justificativaTipo ? null : (changes.morningStart !== undefined ? changes.morningStart : (existingLog?.morningStart || null)),
                 morningEnd: justificativaTipo ? null : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog?.morningEnd || null)),
                 afternoonStart: justificativaTipo ? null : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog?.afternoonStart || null)),
@@ -847,20 +836,20 @@ const BillingPage = ({
 
         const groupTableData = Object.keys(groupSummary).map(group => [group, formatDecimalToTime(groupSummary[group].hours)]);
         doc.setFontSize(12);
-        doc.text("Resumo por Grupo de Veículos", 14, 30);
-        autoTable(doc, { startY: 32, head: [['Grupo', 'Horas Totais']], body: groupTableData, headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' }, theme: 'grid' });
+        doc.text("Resumo por Tipo de Veículos", 14, 30);
+        autoTable(doc, { startY: 32, head: [['Tipo', 'Horas Totais']], body: groupTableData, headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' }, theme: 'grid' });
 
         const typeTableData = Object.keys(typeSummary).map(type => [type, typeSummary[type].vehicles.size, formatDecimalToTime(typeSummary[type].hours)]);
         doc.setFontSize(12);
-        doc.text("Detalhamento por Tipo de Equipamento", 14, doc.lastAutoTable.finalY + 10);
-        autoTable(doc, { startY: doc.lastAutoTable.finalY + 12, head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']], body: typeTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
+        doc.text("Detalhamento por Grupo de Equipamento", 14, doc.lastAutoTable.finalY + 10);
+        autoTable(doc, { startY: doc.lastAutoTable.finalY + 12, head: [['Grupo de Equipamento', 'Qtd Veículos', 'Horas Totais']], body: typeTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
 
         const vehicleTableData = Object.values(vehicleSummary).sort((a, b) => a.label.localeCompare(b.label)).map(v => [v.label, v.type, formatDecimalToTime(v.hours)]);
         let finalY = doc.lastAutoTable.finalY; 
         if (finalY > 240) { doc.addPage(); finalY = 20; }
         doc.setFontSize(12);
         doc.text("Detalhamento por Equipamento", 14, finalY + 10);
-        autoTable(doc, { startY: finalY + 12, head: [['Equipamento', 'Tipo', 'Horas Totais']], body: vehicleTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
+        autoTable(doc, { startY: finalY + 12, head: [['Equipamento', 'Grupo', 'Horas Totais']], body: vehicleTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
 
         doc.save(`Resumo_${obra?.nome}_${reportStartDate}.pdf`);
     };
@@ -868,64 +857,21 @@ const BillingPage = ({
     // --- RENDERIZAÇÃO ---
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className=" mb-6 flex items-center gap-2">
                 <FileText className="text-yellow-500" /> Faturamento & Controle
             </h1>
 
-            {/* Seleção de Obra — Combobox com busca */}
-            {/* Seleção de Obra — Combobox com busca */}
+            {/* Seleção de Obra */}
             <div className="bg-white p-4 rounded-lg shadow mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Selecione a Obra</label>
-                <div className="relative" ref={obraComboboxRef}>
-                    <div className="flex items-center border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-yellow-400 focus-within:border-yellow-500">
-                        <Search size={16} className="ml-3 text-gray-400 flex-shrink-0" />
-                        <input
-                            type="text"
-                            className="flex-1 p-2 outline-none text-sm bg-transparent"
-                            placeholder="Buscar obra pelo nome..."
-                            value={obraDropdownOpen ? obraSearch : (selectedObra?.nome || '')}
-                            onFocus={() => { setObraSearch(''); setObraDropdownOpen(true); }}
-                            onChange={(e) => setObraSearch(e.target.value)}
-                        />
-                        {selectedObraId && (
-                            <button onClick={handleObraClear} className="p-2 text-gray-400 hover:text-red-500 transition">
-                                <X size={16} />
-                            </button>
-                        )}
-                    </div>
-
-                    {obraDropdownOpen && (
-                        <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-72 overflow-y-auto">
-                            {filteredObras.active.length === 0 && filteredObras.inactive.length === 0 && (
-                                <p className="p-4 text-sm text-gray-500 text-center">Nenhuma obra encontrada.</p>
-                            )}
-                            {filteredObras.active.length > 0 && (
-                                <>
-                                    <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b">Obras Ativas</div>
-                                    {filteredObras.active.map(obra => (
-                                        <button key={obra.id} onClick={() => handleObraSelect(obra)}
-                                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-yellow-50 hover:text-yellow-800 transition flex items-center gap-2 ${selectedObraId === obra.id ? 'bg-yellow-50 font-semibold text-yellow-800' : 'text-gray-800'}`}>
-                                            <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
-                                            {obra.nome}
-                                        </button>
-                                    ))}
-                                </>
-                            )}
-                            {filteredObras.inactive.length > 0 && (
-                                <>
-                                    <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-t mt-1">Obras Finalizadas</div>
-                                    {filteredObras.inactive.map(obra => (
-                                        <button key={obra.id} onClick={() => handleObraSelect(obra)}
-                                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 hover:text-red-700 transition flex items-center gap-2 ${selectedObraId === obra.id ? 'bg-red-50 font-semibold text-red-700' : 'text-gray-500'}`}>
-                                            <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-                                            {obra.nome} <span className="text-xs opacity-60">(Finalizada)</span>
-                                        </button>
-                                    ))}
-                                </>
-                            )}
-                        </div>
-                    )}
-                </div>
+                <SearchableObraSelect
+                    obras={obras.filter(o => (o.tipo_registro || 'obra') !== 'centro_custo')}
+                    value={selectedObraId}
+                    onChange={(obra) => obra ? handleObraSelect(obra) : handleObraClear()}
+                    placeholder="Buscar obra pelo nome..."
+                    includeInactive={true}
+                    storageKey={RECENT_OBRAS_KEY}
+                />
             </div>
 
             {/* Estado vazio orientado */}
@@ -1005,18 +951,18 @@ const BillingPage = ({
                     )}
 
                     {/* Abas */}
-                    <div className="flex border-b border-gray-300 mb-6">
+                    <div className="flex mb-6" style={{ borderBottom: "1px solid #e8e0d4" }}>
                         {!isViewer && (
                             <button
                                 onClick={() => setActiveTab('controle')}
-                                className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
+                                className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'controle' ? 'border-b-2 border-[#9E7A42] text-[#9E7A42]' : 'text-gray-500'}`}
                             >
                                 <Clock size={18}/> Controle Diário
                             </button>
                         )}
                         <button
                             onClick={() => setActiveTab('relatorio')}
-                            className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'relatorio' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-gray-500'}`}
+                            className={`py-2 px-6 font-semibold flex items-center gap-2 ${activeTab === 'relatorio' ? 'border-b-2 border-[#9E7A42] text-[#9E7A42]' : 'text-gray-500'}`}
                         >
                             <Download size={18}/> Relatórios & Faturamento
                         </button>
@@ -1064,13 +1010,13 @@ const BillingPage = ({
                                         <div className="relative" ref={monthPickerControlRef}>
                                             <button
                                                 onClick={() => { setControlPickerYear(parseInt(controlMonth.split('-')[0])); setShowMonthPickerControl(v => !v); }}
-                                                className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-yellow-50 hover:border-yellow-400 transition"
+                                                className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-[#fdf8f0] hover:border-[#9E7A42] transition"
                                                 title="Selecionar mês/ano"
                                             >
                                                 {formatMonthLabel(controlMonth)}
                                             </button>
                                             {showMonthPickerControl && (
-                                                <div className="absolute z-40 top-full mt-1 left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
+                                                <div className="absolute z-40 top-full mt-1 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-2xl p-3 w-64" style={{ border: "1px solid #f0ebe3" }}>
                                                     <div className="flex items-center justify-between mb-2">
                                                         <button onClick={() => setControlPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
                                                         <span className="font-bold text-sm text-gray-700">{controlPickerYear}</span>
@@ -1081,7 +1027,7 @@ const BillingPage = ({
                                                             const isSelected = controlMonth === `${controlPickerYear}-${String(i+1).padStart(2,'0')}`;
                                                             return (
                                                                 <button key={i} onClick={() => applyMonthToControl(controlPickerYear, i)}
-                                                                    className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                                                                    className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-[#9E7A42] text-white' : 'hover:bg-[#fdf8f0] text-gray-700'}`}>
                                                                     {m}
                                                                 </button>
                                                             );
@@ -1095,7 +1041,7 @@ const BillingPage = ({
                                             <ChevronRight size={16} />
                                         </button>
                                         <button onClick={scrollToToday} title="Ir para hoje"
-                                            className="px-2 py-2 rounded border bg-white hover:bg-yellow-50 hover:border-yellow-400 transition text-xs font-bold text-yellow-600 whitespace-nowrap">
+                                            className="px-2 py-2 rounded border bg-white hover:bg-[#fdf8f0] hover:border-[#9E7A42] transition text-xs font-bold text-yellow-600 whitespace-nowrap">
                                             Hoje
                                         </button>
                                     </div>
@@ -1182,7 +1128,7 @@ const BillingPage = ({
                                                                 : (existingLog.justificativaTipo || null)
                                                         );
 
-                                                        const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator());
+                                                        const employeeId = changes.employeeId !== undefined ? changes.employeeId : (existingLog.employeeId || getDefaultOperator(dayDate));
                                                         const mStart = (justificativaTipo || isCleared) ? '' : (changes.morningStart !== undefined ? changes.morningStart : (existingLog.morningStart || ''));
                                                         const mEnd = (justificativaTipo || isCleared) ? '' : (changes.morningEnd !== undefined ? changes.morningEnd : (existingLog.morningEnd || ''));
                                                         const aStart = (justificativaTipo || isCleared) ? '' : (changes.afternoonStart !== undefined ? changes.afternoonStart : (existingLog.afternoonStart || ''));
@@ -1272,12 +1218,12 @@ const BillingPage = ({
                                                                                 <AlertTriangle size={14}/>
                                                                             </button>
                                                                             {justificativaOpenDate === dayDate && (
-                                                                                <div className="absolute z-20 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-1 min-w-max">
+                                                                                <div className="absolute z-20 right-0 mt-1 bg-white rounded-lg shadow-xl p-1 min-w-max" style={{ border: "1px solid #f0ebe3" }}>
                                                                                     {Object.entries(JUSTIFICATIVA_LABELS).map(([tipo, label]) => (
                                                                                         <button
                                                                                             key={tipo}
                                                                                             onClick={() => handleSetJustificativa(dayDate, tipo)}
-                                                                                            className="block w-full text-left text-xs px-3 py-2 hover:bg-yellow-50 rounded text-gray-700 hover:text-yellow-800"
+                                                                                            className="block w-full text-left text-xs px-3 py-2 hover:bg-[#fdf8f0] rounded text-gray-700 hover:text-yellow-800"
                                                                                         >
                                                                                             {label}
                                                                                         </button>
@@ -1360,7 +1306,7 @@ const BillingPage = ({
                                         { key: 'custom', label: 'Personalizado' },
                                     ].map(p => (
                                         <button key={p.key} onClick={() => p.key === 'custom' ? setPeriodPreset('custom') : applyPreset(p.key)}
-                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${periodPreset === p.key ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${periodPreset === p.key ? 'bg-[#9E7A42] text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-[#9E7A42] hover:text-[#9E7A42]'}`}>
                                             {p.label}
                                         </button>
                                     ))}
@@ -1369,11 +1315,11 @@ const BillingPage = ({
                                     <div className="relative" ref={monthPickerReportRef}>
                                         <button
                                             onClick={() => { setReportPickerYear(new Date().getFullYear()); setShowMonthPickerReport(v => !v); }}
-                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1 ${periodPreset === 'specificMonth' ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400 hover:text-yellow-700'}`}>
+                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1 ${periodPreset === 'specificMonth' ? 'bg-[#9E7A42] text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-[#9E7A42] hover:text-[#9E7A42]'}`}>
                                             <Calendar size={12}/> Mês específico
                                         </button>
                                         {showMonthPickerReport && (
-                                            <div className="absolute z-40 top-full mt-1 left-0 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-64">
+                                            <div className="absolute z-40 top-full mt-1 left-0 bg-white rounded-xl shadow-2xl p-3 w-64" style={{ border: "1px solid #f0ebe3" }}>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <button onClick={() => setReportPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
                                                     <span className="font-bold text-sm text-gray-700">{reportPickerYear}</span>
@@ -1385,7 +1331,7 @@ const BillingPage = ({
                                                             reportStartDate === `${reportPickerYear}-${String(i+1).padStart(2,'0')}-01`;
                                                         return (
                                                             <button key={i} onClick={() => applyMonthToReport(reportPickerYear, i)}
-                                                                className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-yellow-500 text-white' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                                                                className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-[#9E7A42] text-white' : 'hover:bg-[#fdf8f0] text-gray-700'}`}>
                                                                 {m}
                                                             </button>
                                                         );
@@ -1458,7 +1404,7 @@ const BillingPage = ({
                                         <button onClick={generateDetailedPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
                                             <Printer size={16}/> Detalhado
                                         </button>
-                                        <button onClick={generateSummaryPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
+                                        <button onClick={generateSummaryPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-[#9E7A42] text-white rounded hover:bg-yellow-600 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
                                             <Printer size={16}/> Resumo
                                         </button>
                                     </div>
@@ -1555,3 +1501,5 @@ const BillingPage = ({
 };
 
 export default BillingPage;
+
+

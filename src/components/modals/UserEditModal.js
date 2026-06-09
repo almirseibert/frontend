@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { X, User } from 'lucide-react';
+import SearchableSelect from '../SearchableSelect';
 
 const ROLES = [
-  { value: 'viewer', label: 'Visualizador' },
-  { value: 'operador', label: 'Operador' },
-  { value: 'editor', label: 'Editor' },
-  { value: 'admin', label: 'Administrador' },
+  { value: 'admin',         label: 'Administrador' },
+  { value: 'gerencia',      label: 'Gerência' },
+  { value: 'editor',        label: 'Editor' },
+  { value: 'rh',            label: 'RH' },
+  { value: 'faturamento',   label: 'Faturamento' },
+  { value: 'abastecimento', label: 'Abastecimento' },
+  { value: 'oficina',       label: 'Oficina' },
+  { value: 'operador',      label: 'Operador' },
+  { value: 'viewer',        label: 'Visualizador' },
 ];
 
 const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
@@ -40,10 +46,10 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="mak-modal-backdrop ">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <h2 className="mak-modal-title">
             <User size={18} className="text-yellow-500" />
             {isNew ? 'Novo Usuário' : 'Editar Usuário'}
           </h2>
@@ -103,14 +109,13 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Grupo de Acesso</label>
-              <select
+              <SearchableSelect
+                items={groups.map(g => ({ ...g, _label: g.name }))}
                 value={form.group_id}
-                onChange={e => set('group_id', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none text-sm bg-white"
-              >
-                <option value="">Nenhum</option>
-                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
+                onChange={(item) => set('group_id', item?.id || '')}
+                getLabel={(g) => g.name}
+                placeholder="Nenhum"
+              />
             </div>
           </div>
 
@@ -152,7 +157,7 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 py-2 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="flex-1 py-2 bg-yellow-400 hover:bg-[#fdf8f0]0 text-gray-900 font-bold rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               {saving ? 'Salvando...' : 'Salvar'}
             </button>
@@ -164,3 +169,7 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
 };
 
 export default UserEditModal;
+
+
+
+

@@ -3,6 +3,7 @@ import { LayoutDashboard, RefreshCw, Loader, AlertCircle, Truck, BarChart2, Arro
 import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
 import ContractConfigModal from '../components/supervisor/ContractConfigModal';
+import SearchableSelect from '../components/SearchableSelect';
 import AllocationForecastPage from './AllocationForecastPage';
 
 // ============================================================================
@@ -22,7 +23,7 @@ const ProductionBI = ({ onBack }) => {
 
     // Carrega a listagem de obras para o Select
     useEffect(() => {
-        apiClient.get('/supervisor/dashboard').then(res => setObras(res)).catch(console.error);
+        apiClient.get('/supervisor/dashboard').then(res => setObras((res || []).filter(o => (o.tipo_registro || 'obra') !== 'centro_custo'))).catch(console.error);
     }, []);
 
     // Carrega os dados Analíticos + Configuração de Tickets salva no Banco de Dados
@@ -82,14 +83,15 @@ const ProductionBI = ({ onBack }) => {
                 </div>
                 
                 <div className="flex gap-4 w-full md:w-auto">
-                    <select 
-                        className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg p-2 font-medium flex-1 md:flex-none outline-none focus:border-blue-500"
-                        value={filtroObra}
-                        onChange={(e) => setFiltroObra(e.target.value)}
-                    >
-                        <option value="geral">🌍 Visão Geral da Frota</option>
-                        {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                    </select>
+                    <div className="flex-1 md:flex-none min-w-[220px]">
+                        <SearchableSelect
+                            items={[{ id: 'geral', nome: '🌍 Visão Geral da Frota' }, ...obras]}
+                            value={filtroObra}
+                            onChange={(item) => setFiltroObra(item?.id || 'geral')}
+                            getLabel={(o) => o.nome}
+                            placeholder="Selecione obra..."
+                        />
+                    </div>
                     
                     <select 
                         className="bg-slate-50 border border-slate-300 text-slate-700 rounded-lg p-2 font-medium flex-1 md:flex-none outline-none focus:border-blue-500"
@@ -309,7 +311,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         try {
             if (obras.length === 0) setLoading(true);
             const data = await apiClient.get('/supervisor/dashboard');
-            setObras(data);
+            setObras((data || []).filter(o => (o.tipo_registro || 'obra') !== 'centro_custo'));
             setLastUpdate(new Date());
         } catch (error) {
             console.error("Erro ao carregar dashboard:", error);
@@ -365,7 +367,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                 <div className="flex gap-3 flex-wrap justify-center">
                     <button 
                         onClick={() => setViewMode('bi')}
-                        className="bg-slate-800 text-white hover:bg-slate-900 px-4 py-2 rounded-lg font-bold shadow-sm flex items-center gap-2 transition-all"
+                        className="text-white px-4 py-2 rounded-lg font-bold shadow-sm flex items-center gap-2 transition-all" style={{background:'#1c1a17'}} onMouseEnter={e=>e.currentTarget.style.background='#2e2820'} onMouseLeave={e=>e.currentTarget.style.background='#1c1a17'}
                     >
                         <BarChart2 size={18} /> Business Intelligence (BI)
                     </button>

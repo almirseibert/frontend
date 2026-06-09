@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AlertTriangle, Download } from 'lucide-react';
@@ -66,24 +66,69 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
                     const daysLabel = diffDays < 0 ? `${Math.abs(diffDays)} dias vencido` : `${diffDays} dias para vencer`;
 
                     if (venc < now) {
-                        list.push({ 
-                            entity: emp.nome, 
-                            type: 'CNH', 
+                        list.push({
+                            entity: emp.nome,
+                            type: 'CNH',
                             location: 'RH / Pessoal',
                             days: daysLabel,
-                            message: `CNH Vencida em ${venc.toLocaleDateString('pt-BR')}`, 
-                            date: venc.toLocaleDateString('pt-BR'), 
-                            isCritical: true 
+                            message: `CNH Vencida em ${venc.toLocaleDateString('pt-BR')}`,
+                            date: venc.toLocaleDateString('pt-BR'),
+                            isCritical: true
                         });
                     } else if (venc <= thirtyDays) {
-                        list.push({ 
-                            entity: emp.nome, 
-                            type: 'CNH', 
+                        list.push({
+                            entity: emp.nome,
+                            type: 'CNH',
                             location: 'RH / Pessoal',
                             days: daysLabel,
-                            message: `CNH Vence em ${venc.toLocaleDateString('pt-BR')}`, 
-                            date: venc.toLocaleDateString('pt-BR'), 
-                            isCritical: false 
+                            message: `CNH Vence em ${venc.toLocaleDateString('pt-BR')}`,
+                            date: venc.toLocaleDateString('pt-BR'),
+                            isCritical: false
+                        });
+                    }
+                }
+            }
+
+            // Toxicológico
+            const toxRaw = emp.exameToxicologicoVencimento;
+            if (toxRaw) {
+                let toxVenc;
+                if (typeof toxRaw === 'string' && toxRaw.includes('-')) {
+                    const parts = toxRaw.split('T')[0].split('-');
+                    if (parts.length === 3) {
+                        toxVenc = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+                    } else {
+                        toxVenc = new Date(toxRaw);
+                    }
+                } else {
+                    toxVenc = new Date(toxRaw);
+                }
+
+                if (!isNaN(toxVenc.getTime())) {
+                    toxVenc.setHours(0,0,0,0);
+                    const diffTime = toxVenc.getTime() - now.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    const daysLabel = diffDays < 0 ? `${Math.abs(diffDays)} dias vencido` : `${diffDays} dias para vencer`;
+
+                    if (toxVenc < now) {
+                        list.push({
+                            entity: emp.nome,
+                            type: 'CNH',
+                            location: 'RH / Pessoal',
+                            days: daysLabel,
+                            message: `Exame Toxicológico Vencido em ${toxVenc.toLocaleDateString('pt-BR')}`,
+                            date: toxVenc.toLocaleDateString('pt-BR'),
+                            isCritical: true
+                        });
+                    } else if (toxVenc <= thirtyDays) {
+                        list.push({
+                            entity: emp.nome,
+                            type: 'CNH',
+                            location: 'RH / Pessoal',
+                            days: daysLabel,
+                            message: `Exame Toxicológico Vence em ${toxVenc.toLocaleDateString('pt-BR')}`,
+                            date: toxVenc.toLocaleDateString('pt-BR'),
+                            isCritical: false
                         });
                     }
                 }
@@ -164,7 +209,15 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
             }
         });
 
-        return list.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
+        // Deduplicar por entity + type + message para evitar entradas duplicadas
+        const seen = new Set();
+        const deduped = list.filter(item => {
+            const key = `${item.entity}|${item.type}|${item.message}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        return deduped.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
     }, [vehicles, employees, inactivityAlerts, obras, refuelings, revisions]);
 
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
@@ -208,7 +261,7 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
             </FilterSection>
 
             <div className="bg-white border rounded-lg shadow-sm mb-4">
-                <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                <div className="mak-modal-header">
                     <h4 className="font-bold text-gray-700">Pré-visualização ({filteredAlerts.length})</h4>
                     <button onClick={handleGeneratePDF} disabled={filteredAlerts.length === 0} className="text-red-600 hover:text-red-800 font-semibold text-sm flex items-center gap-1">
                         <Download size={16}/> Baixar PDF

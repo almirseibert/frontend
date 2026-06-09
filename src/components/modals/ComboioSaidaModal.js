@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X, Lock, TrendingUp, AlertTriangle } from 'lucide-react';
 import { getAllowedReadingTypes } from '../../utils/vehicleRules';
+import SearchableObraSelect from '../SearchableObraSelect';
+import SearchableSelect from '../SearchableSelect';
 
 const ComboioSaidaModal = ({ 
     user, 
@@ -279,10 +281,10 @@ const ComboioSaidaModal = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[95vh] flex flex-col">
-                <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Distribuição' : 'Distribuição (Saída)'}</h2>
+        <div className="mak-modal-backdrop p-2 sm:p-4">
+            <div className="mak-modal max-w-lg">
+                <div className="mak-modal-header">
+                    <h2 className="mak-modal-title">{isEditing ? 'Editar Distribuição' : 'Distribuição (Saída)'}</h2>
                     <button onClick={onClose} disabled={isSaving}><X size={20}/></button>
                 </div>
 
@@ -325,30 +327,43 @@ const ComboioSaidaModal = ({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Veículo a Abastecer *</label>
-                            <select name="receivingVehicleId" value={formData.receivingVehicleId} onChange={handleChange} className="w-full p-2 border rounded" required disabled={isEditing}>
-                                <option value="">Selecione...</option>
-                                {availableMachines.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={availableMachines}
+                                value={formData.receivingVehicleId}
+                                onChange={(item) => handleChange({ target: { name: 'receivingVehicleId', value: item?.id || '' } })}
+                                getLabel={(v) => `${v.registroInterno} - ${v.modelo || ''}`.trim()}
+                                getSubLabel={(v) => v.placa || ''}
+                                placeholder="Selecione o veículo..."
+                                disabled={isEditing}
+                                required
+                            />
                         </div>
 
                         {renderReadingInputs()}
 
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Funcionário *</label>
-                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={sortedEmployees}
+                                value={formData.employeeId}
+                                onChange={(item) => handleChange({ target: { name: 'employeeId', value: item?.id || '' } })}
+                                getLabel={(e) => e.nome || ''}
+                                getSubLabel={(e) => e.profissao || ''}
+                                placeholder="Selecione o funcionário..."
+                                required
+                            />
                         </div>
 
                         {/* OBRA MANTIDA AQUI (Obrigatório) */}
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Obra (Centro de Custo) *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                {extraObraOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
+                            <SearchableObraSelect
+                                obras={sortedObras}
+                                value={formData.obraId}
+                                onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
+                                placeholder="Selecione..."
+                                includeInactive={true}
+                            />
                         </div>
 
                         <div>
@@ -375,7 +390,7 @@ const ComboioSaidaModal = ({
                     </div>
                 </form>
 
-                <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg">
+                <div className="mak-modal-footer">
                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
                     
                     {blockReason ? (
@@ -383,7 +398,7 @@ const ComboioSaidaModal = ({
                             <Lock size={14}/> Liberar
                         </button>
                     ) : (
-                        <button onClick={handleSubmit} disabled={isSaving || !selectedVehicle} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-yellow-500 flex items-center gap-2">
+                        <button onClick={handleSubmit} disabled={isSaving || !selectedVehicle} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-[#fdf8f0]0 flex items-center gap-2">
                             {isSaving && <Loader className="animate-spin" size={16}/>} {isEditing ? 'Salvar' : 'Registrar'}
                         </button>
                     )}
@@ -403,3 +418,5 @@ const ComboioSaidaModal = ({
 };
 
 export default ComboioSaidaModal;
+
+

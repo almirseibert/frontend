@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+﻿import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     Radio, RefreshCw, Loader, Wifi, WifiOff,
     MapPin, Gauge, Zap, ZapOff, AlertTriangle,
@@ -18,6 +18,7 @@ L.Icon.Default.mergeOptions({
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
+// Ícones coloridos simples — usados apenas na aba de rota (início/fim/ponto)
 const makeIcon = (color) => new L.Icon({
     iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${color}.png`,
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
@@ -25,19 +26,58 @@ const makeIcon = (color) => new L.Icon({
 });
 const ICONS = { green: makeIcon('green'), red: makeIcon('red'), grey: makeIcon('grey') };
 
+// ── Ícones por tipo de veículo (mapa de tempo real) ───────────────────────────
+const VEHICLE_TYPE_GROUPS = {
+    leve:     ['Automóvel', 'Camionete', 'Utilitários', 'Moto'],
+    caminhao: ['Bitruck', 'Caminhão Pipa', 'Caminhão Tanque', 'Caminhão Carroceria', 'Cavalo',
+               'Caçamba Bitruck', 'Caçamba Toco', 'Caçamba Traçado', 'Caçamba Truckado', 'Caminhão', 'Caçamba'],
+    trecho:   ['Caminhão Prancha', 'Semirreboques'],
+    maquina:  ['Motoniveladora', 'Pá Carregadeira', 'Retroescavadeira', 'Rolo', 'Trator',
+               'Escavadeira', 'Escavadeira + Rompedor', 'Fresadora', 'Trator Esteira'],
+};
+
+const GROUP_CONFIG = {
+    leve:         { emoji: '🚗', label: 'Veículo Leve' },
+    caminhao:     { emoji: '🚛', label: 'Caminhão' },
+    trecho:       { emoji: '🚚', label: 'Caminhão de Trecho' },
+    maquina:      { emoji: '🚜', label: 'Máquina Pesada' },
+    desconhecido: { emoji: '📍', label: 'Não cadastrado' },
+};
+
+const vehicleTypeGroup = (tipo) => {
+    if (!tipo) return 'desconhecido';
+    for (const [group, types] of Object.entries(VEHICLE_TYPE_GROUPS)) {
+        if (types.includes(tipo)) return group;
+    }
+    return 'desconhecido';
+};
+
+const makeVehicleIcon = (tipo, ignicao) => {
+    const { emoji } = GROUP_CONFIG[vehicleTypeGroup(tipo)];
+    const border = ignicao ? '#22c55e' : '#9ca3af';
+    const bg     = ignicao ? '#f0fdf4' : '#f9fafb';
+    return L.divIcon({
+        className: '',
+        html: `<div style="width:32px;height:32px;border-radius:50%;background:${bg};border:2.5px solid ${border};display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,.25)">${emoji}</div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        popupAnchor: [0, -18],
+    });
+};
+
 // --- helpers ---
 const fmtDateTime = (str) => {
     if (!str) return '—';
     try { return new Date(str.replace(' ', 'T')).toLocaleString('pt-BR'); } catch { return str; }
 };
 
-const RATE_LIMIT_SEC = 12; // tempo mínimo entre consultas de tempo real
+const FORCE_COOLDOWN_SEC = 60; // cooldown do botão "Atualizar Agora"
 
 const TabBtn = ({ id, active, label, icon: Icon, onClick }) => (
     <button
         onClick={() => onClick(id)}
         className={`pb-3 pt-4 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
-            active ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            active ? 'border-[#9E7A42] text-[#9E7A42]' : 'border-transparent text-[#9a8a78] hover:text-[#6a5e4e]'
         }`}
     >
         <Icon size={16} /> {label}
@@ -46,7 +86,7 @@ const TabBtn = ({ id, active, label, icon: Icon, onClick }) => (
 
 // ── Cartão de KPI ─────────────────────────────────────────────────
 const KpiCard = ({ icon: Icon, bg, value, label }) => (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-3">
+    <div className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3" style={{ border: "1px solid #f0ebe3" }}>
         <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${bg}`}>
             <Icon size={18} className="text-white" />
         </div>
@@ -85,28 +125,30 @@ const NotConfigured = () => (
 function TabTempoReal({ apiClient }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [forcing, setForcing] = useState(false);
     const [error, setError] = useState(null);
     const [lastFetch, setLastFetch] = useState(null);
-    const [cooldown, setCooldown] = useState(0);
+    const [forceCooldown, setForceCooldown] = useState(0);
     const [search, setSearch] = useState('');
     const [showMap, setShowMap] = useState(true);
     const [notConfigured, setNotConfigured] = useState(false);
 
     useEffect(() => {
-        if (cooldown <= 0) return;
-        const t = setInterval(() => setCooldown(c => Math.max(0, c - 1)), 1000);
+        if (forceCooldown <= 0) return;
+        const t = setInterval(() => setForceCooldown(c => Math.max(0, c - 1)), 1000);
         return () => clearInterval(t);
-    }, [cooldown]);
+    }, [forceCooldown]);
 
-    const fetch = useCallback(async () => {
-        setLoading(true);
+    const loadPositions = useCallback(async (force = false) => {
+        if (force) setForcing(true);
+        else setLoading(true);
         setError(null);
         setNotConfigured(false);
         try {
-            const res = await apiClient.sigasulGetPositions();
+            const res = await apiClient.sigasulGetPositions(force);
             setData(Array.isArray(res) ? res : []);
             setLastFetch(new Date());
-            setCooldown(RATE_LIMIT_SEC);
+            if (force) setForceCooldown(FORCE_COOLDOWN_SEC);
         } catch (e) {
             if (e.message?.includes('404') || e.message?.includes('não encontrado') || e.message?.includes('not found')) {
                 setNotConfigured(true);
@@ -115,8 +157,14 @@ function TabTempoReal({ apiClient }) {
             }
         } finally {
             setLoading(false);
+            setForcing(false);
         }
     }, [apiClient]);
+
+    // Carrega automaticamente ao abrir o painel (respeita cache de 5 min do backend)
+    useEffect(() => {
+        loadPositions(false);
+    }, [loadPositions]);
 
     const filtered = useMemo(() => {
         if (!search.trim()) return data;
@@ -149,20 +197,23 @@ function TabTempoReal({ apiClient }) {
             {/* Controles */}
             <div className="flex flex-wrap items-center gap-3">
                 <button
-                    onClick={fetch}
-                    disabled={loading || cooldown > 0}
+                    onClick={() => loadPositions(true)}
+                    disabled={forcing || forceCooldown > 0}
                     className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 text-white font-bold rounded-lg text-sm transition-colors"
                 >
-                    {loading ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                    {cooldown > 0 ? `Aguardar ${cooldown}s` : 'Consultar Posições Atuais'}
+                    {forcing ? <Loader size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                    {forceCooldown > 0 ? `Aguardar ${forceCooldown}s` : 'Atualizar Agora'}
                 </button>
-                {lastFetch && (
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                        <Clock size={12} /> Última consulta: {lastFetch.toLocaleTimeString('pt-BR')}
-                    </span>
-                )}
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                    {loading && !forcing && <><Loader size={12} className="animate-spin" /> Carregando...</>}
+                    {lastFetch && !loading && (
+                        <span className="flex items-center gap-1">
+                            <Clock size={12} /> Atualizado às {lastFetch.toLocaleTimeString('pt-BR')}
+                        </span>
+                    )}
+                </div>
                 <span className="text-xs text-gray-400 ml-auto flex items-center gap-1">
-                    <Info size={12} /> Rate limit: 1 chamada / 10s
+                    <Info size={12} /> Cache de 5 min · refresh automático a cada 1h
                 </span>
             </div>
 
@@ -172,7 +223,14 @@ function TabTempoReal({ apiClient }) {
                 </div>
             )}
 
-            {data.length > 0 && (
+            {loading && data.length === 0 && (
+                <div className="py-16 text-center text-gray-400 text-sm flex flex-col items-center gap-3">
+                    <Loader size={28} className="animate-spin text-yellow-400" />
+                    Carregando posições...
+                </div>
+            )}
+
+            {!loading && data.length > 0 && (
                 <>
                     {/* KPIs */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -183,7 +241,7 @@ function TabTempoReal({ apiClient }) {
                     </div>
 
                     {/* Mapa */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                         <div className="flex items-center justify-between px-4 py-3 border-b">
                             <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
                                 <MapPin size={15} className="text-gray-400" /> Mapa de Posições
@@ -196,36 +254,55 @@ function TabTempoReal({ apiClient }) {
                             </button>
                         </div>
                         {showMap && (
-                            <div style={{ height: 340 }}>
-                                <MapContainer center={mapCenter} zoom={6} style={{ height: '100%', width: '100%' }}>
-                                    <TileLayer
-                                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                        attribution='&copy; OpenStreetMap contributors'
-                                    />
-                                    {data.filter(p => p.pos_latitude && p.pos_longitude).map((p, i) => (
-                                        <Marker
-                                            key={i}
-                                            position={[p.pos_latitude, p.pos_longitude]}
-                                            icon={p.pos_ignicao ? ICONS.green : ICONS.grey}
-                                        >
-                                            <Popup>
-                                                <div className="text-xs space-y-1">
-                                                    <p className="font-bold text-sm">{p.pos_placa}</p>
-                                                    {p.pos_nome_motorista && <p>Motorista: {p.pos_nome_motorista}</p>}
-                                                    <p>Velocidade: {p.pos_velocidade} km/h</p>
-                                                    <p>Ignição: {p.pos_ignicao ? 'Ligado' : 'Desligado'}</p>
-                                                    <p className="text-gray-400">{fmtDateTime(p.pos_data_hora_gps)}</p>
-                                                </div>
-                                            </Popup>
-                                        </Marker>
+                            <>
+                                <div style={{ height: 340 }}>
+                                    <MapContainer center={mapCenter} zoom={6} style={{ height: '100%', width: '100%' }}>
+                                        <TileLayer
+                                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                            attribution='&copy; OpenStreetMap contributors'
+                                        />
+                                        {data.filter(p => p.pos_latitude && p.pos_longitude).map((p, i) => (
+                                            <Marker
+                                                key={i}
+                                                position={[p.pos_latitude, p.pos_longitude]}
+                                                icon={makeVehicleIcon(p.veiculo_tipo, p.pos_ignicao)}
+                                            >
+                                                <Popup>
+                                                    <div className="text-xs space-y-1">
+                                                        <p className="font-bold text-sm">{p.pos_placa}</p>
+                                                        {p.veiculo_tipo && <p className="text-gray-500">{p.veiculo_tipo}</p>}
+                                                        {p.pos_nome_motorista && <p>Motorista: {p.pos_nome_motorista}</p>}
+                                                        <p>Velocidade: {p.pos_velocidade} km/h</p>
+                                                        <p>Ignição: {p.pos_ignicao ? 'Ligado' : 'Desligado'}</p>
+                                                        <p className="text-gray-400">{fmtDateTime(p.pos_data_hora_gps)}</p>
+                                                    </div>
+                                                </Popup>
+                                            </Marker>
+                                        ))}
+                                    </MapContainer>
+                                </div>
+                                {/* Legenda */}
+                                <div className="px-4 py-2 bg-gray-50 border-t flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500">
+                                    {Object.entries(GROUP_CONFIG).map(([key, { emoji, label }]) => (
+                                        <span key={key} className="flex items-center gap-1">{emoji} {label}</span>
                                     ))}
-                                </MapContainer>
-                            </div>
+                                    <span className="ml-auto flex items-center gap-3">
+                                        <span className="flex items-center gap-1.5">
+                                            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }} />
+                                            Ligado
+                                        </span>
+                                        <span className="flex items-center gap-1.5">
+                                            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#9ca3af' }} />
+                                            Desligado
+                                        </span>
+                                    </span>
+                                </div>
+                            </>
                         )}
                     </div>
 
                     {/* Tabela */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                         <div className="flex items-center gap-3 px-4 py-3 border-b">
                             <Search size={15} className="text-gray-400" />
                             <input
@@ -241,6 +318,7 @@ function TabTempoReal({ apiClient }) {
                                 <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase">
                                     <tr>
                                         <th className="px-4 py-2">Placa</th>
+                                        <th className="px-4 py-2">Grupo</th>
                                         <th className="px-4 py-2">Motorista</th>
                                         <th className="px-4 py-2 text-center">Ignição</th>
                                         <th className="px-4 py-2 text-right">Velocidade</th>
@@ -253,6 +331,11 @@ function TabTempoReal({ apiClient }) {
                                     {filtered.map((p, i) => (
                                         <tr key={i} className="hover:bg-gray-50">
                                             <td className="px-4 py-2 font-bold text-gray-800">{p.pos_placa}</td>
+                                            <td className="px-4 py-2 text-gray-500 text-xs">
+                                                {p.veiculo_tipo
+                                                    ? <span>{GROUP_CONFIG[vehicleTypeGroup(p.veiculo_tipo)].emoji} {p.veiculo_tipo}</span>
+                                                    : <span className="text-gray-300">—</span>}
+                                            </td>
                                             <td className="px-4 py-2 text-gray-600">{p.pos_nome_motorista || '—'}</td>
                                             <td className="px-4 py-2 text-center"><IgnicaoBadge on={p.pos_ignicao} /></td>
                                             <td className="px-4 py-2 text-right font-mono text-gray-700">{p.pos_velocidade ?? 0} km/h</td>
@@ -270,7 +353,7 @@ function TabTempoReal({ apiClient }) {
                                         </tr>
                                     ))}
                                     {filtered.length === 0 && (
-                                        <tr><td colSpan="7" className="px-4 py-6 text-center text-gray-400">Nenhum veículo encontrado.</td></tr>
+                                        <tr><td colSpan="8" className="px-4 py-6 text-center text-gray-400">Nenhum veículo encontrado.</td></tr>
                                     )}
                                 </tbody>
                             </table>
@@ -281,7 +364,7 @@ function TabTempoReal({ apiClient }) {
 
             {!loading && data.length === 0 && !error && (
                 <div className="py-16 text-center text-gray-400 text-sm">
-                    Clique em "Consultar Posições Atuais" para carregar os dados.
+                    Nenhum veículo com posição disponível.
                 </div>
             )}
         </div>
@@ -336,7 +419,7 @@ function TabPorPeriodo({ apiClient }) {
 
     return (
         <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-end gap-4">
+            <div className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-4" style={{ border: "1px solid #f0ebe3" }}>
                 <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Início</label>
                     <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
@@ -373,7 +456,7 @@ function TabPorPeriodo({ apiClient }) {
             )}
 
             {data.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                     <div className="flex items-center gap-3 px-4 py-3 border-b">
                         <Search size={15} className="text-gray-400" />
                         <input value={search} onChange={e => setSearch(e.target.value)}
@@ -460,7 +543,7 @@ function TabPorVeiculo({ apiClient }) {
 
     return (
         <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-end gap-4">
+            <div className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-4" style={{ border: "1px solid #f0ebe3" }}>
                 <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Placa</label>
                     <input
@@ -501,7 +584,7 @@ function TabPorVeiculo({ apiClient }) {
 
             {data.length > 0 && (
                 <>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                         <div className="px-4 py-3 border-b flex items-center gap-2 text-sm font-bold text-gray-700">
                             <MapPin size={15} className="text-gray-400"/> Rota de {plate} — {data.length} posições
                         </div>
@@ -523,7 +606,7 @@ function TabPorVeiculo({ apiClient }) {
                             </MapContainer>
                         </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                         <div className="overflow-x-auto max-h-72">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase sticky top-0">
@@ -622,7 +705,7 @@ function TabJornadas({ apiClient }) {
             {data.length > 0 && (
                 <div className="space-y-2">
                     {data.map((j) => (
-                        <div key={j.id_jornada} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div key={j.id_jornada} className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                             <button
                                 onClick={() => setExpandedId(expandedId === j.id_jornada ? null : j.id_jornada)}
                                 className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 text-left"
@@ -739,7 +822,7 @@ function ObraPickerModal({ obras, onSelect, onClose }) {
     const ObraItem = ({ obra }) => (
         <button
             onClick={() => onSelect(obra.id)}
-            className="w-full text-left px-4 py-2.5 hover:bg-yellow-50 flex items-center justify-between gap-2 transition-colors"
+            className="w-full text-left px-4 py-2.5 hover:bg-[#fdf8f0] flex items-center justify-between gap-2 transition-colors"
         >
             <span className="text-sm text-gray-800 font-medium">{obra.nome}</span>
             {obra.status === 'finalizada'
@@ -933,7 +1016,7 @@ function TabConfrontoFaturamento({ apiClient, obras = [], vehicles = [] }) {
             )}
 
             {/* Controles */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-end gap-4">
+            <div className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-4" style={{ border: "1px solid #f0ebe3" }}>
                 <div className="flex-1 min-w-48">
                     <label className="block text-xs font-bold text-gray-500 mb-1">Obra</label>
                     <button
@@ -1010,13 +1093,13 @@ function TabConfrontoFaturamento({ apiClient, obras = [], vehicles = [] }) {
                     </div>
 
                     {/* Tabela */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase">
                                     <tr>
                                         <th className="px-4 py-2">Placa</th>
-                                        <th className="px-4 py-2">Tipo</th>
+                                        <th className="px-4 py-2">Grupo</th>
                                         <th className="px-4 py-2 text-right">H. Faturadas</th>
                                         <th className="px-4 py-2 text-right">H. Motor Ligado</th>
                                         <th className="px-4 py-2 text-right">Δ Horas</th>
@@ -1156,3 +1239,6 @@ export default function SigaSulPage({ apiClient, obras = [], vehicles = [] }) {
         </div>
     );
 }
+
+
+

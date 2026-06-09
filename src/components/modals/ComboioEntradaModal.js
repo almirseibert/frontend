@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Loader, X, AlertTriangle, FileText } from 'lucide-react';
+import SearchableSelect from '../SearchableSelect';
 
 const ComboioEntradaModal = ({ 
     user, 
@@ -111,6 +112,12 @@ const ComboioEntradaModal = ({
         const liters = parseFloat(formData.liters);
         
         // CORREÇÃO DO ERRO 500: Passando null explicitamente para campos opcionais removidos (obraId)
+        // Timestamp de emissão = data escolhida + horário REAL atual em BRT (GMT-3).
+        // 'T12:00:00Z' antigo virava 09:00:00 BRT em todas as entradas.
+        const pad = n => String(n).padStart(2, '0');
+        const nowBrt = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        const timeBrt = `${pad(nowBrt.getHours())}:${pad(nowBrt.getMinutes())}:${pad(nowBrt.getSeconds())}`;
+
         const payload = {
             id: isEditing ? transactionData.id : undefined,
             comboioVehicleId: comboioVehicle.id,
@@ -118,7 +125,7 @@ const ComboioEntradaModal = ({
             employeeId: formData.employeeId,
             obraId: null, // Fix: Envia NULL explicitamente
             liters: liters,
-            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+            date: `${formData.date}T${timeBrt}-03:00`,
             fuelType: formData.fuelType,
             odometro: null, 
             horimetro: null, 
@@ -167,10 +174,10 @@ const ComboioEntradaModal = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[95vh] flex flex-col relative overflow-hidden">
-                <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-gray-800">{isEditing ? 'Editar Entrada' : 'Entrada de Combustível'}</h2>
+        <div className="mak-modal-backdrop p-2 sm:p-4">
+            <div className="mak-modal max-w-2xl">
+                <div className="mak-modal-header">
+                    <h2 className="mak-modal-title">{isEditing ? 'Editar Entrada' : 'Entrada de Combustível'}</h2>
                     <button onClick={onClose} disabled={isSaving}><X size={20}/></button>
                 </div>
                 
@@ -182,10 +189,15 @@ const ComboioEntradaModal = ({
 
                         <div className="md:col-span-2">
                             <label className="block font-medium mb-1">Posto Fornecedor *</label>
-                            <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedPartners.map(p => <option key={p.id} value={p.id}>{p.razaoSocial}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={sortedPartners}
+                                value={formData.partnerId}
+                                onChange={(item) => handleChange({ target: { name: 'partnerId', value: item?.id || '' } })}
+                                getLabel={(p) => p.razaoSocial || ''}
+                                getSubLabel={(p) => p.cidade || ''}
+                                placeholder="Selecione o posto..."
+                                required
+                            />
                         </div>
 
                         <div>
@@ -228,10 +240,15 @@ const ComboioEntradaModal = ({
 
                         <div>
                             <label className="block font-medium mb-1">Funcionário *</label>
-                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={sortedEmployees}
+                                value={formData.employeeId}
+                                onChange={(item) => handleChange({ target: { name: 'employeeId', value: item?.id || '' } })}
+                                getLabel={(e) => e.nome || ''}
+                                getSubLabel={(e) => e.profissao || ''}
+                                placeholder="Selecione o funcionário..."
+                                required
+                            />
                         </div>
 
                         <div className="md:col-span-2">
@@ -241,9 +258,9 @@ const ComboioEntradaModal = ({
                     </div>
                 </form>
 
-                <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-lg">
+                <div className="mak-modal-footer">
                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
-                    <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-yellow-500 flex items-center gap-2">
+                    <button onClick={handlePreSubmit} disabled={isSaving} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-[#fdf8f0]0 flex items-center gap-2">
                         {isSaving ? <Loader className="animate-spin" size={16}/> : <FileText size={16}/>} {isEditing ? 'Salvar' : 'Salvar & PDF'}
                     </button>
                 </div>
@@ -268,7 +285,7 @@ const ComboioEntradaModal = ({
                             </button>
                             <button 
                                 onClick={() => executeSubmit(true)}
-                                className="flex-1 py-2 px-3 bg-yellow-400 text-gray-900 font-bold rounded text-xs hover:bg-yellow-500 shadow-sm"
+                                className="flex-1 py-2 px-3 bg-yellow-400 text-gray-900 font-bold rounded text-xs hover:bg-[#fdf8f0]0 shadow-sm"
                             >
                                 Sim, atualizar
                             </button>
@@ -281,3 +298,5 @@ const ComboioEntradaModal = ({
 };
 
 export default ComboioEntradaModal;
+
+

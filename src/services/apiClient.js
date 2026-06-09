@@ -30,7 +30,13 @@ const apiFetch = async (endpoint, options = {}) => {
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.message || errorData.error || `Erro ${response.status}: ${response.statusText}`;
-            throw new Error(errorMessage);
+            const err = new Error(errorMessage);
+            // Preserva o payload completo (campo, tipo, valor_*) para que a UI
+            // possa destacar o input ofensor em vez de só mostrar a mensagem.
+            err.status = response.status;
+            err.data = errorData;
+            err.response = { status: response.status, data: errorData };
+            throw err;
         }
         
         if (response.status === 204) {
@@ -95,6 +101,24 @@ const apiClient = {
             body: formData, 
         });
     },
+
+    // --- Configurações de Tipos/Sub-tipos de Veículos ---
+    getVehicleTypeConfigs: async () => apiFetch('/vehicle-type-configs'),
+    createVehicleTypeConfig: async (data) => apiFetch('/vehicle-type-configs', { method: 'POST', body: JSON.stringify(data) }),
+    updateVehicleTypeConfig: async (id, data) => apiFetch(`/vehicle-type-configs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteVehicleTypeConfig: async (id) => apiFetch(`/vehicle-type-configs/${id}`, { method: 'DELETE' }),
+
+    // --- Taxonomia de Veículos (grupos → tipos → sub-tipos) ---
+    getVehicleTaxonomy: async () => apiFetch('/vehicle-taxonomy'),
+    createVehicleGroup: async (data) => apiFetch('/vehicle-taxonomy/groups', { method: 'POST', body: JSON.stringify(data) }),
+    updateVehicleGroup: async (id, data) => apiFetch(`/vehicle-taxonomy/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteVehicleGroup: async (id) => apiFetch(`/vehicle-taxonomy/groups/${id}`, { method: 'DELETE' }),
+    createVehicleType: async (data) => apiFetch('/vehicle-taxonomy/types', { method: 'POST', body: JSON.stringify(data) }),
+    updateVehicleType: async (id, data) => apiFetch(`/vehicle-taxonomy/types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteVehicleType: async (id) => apiFetch(`/vehicle-taxonomy/types/${id}`, { method: 'DELETE' }),
+    createVehicleSubType: async (data) => apiFetch('/vehicle-taxonomy/sub-types', { method: 'POST', body: JSON.stringify(data) }),
+    updateVehicleSubType: async (id, data) => apiFetch(`/vehicle-taxonomy/sub-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteVehicleSubType: async (id) => apiFetch(`/vehicle-taxonomy/sub-types/${id}`, { method: 'DELETE' }),
 
     // --- Checklists ---
     getVehicleChecklists: async (vehicleId) => apiFetch(`/checklists/vehicle/${vehicleId}`),
@@ -186,8 +210,11 @@ const apiClient = {
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     updateRefueling: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }), 
+    confirmRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}/confirm`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
+    liberarOrdemBloqueada: async (id, data) => apiFetch(`/refuelings/${id}/liberar`, { method: 'PUT', body: JSON.stringify(data || {}) }),
+    negarOrdemBloqueada: async (id) => apiFetch(`/refuelings/${id}/negar`, { method: 'DELETE' }),
+    sendRefuelingEmail: async (payload) => apiFetch('/refuelings/send-email', { method: 'POST', body: JSON.stringify(payload) }),
     uploadRefuelingPdf: async (formData) => apiFetch('/refuelings/upload-pdf', { method: 'POST', body: formData }),
 
     // --- Transações do Comboio ---
@@ -322,6 +349,44 @@ const apiClient = {
         return apiFetch(`/admin/audit-log?${q}`);
     },
 
+    // --- Comboios (partners-espelho) ---
+    adminGetComboios:      async () => apiFetch('/admin/comboios'),
+    adminSyncComboios:     async () => apiFetch('/admin/comboios/sync', { method: 'POST' }),
+    adminActivateComboio:  async (vehicleId) => apiFetch(`/admin/comboios/${vehicleId}/activate`,   { method: 'POST' }),
+    adminDeactivateComboio:async (vehicleId) => apiFetch(`/admin/comboios/${vehicleId}/deactivate`, { method: 'POST' }),
+    adminUpdateComboioPartnerContacts: async (vehicleId, data) =>
+        apiFetch(`/admin/comboios/${vehicleId}/partner`, { method: 'PATCH', body: JSON.stringify(data) }),
+    adminGetComboioPeriodos: async (vehicleId) =>
+        apiFetch(`/admin/comboios/${vehicleId}/periodos`),
+
+    // --- Notificações: destinos por evento (Fase 3.1) ---
+    adminListNotificationTargets: async (eventType) => {
+        const q = eventType ? `?event_type=${encodeURIComponent(eventType)}` : '';
+        return apiFetch(`/admin/notification-targets${q}`);
+    },
+    adminCreateNotificationTarget: async (data) =>
+        apiFetch('/admin/notification-targets', { method: 'POST', body: JSON.stringify(data) }),
+    adminUpdateNotificationTarget: async (id, data) =>
+        apiFetch(`/admin/notification-targets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    adminDeleteNotificationTarget: async (id) =>
+        apiFetch(`/admin/notification-targets/${id}`, { method: 'DELETE' }),
+
+    // --- Contatos Internos (Fase 4.1) ---
+    adminListInternalContacts:   async () => apiFetch('/admin/internal-contacts'),
+    adminCreateInternalContact:  async (data) =>
+        apiFetch('/admin/internal-contacts', { method: 'POST', body: JSON.stringify(data) }),
+    adminUpdateInternalContact:  async (id, data) =>
+        apiFetch(`/admin/internal-contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    adminDeleteInternalContact:  async (id) =>
+        apiFetch(`/admin/internal-contacts/${id}`, { method: 'DELETE' }),
+
+    // --- Log de erros de solicitação de abastecimento (app) ---
+    adminGetSolicitacaoErros: async (params = {}) => {
+        const q = new URLSearchParams(params).toString();
+        return apiFetch(`/admin/solicitacao-erros${q ? `?${q}` : ''}`);
+    },
+    adminGetSolicitacaoErrosResumo: async () => apiFetch('/admin/solicitacao-erros/resumo'),
+
     // --- Sessões Ativas (TODO: backend) ---
     adminGetActiveSessions: async () => apiFetch('/admin/sessions'),
     adminForceLogout: async (sessionId) => apiFetch(`/admin/sessions/${sessionId}`, { method: 'DELETE' }),
@@ -330,7 +395,7 @@ const apiClient = {
     adminExportData: async (module) => apiFetch(`/admin/export/${module}`),
 
     // --- SigaSul — Rastreamento Veicular ---
-    sigasulGetPositions: async () => apiFetch('/sigasul/positions'),
+    sigasulGetPositions: async (force = false) => apiFetch(`/sigasul/positions${force ? '?force=true' : ''}`),
     sigasulGetPositionsByPeriod: async (from, to) =>
         apiFetch(`/sigasul/positions/period?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
     sigasulGetPositionsByPlate: async (plate, from, to) =>

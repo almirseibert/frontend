@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X } from 'lucide-react';
+import SearchableSelect from '../SearchableSelect';
 
 const ComboioDrenagemModal = ({ 
     user, 
@@ -72,10 +73,10 @@ const ComboioDrenagemModal = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-                <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h2 className="text-xl font-bold text-gray-800">Registrar Drenagem</h2>
+        <div className="mak-modal-backdrop p-2 sm:p-4">
+            <div className="mak-modal max-w-lg">
+                <div className="mak-modal-header">
+                    <h2 className="mak-modal-title">Registrar Drenagem</h2>
                     <button onClick={onClose}><X size={20}/></button>
                 </div>
                 
@@ -84,18 +85,28 @@ const ComboioDrenagemModal = ({
                     
                     <div>
                         <label className="block text-sm font-medium mb-1">Drenar de (Origem) *</label>
-                        <select name="drainingVehicleId" value={formData.drainingVehicleId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                            <option value="">Selecione...</option>
-                            {drainableVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.modelo}</option>)}
-                        </select>
+                        <SearchableSelect
+                            items={drainableVehicles}
+                            value={formData.drainingVehicleId}
+                            onChange={(item) => handleChange({ target: { name: 'drainingVehicleId', value: item?.id || '' } })}
+                            getLabel={(v) => `${v.registroInterno} - ${v.modelo || ''}`.trim()}
+                            getSubLabel={(v) => v.placa || ''}
+                            placeholder="Selecione o veículo de origem..."
+                            required
+                        />
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Para Comboio (Destino) *</label>
-                        <select name="comboioVehicleId" value={formData.comboioVehicleId} onChange={handleChange} className="w-full p-2 border rounded" required>
-                            <option value="">Selecione...</option>
-                            {comboioVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno}</option>)}
-                        </select>
+                        <SearchableSelect
+                            items={comboioVehicles}
+                            value={formData.comboioVehicleId}
+                            onChange={(item) => handleChange({ target: { name: 'comboioVehicleId', value: item?.id || '' } })}
+                            getLabel={(v) => v.registroInterno || ''}
+                            getSubLabel={(v) => v.placa || ''}
+                            placeholder="Selecione o comboio destino..."
+                            required
+                        />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -136,3 +147,4 @@ const ComboioDrenagemModal = ({
 };
 
 export default ComboioDrenagemModal;
+

@@ -1,15 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Loader, Info, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp, Mail, Send } from 'lucide-react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { X, Loader, Info, Lock, FileText, Wallet, Edit, Clock, Activity, TrendingUp, Send } from 'lucide-react';
 
-// Movido para dentro do arquivo para evitar erro de importação (Could not resolve)
-const getAllowedReadingTypes = (tipo) => {
-    if (!tipo) return [];
-    const isLeveOrTrecho = [
-        'Automóvel', 'Camionete', 'Utilitários', 'Moto', 
-        'Caminhão Prancha', 'Semirreboques'
-    ].includes(tipo);
-    return isLeveOrTrecho ? ['odometro'] : ['horimetro'];
-};
+import { getAllowedReadingTypes, getGroupUnit, getReadingSourceForUnit, computeConsumption } from '../../utils/vehicleRules';
+import SearchableObraSelect from '../SearchableObraSelect';
+import SearchableSelect from '../SearchableSelect';
 
 const RefuelingOrderModal = ({
     user,
@@ -159,9 +153,6 @@ const RefuelingOrderModal = ({
     const [budgetWarning, setBudgetWarning] = useState(null);
     const [requiresBudgetOverride, setRequiresBudgetOverride] = useState(false);
     
-    const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [passwordAction, setPasswordAction] = useState(null); 
-    
     const [warnings, setWarnings] = useState([]); 
     const [lastRefuelData, setLastRefuelData] = useState(null);
     const [lastAverage, setLastAverage] = useState(null); 
@@ -169,6 +160,49 @@ const RefuelingOrderModal = ({
 
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
     const isSolicitacao = !!solicitacaoData;
+
+    // Feriados nacionais BR (fixos). Móveis (Carnaval/Páscoa/Corpus Christi)
+    // ficam de fora — se precisar incluir, migrar para tabela no backend.
+    const FERIADOS_BR_FIXOS = useMemo(() => new Set([
+        '01-01', // Confraternização
+        '04-21', // Tiradentes
+        '05-01', // Trabalho
+        '09-07', // Independência
+        '10-12', // N. Sra. Aparecida
+        '11-02', // Finados
+        '11-15', // Proclamação
+        '12-25', // Natal
+    ]), []);
+
+    const isWeekendOrHoliday = useMemo(() => {
+        if (!formData.date) return false;
+        const d = new Date(formData.date + 'T12:00:00');
+        const dow = d.getDay();
+        if (dow === 0 || dow === 6) return true;
+        return FERIADOS_BR_FIXOS.has(formData.date.slice(5));
+    }, [formData.date, FERIADOS_BR_FIXOS]);
+
+    // Ordem aberta = qualquer status que NÃO seja terminal. Inverter a lista
+    // (em vez de listar "abertos") protege contra status novos do backend.
+    const openOrderForVehicle = useMemo(() => {
+        if (!formData.vehicleId) return null;
+        const closedStatuses = ['Concluída', 'Concluida', 'Cancelada', 'Negada', 'Baixada'];
+        return refuelings.find(r =>
+            r.vehicleId === formData.vehicleId &&
+            !closedStatuses.includes(r.status) &&
+            (!isEditing || r.id !== orderToEdit.id)
+        );
+    }, [formData.vehicleId, refuelings, isEditing, orderToEdit]);
+
+    // Veículos fictícios (gerador, lava-jato, ajuda de custo etc.) marcados em
+    // Admin > Abastecimento ignoram a regra de duplicidade.
+    const vehicleAllowsMultiple = useMemo(() => {
+        if (!formData.vehicleId) return false;
+        const v = vehicles.find(x => x.id === formData.vehicleId);
+        return !!(v && (v.permiteMultiplosAbastecimentos == 1 || v.permiteMultiplosAbastecimentos === true));
+    }, [formData.vehicleId, vehicles]);
+
+    const duplicateBlocked = !!openOrderForVehicle && !isWeekendOrHoliday && !vehicleAllowsMultiple;
 
     useEffect(() => {
         if (formData.obraId && obras.length > 0) { 
@@ -201,9 +235,21 @@ const RefuelingOrderModal = ({
     }, [formData.obraId, obras, expenses, extraObraOptions]);
 
 
-    const sortedVehicles = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
+    const sortedVehicles = useMemo(() =>
+        [...vehicles]
+            .filter(v => v.status !== 'Inativo' && v.status !== 'Sucata')
+            .sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''))
+    , [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
-    const sortedPartners = useMemo(() => [...partners].sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || '')), [partners]);
+    // Postos disponíveis para ordens: parceiros de tipo 'posto' E comboios internos
+    // ('comboio'). Excluímos qualquer um marcado como bloqueado.
+    const sortedPartners = useMemo(() =>
+        [...partners]
+            .filter(p => (p.tipo_parceiro === 'posto' || p.tipo_parceiro === 'comboio')
+                && p.status_operacional !== 'Bloqueado'
+                && p.status_operacional !== 'BLOQUEADO')
+            .sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || ''))
+    , [partners]);
     const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.vehicleId), [formData.vehicleId, vehicles]);
@@ -278,22 +324,20 @@ const RefuelingOrderModal = ({
             const prevRefuel = history[1];
             const litros = parseFloat(last.litrosAbastecidos || 0);
             let diff = 0;
-            let unit = 'Km/L';
 
-            const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
-            if (allowed.includes('horimetro')) {
-                const lastHr = parseFloat(last.horimetro || 0); 
+            const unit = getGroupUnit(selectedVehicle.tipo);
+            if (getReadingSourceForUnit(unit) === 'horimetro') {
+                const lastHr = parseFloat(last.horimetro || 0);
                 const prevHr = parseFloat(prevRefuel.horimetro || 0);
                 diff = lastHr - prevHr;
-                unit = 'L/Hr';
             } else {
                 const lastKm = parseFloat(last.odometro || 0);
                 const prevKm = parseFloat(prevRefuel.odometro || 0);
                 diff = lastKm - prevKm;
             }
 
-            if (diff > 0 && litros > 0) {
-                const avg = unit === 'Km/L' ? (diff / litros) : (litros / diff);
+            const avg = computeConsumption(unit, diff, litros);
+            if (avg != null) {
                 setLastAverage(`${avg.toFixed(2)} ${unit}`);
             } else {
                 setLastAverage('Incalculável');
@@ -376,168 +420,6 @@ const RefuelingOrderModal = ({
         if (name === 'isFillUp' && checked) setFormData(prev => ({ ...prev, litrosLiberados: '' }));
     };
 
-    const processDistribution = async (orderData) => {
-        const vehicle = vehicles.find(v => v.id === formData.vehicleId);
-        const partner = partners.find(p => p.id === formData.partnerId);
-        const employee = employees.find(e => e.id === formData.employeeId);
-        
-        const finalData = orderData || {
-            ...formData,
-            id: orderToEdit?.id || 'PREVIEW',
-            authNumber: orderToEdit?.authNumber || 'NOVA',
-            partnerName: partner?.razaoSocial,
-            vehicleInfo: `${vehicle?.modelo || ''} - ${vehicle?.placa || ''}`
-        };
-
-        const partnerEmail = partner?.email;
-        const hasEmail = partnerEmail && partnerEmail.includes('@');
-
-        if (!onGeneratePDF) return;
-
-        try {
-            const pdfBlob = await onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, true);
-            
-            const emissionDateStr = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-            const safeDate = emissionDateStr.replace(/\//g, '-');
-            const reCode = vehicle?.registroInterno || 'SN';
-            const pdfFileName = `Autorizacao_${finalData.authNumber}_${reCode}_${safeDate}.pdf`;
-
-            const formDataUpload = new FormData();
-            formDataUpload.append('file', pdfBlob, pdfFileName);
-
-            const getToken = () => {
-                const t = localStorage.getItem('token') || localStorage.getItem('authToken');
-                if (t) return t;
-                const u = localStorage.getItem('user');
-                if (u) try { return JSON.parse(u).token; } catch {}
-                return '';
-            };
-            
-            let baseUrl = '';
-            if (apiClient.defaults.baseURL) {
-                baseUrl = apiClient.defaults.baseURL.replace(/\/$/, '');
-            } else if (process.env.REACT_APP_API_URL) {
-                baseUrl = process.env.REACT_APP_API_URL;
-            }
-
-            const uploadUrl = `${baseUrl}/refuelings/upload-pdf`;
-            
-            const response = await fetch(uploadUrl, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${getToken()}` },
-                body: formDataUpload
-            });
-
-            if (!response.ok) throw new Error("Falha no upload do PDF");
-            
-            const uploadResult = await response.json();
-            const pdfUrl = uploadResult.url;
-            
-            let absoluteLink = pdfUrl;
-            if (pdfUrl && !pdfUrl.startsWith('http')) {
-                let urlDomain = window.location.origin;
-                if (baseUrl.startsWith('http')) {
-                    urlDomain = baseUrl;
-                }
-                absoluteLink = `${urlDomain.replace('/api', '')}${pdfUrl.startsWith('/') ? '' : '/'}${pdfUrl}`;
-            }
-
-            if (hasEmail) {
-                setAlertMessage(`Abrindo E-mail para ${partnerEmail}...`);
-                
-                const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-                const arlaMsg = formData.needsArla ? `\nArla 32: ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` : '';
-                const outrosMsgEmail = finalData.outros ? `\nOutros/Obs: ${finalData.outros}` : '';
-
-                const subject = `Autorização de Abastecimento #${finalData.authNumber} - ${vehicle?.registroInterno} - ${finalData.partnerName || 'Frotas MAK'}`;
-                const body = `Olá,
-
-Segue a autorização de abastecimento emitida pelo sistema Frotas MAK.
-
---- RESUMO ---
-
-Nº Ordem: ${finalData.authNumber}
-Data: ${emissionDate}
-Posto: ${partner?.razaoSocial || 'N/A'}
-Veículo: ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
-Combustível: ${finalData.fuelType}
-Qtd: ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}${outrosMsgEmail}
-Motorista: ${employee?.nome || 'N/A'}
-
---- DOWNLOAD DA AUTORIZAÇÃO (PDF) ---
-Clique no link abaixo para baixar o documento oficial:
-${absoluteLink}
-
-A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.
-Estão autorizados somente os itens discriminados na ordem de abastecimento. Qualquer divergência deve ser comunicada imediatamente à administração de Frotas MAK.
-
-Att,
-Equipe Frotas MAK`;
-
-                window.location.href = `mailto:${partnerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-                return; 
-            } else {
-                 setAlertMessage("Posto sem e-mail. Abrindo WhatsApp...");
-            }
-
-            triggerWhatsApp(finalData, partner, vehicle, employee, absoluteLink);
-
-        } catch (err) {
-            console.error(">>> [DEBUG] Erro na Distribuição:", err);
-            setAlertMessage("Erro ao processar envio. PDF gerado localmente.");
-            onGeneratePDF(finalData, vehicles, partners, employees, vehicleGroups, false);
-        }
-    };
-
-    const triggerWhatsApp = (finalData, partner, vehicle, employee, pdfLink) => {
-        const phone = partner?.whatsapp || partner?.telefone;
-        if (!phone) {
-            setAlertMessage("Ordem salva! Posto sem WhatsApp/Email.");
-            return;
-        }
-
-        const allowedReadings = vehicle ? getAllowedReadingTypes(vehicle.tipo) : [];
-        let readingMsg = '';
-        const fOdo = parseFloat(finalData.odometro);
-        const fHori = parseFloat(finalData.horimetro);
-        
-        if (allowedReadings.includes('odometro') && fOdo > 0) {
-             readingMsg = `*Hodômetro:* ${fOdo} Km`;
-        } else if (allowedReadings.includes('horimetro') && fHori > 0) {
-             readingMsg = `*Horímetro:* ${fHori} Hr`;
-        } else if (fOdo > 0) {
-             readingMsg = `*Hodômetro:* ${fOdo} Km`;
-        } else if (fHori > 0) {
-             readingMsg = `*Horímetro:* ${fHori} Hr`;
-        } else {
-             readingMsg = `*Leitura:* N/A`;
-        }
-        
-        const emissionDate = getSafeDateObj(finalData.date).toLocaleDateString('pt-BR');
-        const arlaMsg = formData.needsArla 
-            ? `\n*Arla 32:* ${formData.isFillUpArla ? 'COMPLETAR' : formData.litrosLiberadosArla + ' Litros'}` 
-            : '';
-        const outrosMsg = finalData.outros ? `\n*Outros/Obs:* ${finalData.outros}` : '';
-
-        let msg = 
-`*ORDEM DE ABASTECIMENTO - FROTAS MAK*
-${pdfLink ? `Baixe a Autorização (PDF): ${pdfLink}` : '(PDF indisponível)'}
-
-*Resumo:*
-*Nº Ordem:* ${finalData.authNumber}
-*Data:* ${emissionDate}
-*Posto:* ${partner?.razaoSocial || 'N/A'}
-*Veículo:* ${vehicle?.marca || ''} ${vehicle?.modelo || ''} - ${vehicle?.placa} / ${vehicle?.registroInterno}
-*Combustível:* ${finalData.fuelType}
-*Qtd:* ${formData.isFillUp ? 'COMPLETAR TANQUE' : formData.litrosLiberados + ' Litros'}${arlaMsg}${outrosMsg}
-*Motorista:* ${employee?.nome || 'N/A'}
-${readingMsg}`;
-
-        setTimeout(() => {
-            window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }, 500);
-    };
-
     const handleSaveClick = (e) => {
         if(e) e.preventDefault();
 
@@ -546,22 +428,16 @@ ${readingMsg}`;
             return;
         }
 
-        if (blockReason) {
-            setPasswordAction('blockOverride');
-            setShowPasswordModal(true);
+        if (duplicateBlocked) {
+            setAlertMessage(`Existe uma ordem em aberto (Nº ${openOrderForVehicle.authNumber || openOrderForVehicle.id}) para este veículo. Conclua ou cancele antes de emitir outra.`);
             return;
         }
-        if (requiresBudgetOverride) {
-            setPasswordAction('budgetOverride');
-            setShowPasswordModal(true);
-            return;
-        }
+
         executeSave();
     };
 
     const executeSave = async () => {
         setIsSaving(true);
-        setShowPasswordModal(false);
 
         const safeFloat = (val) => {
             if (val === null || val === undefined || val === '') return null;
@@ -574,6 +450,13 @@ ${readingMsg}`;
         const finalOdometro = allowed.includes('odometro') ? safeFloat(formData.odometro) : null;
         const finalHorimetro = allowed.includes('horimetro') ? safeFloat(formData.horimetro) : null;
 
+        // Timestamp de emissão = data escolhida + horário REAL atual em BRT (GMT-3).
+        // Antes usávamos 'T12:00:00Z' (meio-dia UTC), que ao converter para BRT
+        // virava 09:00:00 — todas as ordens ficavam com o mesmo horário.
+        const pad = n => String(n).padStart(2, '0');
+        const nowBrt = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        const timeBrt = `${pad(nowBrt.getHours())}:${pad(nowBrt.getMinutes())}:${pad(nowBrt.getSeconds())}`;
+
         const payload = {
             ...formData,
             odometro: finalOdometro,
@@ -581,9 +464,9 @@ ${readingMsg}`;
             litrosLiberados: safeFloat(formData.litrosLiberados) || 0,
             litrosLiberadosArla: safeFloat(formData.litrosLiberadosArla) || 0,
             outrosValor: safeFloat(formData.outrosValor) || 0,
-            date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+            date: `${formData.date}T${timeBrt}-03:00`,
             createdBy: user,
-            solicitacaoId: solicitacaoData ? solicitacaoData.id : null 
+            solicitacaoId: solicitacaoData ? solicitacaoData.id : null
         };
 
         const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
@@ -607,14 +490,18 @@ ${readingMsg}`;
             }
             reloadData();
             
-            if (res) {
-                 const fullOrderData = {
-                    ...payload,
-                    id: res.id || orderToEdit?.id,
-                    authNumber: res.authNumber || orderToEdit?.authNumber,
-                    createdBy: user 
-                 };
-                 await processDistribution(fullOrderData);
+            if (res?.bloqueadoLeitura || res?.bloqueadoOrcamento) {
+                setAlertMessage(res.message || `Ordem Nº ${res.authNumber} salva com bloqueio. Aguarde liberação do Administrador.`);
+                reloadData();
+                onClose();
+                return;
+            }
+            // Defesa: frontend detectou violação mas backend não bloqueou (ex.: veículo sem leitura prévia)
+            if (blockReason || requiresBudgetOverride) {
+                setAlertMessage(`Ordem salva com restrição. Aguarde avaliação do Administrador.`);
+                reloadData();
+                onClose();
+                return;
             }
             onClose();
         } catch (error) {
@@ -647,8 +534,8 @@ ${readingMsg}`;
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[98vh] flex flex-col overflow-hidden">
+        <div className="mak-modal-backdrop p-2 backdrop-blur-sm">
+            <div className="mak-modal max-w-4xl">
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
                     <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                         {isEditing ? <Edit size={16}/> : <FileText size={16}/>}
@@ -673,16 +560,49 @@ ${readingMsg}`;
                             <Wallet size={12}/> {budgetWarning} {requiresBudgetOverride && "(Requer Senha)"}
                         </div>
                     )}
+
+                    {duplicateBlocked && (
+                        <div className="neon-red-pulse flex items-start gap-2 p-2 rounded-md border-2 border-red-500 bg-red-50 text-red-800 text-[11px] font-bold leading-snug">
+                            <Lock size={14} className="mt-0.5 flex-shrink-0 text-red-700"/>
+                            <span>
+                                🚫 ORDEM DUPLICADA: Já existe ordem em aberto Nº <u>{openOrderForVehicle.authNumber || openOrderForVehicle.id}</u> ({openOrderForVehicle.status}) para este veículo, emitida em {formatDateDisplay(openOrderForVehicle.date || openOrderForVehicle.data)}. Conclua ou cancele a ordem anterior antes de emitir outra.
+                            </span>
+                        </div>
+                    )}
+
+                    {openOrderForVehicle && isWeekendOrHoliday && !vehicleAllowsMultiple && (
+                        <div className="flex items-start gap-2 p-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded text-[10px] font-bold leading-snug">
+                            <Info size={12} className="mt-0.5 flex-shrink-0"/>
+                            <span>
+                                Exceção aplicada: já existe ordem aberta Nº {openOrderForVehicle.authNumber || openOrderForVehicle.id}, mas a nova é para <u>fim de semana/feriado</u> ({formatDateDisplay(formData.date)}) — antecipação permitida.
+                            </span>
+                        </div>
+                    )}
+
+                    {openOrderForVehicle && vehicleAllowsMultiple && (
+                        <div className="flex items-start gap-2 p-1.5 bg-blue-50 border border-blue-300 text-blue-900 rounded text-[10px] font-bold leading-snug">
+                            <Info size={12} className="mt-0.5 flex-shrink-0"/>
+                            <span>
+                                Veículo fictício liberado para múltiplos abastecimentos abertos (já existe ordem Nº {openOrderForVehicle.authNumber || openOrderForVehicle.id}). Regra de duplicidade não se aplica.
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 <form onSubmit={handleSaveClick} className="p-3 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                     <div className="space-y-2 col-span-2 sm:col-span-1">
                         <div>
                             <label className="block font-bold text-gray-700 mb-0.5">Veículo *</label>
-                            <select name="vehicleId" value={formData.vehicleId} onChange={e => setFormData(p => ({...p, vehicleId: e.target.value}))} className="w-full p-1 border border-gray-300 rounded focus:ring-1 focus:ring-yellow-400 outline-none" required>
-                                <option value="">Selecione...</option>
-                                {sortedVehicles.map(v => <option key={v.id} value={v.id}>{v.registroInterno} - {v.placa} ({v.tipo})</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={sortedVehicles}
+                                value={formData.vehicleId}
+                                onChange={(v) => setFormData(p => ({...p, vehicleId: v?.id || ''}))}
+                                getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
+                                getSubLabel={(v) => v.tipo || ''}
+                                getBadge={(v) => v.naoPodeCircular ? { text: 'Não circula', color: 'bg-red-100 text-red-700' } : v.status === 'manutencao' ? { text: 'Manutenção', color: 'bg-yellow-100 text-yellow-700' } : null}
+                                placeholder="Buscar veículo..."
+                                required
+                            />
                         </div>
                         
                         {lastRefuelData && (
@@ -712,20 +632,26 @@ ${readingMsg}`;
 
                         <div>
                             <label className="block font-bold text-gray-700 mb-0.5">Motorista *</label>
-                            <select name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedEmployees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={sortedEmployees}
+                                value={formData.employeeId}
+                                onChange={(emp) => setFormData(prev => ({...prev, employeeId: emp?.id || ''}))}
+                                getLabel={(emp) => emp.nome}
+                                getSubLabel={(emp) => emp.funcao || ''}
+                                placeholder="Buscar motorista..."
+                                required
+                            />
                         </div>
 
                          <div>
                             <label className="block font-bold text-gray-700 mb-0.5">Obra / Alocação *</label>
-                            <select name="obraId" value={formData.obraId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
-                                <option value="">Selecione...</option>
-                                <option value="Patio">Pátio</option>
-                                {sortedObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                {extraObraOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                            </select>
+                            <SearchableObraSelect
+                                obras={sortedObras}
+                                value={formData.obraId}
+                                onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
+                                placeholder="Selecione..."
+                                includeInactive={true}
+                            />
                         </div>
 
                         {obraStatus && (
@@ -757,10 +683,15 @@ ${readingMsg}`;
                     <div className="space-y-2 col-span-2 sm:col-span-1">
                         <div>
                             <label className="block font-bold text-gray-700 mb-0.5">Posto *</label>
-                            <select name="partnerId" value={formData.partnerId} onChange={handleChange} className="w-full p-1 border border-gray-300 rounded" required>
-                                <option value="">Selecione...</option>
-                                {sortedPartners.map(p => <option key={p.id} value={p.id}>{p.razaoSocial}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={sortedPartners}
+                                value={formData.partnerId}
+                                onChange={(p) => setFormData(prev => ({...prev, partnerId: p?.id || ''}))}
+                                getLabel={(p) => p.razaoSocial || p.nome || ''}
+                                getSubLabel={(p) => [p.cidade, p.estado].filter(Boolean).join(' - ')}
+                                placeholder="Buscar posto..."
+                                required
+                            />
                         </div>
 
                         <div className="bg-blue-50 p-2 rounded border border-blue-100">
@@ -815,35 +746,46 @@ ${readingMsg}`;
                             <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-3 h-3 text-green-600"/>
                             <label htmlFor="geraValor" className="text-[10px] font-medium text-gray-700">Preenchimento Gera Valor</label>
                         </div>
+
+                        {blockReason && (
+                            <div className="neon-red-pulse mt-2 p-2 rounded-md border-2 border-red-500 bg-red-50 text-red-800 text-[11px] font-bold leading-snug flex items-start gap-2">
+                                <Lock size={14} className="mt-0.5 flex-shrink-0 text-red-700"/>
+                                <span>
+                                    ⚠️ ATENÇÃO: Ordem será salva com <u>bloqueio de leitura</u> e <u>NÃO será enviada ao posto</u> até liberação do administrador. Só prossiga se tiver certeza absoluta que deseja enviar esta ordem para análise do supervisor.
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </form>
 
-                <div className="p-2 border-t bg-gray-50 flex justify-end gap-2 rounded-b-xl shrink-0">
-                    <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition">Cancelar</button>
-                    {blockReason || requiresBudgetOverride ? (
-                        <button onClick={handleSaveClick} className="px-3 py-1.5 bg-red-500 text-white font-bold text-xs rounded shadow hover:bg-red-600 transition flex items-center gap-1">
-                            <Lock size={12}/> Liberar
-                        </button>
-                    ) : (
-                        <button onClick={handleSaveClick} disabled={isSaving} className="px-3 py-1.5 bg-yellow-400 text-gray-900 font-bold text-xs rounded shadow hover:bg-yellow-500 transition disabled:opacity-50 flex items-center gap-1">
-                            {isSaving ? <Loader className="animate-spin" size={12}/> : (
-                                <><Send size={12} /> Salvar & Enviar</>
+                <div className="p-2 border-t bg-gray-50 flex justify-between items-center rounded-b-xl shrink-0">
+                    {requiresBudgetOverride && !blockReason && (
+                        <p className="text-[10px] font-bold text-orange-700 flex items-start gap-1 max-w-sm leading-snug">
+                            <Lock size={10} className="mt-0.5 flex-shrink-0"/>
+                            Orçamento de combustível atingido (≥20% do contrato). Esta ordem <u>não será enviada ao posto</u> até ser liberada por um administrador do sistema.
+                        </p>
+                    )}
+                    <div className="flex gap-2 ml-auto">
+                        <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition">Cancelar</button>
+                        <button
+                            onClick={handleSaveClick}
+                            disabled={isSaving || duplicateBlocked}
+                            className={`px-3 py-1.5 font-bold text-xs rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 ${duplicateBlocked ? 'bg-red-400 text-white' : (blockReason || requiresBudgetOverride) ? 'bg-orange-400 text-white hover:bg-orange-500' : 'bg-yellow-400 text-gray-900 hover:bg-[#fdf8f0]0'}`}
+                        >
+                            {isSaving ? <Loader className="animate-spin" size={12}/> : duplicateBlocked ? (
+                                <><Lock size={12}/> Ordem Duplicada</>
+                            ) : (
+                                <><Send size={12} /> {(blockReason || requiresBudgetOverride) ? 'Salvar Bloqueado' : 'Salvar & Enviar'}</>
                             )}
                         </button>
-                    )}
+                    </div>
                 </div>
             </div>
 
-            {showPasswordModal && (
-                <PasswordConfirmationModal
-                    message={passwordAction === 'blockOverride' ? `BLOQUEIO: ${blockReason}` : `BLOQUEIO FINANCEIRO: Orçamento excedido.`}
-                    onConfirm={executeSave}
-                    onClose={() => setShowPasswordModal(false)}
-                    apiClient={apiClient}
-                />
-            )}
         </div>
     );
 };
 
 export default RefuelingOrderModal;
+
+

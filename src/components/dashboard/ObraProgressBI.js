@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { HardHat, DollarSign, Clock } from 'lucide-react';
 import { vehicleGroups } from '../../utils/vehicleRules';
+import SearchableObraSelect from '../SearchableObraSelect';
 
 const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
     const [selectedObraId, setSelectedObraId] = useState('');
 
     const activeObras = useMemo(() => {
-        return obras.filter(o => o.status === 'ativa').sort((a,b) => a.nome.localeCompare(b.nome));
+        return obras
+            .filter(o => o.status === 'ativa' && (o.tipo_registro || 'obra') !== 'centro_custo')
+            .sort((a,b) => a.nome.localeCompare(b.nome));
     }, [obras]);
 
     const obraData = useMemo(() => {
@@ -115,19 +118,18 @@ const ObraProgressBI = ({ obras = [], vehicles = [], dailyWorkLogs = [] }) => {
     };
 
     return (
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
+        <div className="bg-white p-4 rounded-xl h-full flex flex-col" style={{ border: '1px solid #f0ebe3', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.06)' }}>
             <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    <HardHat size={18} className="text-yellow-600"/> Progresso da Obra
+                <h3 className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 700, color: '#1e1a14' }}>
+                    <HardHat size={16} style={{ color: '#9E7A42' }}/> Progresso da Obra
                 </h3>
-                <select 
-                    value={selectedObraId} 
-                    onChange={(e) => setSelectedObraId(e.target.value)} 
-                    className="text-xs p-1.5 border rounded bg-gray-50 max-w-[150px]"
-                >
-                    <option value="">Selecione...</option>
-                    {activeObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                </select>
+                <SearchableObraSelect
+                    obras={activeObras}
+                    value={selectedObraId}
+                    onChange={(obra) => setSelectedObraId(obra?.id || '')}
+                    placeholder="Buscar obra..."
+                    className="max-w-[200px]"
+                />
             </div>
 
             {obraData ? (

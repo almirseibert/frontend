@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import apiClient from '../services/apiClient';
 import {
     Package, Plus, Edit, Trash2, Search, AlertTriangle, TrendingDown,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 
 import ProtectedComponent from '../components/ProtectedComponent';
+import SearchableSelect from '../components/SearchableSelect';
 
 // ==========================================================
 // HELPER: Cor de badge de categoria (evita interpolação dinâmica)
@@ -194,16 +195,16 @@ const ReferencesModal = ({ isOpen, onClose, item, allItems = [], onSave }) => {
                     <div className="border-t pt-4">
                         <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Adicionar Equivalência</h3>
                         <div className="grid grid-cols-2 gap-2 mb-2">
-                            <select
-                                value={newRef.referenceItemId}
-                                onChange={e => setNewRef({ ...newRef, referenceItemId: e.target.value })}
-                                className="p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-400 col-span-2"
-                            >
-                                <option value="">Selecionar item equivalente...</option>
-                                {availableItems.map(i => (
-                                    <option key={i.id} value={i.id}>{i.name} ({i.sku}) — Estoque: {i.quantity}</option>
-                                ))}
-                            </select>
+                            <div className="col-span-2">
+                                <SearchableSelect
+                                    items={availableItems}
+                                    value={newRef.referenceItemId}
+                                    onChange={(item) => setNewRef({ ...newRef, referenceItemId: item?.id || '' })}
+                                    getLabel={(i) => `${i.name} (${i.sku})`}
+                                    getSubLabel={(i) => `Estoque: ${i.quantity}`}
+                                    placeholder="Selecionar item equivalente..."
+                                />
+                            </div>
                             <select
                                 value={newRef.type}
                                 onChange={e => setNewRef({ ...newRef, type: e.target.value })}
@@ -432,17 +433,14 @@ const ItemModal = ({ isOpen, onClose, onSave, item = null, categories = [] }) =>
                     <div className="grid grid-cols-2 gap-3 border-b pb-4">
                         <div>
                             <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Categoria *</label>
-                            <select
+                            <SearchableSelect
+                                items={categories.map(c => ({ ...c, _label: c.name }))}
                                 value={formData.categoryId}
-                                onChange={e => setFormData({ ...formData, categoryId: e.target.value })}
-                                className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm"
+                                onChange={(item) => setFormData({ ...formData, categoryId: item?.id || '' })}
+                                getLabel={(c) => c.name}
+                                placeholder="Selecionar..."
                                 required
-                            >
-                                <option value="">Selecionar...</option>
-                                {categories.map(cat => (
-                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                ))}
-                            </select>
+                            />
                         </div>
                         <div>
                             <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Unidade</label>
@@ -839,7 +837,7 @@ const InventoryPage = ({ user, setAlertMessage, socket }) => {
             {/* Cabeçalho */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                    <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className=" flex items-center gap-2">
                         <Package className="text-purple-600" size={32} /> Almoxarifado
                     </h1>
                     <p className="text-gray-500 text-sm mt-1">Gestão de peças, lubrificantes e insumos.</p>
@@ -856,7 +854,7 @@ const InventoryPage = ({ user, setAlertMessage, socket }) => {
                     <ProtectedComponent requiredPermission="editor">
                         <button
                             onClick={() => { setSelectedCategory(null); setCategoryModalOpen(true); }}
-                            className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow hover:bg-blue-700 transition text-sm"
+                            className="flex items-center gap-2 px-3 py-2 mak-btn mak-btn-dark"
                         >
                             <Plus size={16} /> Categoria
                         </button>
@@ -1157,3 +1155,4 @@ const InventoryPage = ({ user, setAlertMessage, socket }) => {
 };
 
 export default InventoryPage;
+

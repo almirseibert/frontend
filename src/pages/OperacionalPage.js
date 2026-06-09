@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import {
     Activity, Search, X, ArrowRight, AlertTriangle,
     BarChart2, ChevronLeft, PackageX, Truck, TrendingUp
 } from 'lucide-react';
 import apiClientModule from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
+import SearchableSelect from '../components/SearchableSelect';
 
 const GAP_THRESHOLD_DAYS = 10;
 
@@ -104,7 +105,7 @@ const OperacionalPage = ({
     };
 
     const obrasComRisco = useMemo(() => {
-        return obras.map(obra => {
+        return obras.filter(o => (o.tipo_registro || 'obra') !== 'centro_custo').map(obra => {
             const isFinished = obra.status === 'finalizada' || obra.status === 'Finalizada' ||
                 obra.status === 'Concluída' || obra.status === 'Inativa' ||
                 (obra.dataFim && new Date(obra.dataFim) < today);
@@ -499,7 +500,10 @@ const OperacionalPage = ({
     }), [machineData]);
 
     const activeObras = useMemo(() =>
-        obras.filter(o => { const s = (o.status || '').toLowerCase(); return s !== 'finalizada' && s !== 'concluída' && s !== 'inativa'; }),
+        obras.filter(o => {
+            const s = (o.status || '').toLowerCase();
+            return s !== 'finalizada' && s !== 'concluída' && s !== 'inativa' && (o.tipo_registro || 'obra') !== 'centro_custo';
+        }),
         [obras]
     );
 
@@ -562,7 +566,7 @@ const OperacionalPage = ({
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-1 flex items-center gap-2">
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className=" mb-1 flex items-center gap-2">
                 <Activity className="text-yellow-500" /> Central Operacional
             </h1>
             <p className="text-gray-500 text-sm mb-6">Monitoramento de lançamentos por obra e por equipamento</p>
@@ -571,13 +575,13 @@ const OperacionalPage = ({
             <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-lg shadow-sm px-2">
                 <button
                     onClick={() => setActiveView('obra')}
-                    className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeView === 'obra' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeView === 'obra' ? 'border-[#9E7A42] text-[#9E7A42]' : 'border-transparent text-[#9a8a78] hover:text-[#6a5e4e]'}`}
                 >
                     <BarChart2 size={16} /> Por Obra
                 </button>
                 <button
                     onClick={() => setActiveView('maquina')}
-                    className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeView === 'maquina' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    className={`py-3 px-5 font-semibold text-sm flex items-center gap-2 transition-colors border-b-2 -mb-px ${activeView === 'maquina' ? 'border-[#9E7A42] text-[#9E7A42]' : 'border-transparent text-[#9a8a78] hover:text-[#6a5e4e]'}`}
                 >
                     <Truck size={16} /> Por Máquina
                 </button>
@@ -592,7 +596,7 @@ const OperacionalPage = ({
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-4">
                                     <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Obras Ativas</p>
-                                    <p className="text-2xl font-bold text-gray-800">{obrasComRisco.filter(o => !o.isFinished).length}</p>
+                                    <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obrasComRisco.filter(o => !o.isFinished).length}</p>
                                 </div>
                                 <div className="bg-white rounded-xl shadow-sm border-l-4 border-red-500 p-4">
                                     <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Sem Registro</p>
@@ -620,7 +624,7 @@ const OperacionalPage = ({
                                     </div>
                                     <div className="flex bg-gray-100 p-1 rounded-lg text-sm">
                                         {[['ativas', 'Ativas'], ['finalizadas', 'Finalizadas'], ['todas', 'Todas']].map(([val, label]) => (
-                                            <button key={val} onClick={() => setObraStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraStatus === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                            <button key={val} onClick={() => setObraStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraStatus === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
                                         ))}
                                     </div>
                                     <select value={obraSort} onChange={e => setObraSort(e.target.value)} className="text-sm border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
@@ -632,12 +636,12 @@ const OperacionalPage = ({
                                 <div className="flex flex-wrap gap-2 items-center">
                                     <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
                                         {[['', 'Todos'], ['critico', 'Sem Registro'], ['atencao', 'Atenção'], ['ok', 'Operando']].map(([val, label]) => (
-                                            <button key={val} onClick={() => setObraRisk(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraRisk === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                            <button key={val} onClick={() => setObraRisk(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraRisk === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
                                         ))}
                                     </div>
                                     <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
                                         {[['', 'Todos equip.'], ['sim', 'Com ativos'], ['nao', 'Sem ativos']].map(([val, label]) => (
-                                            <button key={val} onClick={() => setObraHasActive(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraHasActive === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                            <button key={val} onClick={() => setObraHasActive(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraHasActive === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
                                         ))}
                                     </div>
                                     <div className="ml-auto flex items-center gap-3">
@@ -691,8 +695,8 @@ const OperacionalPage = ({
                             </div>
 
                             {obrasFiltradas.length === 0 && (
-                                <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                                    <AlertTriangle className="mx-auto text-gray-300 mb-4" size={48} />
+                                <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed">
+                                    <AlertTriangle className="mx-auto mb-4" style={{ color: "#e8e0d4" }} size={48} />
                                     <p className="text-gray-400 font-medium">Nenhuma obra encontrada.</p>
                                     {hasObraFilters && <button onClick={clearObraFilters} className="mt-3 text-sm text-yellow-600 hover:text-yellow-700 font-semibold">Limpar filtros</button>}
                                 </div>
@@ -702,12 +706,12 @@ const OperacionalPage = ({
                         /* DETALHE DA OBRA */
                         <div className="space-y-6">
                             <button onClick={() => { setObraId(''); setObraLogs([]); }}
-                                className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors">
+                                className="flex items-center gap-2 text-sm text-[#9a8a78] hover:text-[#6a5e4e] font-medium transition-colors">
                                 <ChevronLeft size={16} /> Voltar para todas as obras
                             </button>
 
                             <div className="flex items-center justify-between">
-                                <h2 className="text-xl font-bold text-gray-800">{obras.find(o => o.id === obraId)?.nome}</h2>
+                                <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obras.find(o => o.id === obraId)?.nome}</h2>
                                 {(() => {
                                     const r = obrasComRisco.find(o => o.obra.id === obraId);
                                     return r ? renderRiskBadge(r.riskLevel, r.riskScore, r.riskReasons, 'md') : null;
@@ -721,7 +725,7 @@ const OperacionalPage = ({
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                         <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-4">
                                             <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Equipamentos</p>
-                                            <p className="text-2xl font-bold text-gray-800">{obraStats.summary?.total ?? '—'}</p>
+                                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obraStats.summary?.total ?? '—'}</p>
                                             <p className="text-xs text-gray-400 mt-1">{obraStats.summary?.active ?? 0} ativos na obra</p>
                                         </div>
                                         <div className={`bg-white rounded-xl shadow-sm border-l-4 p-4 ${(obraStats.summary?.withAlerts ?? 0) > 0 ? 'border-red-500' : 'border-green-500'}`}>
@@ -731,7 +735,7 @@ const OperacionalPage = ({
                                         </div>
                                         <div className="bg-white rounded-xl shadow-sm border-l-4 border-yellow-500 p-4">
                                             <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Total Lançado</p>
-                                            <p className="text-2xl font-bold text-gray-800">{formatDecimalToTime(obraStats.summary?.totalHoras ?? 0)}</p>
+                                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{formatDecimalToTime(obraStats.summary?.totalHoras ?? 0)}</p>
                                             {(obraStats.summary?.totalContratado ?? 0) > 0 ? (() => {
                                                 const pct = Math.min(((obraStats.summary.totalHoras / obraStats.summary.totalContratado) * 100), 100);
                                                 const barColor = pct < 50 ? 'bg-orange-400' : pct < 80 ? 'bg-yellow-400' : 'bg-green-500';
@@ -747,7 +751,7 @@ const OperacionalPage = ({
                                         </div>
                                         <div className="bg-white rounded-xl shadow-sm border-l-4 border-gray-300 p-4">
                                             <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Último Lançamento</p>
-                                            <p className="text-xl font-bold text-gray-800">{obraStats.summary?.lastLog ? formatDateToBR(obraStats.summary.lastLog) : '—'}</p>
+                                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obraStats.summary?.lastLog ? formatDateToBR(obraStats.summary.lastLog) : '—'}</p>
                                             <p className="text-xs text-gray-400 mt-1">em qualquer equip.</p>
                                         </div>
                                     </div>
@@ -764,7 +768,7 @@ const OperacionalPage = ({
                                             <div className="flex flex-wrap items-center gap-3">
                                                 <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
                                                     {[['todos', 'Todos'], ['ativos', 'Somente Ativos'], ['inativos', 'Somente Inativos']].map(([val, label]) => (
-                                                        <button key={val} onClick={() => setObraDetailStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraDetailStatus === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                                        <button key={val} onClick={() => setObraDetailStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraDetailStatus === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
                                                     ))}
                                                 </div>
                                                 <select value={obraDetailSort} onChange={e => setObraDetailSort(e.target.value)} className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
@@ -880,7 +884,7 @@ const OperacionalPage = ({
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                         <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-3">
                             <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Em Obra</p>
-                            <p className="text-2xl font-bold text-gray-800">{maqSummary.emObra}</p>
+                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{maqSummary.emObra}</p>
                             <p className="text-xs text-gray-400 mt-0.5">equip. ativos</p>
                         </div>
                         <div className={`bg-white rounded-xl shadow-sm border-l-4 border-orange-400 p-3 cursor-pointer hover:shadow-md transition-shadow ${maqCriticality === 'atencao' ? 'ring-2 ring-orange-400' : ''}`}
@@ -924,13 +928,18 @@ const OperacionalPage = ({
                             </div>
                             <div className="flex bg-gray-100 p-1 rounded-lg text-xs flex-wrap gap-0.5">
                                 {[['', 'Todos'], ['nunca', 'Nunca lançou'], ['critico', 'Crítico'], ['atencao', 'Atenção'], ['ok', 'Em dia']].map(([val, label]) => (
-                                    <button key={val} onClick={() => setMaqCriticality(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${maqCriticality === val ? 'bg-white shadow text-yellow-600' : 'text-gray-500 hover:text-gray-700'}`}>{label}</button>
+                                    <button key={val} onClick={() => setMaqCriticality(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${maqCriticality === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
                                 ))}
                             </div>
-                            <select value={maqObraId} onChange={e => setMaqObraId(e.target.value)} className="text-sm border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
-                                <option value="">Todas as obras</option>
-                                {activeObras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                            </select>
+                            <div className="min-w-[220px]">
+                                <SearchableSelect
+                                    items={activeObras}
+                                    value={maqObraId}
+                                    onChange={(item) => setMaqObraId(item?.id || '')}
+                                    getLabel={(o) => o.nome}
+                                    placeholder="Todas as obras"
+                                />
+                            </div>
                             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
                                 <input type="checkbox" checked={showWithoutObra} onChange={e => setShowWithoutObra(e.target.checked)} className="rounded accent-yellow-500" />
                                 Mostrar sem obra
@@ -1015,7 +1024,7 @@ const OperacionalPage = ({
                                                     <td className="px-4 py-3 text-center">
                                                         {currentObra
                                                             ? <button onClick={() => navigate('billing', { tab: 'lancamentos', obraId: currentObra.id, vehicleId: vehicle.id })}
-                                                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-gray-900 text-xs font-semibold rounded-lg transition-colors">
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-yellow-400 hover:bg-[#fdf8f0]0 text-gray-900 text-xs font-semibold rounded-lg transition-colors">
                                                                 Lançar <ArrowRight size={12} />
                                                               </button>
                                                             : <span className="text-gray-300 text-xs">—</span>
@@ -1046,3 +1055,6 @@ const OperacionalPage = ({
 };
 
 export default OperacionalPage;
+
+
+

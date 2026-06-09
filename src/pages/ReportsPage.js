@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { 
     Users, Truck, FileText, AlertTriangle, 
     ClipboardCheck, HardHat, Printer, Droplet, TrendingUp
@@ -16,6 +16,7 @@ import ConstructionReport from '../components/reports/ConstructionReport';
 import WorkPlanReport from '../components/reports/WorkPlanReport';
 import SupplyOrdersReport from '../components/reports/SupplyOrdersReport'; 
 import AveragesReport from '../components/reports/AveragesReport'; // Novo
+import FuelConsumptionReport from '../components/reports/FuelConsumptionReport';
 
 const ReportsPage = ({ 
     vehicles = [], 
@@ -73,12 +74,13 @@ const ReportsPage = ({
         { id: 'construction', label: 'Obras', icon: HardHat, desc: 'Progresso Físico vs. Financeiro.', color: 'bg-orange-600' },
         { id: 'workplan', label: 'Plano de Trabalho', icon: FileText, desc: 'Histórico físico e despesas.', color: 'bg-gray-600' },
         { id: 'supply', label: 'Ordens Abastecimento', icon: Droplet, desc: 'Relatório de ordens em aberto.', color: 'bg-purple-600' },
-        { id: 'averages', label: 'Médias & Consumo', icon: TrendingUp, desc: 'Comparativos e médias (Km/L, L/Hr).', color: 'bg-teal-600' } // Novo Card
+        { id: 'averages', label: 'Médias & Consumo', icon: TrendingUp, desc: 'Comparativos e médias (Km/L, L/Hr).', color: 'bg-teal-600' },
+        { id: 'fuel_obra', label: 'Consumo por Obra', icon: Droplet, desc: 'Litros e valores de combustível agrupados por obra.', color: 'bg-orange-600' }
     ];
 
     return (
         <div className="container mx-auto p-6 md:p-8 max-w-7xl min-h-screen flex flex-col">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Central de Relatórios</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className=" mb-2">Central de Relatórios</h1>
             <p className="text-gray-500 mb-8">Selecione um tipo de relatório para configurar os filtros e gerar o PDF.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8 transition-all duration-500">
@@ -108,10 +110,10 @@ const ReportsPage = ({
                 })}
             </div>
 
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8 relative overflow-hidden">
+            <div className="flex-1 bg-white rounded-2xl shadow-sm p-6 md:p-8 relative overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
                 {!reportType ? (
                     <div className="flex flex-col items-center justify-center h-full text-center py-20 opacity-50">
-                        <Printer size={64} className="text-gray-300 mb-4" />
+                        <Printer size={64} className="mb-4" style={{ color: "#e8e0d4" }} />
                         <h3 className="text-xl font-bold text-gray-400">Nenhum relatório selecionado</h3>
                         <p className="text-gray-400">Escolha uma opção acima para começar.</p>
                     </div>
@@ -126,6 +128,7 @@ const ReportsPage = ({
                             {reportType === 'workplan' && <WorkPlanReport obras={obras} vehicles={vehicles} vehicleGroups={vehicleGroups} expenses={expenses} equipmentTypesForHours={equipmentTypesForHours} />}
                             {reportType === 'supply' && <SupplyOrdersReport supplyOrders={supplyOrders} vehicles={vehicles} obras={obras} gasStations={gasStations} refuelings={activeRefuelings} />}
                             {reportType === 'averages' && <AveragesReport refuelings={activeRefuelings} vehicles={vehicles} obras={obras} vehicleGroups={vehicleGroups} />}
+                            {reportType === 'fuel_obra' && <FuelConsumptionReport refuelings={activeRefuelings} obras={obras} vehicles={vehicles} expenses={expenses} />}
                         </ProtectedComponent>
                     </div>
                 )}
@@ -135,3 +138,4 @@ const ReportsPage = ({
 };
 
 export default ReportsPage;
+

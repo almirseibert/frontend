@@ -3,6 +3,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Truck, Printer } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
+import SearchableObraSelect from '../SearchableObraSelect';
+import SearchableSelect from '../SearchableSelect';
 
 const VehicleReport = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
     const [filters, setFilters] = useState({ type: '', obraId: '', status: '', group: '' });
@@ -13,7 +15,7 @@ const VehicleReport = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
     const allColumns = useMemo(() => [
         { key: 'registroInterno', label: 'Registro Interno' },
         { key: 'placa', label: 'Placa' },
-        { key: 'tipo', label: 'Tipo' },
+        { key: 'tipo', label: 'Grupo' },
         { key: 'marca', label: 'Marca' },
         { key: 'modelo', label: 'Modelo' },
         { key: 'status', label: 'Status' },
@@ -98,23 +100,28 @@ const VehicleReport = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
 
     return (
         <div className="animate-fade-in">
-            <SectionHeader icon={Truck} title="Relatório Geral de Veículos" description="Listagem completa da frota com filtros por grupo, tipo e localização." />
-            
+            <SectionHeader icon={Truck} title="Relatório Geral de Veículos" description="Listagem completa da frota com filtros por tipo, grupo e localização." />
+
             <FilterSection>
                 <select value={filters.group} onChange={e => setFilters({...filters, group: e.target.value})} className="input-field">
-                    <option value="">Todos os Grupos</option>
+                    <option value="">Todos os Tipos</option>
                     {vehicleGroupOptions.map(g => <option key={g} value={g}>{g}</option>)}
                     <option value="Outros">Outros</option>
                 </select>
-                <select value={filters.type} onChange={e => setFilters({...filters, type: e.target.value})} className="input-field">
-                    <option value="">Todos os Tipos</option>
-                    {vehicleTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <select value={filters.obraId} onChange={e => setFilters({...filters, obraId: e.target.value})} className="input-field">
-                    <option value="">Todas as Obras</option>
-                    <option value="N/A">Sem Obra (Pátio/Outros)</option>
-                    {obras.filter(o => o.status === 'ativa').map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                </select>
+                <SearchableSelect
+                    items={vehicleTypes.map(t => ({ id: t, label: t }))}
+                    value={filters.type}
+                    onChange={(item) => setFilters({...filters, type: item?.id || ''})}
+                    getLabel={(t) => t.label}
+                    placeholder="Todos os Grupos"
+                />
+                <SearchableObraSelect
+                    obras={obras}
+                    value={filters.obraId}
+                    onChange={(obra) => setFilters({...filters, obraId: obra?.id || ''})}
+                    placeholder="Todas as Obras"
+                    includeInactive={true}
+                />
                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="input-field">
                     <option value="">Todos os Status</option>
                     {[...new Set(vehicles.map(v => v.status))].filter(Boolean).sort().map(s => <option key={s} value={s}>{s}</option>)}
@@ -145,7 +152,7 @@ const VehicleReport = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
                             <th className="p-3 w-10 text-center"><input type="checkbox" checked={selectAll} onChange={handleSelectAll} className="rounded text-red-600 focus:ring-red-500"/></th>
                             <th className="p-3">Registro</th>
                             <th className="p-3">Placa</th>
-                            <th className="p-3">Tipo</th>
+                            <th className="p-3">Grupo</th>
                             <th className="p-3">Status</th>
                             <th className="p-3">Local Atual</th>
                         </tr>

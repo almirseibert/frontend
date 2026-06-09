@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   Users, UserPlus, Check, Trash2, Edit, Key,
   ToggleLeft, ToggleRight, Search, Loader, ChevronDown, ChevronUp,
@@ -7,17 +7,27 @@ import apiClient from '../../services/apiClient';
 import UserEditModal from '../modals/UserEditModal';
 
 const ROLE_LABELS = {
-  admin: 'Administrador',
-  editor: 'Editor',
-  viewer: 'Visualizador',
-  operador: 'Operador',
+  admin:         'Administrador',
+  gerencia:      'Gerência',
+  editor:        'Editor',
+  rh:            'RH',
+  faturamento:   'Faturamento',
+  abastecimento: 'Abastecimento',
+  oficina:       'Oficina',
+  operador:      'Operador',
+  viewer:        'Visualizador',
 };
 
 const ROLE_COLORS = {
-  admin: 'bg-red-100 text-red-700',
-  editor: 'bg-blue-100 text-blue-700',
-  viewer: 'bg-gray-100 text-gray-600',
-  operador: 'bg-green-100 text-green-700',
+  admin:         'bg-red-100 text-red-700',
+  gerencia:      'bg-purple-100 text-purple-700',
+  editor:        'bg-blue-100 text-blue-700',
+  rh:            'bg-pink-100 text-pink-700',
+  faturamento:   'bg-indigo-100 text-indigo-700',
+  abastecimento: 'bg-cyan-100 text-cyan-700',
+  oficina:       'bg-orange-100 text-orange-700',
+  operador:      'bg-green-100 text-green-700',
+  viewer:        'bg-gray-100 text-gray-600',
 };
 
 const Toast = ({ message }) =>
@@ -251,7 +261,7 @@ const UserManagementTab = ({ groups = [], onUsersChange }) => {
             </select>
             <button
               onClick={() => { setEditUser(null); setShowUserModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold rounded-lg text-sm transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-400 hover:bg-[#fdf8f0]0 text-gray-900 font-bold rounded-lg text-sm transition-colors"
             >
               <UserPlus size={14} /> Novo Usuário
             </button>
@@ -353,3 +363,4 @@ const UserManagementTab = ({ groups = [], onUsersChange }) => {
 };
 
 export default UserManagementTab;
+
