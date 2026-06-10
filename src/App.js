@@ -577,6 +577,14 @@ const AppContent = () => {
                 return <ReportsPage {...commonProps} />; 
             case 'admin':
                 return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />;
+            case 'admin_usuarios':
+                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="usuarios" /> : <Denied />;
+            case 'admin_frota':
+                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="veiculos" /> : <Denied />;
+            case 'admin_comunicacao':
+                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="comunicacao" /> : <Denied />;
+            case 'admin_sistema':
+                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="sistema" /> : <Denied />;
             case 'sigasul':
                 return user.user_type === 'admin' ? <SigaSulPage {...commonProps} /> : <Denied />;
             default:
