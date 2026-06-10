@@ -6,6 +6,7 @@ import {
 import apiClientModule from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableSelect from '../components/SearchableSelect';
+import { formatObraNome } from '../utils/obraFormat';
 
 const GAP_THRESHOLD_DAYS = 10;
 
@@ -665,7 +666,7 @@ const OperacionalPage = ({
                                         >
                                             <div className="flex justify-between items-start mb-4">
                                                 <div className="flex-1 min-w-0">
-                                                    <h3 className="text-base font-bold text-gray-800 truncate" title={obra.nome}>{obra.nome}</h3>
+                                                    <h3 className="text-base font-bold text-gray-800 truncate" title={formatObraNome(obra)}>{formatObraNome(obra)}</h3>
                                                     <p className="text-xs text-gray-400 mt-0.5">{isFinished ? 'Finalizada' : `Em andamento · ${diasDeObra}d`}</p>
                                                 </div>
                                                 <div className="ml-3 shrink-0">{renderRiskBadge(riskLevel, riskScore, riskReasons)}</div>
@@ -711,7 +712,7 @@ const OperacionalPage = ({
                             </button>
 
                             <div className="flex items-center justify-between">
-                                <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obras.find(o => o.id === obraId)?.nome}</h2>
+                                <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{formatObraNome(obras.find(o => o.id === obraId))}</h2>
                                 {(() => {
                                     const r = obrasComRisco.find(o => o.obra.id === obraId);
                                     return r ? renderRiskBadge(r.riskLevel, r.riskScore, r.riskReasons, 'md') : null;
@@ -936,7 +937,7 @@ const OperacionalPage = ({
                                     items={activeObras}
                                     value={maqObraId}
                                     onChange={(item) => setMaqObraId(item?.id || '')}
-                                    getLabel={(o) => o.nome}
+                                    getLabel={(o) => formatObraNome(o)}
                                     placeholder="Todas as obras"
                                 />
                             </div>
@@ -995,8 +996,8 @@ const OperacionalPage = ({
                                                     <div className="text-xs text-gray-500">{vehicle.tipo}{vehicle.modelo ? ` · ${vehicle.modelo}` : ''}</div>
                                                 </td>
                                                 <td className="px-4 py-3">
-                                                    {currentObra ? <span className="text-gray-700">{currentObra.nome}</span>
-                                                        : recentDepartureObra ? <span className="text-gray-400 text-xs italic">Saiu de: {recentDepartureObra.nome}</span>
+                                                    {currentObra ? <span className="text-gray-700">{formatObraNome(currentObra)}</span>
+                                                        : recentDepartureObra ? <span className="text-gray-400 text-xs italic">Saiu de: {formatObraNome(recentDepartureObra)}</span>
                                                         : <span className="text-gray-300">—</span>}
                                                 </td>
                                                 <td className="px-4 py-3"><MaqStatusBadge vehicle={vehicle} /></td>
