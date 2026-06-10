@@ -46,11 +46,13 @@ import Sidebar from './components/Sidebar';
 import LoginScreen from './components/LoginScreen';
 
 import apiClient from './services/apiClient';
+import { canAccessPage } from './utils/permissions';
 import {
     vehicleGroups,
     extraObraOptions,
     operationalSubGroups,
     equipmentTypesForHours,
+    hydrateVehicleTaxonomy,
 } from './utils/vehicleRules';
 import { processVehiclesWithAlerts } from './utils/vehicleAlerts';
 
@@ -79,27 +81,71 @@ const OperacionalPage              = lazy(() => import('./pages/OperacionalPage'
 const SupervisorDashboard          = lazy(() => import('./pages/SupervisorDashboard'));
 const SupervisorObraDetail         = lazy(() => import('./pages/SupervisorObraDetail'));
 const SolicitacaoAbastecimentoPage = lazy(() => import('./pages/SolicitacaoAbastecimentoPage'));
+const ComboioMobilePage            = lazy(() => import('./pages/ComboioMobilePage'));
 const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
 const SigaSulPage                  = lazy(() => import('./pages/SigaSulPage'));
+const AdminUsuariosPage            = lazy(() => import('./pages/AdminUsuariosPage'));
+const AdminFrotaPage               = lazy(() => import('./pages/AdminFrotaPage'));
+const AdminComunicacaoPage         = lazy(() => import('./pages/AdminComunicacaoPage'));
+const AdminSistemaPage             = lazy(() => import('./pages/AdminSistemaPage'));
 
 // ==========================================
 // Fallback de Carregamento de Página
 // ==========================================
 const PageFallback = () => (
-    <div className="flex items-center justify-center h-full text-lg font-semibold text-gray-500">
-        <Loader size={32} className="animate-spin mr-3 text-yellow-500" /> Carregando...
+    <div className="flex items-center justify-center h-full text-lg font-semibold" style={{ color: '#9a8a78' }}>
+        <Loader size={28} className="animate-spin mr-3" style={{ color: '#9E7A42' }} /> Carregando...
     </div>
 );
+
+// ==========================================
+// Botões utilitários para modais
+// ==========================================
+
+const BtnPrimary = ({ onClick, children, disabled }) => {
+    const [h, setH] = React.useState(false);
+    return (
+        <button onClick={onClick} disabled={disabled} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, background: h ? '#8a6a34' : '#9E7A42', color: '#fff', opacity: disabled ? 0.6 : 1, transition: 'background 0.15s' }}>
+            {children}
+        </button>
+    );
+};
+const BtnCancel = ({ onClick, children }) => {
+    const [h, setH] = React.useState(false);
+    return (
+        <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+            style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e8e0d4', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: h ? '#f5f2ed' : '#fff', color: '#6a5e4e', transition: 'background 0.15s' }}>
+            {children}
+        </button>
+    );
+};
+const BtnDanger = ({ onClick, children, disabled }) => {
+    const [h, setH] = React.useState(false);
+    return (
+        <button onClick={onClick} disabled={disabled} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, background: h ? '#9a2e20' : '#b03828', color: '#fff', opacity: disabled ? 0.6 : 1, transition: 'background 0.15s' }}>
+            {children}
+        </button>
+    );
+};
 
 // ==========================================
 // Modais Globais
 // ==========================================
 
 const CustomAlert = React.memo(({ message, onClose }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[99999]">
-        <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md text-center">
-            <pre className="text-base mb-6 whitespace-pre-wrap text-left font-sans text-gray-700">{message}</pre>
-            <button onClick={onClose} className="py-2 px-6 bg-yellow-400 text-gray-900 font-semibold rounded-lg hover:bg-yellow-500 transition-colors">OK</button>
+    <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+        <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f0ebe3' }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#1e1a14' }}>Aviso</span>
+            </div>
+            <div style={{ padding: '16px 18px' }}>
+                <pre style={{ fontSize: 13, color: '#6a5e4e', lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{message}</pre>
+            </div>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #f0ebe3', display: 'flex', justifyContent: 'flex-end' }}>
+                <BtnPrimary onClick={onClose}>OK</BtnPrimary>
+            </div>
         </div>
     </div>
 ));
@@ -107,15 +153,23 @@ const CustomAlert = React.memo(({ message, onClose }) => (
 const ConfirmationModal = React.memo(({
     title, message, onConfirm, onClose,
     confirmText = 'Confirmar', cancelText = 'Cancelar',
-    confirmColor = 'bg-yellow-400 hover:bg-yellow-500 text-gray-900',
+    confirmColor,
+    danger = false,
 }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[90]">
-        <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-            <h3 className="text-lg font-bold mb-3 text-gray-800">{title}</h3>
-            <p className="text-gray-600 mb-6 text-sm">{message}</p>
-            <div className="flex justify-end gap-3">
-                <button onClick={onClose} className="py-2 px-4 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm font-medium">{cancelText}</button>
-                <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-semibold ${confirmColor}`}>{confirmText}</button>
+    <div className="fixed inset-0 flex items-center justify-center z-[90] p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+        <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${danger ? '#fdf0ec' : '#f0ebe3'}` }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: danger ? '#b03828' : '#1e1a14' }}>{title}</span>
+            </div>
+            <div style={{ padding: '16px 18px' }}>
+                <p style={{ fontSize: 13, color: '#6a5e4e', lineHeight: 1.6 }}>{message}</p>
+            </div>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #f0ebe3', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <BtnCancel onClick={onClose}>{cancelText}</BtnCancel>
+                {danger
+                    ? <BtnDanger onClick={onConfirm}>{confirmText}</BtnDanger>
+                    : <BtnPrimary onClick={onConfirm}>{confirmText}</BtnPrimary>
+                }
             </div>
         </div>
     </div>
@@ -142,31 +196,31 @@ const PasswordConfirmationModalRaw = ({ onConfirm, onClose, message, apiClient: 
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[90]">
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-                <h3 className="text-lg font-bold mb-3 text-gray-800">Confirmação de Segurança</h3>
-                <p className="text-gray-600 mb-4 text-sm">{message || 'Insira sua senha para confirmar esta operação sensível.'}</p>
-                <div className="mb-4">
+        <div className="fixed inset-0 flex items-center justify-center z-[90] p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+            <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', width: '100%', maxWidth: 380, overflow: 'hidden' }}>
+                <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #fdf0ec' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#b03828' }}>Confirmação de Segurança</div>
+                    <div style={{ fontSize: 11, color: '#9a8a78', marginTop: 2 }}>Insira sua senha para continuar</div>
+                </div>
+                <div style={{ padding: '16px 18px' }}>
+                    <p style={{ fontSize: 13, color: '#6a5e4e', lineHeight: 1.5, marginBottom: 12 }}>{message || 'Esta operação requer confirmação de identidade.'}</p>
                     <input
                         type="password"
                         value={password}
                         onChange={e => setPassword(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        onKeyDown={e => e.key === 'Enter' && handleConfirm()}
                         placeholder="Sua senha"
                         autoFocus
+                        style={{ width: '100%' }}
                     />
+                    {error && <p style={{ fontSize: 11, color: '#b03828', marginTop: 6, fontWeight: 600 }}>{error}</p>}
                 </div>
-                {error && <p className="text-xs text-red-600 mb-3 font-medium">{error}</p>}
-                <div className="flex justify-end gap-3">
-                    <button onClick={onClose} className="py-2 px-4 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm">Cancelar</button>
-                    <button
-                        onClick={handleConfirm}
-                        disabled={isVerifying}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 flex items-center gap-2 text-sm font-semibold"
-                    >
-                        {isVerifying && <Loader size={14} className="animate-spin" />}
+                <div style={{ padding: '12px 18px', borderTop: '1px solid #f0ebe3', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <BtnCancel onClick={onClose}>Cancelar</BtnCancel>
+                    <BtnDanger onClick={handleConfirm} disabled={isVerifying}>
+                        {isVerifying && <Loader size={13} className="animate-spin" style={{ marginRight: 6 }} />}
                         Confirmar
-                    </button>
+                    </BtnDanger>
                 </div>
             </div>
         </div>
@@ -328,8 +382,38 @@ const AppContent = () => {
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
     const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
     const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
+    const [operadorTelaAtual, setOperadorTelaAtual] = useState(null); // null | 'comboio' | 'normal'
 
     const [agendaAlerts, setAgendaAlerts] = useState([]);
+
+    // ---------- Taxonomia de veículos (hidratada do banco) ----------
+    // Incrementa a cada hidratação para forçar recompute dos consumidores.
+    const [taxonomyVersion, setTaxonomyVersion] = useState(0);
+
+    const hydrateTaxonomy = useCallback(() => {
+        apiClient.getVehicleTaxonomy?.()
+            .then(tree => {
+                hydrateVehicleTaxonomy(tree);
+                setTaxonomyVersion(v => v + 1);
+            })
+            .catch(e => console.warn('Erro ao carregar taxonomia de veículos:', e));
+    }, []);
+
+    useEffect(() => {
+        if (!user) return;
+        hydrateTaxonomy();
+    }, [user, hydrateTaxonomy]);
+
+    // Re-hidrata quando o admin altera a taxonomia (via socket).
+    useEffect(() => {
+        if (!socket) return;
+        const onSync = (payload) => {
+            const targets = payload?.targets || [];
+            if (targets.includes('vehicleTaxonomy')) hydrateTaxonomy();
+        };
+        socket.on('server:sync', onSync);
+        return () => socket.off('server:sync', onSync);
+    }, [socket, hydrateTaxonomy]);
 
     // ---------- Avisos auxiliares (não bloqueantes do bootstrap) ----------
     useEffect(() => {
@@ -355,7 +439,7 @@ const AppContent = () => {
         }
 
         // Solicitações de abastecimento pendentes
-        if (user.user_type === 'admin' || user.podeAcessarAbastecimento) {
+        if (canAccessPage(user.roleNormalized, 'admin_solicitacoes')) {
             apiClient.get?.('/solicitacoes')
                 .then(res => {
                     const data = Array.isArray(res) ? res : (res?.data || []);
@@ -386,7 +470,7 @@ const AppContent = () => {
         };
 
         const handleAdminNotification = (data) => {
-            if (user.user_type !== 'admin' && !user.podeAcessarAbastecimento) return;
+            if (!canAccessPage(user.roleNormalized, 'admin_solicitacoes')) return;
             if (data.tipo === 'nova_solicitacao' || data.tipo === 'baixa_pendente') {
                 try {
                     const audio = new Audio('/beep.mp3');
@@ -413,7 +497,7 @@ const AppContent = () => {
         vehicles:             ['revisions', 'fines'],
         revisions:            ['revisions'],
         refueling:            ['refuelings', 'revisions'],
-        admin_solicitacoes:   ['refuelings', 'expenses'],
+        admin_solicitacoes:   ['refuelings'],
         comboio:              ['comboioTransactions', 'refuelings'],
         expenses:             ['expenses'],
         fines:                ['fines'],
@@ -466,7 +550,7 @@ const AppContent = () => {
         setAlertMessage,
         PasswordConfirmationModal: PasswordConfirmationModalWrapped,
         ConfirmationModal,
-        vehicleGroups,
+        vehicleGroups: { ...vehicleGroups },
         extraObraOptions,
         equipmentTypesForHours,
         operationalSubGroups,
@@ -486,6 +570,8 @@ const AppContent = () => {
         dailyWorkLogs,
         orders,
         socket,
+    // taxonomyVersion força recompute quando a taxonomia (mutada in-place) é re-hidratada
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [
         user,
         PasswordConfirmationModalWrapped,
@@ -493,6 +579,7 @@ const AppContent = () => {
         processedVehicles, obras, revisions, expenses, employees, partners,
         refuelings, comboioTransactions, fines, diarioDeBordoLogs, dailyWorkLogs, orders,
         socket,
+        taxonomyVersion,
     ]);
 
     const closeAgendaAlert = useCallback((index) => {
@@ -503,11 +590,126 @@ const AppContent = () => {
     if (user && user.user_type === 'operador') {
         if (bootstrapLoading) {
             return (
-                <div className="flex justify-center items-center h-screen">
-                    <Loader className="animate-spin text-yellow-500" size={40} />
+                <div className="flex justify-center items-center h-screen" style={{ background: '#f5f3ef' }}>
+                    <Loader className="animate-spin" size={36} style={{ color: '#9E7A42' }} />
                 </div>
             );
         }
+
+        // Detecta veículos vinculados ao operador via alocacaoAtual.description
+        const employeeRecord = employees.find(e =>
+            e.id === user.employeeId || e.nome === user.name
+        );
+
+        const registrosVinculados = employeeRecord?.alocacaoAtual?.isAllocated
+            ? employeeRecord.alocacaoAtual.description.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+
+        const veiculosVinculados = registrosVinculados
+            .map(reg => vehicles.find(v => v.registroInterno === reg))
+            .filter(Boolean);
+
+        const comboiosVinculados  = veiculosVinculados.filter(v => v.isComboioVehicle);
+        const normaisVinculados   = veiculosVinculados.filter(v => !v.isComboioVehicle);
+
+        const temComboio  = comboiosVinculados.length > 0;
+        const temNormal   = normaisVinculados.length > 0;
+
+        // Caso 2: todos comboio (ou apenas comboio) → vai direto pro comboio
+        if (temComboio && !temNormal) {
+            return (
+                <Suspense fallback={<PageFallback />}>
+                    <ComboioMobilePage
+                        apiClient={apiClient}
+                        user={user}
+                        comboio={comboiosVinculados[0]}
+                        vehicles={vehicles}
+                        obras={obras}
+                        employees={employees}
+                        partners={partners}
+                        expenses={expenses}
+                        setAlertMessage={setAlertMessage}
+                        socket={socket}
+                        PasswordConfirmationModal={PasswordConfirmationModalWrapped}
+                    />
+                </Suspense>
+            );
+        }
+
+        // Caso 1: tem comboio E normal → tela de seleção
+        if (temComboio && temNormal) {
+            if (operadorTelaAtual === 'comboio') {
+                return (
+                    <Suspense fallback={<PageFallback />}>
+                        <ComboioMobilePage
+                            apiClient={apiClient}
+                            user={user}
+                            comboio={comboiosVinculados[0]}
+                            vehicles={vehicles}
+                            obras={obras}
+                            employees={employees}
+                            partners={partners}
+                            expenses={expenses}
+                            setAlertMessage={setAlertMessage}
+                            socket={socket}
+                            PasswordConfirmationModal={PasswordConfirmationModalWrapped}
+                            onVoltar={() => setOperadorTelaAtual(null)}
+                        />
+                    </Suspense>
+                );
+            }
+            if (operadorTelaAtual === 'normal') {
+                return (
+                    <Suspense fallback={<PageFallback />}>
+                        <SolicitacaoAbastecimentoPage
+                            apiClient={apiClient}
+                            user={user}
+                            vehicles={vehicles}
+                            obras={obras}
+                            partners={partners}
+                            setAlertMessage={setAlertMessage}
+                            socket={socket}
+                            onVoltar={() => setOperadorTelaAtual(null)}
+                        />
+                    </Suspense>
+                );
+            }
+            // Tela de seleção
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center gap-6 p-6" style={{ background: '#f5f3ef' }}>
+                    <div className="text-center mb-2">
+                        <div className="text-xl font-bold text-slate-800">Abastecimento</div>
+                        <div className="text-sm text-slate-500 mt-1">Selecione o tipo de abastecimento</div>
+                    </div>
+                    <button
+                        onClick={() => setOperadorTelaAtual('normal')}
+                        className="w-full max-w-xs bg-white border-2 border-yellow-500 rounded-2xl p-6 flex flex-col items-center gap-3 shadow hover:shadow-md active:scale-95 transition-all"
+                    >
+                        <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: '#fef9c3' }}>
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9E7A42" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 0 0 3-3V8a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3z"/>
+                            </svg>
+                        </div>
+                        <div className="font-semibold text-slate-800 text-lg">Abastecimento Normal</div>
+                        <div className="text-xs text-slate-400 text-center">Solicitar abastecimento para seu veículo</div>
+                    </button>
+                    <button
+                        onClick={() => setOperadorTelaAtual('comboio')}
+                        className="w-full max-w-xs bg-white border-2 border-slate-700 rounded-2xl p-6 flex flex-col items-center gap-3 shadow hover:shadow-md active:scale-95 transition-all"
+                    >
+                        <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: '#f1f5f9' }}>
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 4v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+                            </svg>
+                        </div>
+                        <div className="font-semibold text-slate-800 text-lg">Comboio</div>
+                        <div className="text-xs text-slate-400 text-center">Gerenciar abastecimento do comboio</div>
+                    </button>
+                </div>
+            );
+        }
+
+        // Caso 3: apenas veículos normais → tela normal
         return (
             <Suspense fallback={<PageFallback />}>
                 <SolicitacaoAbastecimentoPage
@@ -553,17 +755,17 @@ const AppContent = () => {
             case 'partners':
                 return <PartnersPage {...commonProps} />;
             case 'refueling':
-                return (user.podeAcessarAbastecimento || user.user_type === 'admin')
+                return canAccessPage(user.roleNormalized, 'refueling')
                     ? <RefuelingPage {...commonProps} /> : <Denied />;
             case 'admin_solicitacoes':
-                return (user.podeAcessarAbastecimento || user.user_type === 'admin')
+                return canAccessPage(user.roleNormalized, 'admin_solicitacoes')
                     ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
             case 'orders':
                 return <OrdersPage {...commonProps} />;
             case 'inventory':
                 return <InventoryPage {...commonProps} />;
             case 'comboio':
-                return (user.podeAcessarAbastecimento || user.user_type === 'admin')
+                return canAccessPage(user.roleNormalized, 'comboio')
                     ? <ComboioPage {...commonProps} /> : <Denied />;
             case 'expenses':
                 return <ExpensesPage {...commonProps} />;
@@ -576,24 +778,30 @@ const AppContent = () => {
             case 'reports': 
                 return <ReportsPage {...commonProps} />; 
             case 'admin':
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} /> : <Denied />;
+                return canAccessPage(user.roleNormalized, 'admin')
+                    ? <AdminPage {...commonProps} /> : <Denied />;
             case 'admin_usuarios':
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="usuarios" /> : <Denied />;
+                return canAccessPage(user.roleNormalized, 'admin')
+                    ? <AdminUsuariosPage {...commonProps} /> : <Denied />;
             case 'admin_frota':
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="veiculos" /> : <Denied />;
+                return canAccessPage(user.roleNormalized, 'admin')
+                    ? <AdminFrotaPage {...commonProps} /> : <Denied />;
             case 'admin_comunicacao':
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="comunicacao" /> : <Denied />;
+                return canAccessPage(user.roleNormalized, 'admin')
+                    ? <AdminComunicacaoPage {...commonProps} /> : <Denied />;
             case 'admin_sistema':
-                return user.user_type === 'admin' ? <AdminPage {...commonProps} initialTab="sistema" /> : <Denied />;
+                return canAccessPage(user.roleNormalized, 'admin')
+                    ? <AdminSistemaPage {...commonProps} /> : <Denied />;
             case 'sigasul':
-                return user.user_type === 'admin' ? <SigaSulPage {...commonProps} /> : <Denied />;
+                return canAccessPage(user.roleNormalized, 'sigasul')
+                    ? <SigaSulPage {...commonProps} /> : <Denied />;
             default:
                 return <Dashboard {...commonProps} />; 
         }
     };
 
     return (
-        <div className="flex h-screen bg-slate-100 text-gray-800 font-sans overflow-hidden">
+        <div className="flex h-screen overflow-hidden" style={{ background: '#f5f3ef', fontFamily: "'Roboto', sans-serif", color: '#3d3528' }}>
             {showUpdateModal && updateMessage && (
                 <UpdateMessageModal message={updateMessage} onClose={() => setShowUpdateModal(false)} />
             )}
@@ -643,22 +851,14 @@ const AppContent = () => {
             />
 
             <main className="flex-1 flex flex-col relative overflow-hidden">
-                <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 bg-slate-100 scroll-smooth">
+                <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 scroll-smooth mak-scrollbar" style={{ background: '#f5f3ef' }}>
                     {alertMessage && (
                         <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />
                     )}
 
-                    {/* Indicador discreto de sync em background */}
-                    {syncing && (
-                        <div className="fixed bottom-4 left-4 bg-white shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 text-xs font-medium text-gray-600 border border-gray-200 z-[80]">
-                            <Loader size={12} className="animate-spin text-yellow-500" />
-                            Sincronizando...
-                        </div>
-                    )}
-
                     {bootstrapLoading ? (
-                        <div className="flex items-center justify-center h-full text-lg font-semibold text-gray-500">
-                            <Loader size={32} className="animate-spin mr-3 text-yellow-500" />
+                        <div className="flex items-center justify-center h-full text-lg font-semibold" style={{ color: '#9a8a78' }}>
+                            <Loader size={28} className="animate-spin mr-3" style={{ color: '#9E7A42' }} />
                             Carregando dados iniciais...
                         </div>
                     ) : (
@@ -680,8 +880,8 @@ const AppRouter = () => {
     const { user, loading } = useAuth();
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-100">
-                <Loader size={40} className="animate-spin text-yellow-500" />
+            <div className="flex items-center justify-center min-h-screen" style={{ background: '#f5f3ef' }}>
+                <Loader size={36} className="animate-spin" style={{ color: '#9E7A42' }} />
             </div>
         );
     }
