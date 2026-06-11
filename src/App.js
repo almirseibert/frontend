@@ -35,11 +35,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import {
-<<<<<<< HEAD
     Bell, Loader, X, UserPlus, AlertTriangle, WifiOff, Fuel, Truck
-=======
-    Bell, Loader, X, UserPlus, AlertTriangle, WifiOff, Fuel
->>>>>>> bd9a16e0cdd42d7c09048eec2efeb4c87a8ccf0f
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -366,10 +362,7 @@ const ADMIN_NOTIF_META = {
     baixa_pendente:           { title: 'Baixa de abastecimento pendente',    message: 'Uma solicitação está aguardando baixa.',        Icon: Fuel,          color: 'amber'  },
     ordem_bloqueada:          { title: 'Ordem de abastecimento bloqueada',   message: 'Uma ordem está bloqueada aguardando liberação.', Icon: AlertTriangle, color: 'red'    },
     nova_solicitacao_cadastro:{ title: 'Nova solicitação de cadastro',       message: 'Um novo usuário aguarda aprovação de cadastro.', Icon: UserPlus,      color: 'blue'   },
-<<<<<<< HEAD
     requisicao_operacional:   { title: 'Nova requisição operacional',        message: 'Há uma sugestão de mudança de obra/operador aguardando análise.', Icon: Truck, color: 'amber' },
-=======
->>>>>>> bd9a16e0cdd42d7c09048eec2efeb4c87a8ccf0f
     whatsapp_desconectado:    { title: 'Serviço WhatsApp desconectado',      message: 'A conexão com o WhatsApp caiu. Reconecte o serviço.', Icon: WifiOff,    color: 'red'    },
     whatsapp_nao_configurado: { title: 'WhatsApp não configurado',           message: 'O serviço de WhatsApp ainda não foi configurado.', Icon: WifiOff,     color: 'red'    },
 };
