@@ -223,6 +223,8 @@ const apiClient = {
     deleteComboioTransaction: async (id) => apiFetch(`/comboioTransactions/${id}`, { method: 'DELETE' }),
     createComboioEntrada: async (data) => apiFetch('/comboioTransactions/entrada', { method: 'POST', body: JSON.stringify(data) }),
     createComboioSaida: async (data) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: JSON.stringify(data) }),
+    // Distribuição do operador do comboio (com fotos). Recebe um FormData já montado.
+    createComboioSaidaComFotos: async (formData) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: formData }),
     createComboioDrenagem: async (data) => apiFetch('/comboioTransactions/drenagem', { method: 'POST', body: JSON.stringify(data) }),
 
     // --- Multas ---
@@ -261,6 +263,13 @@ const apiClient = {
     createInactivityAlert: async (data) => apiFetch('/inactivityAlerts', { method: 'POST', body: JSON.stringify(data) }),
     updateInactivityAlert: async (id, data) => apiFetch(`/inactivityAlerts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteInactivityAlert: async (id) => apiFetch(`/inactivityAlerts/${id}`, { method: 'DELETE' }),
+
+    // --- Requisições Operacionais (mudança de obra/operador) ---
+    getOperationalRequests: async () => apiFetch('/operationalRequests'),
+    createOperationalRequest: async (data) => apiFetch('/operationalRequests', { method: 'POST', body: JSON.stringify(data) }),
+    resolveOperationalRequest: async (id) => apiFetch(`/operationalRequests/${id}/resolver`, { method: 'PUT' }),
+    solicitarRelatorioHoras: async (data) => apiFetch('/operationalRequests/solicitar-relatorio', { method: 'POST', body: JSON.stringify(data) }),
+    deleteOperationalRequest: async (id) => apiFetch(`/operationalRequests/${id}`, { method: 'DELETE' }),
 
     // --- Usuários (Admin) ---
     getUsers: async () => apiFetch('/users'), 
@@ -311,11 +320,18 @@ const apiClient = {
     adminGetNotificationRouting: async () => apiFetch('/admin/notification-routing'),
     adminSaveNotificationRouting: async (data) => apiFetch('/admin/notification-routing', { method: 'PUT', body: JSON.stringify(data) }),
 
-    // --- Templates de Mensagens (TODO: backend) ---
+    // --- Templates de Mensagens (legado — CRUD livre, mantido por compat) ---
     adminGetMessageTemplates: async () => apiFetch('/admin/message-templates'),
     adminCreateMessageTemplate: async (data) => apiFetch('/admin/message-templates', { method: 'POST', body: JSON.stringify(data) }),
     adminUpdateMessageTemplate: async (id, data) => apiFetch(`/admin/message-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     adminDeleteMessageTemplate: async (id) => apiFetch(`/admin/message-templates/${id}`, { method: 'DELETE' }),
+
+    // --- Templates por evento (catálogo) ---
+    adminGetMessageTemplateCatalog: async () => apiFetch('/admin/message-templates/catalog'),
+    adminUpsertMessageTemplateByEvent: async (eventKey, data) =>
+        apiFetch(`/admin/message-templates/by-event/${eventKey}`, { method: 'PUT', body: JSON.stringify(data) }),
+    adminResetMessageTemplateByEvent: async (eventKey) =>
+        apiFetch(`/admin/message-templates/by-event/${eventKey}`, { method: 'DELETE' }),
 
     // --- Configurações de Alertas (TODO: backend) ---
     adminGetAlertConfig: async () => apiFetch('/admin/alert-config'),

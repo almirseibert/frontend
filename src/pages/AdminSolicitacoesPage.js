@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf'; 
 import autoTable from 'jspdf-autotable'; 
-import { getAllowedReadingTypes } from '../utils/vehicleRules';
+import { getAllowedReadingTypes, getGroupForType } from '../utils/vehicleRules';
+import { formatObraNome } from '../utils/obraFormat';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 
 const AdminSolicitacoesPage = ({ 
@@ -375,8 +376,11 @@ const AdminSolicitacoesPage = ({
                     block = `Leitura (${current}) menor que a atual do sistema (${last}).`;
                 } else if (isHr && (current - last) > 50) {
                     block = `Salto excessivo de Horímetro (> 50h). Dif: ${(current - last).toFixed(1)}h.`;
-                } else if (isKm && (current - last) > 1000) {
-                    block = `Salto excessivo de Km (> 1000).`;
+                } else {
+                    const limiteKm = getGroupForType(vehicle.tipo) === 'Caminhões de Trecho' ? 2000 : 1000;
+                    if (isKm && (current - last) > limiteKm) {
+                        block = `Salto excessivo de Km (> ${limiteKm}).`;
+                    }
                 }
             }
         }
@@ -523,7 +527,7 @@ const AdminSolicitacoesPage = ({
     // --- HELPERS AUXILIARES ---
     const getFuncionarioNome = (id) => employees.find(e => String(e.id) === String(id))?.nome || 'Não informado';
     const getPostoNome = (id) => partners.find(p => String(p.id) === String(id))?.razaoSocial || 'Posto não identificado';
-    const getObraNome = (id) => obras.find(o => String(o.id) === String(id))?.nome || 'Obra não identificada';
+    const getObraNome = (id) => formatObraNome(obras.find(o => String(o.id) === String(id))) || 'Obra não identificada';
 
     const getSafeDateObj = (dateInput) => {
         if (!dateInput) return new Date(0);
