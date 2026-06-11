@@ -8,7 +8,10 @@ import apiClientModule from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
+<<<<<<< HEAD
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
+=======
+>>>>>>> bd9a16e0cdd42d7c09048eec2efeb4c87a8ccf0f
 
 const GAP_THRESHOLD_DAYS = 10;
 
