@@ -3,9 +3,9 @@ import {
     Building, HardHat, ClipboardCheck, FileText,
     Fuel, Wrench, User, Shield, LogOut, Key,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-    Radio
+    Radio, Search
 } from 'lucide-react';
-import { ROLE_PAGE_ACCESS } from '../utils/permissions';
+import { ROLE_PAGE_ACCESS, canAccessAnaliseGerencial } from '../utils/permissions';
 
 const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -29,11 +29,10 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             id: 'obras',
             label: 'Obras',
             icon: <HardHat size={14} />,
-            hidden: !canAccessAny(['obras', 'expenses', 'supervisor_dashboard']),
+            hidden: !canAccessAny(['obras', 'expenses']),
             items: [
-                { id: 'obras',                label: 'Obras' },
-                { id: 'supervisor_dashboard', label: 'Gestão de Obras (TV)', hidden: !canAccess('supervisor_dashboard') },
-                { id: 'expenses',             label: 'Despesas',             hidden: !canAccess('expenses') },
+                { id: 'obras',    label: 'Obras' },
+                { id: 'expenses', label: 'Despesas', hidden: !canAccess('expenses') },
             ],
         },
         {
@@ -53,6 +52,18 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             hidden: !canAccess('reports'),
             items: [
                 { id: 'reports', label: 'Relatórios' },
+            ],
+        },
+        {
+            id: 'analise',
+            label: 'Análise Gerencial',
+            icon: <Search size={14} />,
+            hidden: !canAccessAnaliseGerencial(user),
+            items: [
+                { id: 'analise_gerencial',     label: 'Divergências Operacionais' },
+                { id: 'projecao_obra',         label: 'Projeção de Obra' },
+                { id: 'supervisor_dashboard',  label: 'Gestão de Obras' },
+                { id: 'aproveitamento',        label: 'Aproveitamento Produtivo' },
             ],
         },
         {
@@ -119,7 +130,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
         for (const g of navGroups) {
             if (g.items.some(item => item.id === pageId)) return g.id;
         }
-        if (pageId === 'supervisor_detail') return 'obras';
+        if (pageId === 'supervisor_detail') return 'analise';
         return null;
     };
 
@@ -142,7 +153,7 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
 
     const isGroupActive = (group) =>
         group.items.some(item => item.id === currentPage) ||
-        (group.id === 'obras' && currentPage === 'supervisor_detail');
+        (group.id === 'analise' && currentPage === 'supervisor_detail');
 
     const userInitial = user?.name ? user.name.charAt(0).toUpperCase() : 'U';
     const userRole = (() => {
