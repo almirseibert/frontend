@@ -219,6 +219,8 @@ const apiClient = {
         apiFetch('/analise-gerencial/discrepancias/reprocessar', {
             method: 'POST', body: JSON.stringify(payload),
         }),
+    getReprocessarStatus: async (jobId) =>
+        apiFetch(`/analise-gerencial/discrepancias/reprocessar/status/${jobId}`),
     getJornadasOperador: async (employeeId, { startDate, endDate }) =>
         apiFetch(`/analise-gerencial/jornadas/operador/${encodeURIComponent(employeeId)}?startDate=${startDate}&endDate=${endDate}`),
     getProjecaoObra: async (obraId) =>
