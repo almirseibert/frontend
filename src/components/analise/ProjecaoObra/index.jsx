@@ -425,11 +425,11 @@ const ProjecaoObra = ({ obras = [] }) => {
                     />
                     <KpiCard
                         icon={<DollarSign />}
-                        label="Custo total da obra"
-                        value={custos?.totalCustoObra > 0 ? fmtBRL(custos.totalCustoObra) : '—'}
-                        sub={custos?.totalCustoObra > 0
-                            ? `Combustível: ${fmtBRL(custos.totalCombustivel)} · Outros: ${fmtBRL(custos.totalOutras)}`
-                            : 'Sem despesas registradas'}
+                        label="Valor do contrato"
+                        value={dados.obra.valorContratadoRS > 0 ? fmtBRL(dados.obra.valorContratadoRS) : '—'}
+                        sub={dados.obra.valorContratadoRS > 0
+                            ? `Faturado: ${fmtBRL(faturamento.totalRS)}`
+                            : 'Contrato não configurado'}
                         color={C.text}
                     />
                     <KpiCard
