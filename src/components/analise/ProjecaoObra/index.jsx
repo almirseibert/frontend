@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
     TrendingUp, Fuel, AlertTriangle, CheckCircle, Clock,
-    HardHat, ChevronRight, RefreshCw, Info,
+    HardHat, ChevronRight, RefreshCw, Info, DollarSign,
 } from 'lucide-react';
 import SearchableObraSelect from '../../SearchableObraSelect';
 import apiClient from '../../../services/apiClient';
@@ -372,7 +372,7 @@ const ProjecaoObra = ({ obras = [] }) => {
     }
 
     // ── Render principal ──────────────────────────────────────────────────────
-    const { faturamento, combustivel } = dados;
+    const { faturamento, combustivel, custos } = dados;
     const semFaturamento = faturamento.totalRS === 0;
     const semHoras       = faturamento.totalHorasFaturadas === 0;
 
@@ -409,12 +409,12 @@ const ProjecaoObra = ({ obras = [] }) => {
                 )}
 
                 {/* KPIs rápidos */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                     <KpiCard
                         icon={<TrendingUp />}
                         label="Progresso físico"
                         value={fmtPct(faturamento.percentualConcluido)}
-                        sub={`${faturamento.totalHorasFaturadas}h de ${faturamento.horasContratadas || '?'}h`}
+                        sub={`${faturamento.totalHorasFaturadas}h de ${dados.obra.horasContratadas > 0 ? `${dados.obra.horasContratadas}h` : '?'}`}
                         color={C.gold}
                     />
                     <KpiCard
@@ -422,6 +422,15 @@ const ProjecaoObra = ({ obras = [] }) => {
                         label="Dias restantes*"
                         value={faturamento.diasParaFinalizar != null ? `${faturamento.diasParaFinalizar}d` : '—'}
                         sub={`Ritmo: ${faturamento.ritmoHorasPorDia}h/dia`}
+                    />
+                    <KpiCard
+                        icon={<DollarSign />}
+                        label="Custo total da obra"
+                        value={custos?.totalCustoObra > 0 ? fmtBRL(custos.totalCustoObra) : '—'}
+                        sub={custos?.totalCustoObra > 0
+                            ? `Combustível: ${fmtBRL(custos.totalCombustivel)} · Outros: ${fmtBRL(custos.totalOutras)}`
+                            : 'Sem despesas registradas'}
+                        color={C.text}
                     />
                     <KpiCard
                         icon={<Fuel />}
