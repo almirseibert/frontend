@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { Loader, AlertTriangle, ChevronRight, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
-import { useData } from '../../../contexts/DataContext';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Loader, AlertTriangle, ChevronRight, RefreshCw } from 'lucide-react';
 
 const fmtMin = (min) => {
     if (!min) return '0h';
@@ -27,16 +26,11 @@ const TIPOS_ORDEM = [
     'gap_ponto_maquina_fim',
 ];
 
-// job: null | { jobId, status, processed, total, discrepancias, error }
-const MAX_DIAS = 90;
-
 const ObrasOverview = ({ apiClient, range, setRange, onSelectObra, setAlertMessage }) => {
-    const { socket } = useData();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [job, setJob] = useState(null);
+    const [reprocessing, setReprocessing] = useState(false);
     const [tipoFiltro, setTipoFiltro] = useState(null);
-    const pollRef = useRef(null);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -59,53 +53,17 @@ const ObrasOverview = ({ apiClient, range, setRange, onSelectObra, setAlertMessa
         return () => clearTimeout(id);
     }, [fetchData, range.startDate, range.endDate]);
 
-    // Escuta progresso via Socket.io e faz polling de fallback
-    useEffect(() => {
-        if (!job || job.status !== 'running') {
-            clearInterval(pollRef.current);
-            return;
-        }
-
-        const handleProgress = (payload) => {
-            if (payload.jobId !== job.jobId) return;
-            setJob(prev => ({ ...prev, ...payload }));
-            if (payload.status === 'done') fetchData();
-        };
-
-        socket?.on('reprocessar:progresso', handleProgress);
-
-        // Polling de fallback caso o socket não esteja disponível
-        pollRef.current = setInterval(async () => {
-            try {
-                const status = await apiClient.getReprocessarStatus(job.jobId);
-                setJob(prev => ({ ...prev, ...status }));
-                if (status.status !== 'running') {
-                    clearInterval(pollRef.current);
-                    if (status.status === 'done') fetchData();
-                }
-            } catch (_) {}
-        }, 3000);
-
-        return () => {
-            socket?.off('reprocessar:progresso', handleProgress);
-            clearInterval(pollRef.current);
-        };
-    }, [job?.jobId, job?.status, socket, apiClient, fetchData]);
-
-    const diffDias = range.startDate && range.endDate
-        ? Math.round((new Date(range.endDate) - new Date(range.startDate)) / 86400000) + 1
-        : 0;
-
     const handleReprocess = async () => {
-        if (diffDias > MAX_DIAS) {
-            setAlertMessage?.(`Período máximo para reprocessamento é ${MAX_DIAS} dias. Selecione um intervalo menor.`);
-            return;
-        }
+        if (!window.confirm(`Reprocessar análise de ${range.startDate} a ${range.endDate}?\n\nPode levar alguns minutos.`)) return;
+        setReprocessing(true);
         try {
-            const { jobId } = await apiClient.reprocessarAnaliseDiscrepancias(range);
-            setJob({ jobId, status: 'running', processed: 0, total: 0, discrepancias: 0 });
+            await apiClient.reprocessarAnaliseDiscrepancias(range);
+            await fetchData();
+            setAlertMessage?.('Período reprocessado.');
         } catch (e) {
-            setAlertMessage?.(e.message || 'Erro ao iniciar reprocessamento.');
+            setAlertMessage?.(e.message || 'Erro ao reprocessar.');
+        } finally {
+            setReprocessing(false);
         }
     };
 
@@ -193,49 +151,16 @@ const ObrasOverview = ({ apiClient, range, setRange, onSelectObra, setAlertMessa
                 </div>
                 <button
                     onClick={handleReprocess}
-                    disabled={job?.status === 'running' || loading || diffDias > MAX_DIAS}
+                    disabled={reprocessing || loading}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold text-slate-600 border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                    title={diffDias > MAX_DIAS ? `Máximo ${MAX_DIAS} dias por reprocessamento` : 'Recalcular discrepâncias do período'}
+                    title="Recalcular discrepâncias do período"
                 >
-                    {job?.status === 'running'
+                    {reprocessing
                         ? <Loader size={12} className="animate-spin" />
                         : <RefreshCw size={12} />
                     }
                     Reprocessar
                 </button>
-
-                {/* Barra de progresso do job */}
-                {job && (
-                    <div className="flex items-center gap-2 ml-2">
-                        {job.status === 'running' && (
-                            <>
-                                <div className="w-32 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                    <div
-                                        className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                                        style={{ width: job.total > 0 ? `${Math.round((job.processed / job.total) * 100)}%` : '5%' }}
-                                    />
-                                </div>
-                                <span className="text-xs text-slate-500">
-                                    {job.total > 0
-                                        ? `${job.processed}/${job.total}`
-                                        : 'Iniciando…'}
-                                </span>
-                            </>
-                        )}
-                        {job.status === 'done' && (
-                            <span className="flex items-center gap-1 text-xs text-emerald-700 font-semibold">
-                                <CheckCircle size={12} />
-                                {job.discrepancias} discrepâncias — <button className="underline" onClick={() => setJob(null)}>fechar</button>
-                            </span>
-                        )}
-                        {job.status === 'error' && (
-                            <span className="flex items-center gap-1 text-xs text-red-600 font-semibold">
-                                <XCircle size={12} />
-                                Erro: {job.error} — <button className="underline" onClick={() => setJob(null)}>fechar</button>
-                            </span>
-                        )}
-                    </div>
-                )}
 
                 {!loading && (
                     <div className="ml-auto flex gap-6 text-xs text-slate-500">
@@ -296,7 +221,7 @@ const ObrasOverview = ({ apiClient, range, setRange, onSelectObra, setAlertMessa
                             : 'Nenhuma discrepância no período selecionado.'}
                     </p>
                     <p className="text-slate-400 text-sm mt-1">
-                        Tente outro filtro ou amplie o intervalo de datas.
+                        Tente outro filtro, ampliar o intervalo ou clicar em "Reprocessar".
                     </p>
                 </div>
             ) : (
