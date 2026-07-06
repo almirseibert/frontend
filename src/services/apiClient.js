@@ -102,6 +102,48 @@ const apiClient = {
         });
     },
 
+    // --- Documentos do Veículo ---
+    getVehicleDocuments: async (vehicleId) => apiFetch(`/vehicles/${vehicleId}/documents`),
+    // Documentos dos veículos nas obras do operador logado
+    getMeusDocumentos: async () => apiFetch('/vehicles/meus-documentos'),
+    uploadVehicleDocument: async (vehicleId, formData) =>
+        apiFetch(`/vehicles/${vehicleId}/documents`, { method: 'POST', body: formData }),
+    deleteVehicleDocument: async (vehicleId, docId) =>
+        apiFetch(`/vehicles/${vehicleId}/documents/${docId}`, { method: 'DELETE' }),
+
+    // --- Log de notificações enviadas ---
+    getNotificationLog: async (params = {}) => {
+        const qs = new URLSearchParams(params).toString();
+        return apiFetch(`/notification-log${qs ? '?' + qs : ''}`);
+    },
+
+    // --- Vínculos entre veículos (atrelar cavalo↔reboque, máquina↔acessório) ---
+    getVehicleLinks: async (vehicleId) => apiFetch(`/vehicle-links/${vehicleId}`),
+    createVehicleLink: async (data) => apiFetch('/vehicle-links', { method: 'POST', body: JSON.stringify(data) }),
+    deleteVehicleLink: async (id) => apiFetch(`/vehicle-links/${id}`, { method: 'DELETE' }),
+
+    // --- Relatório de entradas/saídas de comboio ---
+    getComboioReport: async (params = {}) => {
+        const qs = new URLSearchParams(params).toString();
+        return apiFetch(`/comboio-report${qs ? '?' + qs : ''}`);
+    },
+
+    // --- Log de e-mails enviados (Admin) ---
+    getEmailLog: async (params = {}) => {
+        const qs = new URLSearchParams(params).toString();
+        return apiFetch(`/admin/email-log${qs ? '?' + qs : ''}`);
+    },
+    getEmailLogItem: async (id) => apiFetch(`/admin/email-log/${id}`),
+
+    // --- Sugestões dos usuários ---
+    createSuggestion: async (formData) => apiFetch('/suggestions', { method: 'POST', body: formData }),
+    getSuggestions: async (params = {}) => {
+        const qs = new URLSearchParams(params).toString();
+        return apiFetch(`/suggestions${qs ? '?' + qs : ''}`);
+    },
+    updateSuggestionStatus: async (id, status) =>
+        apiFetch(`/suggestions/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
     // --- Configurações de Tipos/Sub-tipos de Veículos ---
     getVehicleTypeConfigs: async () => apiFetch('/vehicle-type-configs'),
     createVehicleTypeConfig: async (data) => apiFetch('/vehicle-type-configs', { method: 'POST', body: JSON.stringify(data) }),
@@ -292,6 +334,7 @@ const apiClient = {
 
     // --- Alertas de Inatividade ---
     getInactivityAlerts: async () => apiFetch('/inactivityAlerts'),
+    getDashboardHomeSummary: async () => apiFetch('/dashboard/home-summary'),
     createInactivityAlert: async (data) => apiFetch('/inactivityAlerts', { method: 'POST', body: JSON.stringify(data) }),
     updateInactivityAlert: async (id, data) => apiFetch(`/inactivityAlerts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteInactivityAlert: async (id) => apiFetch(`/inactivityAlerts/${id}`, { method: 'DELETE' }),
