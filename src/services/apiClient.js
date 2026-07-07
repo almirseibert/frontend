@@ -464,6 +464,7 @@ const apiClient = {
         apiFetch(`/admin/notification-targets/${id}`, { method: 'DELETE' }),
 
     // --- Contatos Internos (Fase 4.1) ---
+    getInternalContacts:         async () => apiFetch('/internal-contacts'), // ativos, leitura (qualquer usuário autenticado)
     adminListInternalContacts:   async () => apiFetch('/admin/internal-contacts'),
     adminCreateInternalContact:  async (data) =>
         apiFetch('/admin/internal-contacts', { method: 'POST', body: JSON.stringify(data) }),

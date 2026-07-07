@@ -29,25 +29,49 @@ const ALL_STATUS_OPTIONS = ['Disponível', 'Em Obra', 'Em Operação', 'Em Manut
 // Menu de "três pontinhos" (kebab) — agrupa as ações secundárias do veículo.
 const ActionMenu = ({ items }) => {
     const [open, setOpen] = useState(false);
+    // Posição calculada em coordenadas da viewport (position: fixed) para o menu
+    // nunca ficar cortado fora da tela em celulares nem clipado por overflow da tabela.
+    const [pos, setPos] = useState({ top: 0, left: 0, up: false });
     const ref = React.useRef(null);
+    const MENU_WIDTH = 178;
+    const toggleOpen = (e) => {
+        if (!open) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const estHeight = Math.min((items || []).filter(Boolean).length * 34 + 8, 320);
+            const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, vw - MENU_WIDTH - 8));
+            const up = rect.bottom + 4 + estHeight > vh;
+            const top = up ? Math.max(8, rect.top - 4 - estHeight) : rect.bottom + 4;
+            setPos({ top, left, up });
+        }
+        setOpen(o => !o);
+    };
     useEffect(() => {
         if (!open) return;
         const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        const closeOnScroll = () => setOpen(false);
         document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
+        window.addEventListener('scroll', closeOnScroll, true);
+        window.addEventListener('resize', closeOnScroll);
+        return () => {
+            document.removeEventListener('mousedown', handler);
+            window.removeEventListener('scroll', closeOnScroll, true);
+            window.removeEventListener('resize', closeOnScroll);
+        };
     }, [open]);
     const list = (items || []).filter(Boolean);
     if (!list.length) return null;
     return (
         <div ref={ref} style={{ position: 'relative' }}>
             <button
-                type="button" onClick={() => setOpen(o => !o)} title="Mais ações"
+                type="button" onClick={toggleOpen} title="Mais ações"
                 style={{ padding: '5px', borderRadius: 6, border: 'none', cursor: 'pointer', lineHeight: 0, color: open ? '#6a5e4e' : '#b0a090', background: open ? '#faf9f7' : 'transparent' }}
             >
                 <MoreVertical size={15} />
             </button>
             {open && (
-                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 30, background: '#fff', border: '1px solid #f0ebe3', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.14)', minWidth: 178, padding: 4 }}>
+                <div style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 50, background: '#fff', border: '1px solid #f0ebe3', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.14)', minWidth: MENU_WIDTH, maxHeight: 320, overflowY: 'auto', padding: 4 }}>
                     {list.map((it, i) => (
                         <button
                             key={i} type="button"

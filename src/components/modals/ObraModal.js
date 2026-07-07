@@ -10,13 +10,14 @@ const ObraModal = ({
     setAlertMessage,
     equipmentTypesForHours = [], // Recebe a lista filtrada (derivedEquipmentTypes) do Pai (ObrasPage)
     initialTipoRegistro = 'obra',
-    employees = [],
 }) => {
     // --- ESTADOS DO FORMULÁRIO ---
     const [tipoRegistro, setTipoRegistro] = useState(initialTipoRegistro); // 'obra' | 'centro_custo'
     const [nome, setNome] = useState('');
     const [responsavel, setResponsavel] = useState('');
     const [responsavelEmail, setResponsavelEmail] = useState('');
+    const [responsavelWhatsapp, setResponsavelWhatsapp] = useState('');
+    const [internalContacts, setInternalContacts] = useState([]);
     const [fiscal, setFiscal] = useState('');
     const [contractType, setContractType] = useState('horas'); // 'horas' | 'metrosQuadrados'
     const [dataInicio, setDataInicio] = useState(new Date().toISOString().split('T')[0]);
@@ -40,6 +41,13 @@ const ObraModal = ({
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // --- CONTATOS INTERNOS (Administração > Contatos Internos) ---
+    useEffect(() => {
+        apiClient.getInternalContacts()
+            .then(data => setInternalContacts(Array.isArray(data) ? data : []))
+            .catch(() => setInternalContacts([]));
+    }, [apiClient]);
+
     // --- INICIALIZAÇÃO (Modo Edição) ---
     useEffect(() => {
         if (obra) {
@@ -47,6 +55,7 @@ const ObraModal = ({
             setNome(obra.nome || '');
             setResponsavel(obra.responsavel || '');
             setResponsavelEmail(obra.responsavel_email || '');
+            setResponsavelWhatsapp(obra.responsavel_whatsapp || '');
             setFiscal(obra.fiscal || '');
             setContractType(obra.contractType || 'horas');
             setDataInicio(obra.dataInicio ? new Date(obra.dataInicio).toISOString().split('T')[0] : '');
@@ -140,6 +149,7 @@ const ObraModal = ({
             nome,
             responsavel,
             responsavel_email: responsavelEmail || null,
+            responsavel_whatsapp: responsavelWhatsapp || null,
             fiscal,
             contractType,
             dataInicio,
@@ -249,36 +259,31 @@ const ObraModal = ({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                                    <User size={14}/> Responsável da Obra
+                                    <User size={14}/> Responsável da Obra *
                                 </label>
-                                {employees.length > 0 ? (
-                                    <select
-                                        value={responsavelEmail}
-                                        onChange={(e) => {
-                                            const email = e.target.value;
-                                            setResponsavelEmail(email);
-                                            const emp = employees.find(x => x.email === email);
-                                            setResponsavel(emp ? emp.nome : '');
-                                        }}
-                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
-                                    >
-                                        <option value="">— Nenhum —</option>
-                                        {employees.filter(emp => emp.email).map(emp => (
-                                            <option key={emp.id} value={emp.email}>
-                                                {emp.nome} ({emp.email})
-                                            </option>
-                                        ))}
-                                    </select>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        value={responsavel}
-                                        onChange={(e) => setResponsavel(e.target.value)}
-                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
-                                        placeholder="Nome do Responsável"
-                                    />
+                                <select
+                                    value={responsavelWhatsapp}
+                                    onChange={(e) => {
+                                        const whatsapp = e.target.value;
+                                        setResponsavelWhatsapp(whatsapp);
+                                        const c = internalContacts.find(x => String(x.whatsapp) === whatsapp);
+                                        setResponsavel(c ? c.nome : '');
+                                        setResponsavelEmail(c?.email || '');
+                                    }}
+                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                    required
+                                >
+                                    <option value="">Selecione um contato interno...</option>
+                                    {internalContacts.filter(c => c.whatsapp).map(c => (
+                                        <option key={c.id} value={c.whatsapp}>
+                                            {c.nome}{c.cargo ? ` — ${c.cargo}` : ''}{c.setor ? ` (${c.setor})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {internalContacts.length === 0 && (
+                                    <p className="text-xs text-red-500 mt-0.5">Nenhum contato interno com WhatsApp cadastrado. Cadastre em Administração → Contatos Internos.</p>
                                 )}
-                                <p className="text-xs text-gray-400 mt-0.5">Recebe alertas de progresso da obra (30/50/70%) e de orçamento de combustível.</p>
+                                <p className="text-xs text-gray-400 mt-0.5">Contato Interno (Administração). Recebe por WhatsApp os alertas de progresso da obra (30/50/70%) e de orçamento de combustível.</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
