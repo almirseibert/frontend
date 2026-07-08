@@ -222,6 +222,12 @@ const apiClient = {
     updateExpense: async (id, data) => apiFetch(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteExpense: async (id) => apiFetch(`/expenses/${id}`, { method: 'DELETE' }),
 
+    // --- Pagamentos a terceirizados (locadores) ---
+    getTerceirizadoPagamentos: async () => apiFetch('/terceirizadoPagamentos'),
+    createTerceirizadoPagamento: async (data) => apiFetch('/terceirizadoPagamentos', { method: 'POST', body: JSON.stringify(data) }),
+    updateTerceirizadoPagamento: async (id, data) => apiFetch(`/terceirizadoPagamentos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteTerceirizadoPagamento: async (id) => apiFetch(`/terceirizadoPagamentos/${id}`, { method: 'DELETE' }),
+
     // --- Parceiros (Postos) ---
     getPartners: async () => apiFetch('/partners'),
     getPartnerById: async (id) => apiFetch(`/partners/${id}`),
