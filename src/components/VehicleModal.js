@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin, Package, Fuel, FileText, Trash2, Upload, ExternalLink } from 'lucide-react';
 import { checkReadingConsistency, vehicleSubTypes, getGroupUnit } from '../utils/vehicleRules';
 import SearchableSelect from './SearchableSelect';
-import { useData } from '../contexts/DataContext';
 import { getEquipmentTarifaHora } from '../utils/terceirizados';
 
 const ModalBtn = ({ variant = 'primary', onClick, disabled, children }) => {
@@ -34,6 +33,7 @@ const VehicleModal = ({
     user,
     vehicle,
     vehicles = [],
+    partners = [],
     vehicleTypes = [],
     vehicleGroups = {},
     vehicleTypeConfigs = [],
@@ -52,13 +52,6 @@ const VehicleModal = ({
         }
         return '';
     };
-
-    // Locadores (parceiros tipo 'locador') para vincular equipamento terceirizado
-    const { partners = [] } = useData();
-    const locadores = useMemo(
-        () => partners.filter(p => p.tipo_parceiro === 'locador'),
-        [partners]
-    );
 
     // --- Estado do Formulário ---
     const [formData, setFormData] = useState(() => ({
@@ -87,7 +80,7 @@ const VehicleModal = ({
         nomeEmpresaTerceiro: vehicle?.nomeEmpresaTerceiro || '',
         contratoTerceiro:    vehicle?.contratoTerceiro    || '',
 
-        // Contrato de locação (equipamento terceirizado)
+        // Contrato de locação (equipamento terceirizado) — alimenta cálculo de tarifa/hora
         locadorId:               vehicle?.locadorId || '',
         locacaoHorasContratadas: vehicle?.locacaoHorasContratadas != null ? vehicle.locacaoHorasContratadas.toString() : '',
         locacaoValorTotal:       vehicle?.locacaoValorTotal       != null ? vehicle.locacaoValorTotal.toString()       : '',
@@ -244,6 +237,12 @@ const VehicleModal = ({
     const showHorimetro = useMemo(() => effectiveGroup === 'Máquinas Pesadas'   || effectiveGroup === 'Caminhões',           [effectiveGroup]);
 
     const availableSubTypes = useMemo(() => vehicleSubTypes[formData.tipo] || [], [formData.tipo]);
+
+    // Locadores (parceiros tipo 'locador') para vincular equipamento terceirizado
+    const locadores = useMemo(
+        () => (partners || []).filter(p => p.tipo_parceiro === 'locador'),
+        [partners]
+    );
 
     // Busca a config padrão do tipo/sub-tipo cadastrada
     const typeConfigDefault = useMemo(() => {

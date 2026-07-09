@@ -91,6 +91,7 @@ const apiClient = {
     deleteVehicle: async (id) => apiFetch(`/vehicles/${id}`, { method: 'DELETE' }),
     allocateVehicleToObra: async (id, data) => apiFetch(`/vehicles/${id}/allocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
     deallocateVehicleFromObra: async (id, data) => apiFetch(`/vehicles/${id}/deallocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
+    registrarEstadiaRetroativa: async (id, data) => apiFetch(`/vehicles/${id}/estadia-retroativa`, { method: 'POST', body: JSON.stringify(data) }),
     assignVehicleToOperational: async (id, data) => apiFetch(`/vehicles/${id}/assign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     unassignVehicleFromOperational: async (id, data) => apiFetch(`/vehicles/${id}/unassign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     startVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/start-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
@@ -98,7 +99,7 @@ const apiClient = {
     uploadVehicleImage: async (id, formData) => {
         return apiFetch(`/vehicles/${id}/upload-image`, {
             method: 'POST',
-            body: formData, 
+            body: formData,
         });
     },
 
@@ -167,6 +168,7 @@ const apiClient = {
 
     // --- Obras ---
     getObras: async () => apiFetch('/obras'),
+    getPlanejamentoObras: async (janelaDias) => apiFetch(`/obras/planejamento${janelaDias ? `?janelaDias=${janelaDias}` : ''}`),
     getObraById: async (id) => apiFetch(`/obras/${id}`),
     createObra: async (data) => apiFetch('/obras', { method: 'POST', body: JSON.stringify(data) }),
     updateObra: async (id, data) => apiFetch(`/obras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
