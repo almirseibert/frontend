@@ -607,7 +607,7 @@ const AppContent = () => {
         orders:               ['orders'],
         obras:                ['revisions'],
         operacional:          ['dailyWorkLogs', 'refuelings'],
-        terceirizados:        ['dailyWorkLogs', 'refuelings', 'comboioTransactions', 'terceirizadoPagamentos'],
+        terceirizados:        ['dailyWorkLogs', 'refuelings', 'comboioTransactions', 'terceirizadoPagamentos', 'terceiroContratos'],
         supervisor_dashboard: ['revisions', 'fines'],
         supervisor_detail:    ['revisions', 'fines', 'refuelings', 'expenses'],
     }), []);
@@ -710,21 +710,56 @@ const AppContent = () => {
             );
         }
 
-        // Detecta veículos vinculados ao operador via alocacaoAtual.description
-        const employeeRecord = employees.find(e =>
-            e.id === user.employeeId || e.nome === user.name
-        );
+        // --- Detecta veículos vinculados ao operador ---
+        // Identificação robusta do funcionário (mesma estratégia da SolicitacaoAbastecimentoPage):
+        // employeeId/employee_id direto e, na falta, casamento NORMALIZADO por e-mail/nome.
+        // A versão antiga usava igualdade estrita (e.id === user.employeeId || e.nome === user.name),
+        // que falhava quando user.employeeId era null ou o nome tinha acento/espaço divergente —
+        // nesse caso a detecção do comboio sumia e o operador caía direto na solicitação normal.
+        const normalizeStr = (str) => (str || '').toString().toLowerCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/\s+/g, ' ').trim();
 
-        const registrosVinculados = employeeRecord?.alocacaoAtual?.isAllocated
-            ? employeeRecord.alocacaoAtual.description.split(',').map(s => s.trim()).filter(Boolean)
-            : [];
+        const employeeRecord = employees.find(e => {
+            if (user.employeeId != null && String(e.id) === String(user.employeeId)) return true;
+            if (user.employee_id != null && String(e.id) === String(user.employee_id)) return true;
+            if (user.email && normalizeStr(e.email) === normalizeStr(user.email)) return true;
+            if (user.name && normalizeStr(e.nome) === normalizeStr(user.name)) return true;
+            return false;
+        });
 
-        const veiculosVinculados = registrosVinculados
-            .map(reg => vehicles.find(v => v.registroInterno === reg))
+        const myEmployeeId = employeeRecord?.id ?? user.employeeId ?? user.employee_id ?? null;
+
+        // Fonte primária: veículos ativos do operador no histórico das obras
+        // (mesma fonte — comprovadamente funcional — usada na tela de solicitação).
+        const veiculoIdsVinculados = new Set();
+        if (myEmployeeId != null) {
+            obras.forEach(obra => {
+                (obra.historicoVeiculos || []).forEach(h => {
+                    if (!h.dataSaida && String(h.employeeId) === String(myEmployeeId) && h.veiculoId) {
+                        veiculoIdsVinculados.add(String(h.veiculoId));
+                    }
+                });
+            });
+        }
+
+        // Fonte secundária (fallback): alocacaoAtual.description por registroInterno.
+        if (employeeRecord?.alocacaoAtual?.isAllocated && employeeRecord.alocacaoAtual.description) {
+            employeeRecord.alocacaoAtual.description.split(',').map(s => s.trim()).filter(Boolean)
+                .forEach(reg => {
+                    const v = vehicles.find(vv => String(vv.registroInterno) === String(reg));
+                    if (v) veiculoIdsVinculados.add(String(v.id));
+                });
+        }
+
+        const veiculosVinculados = [...veiculoIdsVinculados]
+            .map(vid => vehicles.find(v => String(v.id) === vid))
             .filter(Boolean);
 
-        const comboiosVinculados  = veiculosVinculados.filter(v => v.isComboioVehicle);
-        const normaisVinculados   = veiculosVinculados.filter(v => !v.isComboioVehicle);
+        // isComboioVehicle vem do banco como TINYINT(1); toleramos número, boolean e string.
+        const isComboio = (v) => v.isComboioVehicle === 1 || v.isComboioVehicle === true || v.isComboioVehicle === '1';
+        const comboiosVinculados  = veiculosVinculados.filter(isComboio);
+        const normaisVinculados   = veiculosVinculados.filter(v => !isComboio(v));
 
         const temComboio  = comboiosVinculados.length > 0;
         const temNormal   = normaisVinculados.length > 0;

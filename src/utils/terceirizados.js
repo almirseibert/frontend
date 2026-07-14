@@ -1,33 +1,23 @@
 // src/utils/terceirizados.js
-//
 // ============================================================================
-// Terceirizados — cálculos puros para gestão de equipamentos locados
+// Terceirizados — cálculo por CONTRATO (valor fechado)
 // ============================================================================
 //
-// Fonte ÚNICA de cálculo usada por três consumidores:
-//   1. pages/TerceirizadosPage.js       (conta corrente por locador/equipamento)
-//   2. análises de obra (Projeção, Aproveitamento, Gestão de Obra)
-//   3. relatórios
+// Modelo:
+//   1 contrato = 1 terceiro (locador) + 1 obra + valor FECHADO.
+//   Horas executadas = acompanhamento físico (progresso), NÃO viram dinheiro.
+//   saldo a pagar = valorTotal − diesel abatido − adiantamentos.
 //
-// NÃO recalcula horas nem litros — apenas AGREGA dados que o app já carrega
-// no DataContext: vehicles, dailyWorkLogs, refuelings, comboioTransactions,
-// partners e terceirizadoPagamentos.
+// As máquinas de um contrato são DERIVADAS (não digitadas): veículos do terceiro
+// (isOutsourced + locadorId) que passaram pela obra do contrato
+// (obra.historicoVeiculos). O diesel abatido (refuelings + saídas de comboio) e as
+// horas são filtrados por obra do contrato e pela vigência do contrato.
 //
-// Fórmula por equipamento terceirizado no período [inicio, fim]:
-//   tarifaHora        = locacaoValorTotal / locacaoHorasContratadas
-//   horas             = Σ dailyWorkLogs.totalHours (sem justificativa)
-//   devido            = horas × tarifaHora
-//   combustivelAbatido= Σ valor de abastecimento (refuelings + saídas de comboio)
-//   pagamentos        = Σ terceirizadoPagamentos
-//   saldoAPagar       = devido − combustivelAbatido − pagamentos
-//
-// Valoração do combustível (NÃO usa preço fixo global — reusa o padrão do
-// RefuelingReportModal em PartnersPage.js): litros × (pricePerLiter real do
-// abastecimento) e, na falta, litros × fuel_prices[fuelType] do posto parceiro.
+// Consumidores:
+//   1. pages/TerceirizadosPage.js                 (painel terceiro → contrato/obra → máquina)
+//   2. components/analise/TerceirizadoObraResumo   (resumo por obra)
 // ============================================================================
 
-/** Mapeia o fuelType do comboio (dieselS10/dieselComum) para as chaves de
- *  partner.fuel_prices. Refuelings já usam as chaves "Diesel S10" etc. */
 const COMBOIO_FUEL_KEY = {
     dieselS10: 'Diesel S10',
     dieselComum: 'Diesel S500',
@@ -38,7 +28,6 @@ const num = (v) => {
     return Number.isFinite(n) ? n : 0;
 };
 
-/** Converte entrada (Date | ISO string | 'YYYY-MM-DD ...') em Date, tolerante. */
 const toDate = (input) => {
     if (!input) return null;
     if (input instanceof Date) return isNaN(input.getTime()) ? null : input;
@@ -48,10 +37,8 @@ const toDate = (input) => {
     return isNaN(d.getTime()) ? null : d;
 };
 
-/** Extrai a data de um registro que pode usar `date` ou `data`. */
 const recordDate = (rec) => toDate(rec?.date ?? rec?.data);
 
-/** Verdadeiro se `d` está dentro de [inicio, fim] (limites inclusivos, opcionais). */
 const inPeriod = (d, inicio, fim) => {
     if (!d) return false;
     if (inicio && d < inicio) return false;
@@ -59,8 +46,7 @@ const inPeriod = (d, inicio, fim) => {
     return true;
 };
 
-/** Normaliza um período { inicio, fim } (strings ou Date) para Date com limites
- *  de dia. Campos ausentes viram null (sem limite). */
+/** Normaliza { inicio, fim } (strings/Date) para Date com limites de dia. */
 export const normalizePeriod = (period = {}) => {
     const { inicio, fim } = period;
     const start = inicio ? toDate(inicio) : null;
@@ -72,14 +58,6 @@ export const normalizePeriod = (period = {}) => {
 
 /** É um veículo terceirizado/locado? */
 export const isVehicleTerceirizado = (vehicle) => !!vehicle?.isOutsourced;
-
-/** Tarifa/hora derivada do contrato de locação do equipamento (valor total / horas). */
-export const getEquipmentTarifaHora = (vehicle) => {
-    const total = num(vehicle?.locacaoValorTotal);
-    const horas = num(vehicle?.locacaoHorasContratadas);
-    if (horas <= 0) return 0;
-    return total / horas;
-};
 
 /** Valor (R$) de um abastecimento comum, usando preço real e fallback do posto. */
 export const getRefuelingFuelValue = (refueling, partners = []) => {
@@ -93,9 +71,8 @@ export const getRefuelingFuelValue = (refueling, partners = []) => {
     return litros * preco;
 };
 
-/** Valor (R$) de uma saída de comboio (que não tem preço próprio): usa o
- *  pricePerLiter da última ENTRADA do mesmo comboio+combustível anterior à
- *  saída; fallback para o fuel_prices do posto daquela entrada. */
+/** Valor (R$) de uma saída de comboio: usa o pricePerLiter da última entrada
+ *  do mesmo comboio+combustível anterior à saída; fallback fuel_prices do posto. */
 export const getComboioSaidaFuelValue = (saida, comboioTransactions = [], partners = []) => {
     const litros = num(saida?.liters);
     if (litros <= 0) return 0;
@@ -120,129 +97,193 @@ export const getComboioSaidaFuelValue = (saida, comboioTransactions = [], partne
     return litros * preco;
 };
 
+/** Normaliza o campo `maquinas` do contrato (JSON array de vehicleId). */
+export const contratoMaquinaIds = (contrato) => {
+    const m = contrato?.maquinas;
+    if (Array.isArray(m)) return m.filter(Boolean);
+    if (typeof m === 'string') {
+        try { const p = JSON.parse(m); return Array.isArray(p) ? p.filter(Boolean) : []; } catch { return []; }
+    }
+    return [];
+};
+
+/** Máquinas de um contrato: vínculo EXPLÍCITO (1 máquina : 1 contrato). */
+export const getContratoMachines = (contrato, obras = [], vehicles = []) => {
+    const ids = new Set(contratoMaquinaIds(contrato));
+    if (ids.size === 0) return [];
+    return vehicles.filter((v) => ids.has(v.id));
+};
+
 /**
- * Calcula os números de terceirizado para UM equipamento no período.
- *
- * @param {object} vehicle  - veículo terceirizado (com contrato de locação)
- * @param {object} ctx      - { dailyWorkLogs, refuelings, comboioTransactions, partners, pagamentos }
- * @param {object} opts     - { inicio, fim, obraId }  (todos opcionais)
- * @returns {object} { horas, tarifaHora, devido, litros, combustivelAbatido, pagamentos, saldo }
+ * Calcula os números de UM contrato.
+ * @param {object} contrato
+ * @param {object} ctx { vehicles, obras, dailyWorkLogs, refuelings, comboioTransactions, partners, pagamentos }
+ * @returns números do contrato + equipamentos detalhados
  */
-export const computeTerceirizadoPorVeiculo = (vehicle, ctx = {}, opts = {}) => {
+export const computeContrato = (contrato, ctx = {}) => {
     const {
-        dailyWorkLogs = [],
-        refuelings = [],
-        comboioTransactions = [],
-        partners = [],
-        pagamentos = [],
+        vehicles = [], obras = [], dailyWorkLogs = [], refuelings = [],
+        comboioTransactions = [], partners = [], pagamentos = [],
     } = ctx;
-    const { obraId } = opts;
-    const { inicio, fim } = normalizePeriod(opts);
 
-    const vehicleId = vehicle?.id;
-    const tarifaHora = getEquipmentTarifaHora(vehicle);
+    const obra = obras.find((o) => o.id === contrato?.obraId) || null;
+    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: contrato?.vigenciaFim });
 
-    // Horas (fonte: relatório de horas do Faturamento)
-    const horas = dailyWorkLogs.reduce((acc, log) => {
-        if (log?.vehicleId !== vehicleId) return acc;
-        if (log?.justificativaTipo) return acc;
-        if (obraId && log?.obraId !== obraId) return acc;
-        if (!inPeriod(recordDate(log), inicio, fim)) return acc;
-        return acc + num(log.totalHours);
-    }, 0);
+    const machines = getContratoMachines(contrato, obras, vehicles);
+    const machineIds = new Set(machines.map((v) => v.id));
 
-    const devido = horas * tarifaHora;
-
-    // Combustível abatido — abastecimentos comuns
-    let litros = 0;
-    let combustivelAbatido = 0;
-    refuelings.forEach((r) => {
-        if (r?.vehicleId !== vehicleId) return;
-        if (r?.status && r.status !== 'Concluída') return;
-        if (obraId && r?.obraId !== obraId) return;
-        if (!inPeriod(recordDate(r), inicio, fim)) return;
-        litros += num(r.litrosAbastecidos);
-        combustivelAbatido += getRefuelingFuelValue(r, partners);
+    // Horas executadas — apenas acompanhamento físico.
+    // Atribuição pela MÁQUINA vinculada ao contrato (não por obra), evitando
+    // dupla contagem quando o terceiro tem vários contratos na mesma obra.
+    let horasExecutadas = 0;
+    const horasPorMaquina = new Map();
+    dailyWorkLogs.forEach((log) => {
+        if (!machineIds.has(log?.vehicleId)) return;
+        if (log?.justificativaTipo) return;
+        if (!inPeriod(recordDate(log), inicio, fim)) return;
+        const h = num(log.totalHours);
+        horasExecutadas += h;
+        horasPorMaquina.set(log.vehicleId, (horasPorMaquina.get(log.vehicleId) || 0) + h);
     });
 
-    // Combustível abatido — saídas de comboio para este equipamento
+    // Diesel abatido — por máquina
+    const porMaquina = new Map();
+    const bump = (id, litros, valor) => {
+        const cur = porMaquina.get(id) || { litros: 0, valor: 0 };
+        cur.litros += litros; cur.valor += valor;
+        porMaquina.set(id, cur);
+    };
+    let litros = 0;
+    let diesel = 0;
+
+    refuelings.forEach((r) => {
+        if (!machineIds.has(r?.vehicleId)) return;
+        if (r?.status && r.status !== 'Concluída') return;
+        if (!inPeriod(recordDate(r), inicio, fim)) return;
+        const v = getRefuelingFuelValue(r, partners);
+        const l = num(r.litrosAbastecidos);
+        litros += l; diesel += v;
+        bump(r.vehicleId, l, v);
+    });
     comboioTransactions.forEach((t) => {
         if (t?.type !== 'saida') return;
-        if (t?.receivingVehicleId !== vehicleId) return;
-        if (obraId && t?.obraId !== obraId) return;
+        if (!machineIds.has(t?.receivingVehicleId)) return;
         if (!inPeriod(recordDate(t), inicio, fim)) return;
-        litros += num(t.liters);
-        combustivelAbatido += getComboioSaidaFuelValue(t, comboioTransactions, partners);
+        const v = getComboioSaidaFuelValue(t, comboioTransactions, partners);
+        const l = num(t.liters);
+        litros += l; diesel += v;
+        bump(t.receivingVehicleId, l, v);
     });
 
-    // Pagamentos em dinheiro
-    const pagamentosTotal = pagamentos.reduce((acc, p) => {
-        if (p?.vehicleId && p.vehicleId !== vehicleId) return acc;
-        if (!p?.vehicleId && vehicle?.locadorId && p?.locadorId !== vehicle.locadorId) return acc;
-        if (!inPeriod(recordDate(p), inicio, fim)) return acc;
-        return acc + num(p.valor);
-    }, 0);
+    // Adiantamentos vinculados ao contrato
+    const adiantamentos = pagamentos.reduce(
+        (acc, p) => (p?.contratoId === contrato?.id ? acc + num(p.valor) : acc), 0);
 
-    const saldo = devido - combustivelAbatido - pagamentosTotal;
+    const valorTotal = num(contrato?.valorTotal);
+    const saldo = valorTotal - diesel - adiantamentos;
+    const horasContratadas = num(contrato?.horasContratadas);
+    const progresso = horasContratadas > 0 ? horasExecutadas / horasContratadas : 0;
+
+    const equipamentos = machines.map((v) => {
+        const m = porMaquina.get(v.id) || { litros: 0, valor: 0 };
+        return { vehicle: v, litros: m.litros, diesel: m.valor, horas: horasPorMaquina.get(v.id) || 0 };
+    });
+
+    // Plano contratado por subgrupo (itensContratados), normalizado.
+    let itens = contrato?.itensContratados;
+    if (typeof itens === 'string') { try { itens = JSON.parse(itens); } catch { itens = []; } }
+    const itensContratados = Array.isArray(itens)
+        ? itens.filter((i) => i && i.type).map((i) => ({ type: i.type, horas: num(i.hours), valorHora: num(i.price), subtotal: num(i.hours) * num(i.price) }))
+        : [];
 
     return {
-        vehicleId,
-        horas,
-        tarifaHora,
-        devido,
-        litros,
-        combustivelAbatido,
-        pagamentos: pagamentosTotal,
-        saldo,
+        contrato, obra, machines, equipamentos, itensContratados,
+        numMaquinas: machines.length,
+        horasExecutadas, horasContratadas, progresso,
+        valorTotal, litros, diesel, adiantamentos, saldo,
     };
 };
 
-/** Soma dois resultados de terceirizado (usado nas agregações). */
-const somaResultado = (a, b) => ({
-    horas: a.horas + b.horas,
-    devido: a.devido + b.devido,
-    litros: a.litros + b.litros,
-    combustivelAbatido: a.combustivelAbatido + b.combustivelAbatido,
-    pagamentos: a.pagamentos + b.pagamentos,
-    saldo: a.saldo + b.saldo,
-});
-
-const ZERO = { horas: 0, devido: 0, litros: 0, combustivelAbatido: 0, pagamentos: 0, saldo: 0 };
-
 /**
- * Agrega os números de terceirizado de TODOS os equipamentos locados de um
- * locador, no período.
- * @returns { ...totais, equipamentos: [{ vehicle, ...resultado }] }
+ * Lista os abastecimentos (registros individuais) que abatem de UM contrato:
+ * refuelings comuns + saídas de comboio das máquinas do contrato, dentro da vigência.
+ * Retorna [{ date, vehicle, litros, valor, fonte }] ordenado do mais recente.
  */
-export const computeTerceirizadoPorLocador = (locadorId, vehicles = [], ctx = {}, opts = {}) => {
-    const equipamentos = vehicles
-        .filter((v) => isVehicleTerceirizado(v) && v.locadorId === locadorId)
-        .map((vehicle) => ({ vehicle, ...computeTerceirizadoPorVeiculo(vehicle, ctx, opts) }));
+export const getContratoAbastecimentos = (contrato, ctx = {}) => {
+    const {
+        vehicles = [], refuelings = [], comboioTransactions = [], partners = [],
+    } = ctx;
+    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: contrato?.vigenciaFim });
+    const machineIds = new Set(contratoMaquinaIds(contrato));
+    if (machineIds.size === 0) return [];
+    const vById = new Map(vehicles.map((v) => [v.id, v]));
+    const out = [];
 
-    const totais = equipamentos.reduce((acc, e) => somaResultado(acc, e), { ...ZERO });
-    return { ...totais, equipamentos };
+    refuelings.forEach((r) => {
+        if (!machineIds.has(r?.vehicleId)) return;
+        if (r?.status && r.status !== 'Concluída') return;
+        const d = recordDate(r);
+        if (!inPeriod(d, inicio, fim)) return;
+        out.push({
+            date: d, vehicle: vById.get(r.vehicleId) || null,
+            litros: num(r.litrosAbastecidos), valor: getRefuelingFuelValue(r, partners), fonte: 'posto',
+        });
+    });
+    comboioTransactions.forEach((t) => {
+        if (t?.type !== 'saida') return;
+        if (!machineIds.has(t?.receivingVehicleId)) return;
+        const d = recordDate(t);
+        if (!inPeriod(d, inicio, fim)) return;
+        out.push({
+            date: d, vehicle: vById.get(t.receivingVehicleId) || null,
+            litros: num(t.liters), valor: getComboioSaidaFuelValue(t, comboioTransactions, partners), fonte: 'comboio',
+        });
+    });
+
+    return out.sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
+};
+
+/** Agrega todos os contratos de um terceiro (locador). */
+export const computeContratosPorTerceiro = (locadorId, contratos = [], ctx = {}) => {
+    const list = contratos
+        .filter((c) => c.locadorId === locadorId)
+        .map((c) => computeContrato(c, ctx));
+
+    const obraIds = new Set(list.map((r) => r.contrato.obraId));
+    const machineIds = new Set();
+    list.forEach((r) => r.machines.forEach((m) => machineIds.add(m.id)));
+
+    const totais = list.reduce((a, r) => ({
+        valorTotal: a.valorTotal + r.valorTotal,
+        diesel: a.diesel + r.diesel,
+        adiantamentos: a.adiantamentos + r.adiantamentos,
+        saldo: a.saldo + r.saldo,
+        litros: a.litros + r.litros,
+    }), { valorTotal: 0, diesel: 0, adiantamentos: 0, saldo: 0, litros: 0 });
+
+    return { contratos: list, numObras: obraIds.size, numMaquinas: machineIds.size, ...totais };
 };
 
 /**
- * Agrega os números de terceirizado dos equipamentos locados alocados a uma
- * obra (via obra.historicoVeiculos), filtrando também por obraId nas horas e
- * no combustível. Usado nas telas de análise de obra.
- * @returns { ...totais, equipamentos: [{ vehicle, ...resultado }] }
+ * Resumo por OBRA (usado em TerceirizadoObraResumo). Soma os contratos daquela
+ * obra. Mantém shape compatível: { equipamentos, devido, combustivelAbatido, saldo }.
+ * ctx precisa conter `contratos` (além de vehicles/obras/…).
  */
-export const computeTerceirizadoPorObra = (obraId, obras = [], vehicles = [], ctx = {}, opts = {}) => {
-    const obra = obras.find((o) => o.id === obraId);
-    if (!obra) return { ...ZERO, equipamentos: [] };
+export const computeTerceirizadoPorObra = (obraId, obras = [], vehicles = [], ctx = {}) => {
+    const { contratos = [] } = ctx;
+    const doObra = contratos.filter((c) => c.obraId === obraId);
+    if (doObra.length === 0) return { equipamentos: [], devido: 0, combustivelAbatido: 0, saldo: 0 };
 
-    // IDs de veículos que passaram pela obra
-    const vehicleIds = new Set((obra.historicoVeiculos || []).map((h) => h.veiculoId));
+    const fullCtx = { ...ctx, vehicles, obras };
+    const results = doObra.map((c) => computeContrato(c, fullCtx));
 
-    const equipamentos = vehicles
-        .filter((v) => isVehicleTerceirizado(v) && vehicleIds.has(v.id))
-        .map((vehicle) => ({
-            vehicle,
-            ...computeTerceirizadoPorVeiculo(vehicle, ctx, { ...opts, obraId }),
-        }));
+    const equipMap = new Map();
+    results.forEach((r) => r.equipamentos.forEach((e) => equipMap.set(e.vehicle.id, e)));
 
-    const totais = equipamentos.reduce((acc, e) => somaResultado(acc, e), { ...ZERO });
-    return { ...totais, equipamentos };
+    return {
+        equipamentos: [...equipMap.values()],
+        devido: results.reduce((a, r) => a + r.valorTotal, 0),
+        combustivelAbatido: results.reduce((a, r) => a + r.diesel, 0),
+        saldo: results.reduce((a, r) => a + r.saldo, 0),
+    };
 };
