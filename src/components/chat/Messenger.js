@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical, Bell, BellOff, Paperclip, Truck, Building2, Loader } from 'lucide-react';
+import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical, Bell, BellOff, Paperclip, Truck, Building2, Loader, Download, Ban, ShieldOff, Flag } from 'lucide-react';
 import { CHAT_STATUS, STATUS_ORDER, GROUP_ORDER, getStatusMeta, isOnlineStatus } from '../../utils/chatStatus';
 import {
     playFor, unlockAudio, isPeerMuted, togglePeerMute,
@@ -116,6 +116,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
     const [searchQ, setSearchQ] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [, setMuteTick] = useState(0); // força re-render ao alternar mute
+    const [convMenu, setConvMenu] = useState(false); // menu de ações da conversa
 
     const openPeerRef = useRef(null);
     const statusesRef = useRef({});
@@ -569,6 +570,33 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
         catch { setSearchResults([]); }
     };
 
+    // ── Ações da conversa (governança) ──
+    const setPeerBlocked = (blocked) => {
+        setOpenPeer(p => (p ? { ...p, blocked } : p));
+        setContacts(prev => prev.map(c => sameId(c.id, openPeer.id) ? { ...c, blocked } : c));
+    };
+    const doBlock = async () => {
+        setConvMenu(false);
+        try { await apiClient.blockChatUser(openPeer.id); setPeerBlocked(true); }
+        catch (e) { console.warn('Erro ao bloquear:', e.message); }
+    };
+    const doUnblock = async () => {
+        setConvMenu(false);
+        try { await apiClient.unblockChatUser(openPeer.id); setPeerBlocked(false); }
+        catch (e) { console.warn('Erro ao desbloquear:', e.message); }
+    };
+    const doReport = async () => {
+        setConvMenu(false);
+        const reason = window.prompt('Descreva o motivo da denúncia (opcional):') ?? '';
+        try { await apiClient.reportChatUser(openPeer.id, reason); alert('Denúncia registrada. Obrigado.'); }
+        catch (e) { console.warn('Erro ao reportar:', e.message); }
+    };
+    const doExport = async () => {
+        setConvMenu(false);
+        try { await apiClient.exportChatConversation(openPeer.id, `conversa-${(openPeer.displayName || 'contato').replace(/[^a-z0-9]+/gi, '_')}.pdf`); }
+        catch (e) { alert('Falha ao exportar: ' + (e.message || 'erro')); }
+    };
+
     const pickStatus = (st) => {
         setStatusMenu(false);
         onStatusChange?.(st);
@@ -699,6 +727,18 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
                             {isPeerMuted(openPeer.id) ? <BellOff size={15} /> : <Bell size={15} />}
                         </button>
                         <button onClick={() => { setSearchOpen(v => !v); setSearchQ(''); setSearchResults([]); }} className={`p-1 ${searchOpen ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-800`} title="Buscar no histórico"><Search size={15} /></button>
+                        <div className="relative">
+                            <button onClick={() => setConvMenu(v => !v)} className={`p-1 ${convMenu ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-800`} title="Mais ações"><MoreVertical size={15} /></button>
+                            {convMenu && (
+                                <div className="absolute right-0 top-full mt-1 bg-white rounded-md shadow-lg py-1 z-30 text-gray-700" style={{ minWidth: 170 }}>
+                                    <button onClick={doExport} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-100 text-left"><Download size={13} /> Exportar (PDF)</button>
+                                    {openPeer.blocked
+                                        ? <button onClick={doUnblock} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-100 text-left"><ShieldOff size={13} /> Desbloquear</button>
+                                        : <button onClick={doBlock} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-100 text-left"><Ban size={13} /> Bloquear</button>}
+                                    <button onClick={doReport} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 text-left"><Flag size={13} /> Reportar</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Busca no histórico */}
@@ -876,6 +916,13 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
                         </div>
                     )}
 
+                    {/* Conversa bloqueada */}
+                    {openPeer.blocked ? (
+                        <div className="border-t p-3 text-center text-xs text-gray-500 bg-gray-50" style={{ borderColor: '#e5e7eb' }}>
+                            Conversa bloqueada. <button onClick={doUnblock} className="text-blue-600 underline">Desbloquear</button> para enviar mensagens.
+                        </div>
+                    ) : (
+                    <>
                     {/* Input */}
                     <div className="border-t p-2 flex items-end gap-1.5 relative" style={{ borderColor: '#e5e7eb' }}>
                         <input ref={fileInputRef} type="file" className="hidden" onChange={onPickFile} accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.csv,.xml" />
@@ -904,6 +951,8 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
                         />
                         <button onClick={() => sendMessage('text')} className="p-2 text-white rounded-lg shrink-0" style={{ background: '#0a6cff' }} title={editing ? 'Salvar' : 'Enviar'}><Send size={16} /></button>
                     </div>
+                    </>
+                    )}
                 </>
             )}
         </div>

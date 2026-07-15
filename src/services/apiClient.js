@@ -271,6 +271,22 @@ const apiClient = {
         if (withUser) qs.set('with', withUser);
         return apiFetch(`/chat/search?${qs.toString()}`);
     },
+    blockChatUser: async (userId) => apiFetch('/chat/block', { method: 'POST', body: JSON.stringify({ userId }) }),
+    unblockChatUser: async (userId) => apiFetch('/chat/unblock', { method: 'POST', body: JSON.stringify({ userId }) }),
+    reportChatUser: async (userId, reason) => apiFetch('/chat/report', { method: 'POST', body: JSON.stringify({ userId, reason }) }),
+    // Baixa o PDF da conversa (blob) e dispara o download no navegador.
+    exportChatConversation: async (userId, filename = 'conversa.pdf') => {
+        const res = await fetch(`${API_URL}/chat/export/${userId}`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) throw new Error('Falha ao exportar conversa.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    },
 
     // --- MÓDULO SUPERVISOR (Novo) ---
     getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),
