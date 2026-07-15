@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { User, Bell, Lock, Circle } from 'lucide-react';
+import { User, Bell, Lock, Circle, Play } from 'lucide-react';
 import ModalShell from '../ui/ModalShell';
-import { CHAT_STATUS, STATUS_ORDER, getStatusMeta } from '../../utils/chatStatus';
-import { getSoundPrefs, setSoundPrefs } from '../../utils/chatSounds';
+import { CHAT_STATUS, STATUS_ORDER } from '../../utils/chatStatus';
+import { getNotifPrefs, setNotifPrefs, previewSound, SOUND_OPTIONS } from '../../utils/chatSounds';
+
+// Rótulos dos eventos notificáveis do chat.
+const EVENT_LABELS = [
+    { key: 'mensagem', label: 'Nova mensagem' },
+    { key: 'mencao', label: 'Menção a você (@)' },
+    { key: 'nudge', label: 'Chamar atenção (nudge)' },
+    { key: 'entrada', label: 'Contato ficou online' },
+    { key: 'saida', label: 'Contato ficou offline' },
+];
 
 // Modal de Configurações do usuário — substitui o antigo botão "Trocar Senha".
 // Abas: Perfil (nome de exibição, status e recado do chat), Notificações (sons)
@@ -36,8 +45,8 @@ const SettingsModal = ({ onClose, apiClient, socket, onProfileSaved }) => {
     const [savingProfile, setSavingProfile] = useState(false);
     const [profileMsg, setProfileMsg] = useState(null);
 
-    // Notificações (sons)
-    const [sounds, setSounds] = useState(getSoundPrefs());
+    // Notificações (prefs por evento + DND + horário de silêncio + prévia)
+    const [notif, setNotif] = useState(getNotifPrefs());
 
     // Segurança
     const [currentPassword, setCurrentPassword] = useState('');
@@ -55,6 +64,8 @@ const SettingsModal = ({ onClose, apiClient, socket, onProfileSaved }) => {
                 setDisplayName(s.displayName || '');
                 setChatStatus(s.chatStatus || 'disponivel');
                 setChatStatusMsg(s.chatStatusMsg || '');
+                // Prefs de notificação do servidor têm prioridade sobre o local.
+                if (s.chatNotifPrefs) setNotif(setNotifPrefs(s.chatNotifPrefs));
             } catch (e) {
                 if (alive) setProfileMsg({ type: 'error', text: 'Erro ao carregar perfil.' });
             } finally {
@@ -81,10 +92,15 @@ const SettingsModal = ({ onClose, apiClient, socket, onProfileSaved }) => {
         }
     };
 
-    const toggleSound = (key) => {
-        const next = { ...sounds, [key]: !sounds[key] };
-        setSounds(next);
-        setSoundPrefs(next);
+    // Salva prefs de notificação: local (imediato, p/ o player) + servidor.
+    const persistNotif = (patch) => {
+        const next = setNotifPrefs(patch);
+        setNotif(next);
+        apiClient.updateMySettings({ chatNotifPrefs: next }).catch(() => {});
+    };
+    const setEvent = (key, field, value) => {
+        const events = { ...notif.events, [key]: { ...notif.events[key], [field]: value } };
+        persistNotif({ events });
     };
 
     const submitPassword = async (e) => {
@@ -181,11 +197,59 @@ const SettingsModal = ({ onClose, apiClient, socket, onProfileSaved }) => {
 
             {/* NOTIFICAÇÕES */}
             {tab === 'notificacoes' && (
-                <div>
-                    <p className="text-xs text-gray-500 mb-2">Sons do mensageiro interno.</p>
-                    <Toggle checked={sounds.ding} onChange={() => toggleSound('ding')} label="Nova mensagem (ding)" />
-                    <Toggle checked={sounds.nudge} onChange={() => toggleSound('nudge')} label="Chamar atenção (nudge)" />
-                    <Toggle checked={sounds.presence} onChange={() => toggleSound('presence')} label="Contato entrar / sair (online-offline)" />
+                <div className="space-y-3">
+                    <p className="text-xs text-gray-500">Escolha o que notificar e o som de cada evento do mensageiro.</p>
+
+                    <div className="border rounded-lg divide-y">
+                        {EVENT_LABELS.map(({ key, label }) => {
+                            const ev = notif.events[key] || {};
+                            return (
+                                <div key={key} className="flex items-center gap-2 px-2.5 py-2">
+                                    <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                                        <input
+                                            type="checkbox" checked={!!ev.notify}
+                                            onChange={() => setEvent(key, 'notify', !ev.notify)}
+                                            className="accent-yellow-500"
+                                        />
+                                        <span className="text-sm text-gray-700 truncate">{label}</span>
+                                    </label>
+                                    <select
+                                        value={ev.sound || 'ding'}
+                                        onChange={e => setEvent(key, 'sound', e.target.value)}
+                                        disabled={!ev.notify}
+                                        className="text-xs border rounded px-1 py-1 outline-none disabled:opacity-40"
+                                    >
+                                        {SOUND_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                    </select>
+                                    <button
+                                        type="button" onClick={() => previewSound(ev.sound || 'ding')}
+                                        className="p-1 text-gray-400 hover:text-gray-700" title="Ouvir"
+                                    >
+                                        <Play size={14} />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="border rounded-lg px-2.5 py-1">
+                        <Toggle checked={!!notif.dnd} onChange={() => persistNotif({ dnd: !notif.dnd })} label="Não perturbe (silencia todos os sons)" />
+                        <Toggle checked={notif.previewText !== false} onChange={() => persistNotif({ previewText: notif.previewText === false })} label="Mostrar prévia do texto" />
+                    </div>
+
+                    <div className="border rounded-lg px-2.5 py-2">
+                        <div className="text-sm text-gray-700 mb-1">Horário de silêncio</div>
+                        <div className="flex items-center gap-2 text-sm">
+                            <span className="text-xs text-gray-500">Das</span>
+                            <input type="time" value={notif.quietStart || ''} onChange={e => persistNotif({ quietStart: e.target.value })} className="border rounded px-1.5 py-1 text-sm" />
+                            <span className="text-xs text-gray-500">às</span>
+                            <input type="time" value={notif.quietEnd || ''} onChange={e => persistNotif({ quietEnd: e.target.value })} className="border rounded px-1.5 py-1 text-sm" />
+                            {(notif.quietStart || notif.quietEnd) && (
+                                <button type="button" onClick={() => persistNotif({ quietStart: '', quietEnd: '' })} className="text-xs text-gray-400 hover:text-gray-600 underline">limpar</button>
+                            )}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1">No intervalo, os sons ficam silenciados (mensagens continuam chegando).</p>
+                    </div>
                 </div>
             )}
 

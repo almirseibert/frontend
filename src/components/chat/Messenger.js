@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical } from 'lucide-react';
+import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical, Bell, BellOff } from 'lucide-react';
 import { CHAT_STATUS, STATUS_ORDER, GROUP_ORDER, getStatusMeta, isOnlineStatus } from '../../utils/chatStatus';
 import {
-    playDing, playNudge, playOnline, playOffline, unlockAudio,
+    playFor, unlockAudio, isPeerMuted, togglePeerMute,
 } from '../../utils/chatSounds';
 
 // Mensageiro interno estilo MSN. Widget flutuante montado no shell principal
@@ -36,6 +36,27 @@ const writeDraft = (peerId, text) => {
         if (text) d[peerId] = text; else delete d[peerId];
         localStorage.setItem(DRAFTS_KEY, JSON.stringify(d));
     } catch { /* quota */ }
+};
+
+// Detecta se o texto menciona o usuário (@nome / @primeiro-nome).
+const mentionsMe = (text, myName) => {
+    if (!text || !myName) return false;
+    const tokens = new Set();
+    const full = myName.trim().toLowerCase();
+    tokens.add(full.replace(/\s+/g, ''));           // @joaosilva
+    tokens.add(full.split(/\s+/)[0]);                // @joao
+    const lower = text.toLowerCase();
+    for (const t of tokens) { if (t && lower.includes('@' + t)) return true; }
+    return /@(todos|all|geral)\b/i.test(text);
+};
+
+// Renderiza o corpo com emoticons + destaque de menções (@palavra).
+const renderBody = (text) => {
+    const withEmoji = applyEmoticons(text || '');
+    const parts = withEmoji.split(/(@[\wÀ-ÿ.]+)/g);
+    return parts.map((p, i) => (p.startsWith('@')
+        ? <span key={i} className="font-semibold underline decoration-dotted">{p}</span>
+        : <React.Fragment key={i}>{p}</React.Fragment>));
 };
 
 // Agrega reações [{userId,emoji}] em [{emoji, count, mine}].
@@ -94,16 +115,20 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchQ, setSearchQ] = useState('');
     const [searchResults, setSearchResults] = useState([]);
+    const [, setMuteTick] = useState(0); // força re-render ao alternar mute
 
     const openPeerRef = useRef(null);
     const statusesRef = useRef({});
     const bodyRef = useRef(null);
     const typingTimerRef = useRef(null);
     const typingSentRef = useRef(false);
+    const myStatusRef = useRef(myStatus);
     const myId = user?.id;
+    const myName = user?.name || '';
 
     useEffect(() => { openPeerRef.current = openPeer; }, [openPeer]);
     useEffect(() => { statusesRef.current = statuses; }, [statuses]);
+    useEffect(() => { myStatusRef.current = myStatus; }, [myStatus]);
 
     // Carrega contatos ao montar.
     const loadContacts = useCallback(async () => {
@@ -158,6 +183,33 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         return () => window.removeEventListener('online', onOnline);
     }, [flushOutbox]);
 
+    // ── Auto-ausente por inatividade ──
+    // Após 10 min sem atividade e estando "Disponível", muda para "Ausente".
+    // Volta a "Disponível" na primeira atividade (sem sobrescrever status manual).
+    useEffect(() => {
+        const IDLE_MS = 10 * 60 * 1000;
+        let lastActive = Date.now();
+        let autoAway = false;
+        const onActivity = () => {
+            lastActive = Date.now();
+            if (autoAway) { autoAway = false; onStatusChange?.('disponivel'); }
+        };
+        const check = () => {
+            if (myStatusRef.current === 'disponivel' && !autoAway && Date.now() - lastActive > IDLE_MS) {
+                autoAway = true;
+                onStatusChange?.('ausente');
+            }
+        };
+        window.addEventListener('mousemove', onActivity);
+        window.addEventListener('keydown', onActivity);
+        const iv = setInterval(check, 30000);
+        return () => {
+            window.removeEventListener('mousemove', onActivity);
+            window.removeEventListener('keydown', onActivity);
+            clearInterval(iv);
+        };
+    }, [onStatusChange]);
+
     // Rola para o fim quando abre conversa ou chega mensagem (não ao paginar antigas).
     useEffect(() => {
         if (loadingOlder) return;
@@ -199,7 +251,10 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
             } else if (!isMine) {
                 setUnread(prev => ({ ...prev, [peerId]: (prev[peerId] || 0) + 1 }));
             }
-            if (!isMine) playDing();
+            if (!isMine && msg.type !== 'nudge') {
+                const evt = mentionsMe(msg.body, myName) ? 'mencao' : 'mensagem';
+                playFor(evt, { myStatus: myStatusRef.current, peerId });
+            }
             setContacts(prev => prev.map(c => sameId(c.id, peerId) ? { ...c, lastMessageAt: msg.created_at } : c));
         };
 
@@ -210,15 +265,15 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
             }
         };
 
-        const onNudge = () => { triggerShake(); playNudge(); };
+        const onNudge = ({ from } = {}) => { triggerShake(); playFor('nudge', { myStatus: myStatusRef.current, peerId: from }); };
 
         const onPresenceUpdate = ({ userId, status, statusMsg }) => {
             const prev = statusesRef.current[userId];
             const wasOnline = prev ? isOnlineStatus(prev.status) : false;
             const nowOnline = isOnlineStatus(status);
             if (!sameId(userId, myId)) {
-                if (!wasOnline && nowOnline) playOnline();
-                if (wasOnline && !nowOnline) playOffline();
+                if (!wasOnline && nowOnline) playFor('entrada', { myStatus: myStatusRef.current, peerId: userId });
+                if (wasOnline && !nowOnline) playFor('saida', { myStatus: myStatusRef.current, peerId: userId });
             }
             setStatuses(s => ({ ...s, [userId]: { status, statusMsg } }));
         };
@@ -294,7 +349,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
             socket.off('connect', onConnect);
             socket.off('disconnect', onDisconnect);
         };
-    }, [socket, myId, apiClient, flushOutbox]);
+    }, [socket, myId, myName, apiClient, flushOutbox]);
 
     const triggerShake = () => {
         setOpen(true);
@@ -593,6 +648,9 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                                 ? <div className="text-[11px] text-blue-500 truncate leading-tight">digitando…</div>
                                 : (peerStatusMsg && <div className="text-[11px] text-gray-500 truncate leading-tight italic">{peerStatusMsg}</div>)}
                         </div>
+                        <button onClick={() => { togglePeerMute(openPeer.id); setMuteTick(t => t + 1); }} className={`p-1 ${isPeerMuted(openPeer.id) ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-800`} title={isPeerMuted(openPeer.id) ? 'Reativar sons desta conversa' : 'Silenciar esta conversa'}>
+                            {isPeerMuted(openPeer.id) ? <BellOff size={15} /> : <Bell size={15} />}
+                        </button>
                         <button onClick={() => { setSearchOpen(v => !v); setSearchQ(''); setSearchResults([]); }} className={`p-1 ${searchOpen ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-800`} title="Buscar no histórico"><Search size={15} /></button>
                     </div>
 
@@ -660,7 +718,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                                                     {quoted.deleted_at ? 'mensagem apagada' : applyEmoticons((quoted.body || '').slice(0, 80))}
                                                 </div>
                                             )}
-                                            {isDeleted ? 'mensagem apagada' : applyEmoticons(m.body)}
+                                            {isDeleted ? 'mensagem apagada' : renderBody(m.body)}
                                             <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 ${isDeleted ? 'text-gray-300' : (mine ? 'text-blue-100' : 'text-gray-400')}`}>
                                                 {m.edited_at && !isDeleted && <span className="italic">editada</span>}
                                                 {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
