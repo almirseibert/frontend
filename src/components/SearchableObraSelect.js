@@ -13,6 +13,10 @@ import { formatObraNome } from '../utils/obraFormat';
  *   includeInactive - exibe obras finalizadas/inativas no dropdown (default: false)
  *   storageKey     - se fornecido, persiste as 10 obras mais recentes no localStorage
  *   className      - classe extra no container
+ *   overlay        - quando true, abre a lista como um seletor centralizado em
+ *                    tela cheia (útil dentro de modais/celular, quando o dropdown
+ *                    padrão seria cortado pela borda do modal ou do visor)
+ *   overlayTitle   - título/placeholder da busca no modo overlay
  */
 const SearchableObraSelect = ({
     obras = [],
@@ -22,6 +26,8 @@ const SearchableObraSelect = ({
     includeInactive = false,
     storageKey = null,
     className = '',
+    overlay = false,
+    overlayTitle = 'Selecione a obra',
 }) => {
     const [search, setSearch] = useState('');
     const [open, setOpen] = useState(false);
@@ -101,40 +107,9 @@ const SearchableObraSelect = ({
         filtered.inactive.length === 0 &&
         (!storageKey || recentObras.length === 0 || search);
 
-    return (
-        <div className={`relative ${className}`} ref={containerRef}>
-            <div
-                className="flex items-center rounded-lg transition-all"
-                style={{ border: '1px solid #e8e0d4', background: '#faf9f7' }}
-                onFocusCapture={e => { e.currentTarget.style.borderColor = '#9E7A42'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(158,122,66,0.18)'; e.currentTarget.style.background = '#fff'; }}
-                onBlurCapture={e => { e.currentTarget.style.borderColor = '#e8e0d4'; e.currentTarget.style.boxShadow = ''; e.currentTarget.style.background = '#faf9f7'; }}
-            >
-                <Search size={15} className="ml-3 flex-shrink-0" style={{ color: '#b0a090' }} />
-                <input
-                    type="text"
-                    className="mak-bare-input flex-1 outline-none bg-transparent min-w-0"
-                    style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '7px 8px', fontSize: 13, color: '#3d3528', width: '100%' }}
-                    placeholder={placeholder}
-                    value={open ? search : (selectedObra ? formatObraNome(selectedObra) : '')}
-                    onFocus={() => { setSearch(''); setOpen(true); }}
-                    onChange={(e) => setSearch(e.target.value)}
-                />
-                {value && (
-                    <button
-                        onClick={handleClear}
-                        className="mak-bare-input p-2 flex-shrink-0 transition"
-                        style={{ border: 'none', background: 'transparent', color: '#b0a090', cursor: 'pointer', lineHeight: 0 }}
-                        onMouseEnter={e => e.currentTarget.style.color = '#b03828'}
-                        onMouseLeave={e => e.currentTarget.style.color = '#b0a090'}
-                        title="Limpar seleção"
-                    >
-                        <X size={15} />
-                    </button>
-                )}
-            </div>
-
-            {open && (
-                <div className="absolute z-40 w-full mt-1 bg-white rounded-lg shadow-xl max-h-72 overflow-y-auto mak-scrollbar" style={{ border: '1px solid #e8e0d4' }}>
+    // Conteúdo da lista — compartilhado entre o dropdown padrão e o modo overlay.
+    const listContent = (
+        <>
                     {showEmpty && (
                         <p className="p-4 text-sm text-center" style={{ color: '#9a8a78' }}>Nenhuma obra encontrada.</p>
                     )}
@@ -218,6 +193,81 @@ const SearchableObraSelect = ({
                             })}
                         </>
                     )}
+        </>
+    );
+
+    return (
+        <div className={`relative ${className}`} ref={containerRef}>
+            <div
+                className="flex items-center rounded-lg transition-all"
+                style={{ border: '1px solid #e8e0d4', background: '#faf9f7' }}
+                onFocusCapture={e => { e.currentTarget.style.borderColor = '#9E7A42'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(158,122,66,0.18)'; e.currentTarget.style.background = '#fff'; }}
+                onBlurCapture={e => { e.currentTarget.style.borderColor = '#e8e0d4'; e.currentTarget.style.boxShadow = ''; e.currentTarget.style.background = '#faf9f7'; }}
+            >
+                <Search size={15} className="ml-3 flex-shrink-0" style={{ color: '#b0a090' }} />
+                <input
+                    type="text"
+                    className="mak-bare-input flex-1 outline-none bg-transparent min-w-0"
+                    style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '7px 8px', fontSize: 13, color: '#3d3528', width: '100%' }}
+                    placeholder={placeholder}
+                    value={(open && !overlay) ? search : (selectedObra ? formatObraNome(selectedObra) : '')}
+                    onFocus={() => { setSearch(''); setOpen(true); }}
+                    onChange={(e) => setSearch(e.target.value)}
+                    readOnly={overlay}
+                />
+                {value && (
+                    <button
+                        type="button"
+                        onClick={handleClear}
+                        className="mak-bare-input p-2 flex-shrink-0 transition"
+                        style={{ border: 'none', background: 'transparent', color: '#b0a090', cursor: 'pointer', lineHeight: 0 }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#b03828'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#b0a090'}
+                        title="Limpar seleção"
+                    >
+                        <X size={15} />
+                    </button>
+                )}
+            </div>
+
+            {open && !overlay && (
+                <div className="absolute z-40 w-full mt-1 bg-white rounded-lg shadow-xl max-h-72 overflow-y-auto mak-scrollbar" style={{ border: '1px solid #e8e0d4' }}>
+                    {listContent}
+                </div>
+            )}
+
+            {open && overlay && (
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center p-4 animate-fadeIn"
+                    style={{ background: 'rgba(0,0,0,0.5)' }}
+                    onMouseDown={(e) => { if (e.target === e.currentTarget) { setOpen(false); setSearch(''); } }}
+                >
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden" style={{ maxHeight: '70vh', border: '1px solid #e8e0d4' }}>
+                        <div className="flex items-center gap-2 px-3 py-2.5 shrink-0" style={{ borderBottom: '1px solid #e8e0d4' }}>
+                            <Search size={16} className="flex-shrink-0" style={{ color: '#b0a090' }} />
+                            <input
+                                type="text"
+                                autoFocus
+                                className="mak-bare-input flex-1 outline-none bg-transparent min-w-0"
+                                style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '4px 4px', fontSize: 14, color: '#3d3528' }}
+                                placeholder={overlayTitle}
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => { setOpen(false); setSearch(''); }}
+                                className="mak-bare-input p-1.5 flex-shrink-0"
+                                style={{ border: 'none', background: 'transparent', color: '#b0a090', cursor: 'pointer', lineHeight: 0 }}
+                                title="Fechar"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="overflow-y-auto mak-scrollbar">
+                            {listContent}
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

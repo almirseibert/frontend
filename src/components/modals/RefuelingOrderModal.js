@@ -633,6 +633,8 @@ const RefuelingOrderModal = ({
                                 onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
                                 placeholder="Selecione..."
                                 includeInactive={true}
+                                overlay={true}
+                                overlayTitle="Buscar obra / alocação..."
                             />
                         </div>
 

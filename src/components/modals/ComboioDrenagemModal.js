@@ -178,38 +178,39 @@ const ComboioDrenagemModal = ({
                     <button onClick={onClose}><X size={20} /></button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
-                    <p className="text-sm text-gray-500">Retira combustível de um veículo. O destino define para onde o combustível vai.</p>
+                <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
+                    <div className="p-4 sm:p-5 space-y-3 overflow-y-auto flex-1 mak-scrollbar">
+                    <p className="text-xs text-gray-500 leading-snug">Retira combustível de um veículo. O destino define para onde o combustível vai.</p>
 
                     {/* DESTINO */}
                     <div>
-                        <label className="block text-sm font-medium mb-1">Destino *</label>
+                        <label className="block text-xs font-semibold mb-1">Destino *</label>
                         <div className="grid grid-cols-3 gap-2">
                             {destinos.map(({ key, label, icon: Icon, desc }) => (
                                 <button
                                     type="button"
                                     key={key}
                                     onClick={() => setFormData(prev => ({ ...prev, destino: key }))}
-                                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-xs transition ${
+                                    className={`flex flex-col items-center gap-1 p-1.5 rounded-lg border text-xs transition ${
                                         formData.destino === key
                                             ? 'bg-orange-500 text-white border-orange-500'
                                             : 'bg-white text-gray-600 border-gray-200 hover:bg-orange-50'
                                     }`}
                                     title={desc}
                                 >
-                                    <Icon size={18} />
+                                    <Icon size={16} />
                                     <span className="font-semibold">{label}</span>
                                 </button>
                             ))}
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-1">
+                        <p className="text-[11px] text-gray-400 mt-1 leading-snug">
                             {destinos.find(d => d.key === formData.destino)?.desc}
                         </p>
                     </div>
 
                     {/* ORIGEM */}
                     <div>
-                        <label className="block text-sm font-medium mb-1">Drenar de (Origem) *</label>
+                        <label className="block text-xs font-semibold mb-1">Drenar de (Origem) *</label>
                         <SearchableSelect
                             items={drainableVehicles}
                             value={formData.drainingVehicleId}
@@ -224,7 +225,7 @@ const ComboioDrenagemModal = ({
                     {/* DESTINO: COMBOIO */}
                     {formData.destino === 'comboio' && (
                         <div>
-                            <label className="block text-sm font-medium mb-1">Para Comboio (Destino) *</label>
+                            <label className="block text-xs font-semibold mb-1">Para Comboio (Destino) *</label>
                             <SearchableSelect
                                 items={comboioVehicles}
                                 value={formData.comboioVehicleId}
@@ -241,7 +242,7 @@ const ComboioDrenagemModal = ({
                     {formData.destino === 'transfusao' && (
                         <>
                             <div>
-                                <label className="block text-sm font-medium mb-1">Transferir para (Receptor) *</label>
+                                <label className="block text-xs font-semibold mb-1">Transferir para (Receptor) *</label>
                                 <SearchableSelect
                                     items={receivingVehicles}
                                     value={formData.receivingVehicleId}
@@ -254,17 +255,17 @@ const ComboioDrenagemModal = ({
                             </div>
                             {receiverReading && (
                                 <div>
-                                    <label className="block text-sm font-medium mb-1">{receiverReading.label} do receptor *</label>
+                                    <label className="block text-xs font-semibold mb-1">{receiverReading.label} do receptor *</label>
                                     <input
                                         name={receiverReading.name}
                                         type="number"
                                         step="0.1"
                                         value={formData[receiverReading.name]}
                                         onChange={handleChange}
-                                        className="w-full p-2 border rounded"
+                                        className="w-full p-1.5 border rounded text-sm"
                                         required
                                     />
-                                    <p className="text-[11px] text-gray-400 mt-1">
+                                    <p className="text-[11px] text-gray-400 mt-1 leading-snug">
                                         Leitura atual: {getVehicleMainReading(selectedReceivingVehicle).value} {getVehicleMainReading(selectedReceivingVehicle).unit}
                                     </p>
                                 </div>
@@ -272,44 +273,46 @@ const ComboioDrenagemModal = ({
                         </>
                     )}
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="block text-sm font-medium mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border rounded" required>
+                            <label className="block text-xs font-semibold mb-1">Combustível *</label>
+                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" required>
                                 <option value="">Auto</option>
                                 <option value="dieselComum">Diesel Comum</option>
                                 <option value="dieselS10">Diesel S10</option>
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium mb-1">Litros *</label>
-                            <input name="liters" type="number" step="0.1" value={formData.liters} onChange={handleChange} className="w-full p-2 border rounded" required />
+                            <label className="block text-xs font-semibold mb-1">Litros *</label>
+                            <input name="liters" type="number" step="0.1" value={formData.liters} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" required />
                         </div>
                     </div>
 
                     {/* DISPONÍVEL (informativo) */}
                     {formData.drainingVehicleId && formData.fuelType && (
-                        <div className="text-xs bg-blue-50 border border-blue-100 text-blue-700 rounded p-2">
+                        <div className="text-xs bg-blue-50 border border-blue-100 text-blue-700 rounded p-2 leading-snug">
                             Disponível (2 últimas abastecidas): <strong>{Number(disponivel || 0).toFixed(2)} L</strong>
                             <span className="text-blue-400"> — referência, não bloqueia.</span>
                         </div>
                     )}
 
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Data *</label>
-                        <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded" required />
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">Data *</label>
+                            <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" required />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold mb-1">
+                                Motivo {formData.destino === 'eliminado' && <span className="text-gray-400">(contaminação)</span>}
+                            </label>
+                            <input name="reason" type="text" value={formData.reason} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder="Opcional..." />
+                        </div>
+                    </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium mb-1">
-                            Motivo {formData.destino === 'eliminado' && <span className="text-gray-400">(ex.: contaminação)</span>}
-                        </label>
-                        <textarea name="reason" value={formData.reason} onChange={handleChange} className="w-full p-2 border rounded" rows="2"></textarea>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-4 py-2 bg-orange-500 text-white rounded font-bold flex items-center gap-2">
+                    <div className="flex justify-end gap-2 p-3 border-t bg-gray-50 shrink-0">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancelar</button>
+                        <button type="submit" disabled={isSaving} className="px-4 py-2 bg-orange-500 text-white rounded text-sm font-bold flex items-center gap-2 disabled:opacity-60">
                             {isSaving && <Loader className="animate-spin" size={16} />} Registrar Drenagem
                         </button>
                     </div>

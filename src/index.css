@@ -383,7 +383,17 @@ button.bg-yellow-500 {
   width: 100%;
   display: flex; flex-direction: column;
   max-height: 92vh;
+  /* dvh acompanha a barra dinâmica dos navegadores mobile: sem isso o modal
+     centralizado transborda o visor real e o rodapé (botões) fica abaixo da
+     dobra em celulares. Fallback em vh para navegadores sem suporte a dvh. */
+  max-height: 92dvh;
   overflow: hidden;
+}
+/* Em telas pequenas, aproveitar melhor a altura e reduzir a margem do backdrop
+   para o rodapé de ações nunca ser cortado. */
+@media (max-width: 640px) {
+  .mak-modal-backdrop { padding: 8px; }
+  .mak-modal { max-height: 96vh; max-height: 96dvh; }
 }
 .mak-modal-header {
   display: flex; align-items: flex-start; justify-content: space-between;
