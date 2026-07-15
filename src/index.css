@@ -447,6 +447,17 @@ button.bg-yellow-500 {
   .dot-pulse { animation: none; opacity: 1; }
 }
 
+/* ─── MSN Nudge — "chacoalhada" da janela do mensageiro ─── */
+@keyframes msn-shake {
+  0%, 100% { transform: translate(0, 0); }
+  10%, 30%, 50%, 70%, 90% { transform: translate(-6px, 4px); }
+  20%, 40%, 60%, 80%      { transform: translate(6px, -4px); }
+}
+.msn-shake { animation: msn-shake 0.6s cubic-bezier(.36,.07,.19,.97) both; }
+@media (prefers-reduced-motion: reduce) {
+  .msn-shake { animation: none; }
+}
+
 /* ─── Neon Red Pulse — usado em avisos críticos de bloqueio ─── */
 @keyframes neonRedPulse {
   0%, 100% {

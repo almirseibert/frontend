@@ -246,6 +246,15 @@ const apiClient = {
     deleteObraHistoryEntry: async (obraId, historyId) =>
         apiFetch(`/obras/${obraId}/historico/${historyId}`, { method: 'DELETE' }),
 
+    // --- Configurações do usuário (perfil de chat) ---
+    getMySettings: async () => apiFetch('/users/me/settings'),
+    updateMySettings: async (data) => apiFetch('/users/me/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+    // --- Mensageiro interno (chat direto) ---
+    getChatContacts: async () => apiFetch('/chat/contacts'),
+    getChatMessages: async (userId, limit = 200) => apiFetch(`/chat/messages/${userId}?limit=${limit}`),
+    sendChatMessage: async (data) => apiFetch('/chat/messages', { method: 'POST', body: JSON.stringify(data) }),
+
     // --- MÓDULO SUPERVISOR (Novo) ---
     getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),
     getSupervisorObraDetails: async (id) => apiFetch(`/supervisor/obra/${id}`),

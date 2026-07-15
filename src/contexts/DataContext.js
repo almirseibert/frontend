@@ -391,7 +391,12 @@ export const DataProvider = ({ children }) => {
         if (!user) return;
 
         const SOCKET_URL = (process.env.REACT_APP_API_URL || 'http://localhost:3001').replace('/api', '');
-        const s = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+        // Passa o JWT no handshake para o backend associar o socket ao usuário
+        // (salas `user:<id>`, presença e mensageiro interno).
+        const s = io(SOCKET_URL, {
+            transports: ['websocket', 'polling'],
+            auth: { token: localStorage.getItem('authToken') },
+        });
         setSocket(s);
 
         s.on('connect', () => {

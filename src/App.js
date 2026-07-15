@@ -41,6 +41,8 @@ import ExcavatorLoader from './components/ui/ExcavatorLoader';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DataProvider, useData } from './contexts/DataContext';
 import Sidebar from './components/Sidebar';
+import SettingsModal from './components/modals/SettingsModal';
+import Messenger from './components/chat/Messenger';
 
 // LoginScreen carrega de forma síncrona (necessário antes do login)
 import LoginScreen from './components/LoginScreen';
@@ -235,84 +237,8 @@ const PasswordConfirmationModalRaw = ({ onConfirm, onClose, message, apiClient: 
 };
 const PasswordConfirmationModal = React.memo(PasswordConfirmationModalRaw);
 
-const ChangePasswordModalRaw = ({ isOpen, onClose, apiClient: apiClientProp }) => {
-    const [currentPassword, setCurrentPassword] = useState('');
-    const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [message, setMessage] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const client = apiClientProp || apiClient;
-
-    useEffect(() => {
-        if (isOpen) {
-            setCurrentPassword('');
-            setNewPassword('');
-            setConfirmPassword('');
-            setMessage(null);
-        }
-    }, [isOpen]);
-
-    if (!isOpen) return null;
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setMessage(null);
-
-        if (newPassword !== confirmPassword) {
-            setMessage({ type: 'error', text: 'As novas senhas não conferem.' });
-            return;
-        }
-        if (newPassword.length < 6) {
-            setMessage({ type: 'error', text: 'A nova senha deve ter no mínimo 6 caracteres.' });
-            return;
-        }
-
-        setLoading(true);
-        try {
-            await client.changePassword({ currentPassword, newPassword });
-            setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
-            setTimeout(onClose, 1500);
-        } catch (error) {
-            setMessage({ type: 'error', text: error.message || 'Erro ao alterar senha.' });
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
-                <h2 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Alterar Senha</h2>
-                {message && (
-                    <div className={`p-2 mb-3 rounded text-sm text-center ${message.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {message.text}
-                    </div>
-                )}
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <div>
-                        <label className="block text-xs font-bold text-gray-600 uppercase">Senha Atual</label>
-                        <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-600 uppercase">Nova Senha</label>
-                        <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-600 uppercase">Confirmar Nova Senha</label>
-                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
-                    </div>
-                    <div className="flex justify-end gap-2 mt-4">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm font-bold">Cancelar</button>
-                        <button type="submit" disabled={loading} className="px-4 py-2 bg-yellow-400 text-gray-900 rounded hover:bg-yellow-500 text-sm font-bold disabled:opacity-50">
-                            {loading ? 'Salvando...' : 'Confirmar'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-const ChangePasswordModal = React.memo(ChangePasswordModalRaw);
+// (O antigo ChangePasswordModal inline foi substituído pelo SettingsModal —
+// a troca de senha agora vive na aba "Segurança" das Configurações.)
 
 const UpdateMessageModal = React.memo(({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[99999]">
@@ -425,13 +351,28 @@ const AppContent = () => {
 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
-    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
+    const [myChatStatus, setMyChatStatus] = useState('disponivel');
     const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
     const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
     const [operadorTelaAtual, setOperadorTelaAtual] = useState(null); // null | 'comboio' | 'normal'
 
     const [agendaAlerts, setAgendaAlerts] = useState([]);
     const [adminPopups, setAdminPopups] = useState([]); // pop-ups de notificação (somente admin)
+
+    // Status inicial do chat (carrega o último status salvo do usuário).
+    useEffect(() => {
+        if (!user || user.user_type === 'operador') return;
+        apiClient.getMySettings()
+            .then(s => { if (s?.chatStatus) setMyChatStatus(s.chatStatus); })
+            .catch(() => {});
+    }, [user]);
+
+    // Troca de status: atualiza o dot local, propaga presença via socket e persiste.
+    const handleChatStatusChange = useCallback((status) => {
+        setMyChatStatus(status);
+        if (socket) socket.emit('chat:setStatus', { status });
+    }, [socket]);
 
     // ---------- Taxonomia de veículos (hidratada do banco) ----------
     // Incrementa a cada hidratação para forçar recompute dos consumidores.
@@ -1030,14 +971,27 @@ const AppContent = () => {
                 setCurrentPage={setCurrentPage}
                 user={user}
                 logout={logout}
-                onChangePassword={() => setShowChangePasswordModal(true)}
+                onOpenSettings={() => setShowSettingsModal(true)}
+                myChatStatus={myChatStatus}
                 pendingSolicitacoesCount={pendingSolicitacoesCount}
             />
 
-            <ChangePasswordModal
-                isOpen={showChangePasswordModal}
-                onClose={() => setShowChangePasswordModal(false)}
+            {showSettingsModal && (
+                <SettingsModal
+                    onClose={() => setShowSettingsModal(false)}
+                    apiClient={apiClient}
+                    socket={socket}
+                    onProfileSaved={(s) => { if (s?.chatStatus) setMyChatStatus(s.chatStatus); }}
+                />
+            )}
+
+            {/* Mensageiro interno (não aparece para operadores — que nem chegam aqui) */}
+            <Messenger
+                socket={socket}
+                user={user}
                 apiClient={apiClient}
+                myStatus={myChatStatus}
+                onStatusChange={handleChatStatusChange}
             />
 
             <main className="flex-1 flex flex-col relative overflow-hidden">

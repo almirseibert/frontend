@@ -41,6 +41,7 @@ const ObrasPage = ({
     const [orgaoFilter, setOrgaoFilter] = useState('todos'); // 'todos' | <nome do órgão>
     const [sortBy, setSortBy] = useState('nome-asc'); // ordenação da listagem
     const [searchTerm, setSearchTerm] = useState('');
+    const [showFinished, setShowFinished] = useState(false); // por padrão, obras finalizadas ficam ocultas
     
     // --- ESTADOS DOS MODAIS ---
     const [modalState, setModalState] = useState({
@@ -169,14 +170,17 @@ const ObrasPage = ({
         return (obras || [])
             .filter(o => {
                 const statusMatch = filter === 'todos' || o.status === filter;
+                // Obras finalizadas ficam ocultas a menos que o switch esteja ativo
+                // (ou que o usuário tenha filtrado explicitamente por "Finalizada").
+                const finishedMatch = showFinished || filter === 'finalizada' || o.status !== 'finalizada';
                 const searchMatch = normalize(o.nome).includes(term) || normalize(o.orgao_contratante).includes(term);
                 const tipoMatch = tipoFilter === 'todos' || (o.tipo_registro || 'obra') === tipoFilter;
                 const regiaoMatch = regiaoFilter === 'todas' || o.regiao === regiaoFilter;
                 const orgaoMatch = orgaoFilter === 'todos' || o.orgao_contratante === orgaoFilter;
-                return statusMatch && searchMatch && tipoMatch && regiaoMatch && orgaoMatch;
+                return statusMatch && finishedMatch && searchMatch && tipoMatch && regiaoMatch && orgaoMatch;
             })
             .sort(sorters[sortBy] || sorters['nome-asc']);
-    }, [obras, filter, tipoFilter, regiaoFilter, orgaoFilter, sortBy, searchTerm]);
+    }, [obras, filter, tipoFilter, regiaoFilter, orgaoFilter, sortBy, searchTerm, showFinished]);
 
     const exportToCSV = () => {
         if (!filteredObras || filteredObras.length === 0) {
@@ -295,6 +299,20 @@ const ObrasPage = ({
                             ))}
                         </select>
                     </div>
+                    {/* Switch: mostrar obras finalizadas (ocultas por padrão) */}
+                    <label className="flex items-center gap-1.5 cursor-pointer shrink-0" title="Exibir obras com status Finalizada">
+                        <div className="relative">
+                            <input
+                                type="checkbox"
+                                checked={showFinished}
+                                onChange={(e) => setShowFinished(e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-gray-200 rounded-full transition-colors peer-checked:bg-yellow-400" />
+                            <div className="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+                        </div>
+                        <span style={labelStyle}>Mostrar finalizadas</span>
+                    </label>
                     <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: '#9a8a78', whiteSpace: 'nowrap' }}>
                         {filteredObras.length} {filteredObras.length === 1 ? 'registro' : 'registros'}
                     </span>

@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
     Building, HardHat, ClipboardCheck, FileText,
-    Fuel, Wrench, User, Shield, LogOut, Key,
+    Fuel, Wrench, User, Shield, LogOut, Settings,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
     Radio, Search
 } from 'lucide-react';
 import { ROLE_PAGE_ACCESS, canAccessAnaliseGerencial } from '../utils/permissions';
+import { getStatusMeta } from '../utils/chatStatus';
 
-const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
+const Sidebar = ({ currentPage, setCurrentPage, user, logout, onOpenSettings, myChatStatus, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
 
     const roleNorm = user?.roleNormalized || (user?.user_type || 'viewer').toLowerCase();
@@ -362,11 +363,23 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             <div className="shrink-0 p-2" style={{ borderTop: '1px solid #3d3528' }}>
                 {/* Usuário */}
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded-md mb-1 ${isCollapsed ? 'justify-center' : ''}`}>
-                    <div
-                        className="flex items-center justify-center rounded-full shrink-0 text-white font-bold"
-                        style={{ width: 26, height: 26, background: '#9E7A42', fontSize: 10, fontWeight: 700 }}
-                    >
-                        {userInitial}
+                    <div className="relative shrink-0">
+                        <div
+                            className="flex items-center justify-center rounded-full text-white font-bold"
+                            style={{ width: 26, height: 26, background: '#9E7A42', fontSize: 10, fontWeight: 700 }}
+                        >
+                            {userInitial}
+                        </div>
+                        {/* Bolinha de status do chat (MSN) */}
+                        <span
+                            title={getStatusMeta(myChatStatus).label}
+                            style={{
+                                position: 'absolute', bottom: -1, right: -1,
+                                width: 9, height: 9, borderRadius: '50%',
+                                background: getStatusMeta(myChatStatus).dot,
+                                border: '1.5px solid #1c1a17',
+                            }}
+                        />
                     </div>
                     {!isCollapsed && (
                         <div className="overflow-hidden">
@@ -374,14 +387,14 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                             <div className="flex items-center gap-1">
                                 <span style={{ fontSize: 9, color: '#5a4e3a' }}>{userRole}</span>
                                 <button
-                                    onClick={onChangePassword}
+                                    onClick={onOpenSettings}
                                     className="flex items-center gap-0.5 transition-colors"
                                     style={{ fontSize: 9, color: '#5a4e3a' }}
                                     onMouseEnter={e => e.currentTarget.style.color = '#9E7A42'}
                                     onMouseLeave={e => e.currentTarget.style.color = '#5a4e3a'}
-                                    title="Trocar senha"
+                                    title="Configurações"
                                 >
-                                    · <Key size={9} /> Trocar Senha
+                                    · <Settings size={9} /> Configurações
                                 </button>
                             </div>
                         </div>
