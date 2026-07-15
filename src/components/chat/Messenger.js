@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle } from 'lucide-react';
+import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical } from 'lucide-react';
 import { CHAT_STATUS, STATUS_ORDER, GROUP_ORDER, getStatusMeta, isOnlineStatus } from '../../utils/chatStatus';
 import {
     playDing, playNudge, playOnline, playOffline, unlockAudio,
@@ -11,6 +11,43 @@ const initialOf = (name) => (name || '?').trim().charAt(0).toUpperCase();
 // IDs podem ser UUID (string) ou INT — compara sempre como string.
 const sameId = (a, b) => String(a) === String(b);
 const uuid = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+// ── Emoticons/winks estilo MSN ──
+const EMOTICONS = [
+    [':)', '😊'], [':-)', '😊'], [':(', '☹️'], [':-(', '☹️'], [';)', '😉'], [';-)', '😉'],
+    [':D', '😃'], [':-D', '😃'], [':P', '😛'], [':-P', '😛'], [':p', '😛'], [":'(", '😢'],
+    ['<3', '❤️'], [':o', '😮'], [':O', '😮'], [':|', '😐'], ['(y)', '👍'], ['(n)', '👎'],
+];
+const applyEmoticons = (text) => {
+    if (!text) return text;
+    let out = text;
+    for (const [k, v] of EMOTICONS) out = out.split(k).join(v);
+    return out;
+};
+const QUICK_EMOJIS = ['👍', '✅', '😂', '❤️', '🎉', '🙏', '😮', '👎'];
+const REACTION_EMOJIS = ['👍', '✅', '😂', '❤️'];
+
+// ── Rascunhos persistentes por conversa ──
+const DRAFTS_KEY = 'chatDrafts';
+const readDrafts = () => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}'); } catch { return {}; } };
+const writeDraft = (peerId, text) => {
+    try {
+        const d = readDrafts();
+        if (text) d[peerId] = text; else delete d[peerId];
+        localStorage.setItem(DRAFTS_KEY, JSON.stringify(d));
+    } catch { /* quota */ }
+};
+
+// Agrega reações [{userId,emoji}] em [{emoji, count, mine}].
+const aggregateReactions = (reactions, myId) => {
+    const map = {};
+    (reactions || []).forEach(r => {
+        const e = (map[r.emoji] = map[r.emoji] || { emoji: r.emoji, count: 0, mine: false });
+        e.count++;
+        if (sameId(r.userId, myId)) e.mine = true;
+    });
+    return Object.values(map);
+};
 
 // ── Fila offline (localStorage) ──
 // Mensagens ainda não confirmadas pelo servidor. Reenviadas com o mesmo
@@ -49,6 +86,14 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     const [connected, setConnected] = useState(socket?.connected ?? true);
     const [loadingOlder, setLoadingOlder] = useState(false);
     const [hasMore, setHasMore] = useState(true);
+    const [replyTo, setReplyTo] = useState(null);      // mensagem sendo citada
+    const [editing, setEditing] = useState(null);      // mensagem sendo editada
+    const [menuFor, setMenuFor] = useState(null);      // id com menu de contexto aberto
+    const [reactFor, setReactFor] = useState(null);    // id com seletor de reação aberto
+    const [emojiOpen, setEmojiOpen] = useState(false); // picker de emoji do input
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchQ, setSearchQ] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
 
     const openPeerRef = useRef(null);
     const statusesRef = useRef({});
@@ -93,6 +138,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                     body: item.body,
                     type: item.type,
                     clientMsgId: item.clientMsgId,
+                    replyTo: item.replyTo || null,
                 });
                 // Sucesso → remove da fila; o eco (chat:message) reconcilia a UI.
                 const cur = readOutbox().filter(o => o.clientMsgId !== item.clientMsgId);
@@ -195,6 +241,26 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         const onTyping = ({ from }) => setTypingPeers(p => ({ ...p, [from]: true }));
         const onStopTyping = ({ from }) => setTypingPeers(p => { const n = { ...p }; delete n[from]; return n; });
 
+        const onEdited = ({ id, body, edited_at }) =>
+            setMessages(prev => prev.map(m => sameId(m.id, id) ? { ...m, body, edited_at } : m));
+        const onDeleted = ({ id, deleted_at }) =>
+            setMessages(prev => prev.map(m => sameId(m.id, id) ? { ...m, body: null, deleted_at } : m));
+        const onReaction = ({ messageId, userId, emoji, action }) =>
+            setMessages(prev => prev.map(m => {
+                if (!sameId(m.id, messageId)) return m;
+                let reactions = m.reactions || [];
+                if (action === 'add' && !reactions.some(r => sameId(r.userId, userId) && r.emoji === emoji)) {
+                    reactions = [...reactions, { userId, emoji }];
+                } else if (action === 'remove') {
+                    reactions = reactions.filter(r => !(sameId(r.userId, userId) && r.emoji === emoji));
+                }
+                return { ...m, reactions };
+            }));
+        const onPin = ({ id, pinned, pinned_by }) =>
+            setMessages(prev => prev.map(m => sameId(m.id, id)
+                ? { ...m, pinned_at: pinned ? (m.pinned_at || new Date().toISOString()) : null, pinned_by: pinned ? pinned_by : null }
+                : m));
+
         const onConnect = () => { setConnected(true); flushOutbox(); };
         const onDisconnect = () => setConnected(false);
 
@@ -206,6 +272,10 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         socket.on('chat:read', onRead);
         socket.on('chat:typing', onTyping);
         socket.on('chat:stopTyping', onStopTyping);
+        socket.on('chat:edited', onEdited);
+        socket.on('chat:deleted', onDeleted);
+        socket.on('chat:reaction', onReaction);
+        socket.on('chat:pin', onPin);
         socket.on('connect', onConnect);
         socket.on('disconnect', onDisconnect);
         return () => {
@@ -217,6 +287,10 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
             socket.off('chat:read', onRead);
             socket.off('chat:typing', onTyping);
             socket.off('chat:stopTyping', onStopTyping);
+            socket.off('chat:edited', onEdited);
+            socket.off('chat:deleted', onDeleted);
+            socket.off('chat:reaction', onReaction);
+            socket.off('chat:pin', onPin);
             socket.off('connect', onConnect);
             socket.off('disconnect', onDisconnect);
         };
@@ -232,6 +306,9 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         unlockAudio();
         setOpenPeer(contact);
         setHasMore(true);
+        setReplyTo(null); setEditing(null); setMenuFor(null); setReactFor(null); setEmojiOpen(false);
+        setSearchOpen(false); setSearchQ(''); setSearchResults([]);
+        setInput(readDrafts()[contact.id] || '');
         setUnread(prev => { const n = { ...prev }; delete n[contact.id]; return n; });
         try {
             const msgs = await apiClient.getChatMessages(contact.id);
@@ -271,7 +348,23 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         if (type === 'text' && !body) return;
         unlockAudio();
         stopTyping();
+
+        // Modo edição: salva a alteração em vez de enviar nova mensagem.
+        if (editing && type === 'text') {
+            const editId = editing.id;
+            const newBody = body;
+            setEditing(null);
+            setInput('');
+            writeDraft(openPeer.id, '');
+            setMessages(prev => prev.map(m => sameId(m.id, editId) ? { ...m, body: newBody, edited_at: new Date().toISOString() } : m));
+            try { await apiClient.editChatMessage(editId, newBody); } catch (e) { console.warn('Erro ao editar:', e.message); }
+            return;
+        }
+
         setInput('');
+        writeDraft(openPeer.id, '');
+        const replySnapshot = replyTo;
+        setReplyTo(null);
 
         const clientMsgId = uuid();
         const createdAt = new Date().toISOString();
@@ -281,6 +374,8 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
             sender_id: myId,
             recipient_id: openPeer.id,
             body, type,
+            reply_to: replySnapshot ? replySnapshot.id : null,
+            reactions: [],
             read_at: null, delivered_at: null,
             created_at: createdAt,
             pending: true,
@@ -288,10 +383,10 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         // Render otimista imediato.
         setMessages(prev => [...prev, optimistic]);
         // Enfileira antes de tentar enviar (sobrevive a refresh/queda).
-        writeOutbox([...readOutbox(), { clientMsgId, recipientId: openPeer.id, body, type, created_at: createdAt }]);
+        writeOutbox([...readOutbox(), { clientMsgId, recipientId: openPeer.id, body, type, replyTo: optimistic.reply_to, created_at: createdAt }]);
 
         try {
-            await apiClient.sendChatMessage({ recipientId: openPeer.id, body, type, clientMsgId });
+            await apiClient.sendChatMessage({ recipientId: openPeer.id, body, type, clientMsgId, replyTo: optimistic.reply_to });
             // O eco (chat:message) reconcilia e remove da fila.
         } catch (e) {
             // Falhou (offline/servidor) — permanece na fila; marca visualmente.
@@ -310,7 +405,9 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     }, [socket]);
 
     const onInputChange = (e) => {
-        setInput(e.target.value);
+        const val = e.target.value;
+        setInput(val);
+        if (openPeer) writeDraft(openPeer.id, val);
         if (!socket || !openPeer) return;
         if (!typingSentRef.current) {
             socket.emit('chat:typing', { to: openPeer.id });
@@ -322,6 +419,52 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
 
     const handleKey = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage('text'); }
+        if (e.key === 'Escape') { setReplyTo(null); setEditing(null); }
+    };
+
+    // ── Ações sobre mensagens ──
+    const startReply = (m) => { setEditing(null); setReplyTo(m); setMenuFor(null); };
+    const startEdit = (m) => {
+        setReplyTo(null); setEditing(m); setInput(m.body || ''); setMenuFor(null);
+    };
+    const cancelCompose = () => { setReplyTo(null); setEditing(null); setInput(''); if (openPeer) writeDraft(openPeer.id, ''); };
+    const deleteMsg = async (m) => {
+        setMenuFor(null);
+        setMessages(prev => prev.map(x => sameId(x.id, m.id) ? { ...x, body: null, deleted_at: new Date().toISOString() } : x));
+        try { await apiClient.deleteChatMessage(m.id); } catch (e) { console.warn('Erro ao apagar:', e.message); }
+    };
+    const react = async (m, emoji) => {
+        setReactFor(null);
+        // Otimista: alterna localmente.
+        setMessages(prev => prev.map(x => {
+            if (!sameId(x.id, m.id)) return x;
+            const has = (x.reactions || []).some(r => sameId(r.userId, myId) && r.emoji === emoji);
+            const reactions = has
+                ? (x.reactions || []).filter(r => !(sameId(r.userId, myId) && r.emoji === emoji))
+                : [...(x.reactions || []), { userId: myId, emoji }];
+            return { ...x, reactions };
+        }));
+        try { await apiClient.reactChatMessage(m.id, emoji); } catch (e) { console.warn('Erro na reação:', e.message); }
+    };
+    const togglePin = async (m) => {
+        setMenuFor(null);
+        const willPin = !m.pinned_at;
+        setMessages(prev => prev.map(x => sameId(x.id, m.id)
+            ? { ...x, pinned_at: willPin ? new Date().toISOString() : null, pinned_by: willPin ? myId : null }
+            : x));
+        try { await apiClient.pinChatMessage(m.id); } catch (e) { console.warn('Erro ao fixar:', e.message); }
+    };
+    const insertEmoji = (emoji) => {
+        const val = input + emoji;
+        setInput(val);
+        if (openPeer) writeDraft(openPeer.id, val);
+        setEmojiOpen(false);
+    };
+    const runSearch = async (q) => {
+        setSearchQ(q);
+        if (q.trim().length < 2) { setSearchResults([]); return; }
+        try { setSearchResults(await apiClient.searchChatMessages(q.trim(), openPeer?.id)); }
+        catch { setSearchResults([]); }
     };
 
     const pickStatus = (st) => {
@@ -357,6 +500,16 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     const peerStatus = openPeer ? (statuses[openPeer.id]?.status || 'offline') : 'offline';
     const peerStatusMsg = openPeer ? (statuses[openPeer.id]?.statusMsg) : null;
     const peerTyping = openPeer ? !!typingPeers[openPeer.id] : false;
+    const msgById = useMemo(() => {
+        const map = {};
+        messages.forEach(m => { map[m.id] = m; });
+        return map;
+    }, [messages]);
+    const pinnedMsg = useMemo(() => {
+        const pins = messages.filter(m => m.pinned_at && !m.deleted_at);
+        if (!pins.length) return null;
+        return pins.sort((a, b) => new Date(b.pinned_at) - new Date(a.pinned_at))[0];
+    }, [messages]);
 
     // ── Barra recolhida ──
     if (!open) {
@@ -434,13 +587,46 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                     <div className="flex items-center gap-2 px-2 py-1.5 border-b" style={{ background: '#eaf1fb', borderColor: '#d6e4f7' }}>
                         <button onClick={() => { stopTyping(); setOpenPeer(null); }} className="p-1 text-gray-500 hover:text-gray-800" title="Voltar"><ChevronLeft size={16} /></button>
                         <StatusDot status={peerStatus} />
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold text-gray-800 truncate leading-tight">{openPeer.displayName}</div>
                             {peerTyping
                                 ? <div className="text-[11px] text-blue-500 truncate leading-tight">digitando…</div>
                                 : (peerStatusMsg && <div className="text-[11px] text-gray-500 truncate leading-tight italic">{peerStatusMsg}</div>)}
                         </div>
+                        <button onClick={() => { setSearchOpen(v => !v); setSearchQ(''); setSearchResults([]); }} className={`p-1 ${searchOpen ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-800`} title="Buscar no histórico"><Search size={15} /></button>
                     </div>
+
+                    {/* Busca no histórico */}
+                    {searchOpen && (
+                        <div className="border-b bg-white px-2 py-1.5" style={{ borderColor: '#e5e7eb' }}>
+                            <input
+                                autoFocus value={searchQ} onChange={e => runSearch(e.target.value)}
+                                placeholder="Buscar mensagens…"
+                                className="w-full border rounded-md px-2 py-1 text-sm outline-none focus:border-blue-400"
+                            />
+                            {searchQ.trim().length >= 2 && (
+                                <div className="max-h-40 overflow-y-auto mak-scrollbar mt-1">
+                                    {searchResults.length === 0
+                                        ? <div className="text-center text-[11px] text-gray-400 py-2">Nada encontrado.</div>
+                                        : searchResults.map(r => (
+                                            <div key={r.id} className="text-[11px] px-1 py-1 border-b last:border-0 text-gray-600">
+                                                <span className="text-gray-400">{new Date(r.created_at).toLocaleDateString('pt-BR')} · </span>
+                                                {applyEmoticons(r.body)}
+                                            </div>
+                                        ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Faixa de mensagem fixada */}
+                    {pinnedMsg && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 border-b bg-amber-50 text-[11px] text-amber-800" style={{ borderColor: '#f0e0b0' }}>
+                            <Pin size={12} className="shrink-0" />
+                            <span className="flex-1 truncate">{applyEmoticons(pinnedMsg.body)}</span>
+                            <button onClick={() => togglePin(pinnedMsg)} className="text-amber-600 hover:text-amber-800 shrink-0" title="Desafixar"><X size={12} /></button>
+                        </div>
+                    )}
 
                     {/* Mensagens */}
                     <div ref={bodyRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto mak-scrollbar px-3 py-2 space-y-1.5" style={{ background: '#ffffff' }}>
@@ -454,15 +640,63 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                                     </div>
                                 );
                             }
+                            const quoted = m.reply_to ? msgById[m.reply_to] : null;
+                            const aggr = aggregateReactions(m.reactions, myId);
+                            const isDeleted = !!m.deleted_at;
                             return (
-                                <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`px-2.5 py-1.5 rounded-lg text-sm max-w-[75%] break-words ${mine ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'} ${m.pending ? 'opacity-80' : ''}`}>
-                                        {m.body}
-                                        <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 ${mine ? 'text-blue-100' : 'text-gray-400'}`}>
-                                            {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                            <MsgTicks m={m} mine={mine} />
+                                <div key={m.id} className={`group flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                                    <div className={`relative flex items-center gap-1 ${mine ? 'flex-row' : 'flex-row-reverse'}`}>
+                                        {/* Ações rápidas (aparecem no hover) */}
+                                        {!isDeleted && (
+                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 shrink-0">
+                                                <button onClick={() => setReactFor(reactFor === m.id ? null : m.id)} className="p-1 text-gray-400 hover:text-gray-700" title="Reagir"><Smile size={14} /></button>
+                                                <button onClick={() => startReply(m)} className="p-1 text-gray-400 hover:text-gray-700" title="Responder"><Reply size={14} /></button>
+                                                <button onClick={() => setMenuFor(menuFor === m.id ? null : m.id)} className="p-1 text-gray-400 hover:text-gray-700" title="Mais"><MoreVertical size={14} /></button>
+                                            </div>
+                                        )}
+                                        <div className={`relative px-2.5 py-1.5 rounded-lg text-sm max-w-[220px] break-words ${isDeleted ? 'bg-gray-50 text-gray-400 italic' : (mine ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800')} ${m.pending ? 'opacity-80' : ''}`}>
+                                            {quoted && !isDeleted && (
+                                                <div className={`text-[11px] mb-1 pl-1.5 border-l-2 rounded-sm truncate ${mine ? 'border-blue-200 text-blue-100' : 'border-gray-300 text-gray-500'}`}>
+                                                    {quoted.deleted_at ? 'mensagem apagada' : applyEmoticons((quoted.body || '').slice(0, 80))}
+                                                </div>
+                                            )}
+                                            {isDeleted ? 'mensagem apagada' : applyEmoticons(m.body)}
+                                            <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 ${isDeleted ? 'text-gray-300' : (mine ? 'text-blue-100' : 'text-gray-400')}`}>
+                                                {m.edited_at && !isDeleted && <span className="italic">editada</span>}
+                                                {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                <MsgTicks m={m} mine={mine} />
+                                            </div>
+
+                                            {/* Seletor de reação */}
+                                            {reactFor === m.id && (
+                                                <div className="absolute z-20 -top-8 right-0 bg-white border rounded-full shadow px-1 py-0.5 flex gap-0.5">
+                                                    {REACTION_EMOJIS.map(e => (
+                                                        <button key={e} onClick={() => react(m, e)} className="text-base hover:scale-125 transition-transform">{e}</button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {/* Menu de contexto */}
+                                            {menuFor === m.id && (
+                                                <div className="absolute z-20 top-full mt-1 right-0 bg-white border rounded-md shadow-lg py-1 text-gray-700" style={{ minWidth: 130 }}>
+                                                    <button onClick={() => startReply(m)} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-100 text-left"><Reply size={13} /> Responder</button>
+                                                    <button onClick={() => togglePin(m)} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-100 text-left"><Pin size={13} /> {m.pinned_at ? 'Desafixar' : 'Fixar'}</button>
+                                                    {mine && <button onClick={() => startEdit(m)} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-100 text-left"><Pencil size={13} /> Editar</button>}
+                                                    {mine && <button onClick={() => deleteMsg(m)} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 text-left"><Trash2 size={13} /> Apagar</button>}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
+                                    {/* Reações agregadas */}
+                                    {aggr.length > 0 && (
+                                        <div className={`flex gap-1 mt-0.5 ${mine ? 'pr-1' : 'pl-1'}`}>
+                                            {aggr.map(r => (
+                                                <button key={r.emoji} onClick={() => react(m, r.emoji)}
+                                                    className={`text-[11px] rounded-full px-1.5 py-0.5 border ${r.mine ? 'bg-blue-50 border-blue-300' : 'bg-gray-50 border-gray-200'}`}>
+                                                    {r.emoji} {r.count}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
@@ -471,20 +705,40 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                         )}
                     </div>
 
+                    {/* Preview de reply/edição acima do input */}
+                    {(replyTo || editing) && (
+                        <div className="flex items-center gap-2 px-2 py-1 border-t bg-blue-50 text-[11px]" style={{ borderColor: '#dbeafe' }}>
+                            {editing ? <Pencil size={12} className="text-blue-600 shrink-0" /> : <Reply size={12} className="text-blue-600 shrink-0" />}
+                            <span className="flex-1 truncate text-gray-600">
+                                <span className="font-semibold text-blue-700">{editing ? 'Editando: ' : 'Respondendo: '}</span>
+                                {applyEmoticons(((editing || replyTo).body || '').slice(0, 80))}
+                            </span>
+                            <button onClick={cancelCompose} className="text-gray-400 hover:text-gray-700 shrink-0"><X size={13} /></button>
+                        </div>
+                    )}
+
                     {/* Input */}
-                    <div className="border-t p-2 flex items-end gap-1.5" style={{ borderColor: '#e5e7eb' }}>
+                    <div className="border-t p-2 flex items-end gap-1.5 relative" style={{ borderColor: '#e5e7eb' }}>
                         <button onClick={() => sendMessage('nudge')} className="p-2 text-amber-500 hover:text-amber-600 shrink-0" title="Chamar atenção (nudge)"><Zap size={18} /></button>
+                        <button onClick={() => setEmojiOpen(v => !v)} className="p-2 text-gray-400 hover:text-gray-600 shrink-0" title="Emoji"><Smile size={18} /></button>
+                        {emojiOpen && (
+                            <div className="absolute bottom-full left-2 mb-1 bg-white border rounded-md shadow-lg p-1.5 flex flex-wrap gap-1 z-20" style={{ width: 180 }}>
+                                {QUICK_EMOJIS.map(e => (
+                                    <button key={e} onClick={() => insertEmoji(e)} className="text-lg hover:scale-125 transition-transform">{e}</button>
+                                ))}
+                            </div>
+                        )}
                         <textarea
                             value={input}
                             onChange={onInputChange}
                             onKeyDown={handleKey}
                             onBlur={stopTyping}
                             rows={1}
-                            placeholder="Digite uma mensagem…"
+                            placeholder={editing ? 'Edite a mensagem…' : 'Digite uma mensagem…'}
                             className="flex-1 resize-none border rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-blue-400 mak-scrollbar"
                             style={{ maxHeight: 80 }}
                         />
-                        <button onClick={() => sendMessage('text')} className="p-2 text-white rounded-lg shrink-0" style={{ background: '#0a6cff' }} title="Enviar"><Send size={16} /></button>
+                        <button onClick={() => sendMessage('text')} className="p-2 text-white rounded-lg shrink-0" style={{ background: '#0a6cff' }} title={editing ? 'Salvar' : 'Enviar'}><Send size={16} /></button>
                     </div>
                 </>
             )}

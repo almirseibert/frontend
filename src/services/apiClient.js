@@ -262,6 +262,15 @@ const apiClient = {
     },
     sendChatMessage: async (data) => apiFetch('/chat/messages', { method: 'POST', body: JSON.stringify(data) }),
     markChatRead: async (fromUserId) => apiFetch('/chat/read', { method: 'POST', body: JSON.stringify({ fromUserId }) }),
+    editChatMessage: async (id, body) => apiFetch(`/chat/messages/${id}`, { method: 'PUT', body: JSON.stringify({ body }) }),
+    deleteChatMessage: async (id) => apiFetch(`/chat/messages/${id}`, { method: 'DELETE' }),
+    reactChatMessage: async (id, emoji) => apiFetch(`/chat/messages/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+    pinChatMessage: async (id) => apiFetch(`/chat/messages/${id}/pin`, { method: 'POST' }),
+    searchChatMessages: async (q, withUser) => {
+        const qs = new URLSearchParams({ q });
+        if (withUser) qs.set('with', withUser);
+        return apiFetch(`/chat/search?${qs.toString()}`);
+    },
 
     // --- MÓDULO SUPERVISOR (Novo) ---
     getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),
