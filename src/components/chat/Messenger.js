@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical, Bell, BellOff } from 'lucide-react';
+import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle, Reply, Pencil, Trash2, Pin, Smile, Search, MoreVertical, Bell, BellOff, Paperclip, Truck, Building2, Loader } from 'lucide-react';
 import { CHAT_STATUS, STATUS_ORDER, GROUP_ORDER, getStatusMeta, isOnlineStatus } from '../../utils/chatStatus';
 import {
     playFor, unlockAudio, isPeerMuted, togglePeerMute,
@@ -93,7 +93,7 @@ const MsgTicks = ({ m, mine }) => {
     return <span className="opacity-70">✓</span>;
 };
 
-const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
+const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles = [], obras = [], onNavigate }) => {
     const [open, setOpen] = useState(false);
     const [contacts, setContacts] = useState([]);
     const [statuses, setStatuses] = useState({}); // userId -> { status, statusMsg }
@@ -164,6 +164,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                     type: item.type,
                     clientMsgId: item.clientMsgId,
                     replyTo: item.replyTo || null,
+                    attachment: item.attachment || null,
                 });
                 // Sucesso → remove da fila; o eco (chat:message) reconcilia a UI.
                 const cur = readOutbox().filter(o => o.clientMsgId !== item.clientMsgId);
@@ -420,34 +421,80 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         writeDraft(openPeer.id, '');
         const replySnapshot = replyTo;
         setReplyTo(null);
+        await pushMessage({ type, body, replyTo: replySnapshot ? replySnapshot.id : null });
+    };
 
+    // Núcleo de envio (texto, anexo ou card): render otimista + fila + POST.
+    const pushMessage = useCallback(async ({ type = 'text', body = '', replyTo = null, attachment = null }) => {
+        if (!openPeerRef.current) return;
+        const peerId = openPeerRef.current.id;
         const clientMsgId = uuid();
         const createdAt = new Date().toISOString();
         const optimistic = {
             id: `local:${clientMsgId}`,
             client_msg_id: clientMsgId,
             sender_id: myId,
-            recipient_id: openPeer.id,
+            recipient_id: peerId,
             body, type,
-            reply_to: replySnapshot ? replySnapshot.id : null,
+            reply_to: replyTo,
             reactions: [],
+            attachment_url: attachment?.url || null,
+            attachment_name: attachment?.name || null,
+            attachment_mime: attachment?.mime || null,
+            attachment_size: attachment?.size || null,
             read_at: null, delivered_at: null,
             created_at: createdAt,
             pending: true,
         };
-        // Render otimista imediato.
         setMessages(prev => [...prev, optimistic]);
-        // Enfileira antes de tentar enviar (sobrevive a refresh/queda).
-        writeOutbox([...readOutbox(), { clientMsgId, recipientId: openPeer.id, body, type, replyTo: optimistic.reply_to, created_at: createdAt }]);
-
+        writeOutbox([...readOutbox(), { clientMsgId, recipientId: peerId, body, type, replyTo, attachment, created_at: createdAt }]);
         try {
-            await apiClient.sendChatMessage({ recipientId: openPeer.id, body, type, clientMsgId, replyTo: optimistic.reply_to });
-            // O eco (chat:message) reconcilia e remove da fila.
+            await apiClient.sendChatMessage({ recipientId: peerId, body, type, clientMsgId, replyTo, attachment });
         } catch (e) {
-            // Falhou (offline/servidor) — permanece na fila; marca visualmente.
-            // Só marca erro se ainda não reconciliou.
             setMessages(prev => prev.map(m => (m.client_msg_id === clientMsgId && m.pending) ? { ...m, error: true } : m));
         }
+    }, [apiClient, myId]);
+
+    // ── Anexos (reusa POST /api/upload) ──
+    const fileInputRef = useRef(null);
+    const [uploading, setUploading] = useState(false);
+    const onPickFile = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file || !openPeer) return;
+        if (file.size > 10 * 1024 * 1024) { alert('Arquivo excede 10MB.'); return; }
+        unlockAudio();
+        setUploading(true);
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const up = await apiClient.uploadFile(fd);
+            await pushMessage({
+                type: 'text',
+                body: input.trim(),
+                attachment: { url: up.url || up.fileUrl, name: up.originalName || file.name, mime: up.mimetype || file.type, size: up.size || file.size },
+            });
+            setInput(''); writeDraft(openPeer.id, '');
+        } catch (err) {
+            alert('Falha no upload: ' + (err.message || 'erro'));
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // ── Cartão de contexto (veículo/obra) ──
+    const [cardPicker, setCardPicker] = useState(null); // 'vehicle' | 'obra' | null
+    const [cardQuery, setCardQuery] = useState('');
+    const sendCard = (kind, item) => {
+        const label = kind === 'vehicle'
+            ? [item.placa, item.modelo].filter(Boolean).join(' · ')
+            : (item.nome || item.name || 'Obra');
+        setCardPicker(null); setCardQuery('');
+        pushMessage({ type: 'card', body: JSON.stringify({ kind, id: item.id, label }) });
+    };
+    const openCard = (card) => {
+        if (!onNavigate) return;
+        onNavigate(card.kind === 'vehicle' ? 'vehicles' : 'obras');
     };
 
     // ── "Digitando…" ──
@@ -718,7 +765,31 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                                                     {quoted.deleted_at ? 'mensagem apagada' : applyEmoticons((quoted.body || '').slice(0, 80))}
                                                 </div>
                                             )}
-                                            {isDeleted ? 'mensagem apagada' : renderBody(m.body)}
+                                            {/* Cartão de contexto (veículo/obra) */}
+                                            {!isDeleted && m.type === 'card' && (() => {
+                                                let card = null;
+                                                try { card = JSON.parse(m.body); } catch { /* inválido */ }
+                                                if (!card) return null;
+                                                return (
+                                                    <button onClick={() => openCard(card)} className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left ${mine ? 'bg-blue-400/40' : 'bg-white'} border ${mine ? 'border-blue-300' : 'border-gray-200'}`}>
+                                                        {card.kind === 'vehicle' ? <Truck size={16} className="shrink-0" /> : <Building2 size={16} className="shrink-0" />}
+                                                        <span className="min-w-0">
+                                                            <span className="block text-[10px] uppercase opacity-70">{card.kind === 'vehicle' ? 'Veículo' : 'Obra'}</span>
+                                                            <span className="block truncate font-semibold">{card.label}</span>
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })()}
+                                            {/* Anexo */}
+                                            {!isDeleted && m.attachment_url && (
+                                                (m.attachment_mime || '').startsWith('image/')
+                                                    ? <a href={m.attachment_url} target="_blank" rel="noreferrer" className="block"><img src={m.attachment_url} alt={m.attachment_name || 'imagem'} className="rounded-md max-h-40 max-w-full" /></a>
+                                                    : <a href={m.attachment_url} target="_blank" rel="noreferrer" className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${mine ? 'bg-blue-400/40' : 'bg-white'} border ${mine ? 'border-blue-300' : 'border-gray-200'}`}>
+                                                        <Paperclip size={14} className="shrink-0" />
+                                                        <span className="truncate">{m.attachment_name || 'Anexo'}</span>
+                                                    </a>
+                                            )}
+                                            {isDeleted ? 'mensagem apagada' : (m.type === 'card' ? null : renderBody(m.body))}
                                             <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 ${isDeleted ? 'text-gray-300' : (mine ? 'text-blue-100' : 'text-gray-400')}`}>
                                                 {m.edited_at && !isDeleted && <span className="italic">editada</span>}
                                                 {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
@@ -775,9 +846,44 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                         </div>
                     )}
 
+                    {/* Card picker (veículo/obra) */}
+                    {cardPicker && (
+                        <div className="border-t bg-white px-2 py-1.5" style={{ borderColor: '#e5e7eb' }}>
+                            <div className="flex items-center gap-2 mb-1">
+                                <button onClick={() => setCardPicker('vehicle')} className={`text-xs px-2 py-1 rounded ${cardPicker === 'vehicle' ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-500'}`}>Veículo</button>
+                                <button onClick={() => setCardPicker('obra')} className={`text-xs px-2 py-1 rounded ${cardPicker === 'obra' ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-500'}`}>Obra</button>
+                                <input autoFocus value={cardQuery} onChange={e => setCardQuery(e.target.value)} placeholder="Buscar…" className="flex-1 border rounded px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                <button onClick={() => { setCardPicker(null); setCardQuery(''); }} className="text-gray-400 hover:text-gray-700"><X size={14} /></button>
+                            </div>
+                            <div className="max-h-40 overflow-y-auto mak-scrollbar">
+                                {(cardPicker === 'vehicle' ? vehicles : obras)
+                                    .filter(it => {
+                                        const q = cardQuery.trim().toLowerCase();
+                                        if (!q) return true;
+                                        const hay = cardPicker === 'vehicle'
+                                            ? `${it.placa || ''} ${it.modelo || ''} ${it.marca || ''}`
+                                            : `${it.nome || it.name || ''}`;
+                                        return hay.toLowerCase().includes(q);
+                                    })
+                                    .slice(0, 30)
+                                    .map(it => (
+                                        <button key={it.id} onClick={() => sendCard(cardPicker, it)} className="flex items-center gap-2 w-full px-1.5 py-1 text-xs text-left hover:bg-gray-50 rounded">
+                                            {cardPicker === 'vehicle' ? <Truck size={13} className="text-gray-400" /> : <Building2 size={13} className="text-gray-400" />}
+                                            <span className="truncate">{cardPicker === 'vehicle' ? [it.placa, it.modelo].filter(Boolean).join(' · ') : (it.nome || it.name)}</span>
+                                        </button>
+                                    ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Input */}
                     <div className="border-t p-2 flex items-end gap-1.5 relative" style={{ borderColor: '#e5e7eb' }}>
+                        <input ref={fileInputRef} type="file" className="hidden" onChange={onPickFile} accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.csv,.xml" />
                         <button onClick={() => sendMessage('nudge')} className="p-2 text-amber-500 hover:text-amber-600 shrink-0" title="Chamar atenção (nudge)"><Zap size={18} /></button>
+                        <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="p-2 text-gray-400 hover:text-gray-600 shrink-0 disabled:opacity-40" title="Anexar arquivo">
+                            {uploading ? <Loader size={18} className="animate-spin" /> : <Paperclip size={18} />}
+                        </button>
+                        <button onClick={() => setCardPicker(cardPicker ? null : 'vehicle')} className={`p-2 shrink-0 ${cardPicker ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`} title="Enviar veículo/obra"><Truck size={18} /></button>
                         <button onClick={() => setEmojiOpen(v => !v)} className="p-2 text-gray-400 hover:text-gray-600 shrink-0" title="Emoji"><Smile size={18} /></button>
                         {emojiOpen && (
                             <div className="absolute bottom-full left-2 mb-1 bg-white border rounded-md shadow-lg p-1.5 flex flex-wrap gap-1 z-20" style={{ width: 180 }}>

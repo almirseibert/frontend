@@ -992,6 +992,9 @@ const AppContent = () => {
                 apiClient={apiClient}
                 myStatus={myChatStatus}
                 onStatusChange={handleChatStatusChange}
+                vehicles={vehicles}
+                obras={obras}
+                onNavigate={setCurrentPage}
             />
 
             <main className="flex-1 flex flex-col relative overflow-hidden">
