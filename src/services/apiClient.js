@@ -252,8 +252,16 @@ const apiClient = {
 
     // --- Mensageiro interno (chat direto) ---
     getChatContacts: async () => apiFetch('/chat/contacts'),
-    getChatMessages: async (userId, limit = 200) => apiFetch(`/chat/messages/${userId}?limit=${limit}`),
+    // opts: { limit, before } — `before` (ISO) pagina o histórico para scroll infinito.
+    getChatMessages: async (userId, opts = {}) => {
+        const limit = typeof opts === 'number' ? opts : (opts.limit || 200);
+        const before = typeof opts === 'object' ? opts.before : null;
+        const qs = new URLSearchParams({ limit: String(limit) });
+        if (before) qs.set('before', before);
+        return apiFetch(`/chat/messages/${userId}?${qs.toString()}`);
+    },
     sendChatMessage: async (data) => apiFetch('/chat/messages', { method: 'POST', body: JSON.stringify(data) }),
+    markChatRead: async (fromUserId) => apiFetch('/chat/read', { method: 'POST', body: JSON.stringify({ fromUserId }) }),
 
     // --- MÓDULO SUPERVISOR (Novo) ---
     getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus } from 'lucide-react';
+import { MessageSquare, X, ChevronLeft, Send, Zap, Circle, Minus, Clock, AlertCircle } from 'lucide-react';
 import { CHAT_STATUS, STATUS_ORDER, GROUP_ORDER, getStatusMeta, isOnlineStatus } from '../../utils/chatStatus';
 import {
     playDing, playNudge, playOnline, playOffline, unlockAudio,
@@ -10,10 +10,29 @@ import {
 const initialOf = (name) => (name || '?').trim().charAt(0).toUpperCase();
 // IDs podem ser UUID (string) ou INT — compara sempre como string.
 const sameId = (a, b) => String(a) === String(b);
+const uuid = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+// ── Fila offline (localStorage) ──
+// Mensagens ainda não confirmadas pelo servidor. Reenviadas com o mesmo
+// clientMsgId (idempotente no backend) ao reconectar / voltar a ficar online.
+const OUTBOX_KEY = 'chatOutbox';
+const readOutbox = () => { try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); } catch { return []; } };
+const writeOutbox = (arr) => { try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(arr)); } catch { /* quota */ } };
 
 const StatusDot = ({ status, size = 10 }) => {
     const meta = getStatusMeta(status);
     return <Circle size={size} fill={meta.dot} color={meta.dot} className="shrink-0" />;
+};
+
+// Marca de status da mensagem enviada por mim: relógio (pendente) → ✓ (enviada)
+// → ✓✓ cinza (entregue) → ✓✓ azul (lida). `error` mostra alerta de falha.
+const MsgTicks = ({ m, mine }) => {
+    if (!mine) return null;
+    if (m.error) return <AlertCircle size={11} className="inline text-red-300" />;
+    if (m.pending) return <Clock size={10} className="inline opacity-80" />;
+    if (m.read_at) return <span className="text-sky-300">✓✓</span>;
+    if (m.delivered_at) return <span className="opacity-70">✓✓</span>;
+    return <span className="opacity-70">✓</span>;
 };
 
 const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
@@ -26,10 +45,16 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     const [input, setInput] = useState('');
     const [statusMenu, setStatusMenu] = useState(false);
     const [shake, setShake] = useState(false);
+    const [typingPeers, setTypingPeers] = useState({}); // userId -> true
+    const [connected, setConnected] = useState(socket?.connected ?? true);
+    const [loadingOlder, setLoadingOlder] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
 
     const openPeerRef = useRef(null);
     const statusesRef = useRef({});
     const bodyRef = useRef(null);
+    const typingTimerRef = useRef(null);
+    const typingSentRef = useRef(false);
     const myId = user?.id;
 
     useEffect(() => { openPeerRef.current = openPeer; }, [openPeer]);
@@ -57,30 +82,86 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
 
     useEffect(() => { loadContacts(); }, [loadContacts]);
 
-    // Rola para o fim quando abre conversa ou chega mensagem.
+    // ── Fila offline: tenta enviar tudo que está pendente (idempotente) ──
+    const flushOutbox = useCallback(async () => {
+        const outbox = readOutbox();
+        if (!outbox.length) return;
+        for (const item of outbox) {
+            try {
+                await apiClient.sendChatMessage({
+                    recipientId: item.recipientId,
+                    body: item.body,
+                    type: item.type,
+                    clientMsgId: item.clientMsgId,
+                });
+                // Sucesso → remove da fila; o eco (chat:message) reconcilia a UI.
+                const cur = readOutbox().filter(o => o.clientMsgId !== item.clientMsgId);
+                writeOutbox(cur);
+            } catch (e) {
+                // Ainda offline / servidor fora — mantém na fila para próxima tentativa.
+                break;
+            }
+        }
+    }, [apiClient]);
+
+    // Tenta esvaziar a fila ao montar e quando a rede volta.
     useEffect(() => {
+        flushOutbox();
+        const onOnline = () => flushOutbox();
+        window.addEventListener('online', onOnline);
+        return () => window.removeEventListener('online', onOnline);
+    }, [flushOutbox]);
+
+    // Rola para o fim quando abre conversa ou chega mensagem (não ao paginar antigas).
+    useEffect(() => {
+        if (loadingOlder) return;
         if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-    }, [messages, openPeer]);
+    }, [messages, openPeer]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Socket listeners ──
     useEffect(() => {
         if (!socket) return;
+
+        const reconcile = (prev, msg) => {
+            // Casa o eco do servidor com a mensagem otimista (por client_msg_id).
+            if (msg.client_msg_id) {
+                const idx = prev.findIndex(m => m.client_msg_id && m.client_msg_id === msg.client_msg_id);
+                if (idx >= 0) {
+                    const next = [...prev];
+                    next[idx] = { ...msg, pending: false };
+                    return next;
+                }
+            }
+            if (prev.some(m => m.id === msg.id)) return prev;
+            return [...prev, { ...msg, pending: false }];
+        };
 
         const onMessage = (msg) => {
             const isMine = sameId(msg.sender_id, myId);
             const peerId = isMine ? msg.recipient_id : msg.sender_id;
             const activePeer = openPeerRef.current;
 
+            // Mensagem confirmada → sai da fila offline.
+            if (isMine && msg.client_msg_id) {
+                const cur = readOutbox().filter(o => o.clientMsgId !== msg.client_msg_id);
+                writeOutbox(cur);
+            }
+
             if (activePeer && sameId(activePeer.id, peerId)) {
-                setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
-                // Recebida com a conversa aberta → marca lida no servidor.
-                if (!isMine) apiClient.getChatMessages(peerId).catch(() => {});
+                setMessages(prev => reconcile(prev, msg));
+                if (!isMine) apiClient.markChatRead(peerId).catch(() => {});
             } else if (!isMine) {
                 setUnread(prev => ({ ...prev, [peerId]: (prev[peerId] || 0) + 1 }));
             }
             if (!isMine) playDing();
-            // Atualiza "última mensagem" para reordenar a lista.
             setContacts(prev => prev.map(c => sameId(c.id, peerId) ? { ...c, lastMessageAt: msg.created_at } : c));
+        };
+
+        const onDelivered = ({ id, to }) => {
+            const activePeer = openPeerRef.current;
+            if (activePeer && sameId(activePeer.id, to)) {
+                setMessages(prev => prev.map(m => sameId(m.id, id) ? { ...m, delivered_at: m.delivered_at || new Date().toISOString() } : m));
+            }
         };
 
         const onNudge = () => { triggerShake(); playNudge(); };
@@ -111,19 +192,35 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
             }
         };
 
+        const onTyping = ({ from }) => setTypingPeers(p => ({ ...p, [from]: true }));
+        const onStopTyping = ({ from }) => setTypingPeers(p => { const n = { ...p }; delete n[from]; return n; });
+
+        const onConnect = () => { setConnected(true); flushOutbox(); };
+        const onDisconnect = () => setConnected(false);
+
         socket.on('chat:message', onMessage);
+        socket.on('chat:delivered', onDelivered);
         socket.on('chat:nudge', onNudge);
         socket.on('presence:update', onPresenceUpdate);
         socket.on('presence:sync', onPresenceSync);
         socket.on('chat:read', onRead);
+        socket.on('chat:typing', onTyping);
+        socket.on('chat:stopTyping', onStopTyping);
+        socket.on('connect', onConnect);
+        socket.on('disconnect', onDisconnect);
         return () => {
             socket.off('chat:message', onMessage);
+            socket.off('chat:delivered', onDelivered);
             socket.off('chat:nudge', onNudge);
             socket.off('presence:update', onPresenceUpdate);
             socket.off('presence:sync', onPresenceSync);
             socket.off('chat:read', onRead);
+            socket.off('chat:typing', onTyping);
+            socket.off('chat:stopTyping', onStopTyping);
+            socket.off('connect', onConnect);
+            socket.off('disconnect', onDisconnect);
         };
-    }, [socket, myId, apiClient]);
+    }, [socket, myId, apiClient, flushOutbox]);
 
     const triggerShake = () => {
         setOpen(true);
@@ -134,13 +231,38 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     const openConversation = async (contact) => {
         unlockAudio();
         setOpenPeer(contact);
+        setHasMore(true);
         setUnread(prev => { const n = { ...prev }; delete n[contact.id]; return n; });
         try {
             const msgs = await apiClient.getChatMessages(contact.id);
             setMessages(msgs);
+            if (msgs.length < 200) setHasMore(false);
+            apiClient.markChatRead(contact.id).catch(() => {});
         } catch (e) {
             setMessages([]);
         }
+    };
+
+    // Scroll infinito: ao chegar ao topo, carrega a página anterior (mais antiga).
+    const onBodyScroll = async () => {
+        const el = bodyRef.current;
+        if (!el || el.scrollTop > 40 || loadingOlder || !hasMore || !openPeer) return;
+        const oldest = messages.find(m => !m.pending);
+        if (!oldest) return;
+        setLoadingOlder(true);
+        const prevHeight = el.scrollHeight;
+        try {
+            const older = await apiClient.getChatMessages(openPeer.id, { before: oldest.created_at });
+            if (!older.length) { setHasMore(false); }
+            else {
+                setMessages(prev => [...older, ...prev]);
+                if (older.length < 200) setHasMore(false);
+                requestAnimationFrame(() => {
+                    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight - prevHeight;
+                });
+            }
+        } catch (e) { /* mantém */ }
+        finally { setLoadingOlder(false); }
     };
 
     const sendMessage = async (type = 'text') => {
@@ -148,13 +270,54 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
         if (!openPeer) return;
         if (type === 'text' && !body) return;
         unlockAudio();
+        stopTyping();
         setInput('');
+
+        const clientMsgId = uuid();
+        const createdAt = new Date().toISOString();
+        const optimistic = {
+            id: `local:${clientMsgId}`,
+            client_msg_id: clientMsgId,
+            sender_id: myId,
+            recipient_id: openPeer.id,
+            body, type,
+            read_at: null, delivered_at: null,
+            created_at: createdAt,
+            pending: true,
+        };
+        // Render otimista imediato.
+        setMessages(prev => [...prev, optimistic]);
+        // Enfileira antes de tentar enviar (sobrevive a refresh/queda).
+        writeOutbox([...readOutbox(), { clientMsgId, recipientId: openPeer.id, body, type, created_at: createdAt }]);
+
         try {
-            await apiClient.sendChatMessage({ recipientId: openPeer.id, body, type });
-            // A própria mensagem volta via socket (eco) e é anexada lá.
+            await apiClient.sendChatMessage({ recipientId: openPeer.id, body, type, clientMsgId });
+            // O eco (chat:message) reconcilia e remove da fila.
         } catch (e) {
-            console.warn('Erro ao enviar:', e.message);
+            // Falhou (offline/servidor) — permanece na fila; marca visualmente.
+            // Só marca erro se ainda não reconciliou.
+            setMessages(prev => prev.map(m => (m.client_msg_id === clientMsgId && m.pending) ? { ...m, error: true } : m));
         }
+    };
+
+    // ── "Digitando…" ──
+    const stopTyping = useCallback(() => {
+        if (typingSentRef.current && socket && openPeerRef.current) {
+            socket.emit('chat:stopTyping', { to: openPeerRef.current.id });
+        }
+        typingSentRef.current = false;
+        if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
+    }, [socket]);
+
+    const onInputChange = (e) => {
+        setInput(e.target.value);
+        if (!socket || !openPeer) return;
+        if (!typingSentRef.current) {
+            socket.emit('chat:typing', { to: openPeer.id });
+            typingSentRef.current = true;
+        }
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = setTimeout(stopTyping, 2500);
     };
 
     const handleKey = (e) => {
@@ -193,6 +356,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
     const myMeta = getStatusMeta(myStatus);
     const peerStatus = openPeer ? (statuses[openPeer.id]?.status || 'offline') : 'offline';
     const peerStatusMsg = openPeer ? (statuses[openPeer.id]?.statusMsg) : null;
+    const peerTyping = openPeer ? !!typingPeers[openPeer.id] : false;
 
     // ── Barra recolhida ──
     if (!open) {
@@ -248,6 +412,13 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                 )}
             </div>
 
+            {/* Aviso de reconexão */}
+            {!connected && (
+                <div className="text-center text-[11px] text-amber-700 bg-amber-50 border-b border-amber-200 py-0.5">
+                    Reconectando…
+                </div>
+            )}
+
             {/* Corpo: lista de contatos OU conversa */}
             {!openPeer ? (
                 <div className="flex-1 overflow-y-auto mak-scrollbar" style={{ background: '#f2f6fc' }}>
@@ -261,16 +432,19 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                 <>
                     {/* Sub-header da conversa */}
                     <div className="flex items-center gap-2 px-2 py-1.5 border-b" style={{ background: '#eaf1fb', borderColor: '#d6e4f7' }}>
-                        <button onClick={() => setOpenPeer(null)} className="p-1 text-gray-500 hover:text-gray-800" title="Voltar"><ChevronLeft size={16} /></button>
+                        <button onClick={() => { stopTyping(); setOpenPeer(null); }} className="p-1 text-gray-500 hover:text-gray-800" title="Voltar"><ChevronLeft size={16} /></button>
                         <StatusDot status={peerStatus} />
                         <div className="min-w-0">
                             <div className="text-sm font-semibold text-gray-800 truncate leading-tight">{openPeer.displayName}</div>
-                            {peerStatusMsg && <div className="text-[11px] text-gray-500 truncate leading-tight italic">{peerStatusMsg}</div>}
+                            {peerTyping
+                                ? <div className="text-[11px] text-blue-500 truncate leading-tight">digitando…</div>
+                                : (peerStatusMsg && <div className="text-[11px] text-gray-500 truncate leading-tight italic">{peerStatusMsg}</div>)}
                         </div>
                     </div>
 
                     {/* Mensagens */}
-                    <div ref={bodyRef} className="flex-1 overflow-y-auto mak-scrollbar px-3 py-2 space-y-1.5" style={{ background: '#ffffff' }}>
+                    <div ref={bodyRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto mak-scrollbar px-3 py-2 space-y-1.5" style={{ background: '#ffffff' }}>
+                        {loadingOlder && <div className="text-center text-[11px] text-gray-400 py-1">Carregando…</div>}
                         {messages.map(m => {
                             const mine = sameId(m.sender_id, myId);
                             if (m.type === 'nudge') {
@@ -282,11 +456,11 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                             }
                             return (
                                 <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`px-2.5 py-1.5 rounded-lg text-sm max-w-[75%] break-words ${mine ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                                    <div className={`px-2.5 py-1.5 rounded-lg text-sm max-w-[75%] break-words ${mine ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'} ${m.pending ? 'opacity-80' : ''}`}>
                                         {m.body}
-                                        <div className={`text-[9px] mt-0.5 ${mine ? 'text-blue-100' : 'text-gray-400'}`}>
+                                        <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 ${mine ? 'text-blue-100' : 'text-gray-400'}`}>
                                             {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                            {mine && (m.read_at ? ' ✓✓' : ' ✓')}
+                                            <MsgTicks m={m} mine={mine} />
                                         </div>
                                     </div>
                                 </div>
@@ -302,8 +476,9 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange }) => {
                         <button onClick={() => sendMessage('nudge')} className="p-2 text-amber-500 hover:text-amber-600 shrink-0" title="Chamar atenção (nudge)"><Zap size={18} /></button>
                         <textarea
                             value={input}
-                            onChange={e => setInput(e.target.value)}
+                            onChange={onInputChange}
                             onKeyDown={handleKey}
+                            onBlur={stopTyping}
                             rows={1}
                             placeholder="Digite uma mensagem…"
                             className="flex-1 resize-none border rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-blue-400 mak-scrollbar"
