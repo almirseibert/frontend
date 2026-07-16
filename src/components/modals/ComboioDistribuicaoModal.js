@@ -254,7 +254,7 @@ const ComboioDistribuicaoModal = ({
             payload.append('employeeId', formData.employeeId);
             payload.append('fuelType', formData.fuelType);
             payload.append('liters', String(liters));
-            payload.append('date', new Date(formData.date + 'T12:00:00Z').toISOString());
+            payload.append('date', new Date(formData.date + 'T12:00:00-03:00').toISOString());
             if (isKmVehicle) payload.append('odometro', String(parseFloat(formData.odometro) || ''));
             else payload.append('horimetro', String(parseFloat(formData.horimetro) || ''));
             payload.append('createdBy', JSON.stringify({

@@ -221,7 +221,7 @@ const ComboioSaidaModal = ({
                 odometro: parseFloat(data.odometro) || null,
                 horimetro: parseFloat(data.horimetro) || null,
                 liters: parseFloat(data.liters),
-                date: new Date(data.date + 'T12:00:00Z').toISOString(),
+                date: new Date(data.date + 'T12:00:00-03:00').toISOString(),
                 fuelType: data.fuelType,
                 obraId: data.obraId,
                 employeeId: data.employeeId,

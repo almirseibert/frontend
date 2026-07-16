@@ -137,7 +137,7 @@ const ComboioDrenagemModal = ({
                 destino,
                 drainingVehicleId,
                 liters: litersVal,
-                date: new Date(formData.date + 'T12:00:00Z').toISOString(),
+                date: new Date(formData.date + 'T12:00:00-03:00').toISOString(),
                 fuelType,
                 reason: formData.reason,
                 createdBy: {
