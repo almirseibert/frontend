@@ -646,7 +646,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
         return (
             <button
                 onClick={() => { unlockAudio(); setOpen(true); }}
-                className="fixed bottom-4 right-4 z-[99998] flex items-center gap-2 px-3 py-2 rounded-full shadow-lg text-white transition-transform hover:scale-105"
+                className="msn-widget fixed bottom-4 right-4 z-[99998] flex items-center gap-2 px-3 py-2 rounded-full shadow-lg text-white transition-transform hover:scale-105"
                 style={{ background: 'linear-gradient(135deg,#0a6cff,#0846b8)' }}
                 title="Mensagens"
             >
@@ -663,7 +663,7 @@ const Messenger = ({ socket, user, apiClient, myStatus, onStatusChange, vehicles
 
     return (
         <div
-            className={`fixed bottom-4 right-4 z-[99998] flex flex-col bg-white overflow-hidden ${shake ? 'msn-shake' : ''}`}
+            className={`msn-widget fixed bottom-4 right-4 z-[99998] flex flex-col bg-white overflow-hidden ${shake ? 'msn-shake' : ''}`}
             style={{ width: 340, height: 480, borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.35)', border: '1px solid #0846b8' }}
         >
             {/* Header MSN */}

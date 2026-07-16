@@ -376,6 +376,12 @@ button.bg-yellow-500 {
   display: flex; align-items: center; justify-content: center;
   z-index: 50; padding: 16px;
 }
+/* Enquanto qualquer modal estiver aberto, oculta o mensageiro interno para o
+   balão flutuante (fixed bottom-right, z-alto) não cobrir os botões do rodapé
+   dos modais — crítico em telas pequenas. display:none mantém o componente
+   montado: o estado (aberto/conversa) é preservado e o balão reaparece ao
+   fechar o modal. */
+body:has(.mak-modal-backdrop) .msn-widget { display: none; }
 .mak-modal {
   background: #ffffff;
   border-radius: 12px;
