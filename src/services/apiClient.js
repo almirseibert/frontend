@@ -415,6 +415,7 @@ const apiClient = {
     getComboioTransactions: async () => apiFetch('/comboioTransactions'),
     getComboioTransactionById: async (id) => apiFetch(`/comboioTransactions/${id}`),
     deleteComboioTransaction: async (id) => apiFetch(`/comboioTransactions/${id}`, { method: 'DELETE' }),
+    updateComboioTransaction: async (id, data) => apiFetch(`/comboioTransactions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     createComboioEntrada: async (data) => apiFetch('/comboioTransactions/entrada', { method: 'POST', body: JSON.stringify(data) }),
     createComboioSaida: async (data) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: JSON.stringify(data) }),
     // Distribuição do operador do comboio (com fotos). Recebe um FormData já montado.
