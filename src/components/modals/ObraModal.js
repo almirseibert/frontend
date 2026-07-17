@@ -1,6 +1,9 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, MapPin, Clock, Truck, Plus, Trash2, DollarSign, User, ClipboardList } from 'lucide-react';
+import { X, Loader, MapPin, Clock, Plus, Trash2, DollarSign, User, ClipboardList, Users, Star } from 'lucide-react';
 import { vehicleSubTypes } from '../../utils/vehicleRules';
+import SearchableCitySelect from '../SearchableCitySelect';
+import { cidadePorNome } from '../../utils/geo';
+import { rankOperatorsForObra } from '../../utils/geoSuggest';
 
 // Ciclo de vida de planejamento — transições automáticas:
 // radar (criada) → planejada (contrato de horas) → mobilização (1ª alocação) → ativa (1º lançamento de horas)
@@ -50,6 +53,7 @@ const ObraModal = ({
 
     const [orgaoContratante, setOrgaoContratante] = useState('');
     const [regiao, setRegiao] = useState('');
+    const [cidadeIbge, setCidadeIbge] = useState('');
 
     // --- ESTADOS DE PLANEJAMENTO (pré-obra) ---
     // Na criação a obra sempre nasce 'radar' e sobe de fase por gatilho; o seletor
@@ -84,6 +88,7 @@ const ObraModal = ({
             setLongitude(obra.longitude || '');
             setOrgaoContratante(obra.orgao_contratante || '');
             setRegiao(obra.regiao || '');
+            setCidadeIbge(obra.cidade_ibge || cidadePorNome(obra.local)?.codigo_ibge || '');
 
             setStatusObra(obra.status && obra.status !== 'finalizada' ? obra.status : 'ativa');
             setDataInicioPrevisto(obra.dataInicioPrevisto ? new Date(obra.dataInicioPrevisto).toISOString().split('T')[0] : '');
@@ -126,6 +131,24 @@ const ObraModal = ({
         });
         return [...new Set(opts)].sort();
     }, [equipmentTypesForHours]);
+
+    // Seleção de cidade (RS/IBGE): grava código + preenche lat/long com o centroide
+    // quando ainda vazias (mantém coordenada manual se já existir).
+    const handleCitySelect = (city) => {
+        if (!city) {
+            setCidadeIbge('');
+            return;
+        }
+        setCidadeIbge(city.codigo_ibge);
+        if (!latitude) setLatitude(String(city.lat));
+        if (!longitude) setLongitude(String(city.lng));
+    };
+
+    // Colaboradores mais próximos da obra (por cidade/coordenada) — sugestão ao cadastrar.
+    const colaboradoresProximos = useMemo(() => {
+        const pseudoObra = { latitude, longitude, cidade_ibge: cidadeIbge };
+        return rankOperatorsForObra(pseudoObra, employees, { incluirInativos: false }).slice(0, 6);
+    }, [latitude, longitude, cidadeIbge, employees]);
 
     // --- CÁLCULO DO VALOR TOTAL ---
     const totalValue = useMemo(() => {
@@ -199,7 +222,8 @@ const ObraModal = ({
             valorKmPrancha: parseFloat(valorKmPrancha) || 0,
             valorTotalContrato: totalValue,
             orgao_contratante: orgaoContratante || null,
-            regiao: regiao || null
+            regiao: regiao || null,
+            cidade_ibge: cidadeIbge || null
         };
 
         if (contractType === 'horas') {
@@ -455,6 +479,21 @@ const ObraModal = ({
                             </div>
                         </div>
 
+                        {/* Cidade (RS / IBGE) */}
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                <MapPin size={14} /> Cidade (RS)
+                            </label>
+                            <SearchableCitySelect
+                                value={cidadeIbge}
+                                onChange={handleCitySelect}
+                                placeholder="Buscar cidade do RS..."
+                            />
+                            <p className="text-[11px] text-gray-400 mt-1">
+                                Ao escolher a cidade, latitude/longitude são preenchidas com o centro do município (editável abaixo).
+                            </p>
+                        </div>
+
                         {/* Órgão Contratante e Região */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -494,6 +533,34 @@ const ObraModal = ({
                                 <input type="text" value={longitude} onChange={(e) => setLongitude(e.target.value)} className="w-full p-2 border rounded" placeholder="-51.5678"/>
                             </div>
                         </div>
+
+                        {/* Colaboradores mais próximos da obra (sugestão) */}
+                        {colaboradoresProximos.length > 0 && (
+                            <div className="mt-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                <p className="text-xs font-bold text-gray-600 uppercase mb-2 flex items-center gap-1">
+                                    <Users size={13} /> Colaboradores mais próximos
+                                </p>
+                                <ul className="space-y-1">
+                                    {colaboradoresProximos.map(({ employee, distanciaKm, isLider, cidade }) => (
+                                        <li key={employee.id} className="flex items-center gap-2 text-sm">
+                                            {isLider
+                                                ? <Star size={13} className="text-yellow-500 flex-shrink-0" />
+                                                : <User size={13} className="text-gray-400 flex-shrink-0" />}
+                                            <span className="font-medium text-gray-800 truncate">
+                                                {employee.nome}{employee.vulgo ? ` (${employee.vulgo})` : ''}
+                                            </span>
+                                            <span className="text-gray-400 text-xs truncate">{cidade}</span>
+                                            <span className="ml-auto text-xs font-semibold text-gray-500 flex-shrink-0">
+                                                {distanciaKm.toFixed(0)} km
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                                <p className="text-[11px] text-gray-400 mt-2">
+                                    <Star size={10} className="inline text-yellow-500" /> = apto a liderar obra. Ordenado por distância da cidade de residência.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* 2. Configuração do Contrato */}
