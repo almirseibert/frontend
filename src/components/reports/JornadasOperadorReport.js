@@ -120,15 +120,19 @@ const drawGantt = (doc, x, y, w, ivsFat, ivsRas, ivsPon, dataStr) => {
         }
     });
 
-    // Eixo de horas
+    // Eixo de horas — cortes de hora em hora, rótulo a cada 3h
     const totalH = trilhas.length * (trilhaH + gap);
     const eixoY = y + totalH + 0.5;
-    doc.setDrawColor(...COR.cinzaMed);
     doc.setFontSize(6);
-    for (let h = 0; h <= 24; h += 3) {
+    for (let h = 0; h <= 24; h += 1) {
         const xx = x + labelW + (h / 24) * trilhaW;
+        const isMajor = h % 3 === 0;
+        doc.setDrawColor(...(isMajor ? COR.cinzaMed : COR.cinzaClaro));
         doc.line(xx, y, xx, eixoY);
-        doc.text(`${String(h).padStart(2, '0')}h`, xx - 2, eixoY + 2.5);
+        if (isMajor) {
+            doc.setTextColor(...COR.texto);
+            doc.text(`${String(h).padStart(2, '0')}h`, xx - 2, eixoY + 2.5);
+        }
     }
     return eixoY + 4;
 };
@@ -198,7 +202,7 @@ const gerarPDF = (data) => {
     data.dias.forEach((dia) => {
         // Para cada máquina operada no dia, um bloco com mini-gantt + dados
         dia.maquinas.forEach((m, idx) => {
-            const blocoH = 38;
+            const blocoH = 48;
             ensureSpace(blocoH);
 
             // Cabeçalho do bloco
@@ -225,7 +229,7 @@ const gerarPDF = (data) => {
                 m.faturadoIntervalos, m.rastreadorIntervalos, m.pontoIntervalos, dia.data
             );
 
-            // Linha de totais e discrepâncias
+            // Linha de totais
             doc.setFontSize(7);
             doc.setTextColor(...COR.texto);
             const tot = m.totaisMin;
@@ -233,16 +237,33 @@ const gerarPDF = (data) => {
                 `Faturado: ${fmtMin(tot.faturado)}   ·   Rastreador: ${fmtMin(tot.rastreador)}   ·   Ponto: ${fmtMin(tot.ponto)}`,
                 margem, ganttFim + 1
             );
+
+            // Horários específicos de início/fim de cada jornada (em números)
+            const horariosLinhas = [
+                { label: 'Faturado',   ivs: m.faturadoIntervalos },
+                { label: 'Rastreador', ivs: m.rastreadorIntervalos },
+                { label: 'Ponto',      ivs: m.pontoIntervalos },
+            ].filter(l => Array.isArray(l.ivs) && l.ivs.length);
+            let yHor = ganttFim + 4.5;
+            doc.setFontSize(6.5);
+            doc.setTextColor(...COR.texto);
+            horariosLinhas.forEach(l => {
+                const linhas = doc.splitTextToSize(`${l.label}: ${fmtIntervalos(l.ivs)}`, contentW);
+                doc.text(linhas, margem, yHor);
+                yHor += linhas.length * 2.8;
+            });
+            y = horariosLinhas.length ? yHor + 0.5 : ganttFim + 3;
+
+            // Discrepâncias
             if (m.discrepancias.length) {
+                doc.setFontSize(7);
                 doc.setTextColor(...COR.discrep);
                 const txt = m.discrepancias
                     .map(d => `${TIPO_LABEL[d.tipo] || d.tipo} (${fmtMin(d.magnitude_min)})`)
                     .join(' · ');
                 const linhas = doc.splitTextToSize(txt, contentW);
-                doc.text(linhas, margem, ganttFim + 5);
-                y = ganttFim + 5 + linhas.length * 3 + 2;
-            } else {
-                y = ganttFim + 4;
+                doc.text(linhas, margem, y + 1);
+                y = y + 1 + linhas.length * 3 + 2;
             }
 
             // separador
