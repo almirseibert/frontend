@@ -97,7 +97,9 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const gruposFiltrados = useMemo(() => {
         const q = busca.trim().toLowerCase();
         if (!q) return grupos;
-        return grupos.filter((g) => (g.terceiro.razaoSocial || '').toLowerCase().includes(q));
+        return grupos.filter((g) =>
+            (g.terceiro.razaoSocial || '').toLowerCase().includes(q) ||
+            (g.terceiro.nomeFantasia || '').toLowerCase().includes(q));
     }, [grupos, busca]);
 
     const grupoSel = useMemo(
@@ -211,7 +213,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                                     className="w-full flex items-center gap-4 p-4 hover:bg-gray-50 text-left">
                                     <Truck size={20} className="text-purple-400 shrink-0" />
                                     <div className="min-w-0">
-                                        <div className="font-bold text-gray-800 truncate">{g.terceiro.razaoSocial}</div>
+                                        <div className="font-bold text-gray-800 truncate">{g.terceiro.nomeFantasia || g.terceiro.razaoSocial}</div>
                                         <div className="text-xs text-gray-400">
                                             {g.contratos.length} contrato(s) · {g.numObras} obra(s) · {g.numMaquinas} máquina(s)
                                         </div>
@@ -239,7 +241,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
                         <div>
                             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1e1a14' }} className="flex items-center gap-2">
-                                <Truck className="text-purple-500" /> {grupoSel.terceiro.razaoSocial}
+                                <Truck className="text-purple-500" /> {grupoSel.terceiro.nomeFantasia || grupoSel.terceiro.razaoSocial}
                             </h1>
                             {grupoSel.terceiro.cnpj && <p className="text-xs text-gray-400 mt-1">CNPJ {grupoSel.terceiro.cnpj}</p>}
                         </div>

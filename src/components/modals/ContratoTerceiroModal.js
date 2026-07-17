@@ -44,6 +44,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         percentualMultaInadimplemento: contrato?.percentualMultaInadimplemento != null ? String(contrato.percentualMultaInadimplemento) : '0.5',
         avisoPrevioRescisaoDias: contrato?.avisoPrevioRescisaoDias != null ? String(contrato.avisoPrevioRescisaoDias) : '2',
         foroComarca: contrato?.foroComarca || 'Santa Maria',
+        contratadaRepresentanteNome: contrato?.contratadaRepresentanteNome || '',
+        contratadaRepresentanteQualificacao: contrato?.contratadaRepresentanteQualificacao || '',
+        contratadaRepresentanteCpf: contrato?.contratadaRepresentanteCpf || '',
     });
     const [itens, setItens] = useState(() => normalizeItens(contrato?.itensContratados));
     const [maquinas, setMaquinas] = useState(() => normalizeMaquinas(contrato?.maquinas));
@@ -121,6 +124,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 percentualMultaInadimplemento: parseFloat(form.percentualMultaInadimplemento) || 0,
                 avisoPrevioRescisaoDias: parseInt(form.avisoPrevioRescisaoDias, 10) || 0,
                 foroComarca: form.foroComarca,
+                contratadaRepresentanteNome: form.contratadaRepresentanteNome.trim() || null,
+                contratadaRepresentanteQualificacao: form.contratadaRepresentanteQualificacao.trim() || null,
+                contratadaRepresentanteCpf: form.contratadaRepresentanteCpf.trim() || null,
                 maquinas: maquinas.filter((id) => maquinasDoTerceiro.some((v) => v.id === id)),
                 createdBy: { userEmail: user?.email || user?.userEmail || '' },
             };
@@ -158,7 +164,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                 onChange={(e) => { handleChange(e); setMaquinas([]); }}
                                 className="w-full p-2 border rounded-lg bg-white text-sm" required>
                                 <option value="">— Selecionar —</option>
-                                {terceiros.map((t) => <option key={t.id} value={t.id}>{t.razaoSocial}</option>)}
+                                {terceiros.map((t) => <option key={t.id} value={t.id}>{t.nomeFantasia || t.razaoSocial}</option>)}
                             </select>
                         </div>
                         <div>
@@ -276,6 +282,28 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Vigência fim</label>
                             <input type="date" name="vigenciaFim" value={form.vigenciaFim} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" />
                         </div>
+                    </div>
+
+                    {/* Representante legal da CONTRATADA (qualificação do assinante) */}
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 mb-3">
+                            <FileText size={16} className="text-purple-500" /> Representante legal da CONTRATADA
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="col-span-2">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Nome do assinante</label>
+                                <input name="contratadaRepresentanteNome" value={form.contratadaRepresentanteNome} onChange={handleChange} placeholder="Ex: João da Silva" className="w-full p-2 border rounded-lg bg-white text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Qualificação</label>
+                                <input name="contratadaRepresentanteQualificacao" value={form.contratadaRepresentanteQualificacao} onChange={handleChange} placeholder="Ex: brasileiro, empresário" className="w-full p-2 border rounded-lg bg-white text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1">CPF</label>
+                                <input name="contratadaRepresentanteCpf" value={form.contratadaRepresentanteCpf} onChange={handleChange} placeholder="000.000.000-00" className="w-full p-2 border rounded-lg bg-white text-sm" />
+                            </div>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-2">Nome e CPF de quem assina pela CONTRATADA. Sustenta o contrato como título executivo extrajudicial. Se em branco, o PDF usa "por seu representante legal".</p>
                     </div>
 
                     {/* Cláusulas contratuais (parametrizáveis no PDF gerado) */}
