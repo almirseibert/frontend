@@ -35,7 +35,7 @@ const getEditorEmail = (order) => {
 // ===================================================================================
 const SendNotificationSection = ({ formData, setFormData, partners = [] }) => {
     const selectedPartner = partners.find(p => p.id === formData.supplierId);
-    const hasWhatsapp = !!(selectedPartner?.whatsappNumber || selectedPartner?.telefone);
+    const hasWhatsapp = !!(selectedPartner?.whatsapp || selectedPartner?.telefone);
     const hasEmail    = !!(selectedPartner?.email);
 
     return (
@@ -80,7 +80,7 @@ const SendNotificationSection = ({ formData, setFormData, partners = [] }) => {
                 {formData.notifyWhatsapp && hasWhatsapp && (
                     <div className="bg-green-50 border border-green-200 rounded p-2">
                         <p className="text-xs text-green-800">
-                            <strong>WhatsApp:</strong> Será enviado para {selectedPartner?.razaoSocial} — {selectedPartner?.whatsappNumber || selectedPartner?.telefone}
+                            <strong>WhatsApp:</strong> Será enviado para {selectedPartner?.razaoSocial} — {selectedPartner?.whatsapp || selectedPartner?.telefone}
                         </p>
                     </div>
                 )}
@@ -318,10 +318,44 @@ const SearchableSupplierSelect = ({ partners = [], value, onChange }) => {
     );
 };
 
+// Carrega a logo da MAK como dataURL PNG para embutir no PDF.
+// Resolve null em caso de falha ou timeout de 3s (o PDF é gerado sem a logo).
+const loadLogoDataUrl = () => new Promise((resolve) => {
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    const logo = new Image();
+    logo.crossOrigin = 'Anonymous';
+    logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
+    logo.onload = () => {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = logo.width; canvas.height = logo.height;
+            canvas.getContext('2d').drawImage(logo, 0, 0);
+            finish(canvas.toDataURL('image/png'));
+        } catch (e) { finish(null); }
+    };
+    logo.onerror = () => finish(null);
+    setTimeout(() => finish(null), 3000);
+});
+
+// Nome do arquivo salvo localmente:
+// "Ordem de Compra e Servico <numero6> <YYYY-MM-DD>[ RE-<registroInterno>].pdf"
+const buildOrderFileName = (order, vehicle) => {
+    const num = order.orderNumber ? String(order.orderNumber).padStart(6, '0') : '000000';
+    const dateStr = order.date
+        ? new Date(order.date).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+    const ri = vehicle?.registroInterno ? ` RE-${vehicle.registroInterno}` : '';
+    const raw = `Ordem de Compra e Servico ${num} ${dateStr}${ri}`;
+    return `${raw.replace(/[\\/:*?"<>|]/g, '-').trim()}.pdf`;
+};
+
 // ===================================================================================
 // GERAÇÃO DE PDF PARA ORDEM DE COMPRA/SERVIÇO
 // ===================================================================================
-const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl, returnBlob = false) => {
+// Modos: returnBlob=true → devolve Blob; downloadName informado → baixa no PC;
+// caso contrário abre no navegador (comportamento de preview).
+const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl, returnBlob = false, downloadName = null) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const effectivePageHeight = 148.5;
@@ -451,9 +485,13 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl,
     doc.setLineDashPattern([1, 1], 0); doc.setDrawColor(180, 180, 180);
     doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
 
-    // ← MUDANÇA: retorna blob quando pedido, abre no navegador quando não
+    // Retorna blob (upload/anexo), baixa no PC (downloadName) ou abre no navegador.
     if (returnBlob) {
         return doc.output('blob');
+    }
+    if (downloadName) {
+        doc.save(downloadName);
+        return;
     }
     doc.output('dataurlnewwindow');
 };
@@ -1089,6 +1127,16 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             .catch(() => {});
     }, []);
 
+    // Marca os canais de notificação por padrão conforme o contato do fornecedor
+    useEffect(() => {
+        const partner = partners.find(p => p.id === formData.supplierId);
+        if (!partner) return;
+        const hasWa = !!(partner.whatsapp || partner.telefone);
+        const hasEm = !!partner.email;
+        setFormData(prev => ({ ...prev, notifyEmail: hasEm, notifyWhatsapp: hasWa }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formData.supplierId]);
+
     const sortedVehicles  = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const sortedObras     = useMemo(() => [...obras].filter(o => ['ativa', 'mobilizacao'].includes(o.status)).sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
@@ -1240,86 +1288,9 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
         setIsSaving(true);
 
-        // -----------------------------------------------------------------------
-        // NOVO: Se WhatsApp marcado, gera PDF como blob e faz upload ANTES de salvar
-        // -----------------------------------------------------------------------
-        let pdfAnexo = null;
-
-        if (formData.notifyWhatsapp) {
-            try {
-                // Monta os dados da ordem (sem orderNumber ainda) para gerar o PDF
-                const previewOrder = {
-                    ...formData,
-                    date:        new Date(formData.date + 'T12:00:00Z').toISOString(),
-                    totalValue:  isPricePending ? 0 : totalValue,
-                    status:      isPricePending ? 'Pendente de Valor' : 'Ativa',
-                    orderNumber: orderToEdit?.orderNumber || '??????',
-                    payment:     formData.payment,
-                    items:       formData.items.map(item => ({
-                        quantity:    parseFloat(item.quantity) || 0,
-                        description: item.description,
-                        unitPrice:   isPricePending ? 0 : (parseFloat(item.unitPrice) || 0),
-                    })),
-                    createdBy: orderToEdit ? formData.createdBy : { userEmail: user?.email },
-                };
-
-                const vehicle  = vehicles.find(v => v.id === formData.vehicleId);
-                const employee = employees.find(emp => emp.id === formData.employeeId);
-                const operator = employees.find(emp => emp.id === formData.operatorId);
-                const obra     = obras.find(o => o.id === formData.obraId);
-
-                // Carrega logo e gera blob do PDF
-                const pdfBlob = await new Promise((resolve) => {
-                    const logo = new Image();
-                    logo.crossOrigin = 'Anonymous';
-                    logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
-                    logo.onload = () => {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = logo.width; canvas.height = logo.height;
-                            const ctx = canvas.getContext('2d'); ctx.drawImage(logo, 0, 0);
-                            resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, canvas.toDataURL('image/png'), true));
-                        } catch (e) {
-                            resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, null, true));
-                        }
-                    };
-                    logo.onerror = () => {
-                        resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, null, true));
-                    };
-                    // Timeout de segurança: se a logo demorar >3s, gera sem ela
-                    setTimeout(() => {
-                        resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, null, true));
-                    }, 3000);
-                });
-
-                // Faz upload do PDF para o servidor
-                const numStr = String(orderToEdit?.orderNumber || 'nova').padStart(6, '0');
-                const pdfFile = new File([pdfBlob], `ordem-${numStr}.pdf`, { type: 'application/pdf' });
-                const uploadForm = new FormData();
-                uploadForm.append('file', pdfFile);
-
-                const uploadRes = await apiClient.post('/upload', uploadForm, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
-
-                const pdfUrl = uploadRes?.url || uploadRes?.fileUrl || uploadRes?.path || null;
-                if (pdfUrl) {
-                    pdfAnexo = { name: `Ordem-${numStr}.pdf`, url: pdfUrl };
-                    console.log('[WhatsApp] PDF gerado e enviado ao servidor:', pdfUrl);
-                }
-            } catch (uploadErr) {
-                // Não bloqueia o salvamento — apenas loga e segue sem o PDF
-                console.warn('[WhatsApp] Falha ao gerar/upload do PDF — WhatsApp será enviado sem anexo:', uploadErr.message);
-            }
-        }
-// -----------------------------------------------------------------------
-        // Monta os dados finais da ordem (injeta PDF nos anexos se existir)
-        // -----------------------------------------------------------------------
+        // O PDF é gerado DEPOIS de salvar (quando o número real da ordem existe):
+        // baixado localmente e — se houver canal marcado — anexado à notificação.
         const anexosList = [...(formData.anexos || [])];
-        if (pdfAnexo) {
-            // Coloca o PDF gerado como primeiro anexo para o backend priorizá-lo
-            anexosList.unshift(pdfAnexo);
-        }
 
         const finalOrderData = {
             supplier:       formData.supplier,
@@ -1374,12 +1345,52 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
             if (reloadData) await reloadData();
 
-            // Abre o PDF no navegador com o número correto da ordem (agora que temos o ID)
-            if (savedOrderData) {
-                const pdfData = { ...finalOrderData, ...savedOrderData };
-                if (!pdfData.orderNumber && savedOrderData.orderNumber) pdfData.orderNumber = savedOrderData.orderNumber;
-                pdfData.createdBy = finalOrderData.createdBy;
-                generatePDF(pdfData); // handleOpenPDF — abre no navegador normalmente
+            // ----------------------------------------------------------------
+            // PDF com o número REAL da ordem: baixa localmente (sempre) e,
+            // se algum canal estiver marcado, anexa à notificação ao fornecedor.
+            // ----------------------------------------------------------------
+            const savedId     = savedOrderData?.id || orderToEdit?.id;
+            const realNumber  = savedOrderData?.orderNumber || orderToEdit?.orderNumber;
+            const pdfOrder    = { ...finalOrderData, orderNumber: realNumber, createdBy: finalOrderData.createdBy };
+
+            const vehicle  = vehicles.find(v => v.id === formData.vehicleId);
+            const employee = employees.find(emp => emp.id === formData.employeeId);
+            const operator = employees.find(emp => emp.id === formData.operatorId);
+            const obra     = obras.find(o => o.id === formData.obraId);
+
+            const logoDataUrl = await loadLogoDataUrl();
+            const fileName    = buildOrderFileName(pdfOrder, vehicle);
+
+            // (a) Download local automático — sempre que a ordem é emitida
+            try {
+                generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, false, fileName);
+            } catch (e) {
+                console.warn('[Ordem] Falha ao baixar PDF localmente:', e.message);
+            }
+
+            // (b) Notificação ao fornecedor com o PDF anexado (canais marcados)
+            if ((formData.notifyEmail || formData.notifyWhatsapp) && savedId) {
+                try {
+                    const pdfBlob = generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, true);
+                    const numStr  = String(realNumber || 'nova').padStart(6, '0');
+                    const pdfFile = new File([pdfBlob], `ordem-${numStr}.pdf`, { type: 'application/pdf' });
+                    const uploadForm = new FormData();
+                    uploadForm.append('file', pdfFile);
+
+                    const uploadRes = await apiClient.post('/upload', uploadForm, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                    const pdfUrl = uploadRes?.url || uploadRes?.fileUrl || uploadRes?.path || null;
+
+                    await apiClient.notifyOrder(savedId, {
+                        pdfUrl,
+                        notifyEmail:    !!formData.notifyEmail,
+                        notifyWhatsapp: !!formData.notifyWhatsapp,
+                        isUpdate:       !!orderToEdit,
+                    });
+                } catch (notifyErr) {
+                    console.warn('[Ordem] Falha ao enviar notificação ao fornecedor:', notifyErr.message);
+                }
             }
 
             onClose();
