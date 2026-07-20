@@ -248,7 +248,8 @@ const EmployeeModal = ({
                         { id: 'dados', label: 'Dados Pessoais', icon: User },
                         { id: 'cnh', label: 'CNH e Exames', icon: FileText },
                         { id: 'aso', label: 'Atestado Médico (ASO)', icon: Stethoscope },
-                        { id: 'epi', label: 'EPIs', icon: Shield }
+                        { id: 'epi', label: 'EPIs', icon: Shield },
+                        { id: 'aptidoes', label: 'Aptidões', icon: Wrench }
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -339,48 +340,6 @@ const EmployeeModal = ({
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
                                 <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
-                            </div>
-
-                            {/* Aptidões de equipamento + líder de obra (Mapa Operacional / sugestão de equipe) */}
-                            <div className="md:col-span-3 mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-bold text-gray-600 uppercase flex items-center gap-1">
-                                        <Wrench size={13} /> Equipamentos que sabe operar
-                                    </span>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={!!formData.is_lider_obra}
-                                            onChange={e => setFormData(prev => ({ ...prev, is_lider_obra: e.target.checked }))}
-                                            className="h-4 w-4 text-yellow-600 rounded focus:ring-yellow-500"
-                                        />
-                                        <span className="text-sm font-semibold text-gray-700 flex items-center gap-1">
-                                            <Star size={13} className="text-yellow-500" /> Apto a liderar obra
-                                        </span>
-                                    </label>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {equipamentoOptions.map(tipo => {
-                                        const ativo = (formData.equipamentos_aptos || []).includes(tipo);
-                                        return (
-                                            <button
-                                                type="button"
-                                                key={tipo}
-                                                onClick={() => toggleEquipamento(tipo)}
-                                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${
-                                                    ativo
-                                                        ? 'bg-yellow-500 text-white border-yellow-500'
-                                                        : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400'
-                                                }`}
-                                            >
-                                                {tipo}
-                                            </button>
-                                        );
-                                    })}
-                                    {equipamentoOptions.length === 0 && (
-                                        <span className="text-xs text-gray-400 italic">Taxonomia de veículos não carregada.</span>
-                                    )}
-                                </div>
                             </div>
 
                             {isAdmin && (
@@ -506,6 +465,52 @@ const EmployeeModal = ({
                                             ) : <span className="text-xs text-gray-400 italic">Nenhum arquivo</span>}
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NOVA ABA: APTIDÕES */}
+                    {activeTab === 'aptidoes' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            <div className="bg-gray-50 p-5 rounded-lg border border-gray-200">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                        <Wrench size={18}/> Equipamentos que sabe operar
+                                    </h3>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={!!formData.is_lider_obra}
+                                            onChange={e => setFormData(prev => ({ ...prev, is_lider_obra: e.target.checked }))}
+                                            className="h-4 w-4 text-yellow-600 rounded focus:ring-yellow-500"
+                                        />
+                                        <span className="text-sm font-semibold text-gray-700 flex items-center gap-1">
+                                            <Star size={13} className="text-yellow-500" /> Apto a liderar obra
+                                        </span>
+                                    </label>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {equipamentoOptions.map(tipo => {
+                                        const ativo = (formData.equipamentos_aptos || []).includes(tipo);
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={tipo}
+                                                onClick={() => toggleEquipamento(tipo)}
+                                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${
+                                                    ativo
+                                                        ? 'bg-yellow-500 text-white border-yellow-500'
+                                                        : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400'
+                                                }`}
+                                            >
+                                                {tipo}
+                                            </button>
+                                        );
+                                    })}
+                                    {equipamentoOptions.length === 0 && (
+                                        <span className="text-xs text-gray-400 italic">Taxonomia de veículos não carregada.</span>
+                                    )}
                                 </div>
                             </div>
                         </div>
