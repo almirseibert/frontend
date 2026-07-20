@@ -118,30 +118,45 @@ const ContratoDetalheModal = ({
                         </p>
                     )}
 
-                    {/* Plano contratado por subgrupo — composição do valor (parte do todo, NÃO progresso) */}
-                    {r.itensContratados.length > 0 && (
-                        <div className="mt-5">
-                            <div className="text-[10px] uppercase font-bold text-gray-400 mb-2">Plano contratado por subgrupo</div>
-                            {/* Barra de composição: uma única barra fatiada por subgrupo */}
-                            <div className="flex w-full h-3 rounded-full overflow-hidden mb-2.5">
-                                {r.itensContratados.map((it, i) => {
-                                    const share = r.valorTotal > 0 ? (it.subtotal / r.valorTotal) * 100 : 0;
-                                    return <div key={i} title={`${it.type}: ${fmtBRL(it.subtotal)}`} style={{ width: `${share}%`, background: PLANO_CORES[i % PLANO_CORES.length] }} />;
-                                })}
+                    {/* Plano contratado por subgrupo — composição do valor (por horas quando é valor fechado sem valor/hora) */}
+                    {r.itensContratados.length > 0 && (() => {
+                        // Fechado: itens têm valorHora=0, então a composição é feita por HORAS, não por valor.
+                        const totalSubtotal = r.itensContratados.reduce((a, it) => a + it.subtotal, 0);
+                        const totalHoras = r.itensContratados.reduce((a, it) => a + it.horas, 0);
+                        const porValor = totalSubtotal > 0;
+                        return (
+                            <div className="mt-5">
+                                <div className="text-[10px] uppercase font-bold text-gray-400 mb-2">
+                                    Plano contratado por subgrupo{porValor ? '' : ' (por horas)'}
+                                </div>
+                                {/* Barra de composição: uma única barra fatiada por subgrupo */}
+                                <div className="flex w-full h-3 rounded-full overflow-hidden mb-2.5">
+                                    {r.itensContratados.map((it, i) => {
+                                        const share = porValor
+                                            ? (totalSubtotal > 0 ? (it.subtotal / totalSubtotal) * 100 : 0)
+                                            : (totalHoras > 0 ? (it.horas / totalHoras) * 100 : 0);
+                                        const title = porValor ? `${it.type}: ${fmtBRL(it.subtotal)}` : `${it.type}: ${fmtH(it.horas)}`;
+                                        return <div key={i} title={title} style={{ width: `${share}%`, background: PLANO_CORES[i % PLANO_CORES.length] }} />;
+                                    })}
+                                </div>
+                                <div className="space-y-1">
+                                    {r.itensContratados.map((it, i) => (
+                                        <div key={i} className="flex items-center justify-between text-xs">
+                                            <span className="flex items-center gap-1.5 font-semibold text-gray-700">
+                                                <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PLANO_CORES[i % PLANO_CORES.length] }} />
+                                                {it.type}
+                                            </span>
+                                            <span className="text-gray-500">
+                                                {porValor
+                                                    ? <>{fmtH(it.horas)} × {fmtBRL(it.valorHora)}/h · <span className="font-bold text-gray-800">{fmtBRL(it.subtotal)}</span></>
+                                                    : <span className="font-bold text-gray-800">{fmtH(it.horas)}</span>}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                            <div className="space-y-1">
-                                {r.itensContratados.map((it, i) => (
-                                    <div key={i} className="flex items-center justify-between text-xs">
-                                        <span className="flex items-center gap-1.5 font-semibold text-gray-700">
-                                            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PLANO_CORES[i % PLANO_CORES.length] }} />
-                                            {it.type}
-                                        </span>
-                                        <span className="text-gray-500">{fmtH(it.horas)} × {fmtBRL(it.valorHora)}/h · <span className="font-bold text-gray-800">{fmtBRL(it.subtotal)}</span></span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                        );
+                    })()}
 
                     {/* Máquinas do contrato — horas e diesel por máquina (sem barra, para não confundir com progresso) */}
                     {r.equipamentos.length > 0 && (

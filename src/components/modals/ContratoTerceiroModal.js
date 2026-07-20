@@ -84,34 +84,46 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
     const removeItem = (i) => setItens((c) => c.filter((_, idx) => idx !== i));
     const updateItem = (i, field, value) => setItens((c) => c.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
 
+    const isFechado = form.contractType === 'fechado';
+    // No modo fechado as máquinas entram sem valor/hora — só a coluna de horas aparece.
+    const showPrice = !isFechado;
+
     const valorTotal = useMemo(() => {
-        if (form.contractType === 'fechado') return parseFloat(form.valorTotalFechado) || 0;
+        if (isFechado) return parseFloat(form.valorTotalFechado) || 0;
         return itens.reduce((a, i) => a + (parseFloat(i.hours) || 0) * (parseFloat(i.price) || 0), 0);
-    }, [form.contractType, form.valorTotalFechado, itens]);
+    }, [isFechado, form.valorTotalFechado, itens]);
+
+    const totalHorasItens = useMemo(
+        () => itens.reduce((a, i) => a + (parseFloat(i.hours) || 0), 0),
+        [itens]
+    );
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!form.locadorId) { setAlertMessage?.('Selecione o terceiro.'); return; }
         if (!form.obraId) { setAlertMessage?.('Selecione a obra.'); return; }
-        if (form.contractType === 'horas' && itens.filter((i) => i.type).length === 0) {
+        if (!isFechado && itens.filter((i) => i.type).length === 0) {
             setAlertMessage?.('Adicione ao menos um equipamento ao plano, ou use "Valor fechado".'); return;
         }
-        if (form.contractType === 'fechado' && !(parseFloat(form.valorTotalFechado) > 0)) {
+        if (isFechado && !(parseFloat(form.valorTotalFechado) > 0)) {
             setAlertMessage?.('Informe o valor fechado do contrato.'); return;
         }
         setIsSaving(true);
         try {
-            const itensLimpos = itens.filter((i) => i.type).map((i) => ({ type: i.type, hours: parseFloat(i.hours) || 0, price: parseFloat(i.price) || 0 }));
+            // No modo fechado as máquinas entram com price = 0: o valor é global, as horas são só demonstrativas.
+            const itensLimpos = itens.filter((i) => i.type).map((i) => ({ type: i.type, hours: parseFloat(i.hours) || 0, price: isFechado ? 0 : (parseFloat(i.price) || 0) }));
             // tipoMaquina: usa o digitado ou deriva dos subgrupos do plano.
             const tipoMaquina = form.tipoMaquina || (itensLimpos.length > 0 ? [...new Set(itensLimpos.map((i) => i.type))].join(', ') : null);
+            // No fechado, as horas contratadas (progresso físico) somam as horas das máquinas do plano.
+            const horasItens = itensLimpos.reduce((a, i) => a + i.hours, 0);
             const payload = {
                 locadorId: form.locadorId,
                 obraId: form.obraId,
                 tipoMaquina,
                 contractType: form.contractType,
-                itensContratados: form.contractType === 'horas' ? itensLimpos : [],
-                horasContratadas: form.contractType === 'fechado' ? (parseFloat(form.horasContratadas) || 0) : undefined,
-                valorTotal: form.contractType === 'fechado' ? (parseFloat(form.valorTotalFechado) || 0) : undefined,
+                itensContratados: itensLimpos,
+                horasContratadas: isFechado ? (horasItens || parseFloat(form.horasContratadas) || 0) : undefined,
+                valorTotal: isFechado ? (parseFloat(form.valorTotalFechado) || 0) : undefined,
                 vigenciaInicio: form.vigenciaInicio || null,
                 vigenciaFim: form.vigenciaFim || null,
                 status: form.status,
@@ -190,58 +202,66 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         </div>
                     </div>
 
-                    {/* A. POR HORAS */}
-                    {form.contractType === 'horas' && (
-                        <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100">
-                            <div className="flex justify-between items-center mb-3">
-                                <h3 className="text-sm font-bold text-purple-800 flex items-center gap-2"><Clock size={16} /> Equipamentos contratados</h3>
-                                <button type="button" onClick={addItem} className="text-xs flex items-center gap-1 text-purple-600 hover:text-purple-800 font-bold bg-white px-2 py-1 rounded border border-purple-200 shadow-sm">
-                                    <Plus size={14} /> Adicionar item
-                                </button>
-                            </div>
-                            {itens.length === 0 && <p className="text-sm text-gray-400 italic text-center py-4 bg-white rounded border border-dashed">Nenhum equipamento adicionado.</p>}
-                            <div className="space-y-2">
-                                {itens.map((item, index) => (
-                                    <div key={index} className="flex flex-col sm:flex-row gap-2 items-end bg-white p-3 rounded border shadow-sm">
-                                        <div className="w-full sm:flex-1">
-                                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (subgrupo)</label>
-                                            <select value={item.type} onChange={(e) => updateItem(index, 'type', e.target.value)} className="w-full p-2 border rounded text-sm">
-                                                <option value="">Selecione...</option>
-                                                {equipmentOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="w-1/2 sm:w-24">
-                                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas</label>
-                                            <input type="number" min="0" step="any" value={item.hours} onChange={(e) => updateItem(index, 'hours', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0" />
-                                        </div>
-                                        <div className="w-1/2 sm:w-32">
-                                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora (R$)</label>
-                                            <input type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(index, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
-                                        </div>
-                                        <button type="button" onClick={() => removeItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5"><Trash2 size={18} /></button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* B. VALOR FECHADO */}
-                    {form.contractType === 'fechado' && (
+                    {/* A. VALOR FECHADO — valor global + descrição (as máquinas/horas vão no bloco abaixo) */}
+                    {isFechado && (
                         <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100 grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Valor fechado (R$)</label>
                                 <input type="number" min="0" step="0.01" name="valorTotalFechado" value={form.valorTotalFechado} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="0,00" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Horas p/ progresso (opcional)</label>
-                                <input type="number" min="0" step="any" name="horasContratadas" value={form.horasContratadas} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="0" />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Tipo de máquina (descrição)</label>
+                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Tipo de máquina (descrição, opcional)</label>
                                 <input name="tipoMaquina" value={form.tipoMaquina} onChange={handleChange} placeholder="Ex: Retroescavadeira" className="w-full p-2 border rounded-lg bg-white text-sm" />
                             </div>
                         </div>
                     )}
+
+                    {/* B. MÁQUINAS / EQUIPAMENTOS CONTRATADOS — usado nos dois modos.
+                        No fechado: subgrupo + horas (sem valor/hora); no por horas: com valor/hora. */}
+                    <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-sm font-bold text-purple-800 flex items-center gap-2">
+                                <Clock size={16} /> {isFechado ? 'Máquinas contratadas (horas, sem valor/hora)' : 'Equipamentos contratados'}
+                            </h3>
+                            <button type="button" onClick={addItem} className="text-xs flex items-center gap-1 text-purple-600 hover:text-purple-800 font-bold bg-white px-2 py-1 rounded border border-purple-200 shadow-sm">
+                                <Plus size={14} /> Adicionar item
+                            </button>
+                        </div>
+                        {itens.length === 0 && (
+                            <p className="text-sm text-gray-400 italic text-center py-4 bg-white rounded border border-dashed">
+                                {isFechado ? 'Nenhuma máquina adicionada (opcional).' : 'Nenhum equipamento adicionado.'}
+                            </p>
+                        )}
+                        <div className="space-y-2">
+                            {itens.map((item, index) => (
+                                <div key={index} className="flex flex-col sm:flex-row gap-2 items-end bg-white p-3 rounded border shadow-sm">
+                                    <div className="w-full sm:flex-1">
+                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (subgrupo)</label>
+                                        <select value={item.type} onChange={(e) => updateItem(index, 'type', e.target.value)} className="w-full p-2 border rounded text-sm">
+                                            <option value="">Selecione...</option>
+                                            {equipmentOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className={showPrice ? 'w-1/2 sm:w-24' : 'w-full sm:w-32'}>
+                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas</label>
+                                        <input type="number" min="0" step="any" value={item.hours} onChange={(e) => updateItem(index, 'hours', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0" />
+                                    </div>
+                                    {showPrice && (
+                                        <div className="w-1/2 sm:w-32">
+                                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora (R$)</label>
+                                            <input type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(index, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
+                                        </div>
+                                    )}
+                                    <button type="button" onClick={() => removeItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5"><Trash2 size={18} /></button>
+                                </div>
+                            ))}
+                        </div>
+                        {isFechado && itens.length > 0 && (
+                            <p className="text-[11px] text-gray-500 mt-2">
+                                Total: <span className="font-bold text-gray-700">{totalHorasItens.toLocaleString('pt-BR')} h</span> · as horas constam no contrato sem valor individual; o valor é o global fechado acima.
+                            </p>
+                        )}
+                    </div>
 
                     {/* Totalizador */}
                     <div className="bg-gray-900 text-white p-3 rounded-lg flex justify-between items-center">
