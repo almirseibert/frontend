@@ -431,6 +431,15 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl,
         finalY += 7;
     }
 
+    if (order.observacoes && String(order.observacoes).trim() !== '') {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Observações:', margin, finalY);
+        doc.setFont('helvetica', 'normal');
+        const obsLines = doc.splitTextToSize(String(order.observacoes).trim(), pageWidth - (margin * 2) - 25);
+        doc.text(obsLines, margin + 25, finalY);
+        finalY += (obsLines.length * 4.5) + 2;
+    }
+
     const footerStartY = Math.max(finalY + 5, effectivePageHeight - 25);
     doc.setLineWidth(0.2); doc.line(margin, footerStartY, pageWidth - margin, footerStartY);
     doc.setFontSize(8); doc.setFont('helvetica', 'bold');
@@ -903,6 +912,13 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
                         )}
                     </div>
 
+                    {order.observacoes && String(order.observacoes).trim() !== '' && (
+                        <div className="bg-amber-50 border border-amber-100 p-4 rounded-lg">
+                            <h3 className="text-xs font-black text-amber-800 uppercase mb-2">Observações</h3>
+                            <p className="text-sm text-amber-900 whitespace-pre-wrap">{order.observacoes}</p>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2">
                             <h3 className="text-xs font-black text-gray-500 uppercase mb-3 border-b pb-1">Itens Descriminados</h3>
@@ -1054,6 +1070,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             itemId:      item.itemId                  || null,
         })),
         payment:        orderToEdit?.payment || { type: 'À vista', method: '', days: '', installments: [] },
+        observacoes:    orderToEdit?.observacoes || '',
         anexos:         parsedAnexos,
         createdBy:      orderToEdit?.createdBy || undefined,
         notifyEmail:    false,
@@ -1321,6 +1338,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                 itemId:      item.itemId || null,
             })),
             payment:        formData.payment,
+            observacoes:    formData.observacoes?.trim() || null,
             anexos:         JSON.stringify(anexosList),   // ← inclui o PDF se houver
             totalValue:     isPricePending ? 0 : totalValue,
             status:         isPricePending ? 'Pendente de Valor' : 'Ativa',
@@ -1588,12 +1606,15 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                 {/* Pagamento */}
                                 <div className="border rounded p-4 bg-white shadow-sm">
                                     <h3 className="font-bold text-gray-800 uppercase mb-3 text-xs">Condição de Pagamento *</h3>
-                                    <div className="flex gap-4 mb-3 border-b pb-3">
+                                    <div className="flex gap-4 flex-wrap mb-3 border-b pb-3">
                                         <label className="inline-flex items-center cursor-pointer font-medium">
                                             <input type="radio" name="paymentType" value="À vista" checked={formData.payment.type === 'À vista'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: '', installments:[]}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">À vista</span>
                                         </label>
                                         <label className="inline-flex items-center cursor-pointer font-medium">
                                             <input type="radio" name="paymentType" value="A prazo" checked={formData.payment.type === 'A prazo'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method: formData.payment.method || 'PIX', days: '', installments: formData.payment.installments || []}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A prazo</span>
+                                        </label>
+                                        <label className="inline-flex items-center cursor-pointer font-medium">
+                                            <input type="radio" name="paymentType" value="A confirmar" checked={formData.payment.type === 'A confirmar'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: '', installments:[]}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A confirmar</span>
                                         </label>
                                     </div>
                                     {formData.payment.type === 'A prazo' && (
@@ -1627,6 +1648,19 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                             </div>
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Observações */}
+                                <div className="border rounded p-4 bg-white shadow-sm">
+                                    <h3 className="font-bold text-gray-800 uppercase mb-3 text-xs flex items-center gap-2"><MessageCircle size={14}/> Observações</h3>
+                                    <textarea
+                                        value={formData.observacoes}
+                                        onChange={e => setFormData({...formData, observacoes: e.target.value})}
+                                        placeholder="Observações gerais da ordem (condições, prazos de entrega, detalhes acordados, etc.)"
+                                        rows={4}
+                                        className="w-full p-2 border rounded text-sm bg-white outline-none focus:border-yellow-500 resize-y"
+                                        disabled={isReadOnly}
+                                    />
                                 </div>
 
                                 {/* NOTIFICAÇÕES */}
