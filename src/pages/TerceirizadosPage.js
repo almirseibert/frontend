@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     Truck, Building2, PlusCircle, ChevronRight, ArrowLeft, Search, Clock,
     FileDown, Loader, AlertTriangle,
@@ -22,6 +22,7 @@ const saldoClass = (v) => (v > 0 ? 'text-red-600' : v < 0 ? 'text-blue-600' : 't
 const StatusBadge = ({ status }) => {
     const map = {
         ativo:     { t: 'Ativo', c: 'bg-green-50 text-green-700 border-green-200' },
+        assinado:  { t: 'Assinado', c: 'bg-purple-50 text-purple-700 border-purple-200' },
         concluido: { t: 'Concluído', c: 'bg-gray-100 text-gray-600 border-gray-200' },
         cancelado: { t: 'Cancelado', c: 'bg-red-50 text-red-700 border-red-200' },
     };
@@ -62,6 +63,8 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const [confirmDeletePag, setConfirmDeletePag] = useState(null); // pagamento
     const [pdfLoadingId, setPdfLoadingId] = useState(null);
     const [extratoLoading, setExtratoLoading] = useState(false);
+    const [docsAssinados, setDocsAssinados] = useState([]);
+    const [assinadoLoading, setAssinadoLoading] = useState(false);
 
     const reload = () => { refresh?.('terceiroContratos'); refresh?.('terceirizadoPagamentos'); };
 
@@ -131,6 +134,62 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
         } finally {
             setPdfLoadingId(null);
         }
+    };
+
+    // Histórico de documentos assinados do contrato aberto no modal de detalhe.
+    const carregarDocs = async (id) => {
+        if (!id) { setDocsAssinados([]); return; }
+        try {
+            setDocsAssinados(await apiClient.getContratoDocs(id));
+        } catch {
+            setDocsAssinados([]);
+        }
+    };
+    useEffect(() => {
+        carregarDocs(detalheId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [detalheId]);
+
+    const handleEnviarAssinado = async (file) => {
+        if (!detalheId || !file) return;
+        setAssinadoLoading(true);
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            await apiClient.enviarContratoAssinado(detalheId, fd);
+            await carregarDocs(detalheId);
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao enviar contrato assinado.');
+        } finally {
+            setAssinadoLoading(false);
+        }
+    };
+
+    const handleRemoverAssinado = async () => {
+        if (!detalheId) return;
+        setAssinadoLoading(true);
+        try {
+            await apiClient.removerContratoAssinado(detalheId);
+            await carregarDocs(detalheId);
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao remover contrato assinado.');
+        } finally {
+            setAssinadoLoading(false);
+        }
+    };
+
+    const handleBaixarAssinado = () => {
+        const c = terceiroContratos.find((x) => x.id === detalheId);
+        if (c?.contratoAssinadoUrl) {
+            window.open(`${FILE_ORIGIN}${c.contratoAssinadoUrl}?v=${Date.now()}`, '_blank', 'noopener');
+        }
+    };
+
+    // Baixa uma versão específica do histórico (ex.: a versão só com a assinatura do cliente).
+    const handleBaixarDocAssinado = (doc) => {
+        if (doc?.url) window.open(`${FILE_ORIGIN}${doc.url}?v=${Date.now()}`, '_blank', 'noopener');
     };
 
     const handleExtrato = () => {
@@ -335,6 +394,12 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     ctx={ctx}
                     adiantamentos={adiantamentosDetalhe}
                     pdfLoading={pdfLoadingId === detalheId}
+                    docsAssinados={docsAssinados}
+                    assinadoLoading={assinadoLoading}
+                    onEnviarAssinado={handleEnviarAssinado}
+                    onBaixarAssinado={handleBaixarAssinado}
+                    onBaixarDocAssinado={handleBaixarDocAssinado}
+                    onRemoverAssinado={handleRemoverAssinado}
                     onClose={() => setDetalheId(null)}
                     onGerarPdf={handleGerarPdf}
                     onEditContrato={() => setContratoModal({ contrato: contratoDetalhe.r.contrato })}

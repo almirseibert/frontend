@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
     X, FileText, FileDown, Pencil, Trash2, Loader, Clock, Wallet, Droplet,
-    PlusCircle, AlertTriangle, Building2,
+    PlusCircle, AlertTriangle, Building2, ShieldCheck, UploadCloud, Download, History, Lock,
 } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 import { getContratoAbastecimentos } from '../../utils/terceirizados';
@@ -22,11 +22,134 @@ const PLANO_CORES = ['#8b5cf6', '#0ea5e9', '#f59e0b', '#10b981', '#ec4899', '#64
 const StatusBadge = ({ status }) => {
     const map = {
         ativo:     { t: 'Ativo', c: 'bg-green-50 text-green-700 border-green-200' },
+        assinado:  { t: 'Assinado', c: 'bg-purple-50 text-purple-700 border-purple-200' },
         concluido: { t: 'Concluído', c: 'bg-gray-100 text-gray-600 border-gray-200' },
         cancelado: { t: 'Cancelado', c: 'bg-red-50 text-red-700 border-red-200' },
     };
     const s = map[status] || map.ativo;
     return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${s.c}`}>{s.t}</span>;
+};
+
+const fmtDateTime = (v) => {
+    if (!v) return '—';
+    const d = new Date(String(v).includes('T') ? v : String(v).replace(' ', 'T'));
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+/**
+ * Painel do documento oficial (contrato assinado). Dois estados:
+ *  - Sem assinado: minuta é rascunho; oferece envio do PDF assinado.
+ *  - Com assinado: mostra vigente + baixar/substituir/remover + histórico. Enquanto
+ *    houver assinado, minuta/edição/exclusão ficam bloqueadas (backend also enforces).
+ */
+const DocumentoOficialPanel = ({ contrato, docs = [], loading, onEnviar, onBaixar, onBaixarDoc, onRemover }) => {
+    const inputRef = useRef(null);
+    const [confirmando, setConfirmando] = useState(false);
+    const assinado = !!contrato.contratoAssinadoUrl;
+    const historico = docs.filter((d) => !d.vigente);
+    const [verHist, setVerHist] = useState(false);
+
+    const pick = () => inputRef.current?.click();
+    const onFile = (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = ''; // permite reenviar o mesmo arquivo
+        if (file) onEnviar(file);
+    };
+
+    return (
+        <div className={`rounded-lg border p-3 ${assinado ? 'border-purple-200 bg-purple-50/40' : 'border-gray-200 bg-gray-50'}`}>
+            <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={onFile} />
+            <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-gray-400 mb-2">
+                <ShieldCheck size={12} /> Documento oficial
+            </div>
+
+            {assinado ? (
+                <>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-purple-800">
+                        <ShieldCheck size={15} className="text-purple-600" />
+                        {contrato.contratoAssinadoNome || 'Contrato assinado.pdf'}
+                    </div>
+                    <div className="text-[11px] text-gray-500 mt-0.5">
+                        Assinado em {fmtDateTime(contrato.contratoAssinadoEm)}
+                        {contrato.contratoAssinadoPor ? ` · ${contrato.contratoAssinadoPor}` : ''}
+                    </div>
+                    <div className="text-[11px] text-gray-500 flex items-center gap-1 mt-1">
+                        <Lock size={11} /> Minuta, edição e exclusão bloqueadas enquanto houver contrato assinado.
+                    </div>
+
+                    {confirmando ? (
+                        <div className="flex items-center gap-2 mt-3 text-xs">
+                            <span className="text-gray-600 font-medium">Remover o contrato assinado? Ele fica no histórico.</span>
+                            <button onClick={() => { setConfirmando(false); onRemover(); }} disabled={loading}
+                                className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 disabled:opacity-60">Remover</button>
+                            <button onClick={() => setConfirmando(false)}
+                                className="px-2.5 py-1 bg-gray-200 rounded-lg font-medium hover:bg-gray-300">Cancelar</button>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+                            <button onClick={onBaixar}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                                <Download size={13} /> Baixar assinado
+                            </button>
+                            <button onClick={pick} disabled={loading}
+                                title="Ex.: enviar a versão com a assinatura da MAK após a do cliente"
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-100 disabled:opacity-60">
+                                {loading ? <Loader size={13} className="animate-spin" /> : <UploadCloud size={13} />} Enviar nova versão
+                            </button>
+                            <button onClick={() => setConfirmando(true)} disabled={loading}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-60">
+                                <Trash2 size={13} /> Remover
+                            </button>
+                        </div>
+                    )}
+                    {!confirmando && (
+                        <p className="text-[11px] text-gray-400 mt-1.5">
+                            Enviar nova versão arquiva a atual no histórico (não apaga) — use para adicionar uma
+                            segunda assinatura ou corrigir o arquivo.
+                        </p>
+                    )}
+                </>
+            ) : (
+                <>
+                    <p className="text-xs text-gray-500 mb-2.5">
+                        Nenhum contrato assinado enviado. O PDF gerado é apenas <b>rascunho (minuta)</b> — envie o
+                        documento assinado para torná-lo o oficial vigente.
+                    </p>
+                    <button onClick={pick} disabled={loading}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-60">
+                        {loading ? <Loader size={13} className="animate-spin" /> : <UploadCloud size={13} />} Enviar contrato assinado
+                    </button>
+                </>
+            )}
+
+            {historico.length > 0 && (
+                <div className="mt-3 border-t border-gray-200 pt-2">
+                    <button onClick={() => setVerHist((v) => !v)}
+                        className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-700">
+                        <History size={12} /> Histórico de envios ({historico.length})
+                    </button>
+                    {verHist && (
+                        <ul className="mt-1.5 space-y-1">
+                            {historico.map((d) => (
+                                <li key={d.id}>
+                                    <button onClick={() => onBaixarDoc(d)} title="Baixar esta versão"
+                                        className="w-full text-[11px] text-gray-500 flex items-center justify-between gap-2 rounded px-1 py-0.5 hover:bg-gray-100 hover:text-gray-700">
+                                        <span className="flex items-center gap-1 truncate">
+                                            <Download size={11} className="shrink-0 text-gray-400" />
+                                            <span className="truncate">{d.nomeOriginal || 'documento.pdf'}</span>
+                                        </span>
+                                        <span className="whitespace-nowrap text-gray-400">
+                                            {fmtDateTime(d.enviadoEm)}{d.enviadoPor ? ` · ${d.enviadoPor}` : ''}
+                                        </span>
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 };
 
 /**
@@ -46,10 +169,12 @@ const StatusBadge = ({ status }) => {
  */
 const ContratoDetalheModal = ({
     r, terceiro, obraNome, ctx, adiantamentos = [], pdfLoading,
+    docsAssinados = [], assinadoLoading, onEnviarAssinado, onBaixarAssinado, onBaixarDocAssinado, onRemoverAssinado,
     onClose, onGerarPdf, onEditContrato, onDeleteContrato,
     onNovoAdiantamento, onEditAdiantamento, onDeleteAdiantamento,
 }) => {
     const c = r.contrato;
+    const assinado = !!c.contratoAssinadoUrl;
     const [aba, setAba] = useState('adiantamentos'); // 'adiantamentos' | 'abastecimentos'
 
     const abastecimentos = useMemo(() => getContratoAbastecimentos(c, ctx), [c, ctx]);
@@ -73,21 +198,37 @@ const ContratoDetalheModal = ({
                         </div>
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <button onClick={() => onGerarPdf(c)} disabled={pdfLoading} title="Gerar PDF do contrato"
+                        <button onClick={() => onGerarPdf(c)} disabled={pdfLoading || assinado}
+                            title={assinado ? 'Contrato assinado — minuta bloqueada' : 'Baixar minuta (rascunho) do contrato'}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-60">
-                            {pdfLoading ? <Loader size={13} className="animate-spin" /> : <FileDown size={13} />} PDF
+                            {pdfLoading ? <Loader size={13} className="animate-spin" /> : <FileDown size={13} />} Minuta
                         </button>
                         <ProtectedComponent requiredPermission="editor">
-                            <button onClick={onEditContrato} title="Editar contrato"
-                                className="p-1.5 text-gray-500 rounded-lg hover:bg-gray-200"><Pencil size={14} /></button>
-                            <button onClick={onDeleteContrato} title="Excluir contrato"
-                                className="p-1.5 text-red-500 rounded-lg hover:bg-red-50"><Trash2 size={14} /></button>
+                            <button onClick={onEditContrato} disabled={assinado}
+                                title={assinado ? 'Contrato assinado — edição bloqueada' : 'Editar contrato'}
+                                className="p-1.5 text-gray-500 rounded-lg hover:bg-gray-200 disabled:opacity-40"><Pencil size={14} /></button>
+                            <button onClick={onDeleteContrato} disabled={assinado}
+                                title={assinado ? 'Contrato assinado — exclusão bloqueada' : 'Excluir contrato'}
+                                className="p-1.5 text-red-500 rounded-lg hover:bg-red-50 disabled:opacity-40"><Trash2 size={14} /></button>
                         </ProtectedComponent>
                         <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100 ml-1"><X size={18} /></button>
                     </div>
                 </div>
 
                 <div className="p-4">
+                    {/* Documento oficial (contrato assinado) */}
+                    <div className="mb-4">
+                        <DocumentoOficialPanel
+                            contrato={c}
+                            docs={docsAssinados}
+                            loading={assinadoLoading}
+                            onEnviar={onEnviarAssinado}
+                            onBaixar={onBaixarAssinado}
+                            onBaixarDoc={onBaixarDocAssinado}
+                            onRemover={onRemoverAssinado}
+                        />
+                    </div>
+
                     {/* Números */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div className="bg-gray-50 rounded-lg p-3"><div className="text-[10px] uppercase font-bold text-gray-400">Valor contrato</div><div className="text-sm font-bold text-gray-800">{fmtBRL(r.valorTotal)}</div></div>

@@ -341,6 +341,9 @@ const apiClient = {
     updateTerceiroContrato: async (id, data) => apiFetch(`/terceiroContratos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteTerceiroContrato: async (id) => apiFetch(`/terceiroContratos/${id}`, { method: 'DELETE' }),
     gerarContratoPdf: async (id) => apiFetch(`/terceiroContratos/${id}/pdf`, { method: 'POST' }),
+    getContratoDocs: async (id) => apiFetch(`/terceiroContratos/${id}/docs`),
+    enviarContratoAssinado: async (id, formData) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'POST', body: formData }),
+    removerContratoAssinado: async (id, data) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'DELETE', body: JSON.stringify(data || {}) }),
 
     // --- Parceiros (Postos) ---
     getPartners: async () => apiFetch('/partners'),
