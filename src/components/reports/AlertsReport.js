@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AlertTriangle, Download } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
-import { checkVehicleRestrictions } from '../../utils/vehicleRules';
+import { checkVehicleRestrictions, getGroupForType, getVehicleMainReading } from '../../utils/vehicleRules';
 import { formatObraNome } from '../../utils/obraFormat';
 import { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
 
@@ -222,6 +222,65 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
         return deduped.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
     }, [vehicles, employees, inactivityAlerts, obras, refuelings, revisions]);
 
+    // Linhas específicas do filtro "Manutenção" — uma linha por veículo, com
+    // colunas separadas para vencimento por DATA e por LEITURA (Km/Hr). Se o
+    // veículo estiver vencido pelos dois motivos, ambas as colunas são preenchidas.
+    const maintenanceRows = useMemo(() => {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const rows = [];
+
+        vehicles.forEach(v => {
+            const revision = revisions.find(r => r.vehicleId === v.id);
+            if (!revision) return;
+
+            // Vencida por DATA
+            let dataVencidaEm = '';
+            if (revision.proximaRevisaoData) {
+                const revDate = new Date(revision.proximaRevisaoData);
+                revDate.setHours(0, 0, 0, 0);
+                if (now >= revDate) {
+                    dataVencidaEm = revDate.toLocaleDateString('pt-BR');
+                }
+            }
+
+            // Vencida por LEITURA (Km/Hr)
+            let leituraVencida = '';
+            const readingInfo = getVehicleMainReading(v);
+            const unit = readingInfo.unit;
+            const currentReading = readingInfo.raw;
+            let proximaLeitura = 0;
+            if (unit === 'Hr') {
+                proximaLeitura = parseFloat(revision.proximaRevisaoHorimetro || 0);
+                if (proximaLeitura === 0 && revision.proximaRevisaoOdometro > 0) proximaLeitura = parseFloat(revision.proximaRevisaoOdometro);
+            } else {
+                proximaLeitura = parseFloat(revision.proximaRevisaoOdometro || 0);
+            }
+            if (proximaLeitura > 0 && currentReading >= proximaLeitura) {
+                leituraVencida = `Venceu em: ${proximaLeitura.toLocaleString('pt-BR')} ${unit} | Atual: ${currentReading.toLocaleString('pt-BR')} ${unit}`;
+            }
+
+            // Só inclui se estiver vencida por pelo menos um dos motivos
+            if (!dataVencidaEm && !leituraVencida) return;
+
+            const obraNome = formatObraNome(obras.find(o => o.id === v.obraAtualId)) || 'Local N/A';
+
+            rows.push({
+                re: `${v.registroInterno || '-'}${terceirizadoPdfMark(v)}`,
+                grupo: getGroupForType(v.tipo) || v.tipo || '-',
+                marca: v.marca || '-',
+                modelo: v.modelo || '-',
+                local: obraNome,
+                detalhe: revision.descricao || 'Revisão',
+                dataVencidaEm,
+                leituraVencida,
+            });
+        });
+
+        return rows.sort((a, b) => String(a.re).localeCompare(String(b.re)));
+    }, [vehicles, revisions, obras]);
+
+    const isManutencao = filterType === 'Manutenção';
     const filteredAlerts = filterType === 'Todos' ? alerts : alerts.filter(a => a.type === filterType);
 
     const handleGeneratePDF = () => {
@@ -230,6 +289,28 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
         doc.text(`Relatório de Alertas de Frota`, 14, 20);
         doc.setFontSize(10); doc.setTextColor(100);
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} | Filtro: ${filterType}`, 14, 26);
+
+        if (isManutencao) {
+            const body = maintenanceRows.map(r => [
+                `${r.re} · ${r.grupo}\n${r.marca} ${r.modelo}`,
+                r.local,
+                r.detalhe,
+                r.dataVencidaEm || '—',
+                r.leituraVencida || '—',
+            ]);
+
+            autoTable(doc, {
+                startY: 32,
+                head: [['Equipamento', 'Local / Obra', 'Detalhe', 'Vencida por Data\n(quando venceu)', 'Vencida por Km/Hr\n(venceu / atual)']],
+                body,
+                theme: 'grid',
+                headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255] },
+                styles: { fontSize: 9, valign: 'middle' },
+                columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 45 }, 2: { cellWidth: 55 }, 3: { cellWidth: 45 }, 4: { cellWidth: 65 } }
+            });
+            doc.save(`Relatorio_Alertas_Manutencao.pdf`);
+            return;
+        }
 
         const body = filteredAlerts.map(a => [a.entity, a.type, a.location, a.days, a.message, a.date]);
 
@@ -264,12 +345,39 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
 
             <div className="bg-white border rounded-lg shadow-sm mb-4">
                 <div className="mak-modal-header">
-                    <h4 className="font-bold text-gray-700">Pré-visualização ({filteredAlerts.length})</h4>
-                    <button onClick={handleGeneratePDF} disabled={filteredAlerts.length === 0} className="text-red-600 hover:text-red-800 font-semibold text-sm flex items-center gap-1">
+                    <h4 className="font-bold text-gray-700">Pré-visualização ({isManutencao ? maintenanceRows.length : filteredAlerts.length})</h4>
+                    <button onClick={handleGeneratePDF} disabled={isManutencao ? maintenanceRows.length === 0 : filteredAlerts.length === 0} className="text-red-600 hover:text-red-800 font-semibold text-sm flex items-center gap-1">
                         <Download size={16}/> Baixar PDF
                     </button>
                 </div>
                 <div className="max-h-80 overflow-y-auto custom-scrollbar p-0">
+                    {isManutencao ? (
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-100 text-gray-600 uppercase text-xs sticky top-0">
+                                <tr>
+                                    <th className="p-3">Equipamento</th>
+                                    <th className="p-3">Local / Obra</th>
+                                    <th className="p-3">Detalhe</th>
+                                    <th className="p-3">Vencida por Data</th>
+                                    <th className="p-3">Vencida por Km/Hr</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {maintenanceRows.map((r, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                        <td className="p-3">
+                                            <div className="font-medium">{r.re} · {r.grupo}</div>
+                                            <div className="text-xs text-gray-500">{r.marca} {r.modelo}</div>
+                                        </td>
+                                        <td className="p-3 text-gray-700">{r.local}</td>
+                                        <td className="p-3 text-gray-600">{r.detalhe}</td>
+                                        <td className="p-3 font-semibold text-red-600">{r.dataVencidaEm || '—'}</td>
+                                        <td className="p-3 font-semibold text-red-600 text-xs">{r.leituraVencida || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
                     <table className="w-full text-sm text-left">
                         <thead className="bg-gray-100 text-gray-600 uppercase text-xs sticky top-0">
                             <tr>
@@ -294,6 +402,7 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
                             ))}
                         </tbody>
                     </table>
+                    )}
                 </div>
             </div>
         </div>
