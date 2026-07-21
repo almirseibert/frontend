@@ -34,9 +34,10 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         valorTotalFechado: contrato?.contractType === 'fechado' && contrato?.valorTotal != null ? String(contrato.valorTotal) : '',
         vigenciaInicio: contrato?.vigenciaInicio ? String(contrato.vigenciaInicio).split('T')[0] : '',
         vigenciaFim: contrato?.vigenciaFim ? String(contrato.vigenciaFim).split('T')[0] : '',
+        prazoVigenciaMeses: contrato?.prazoVigenciaMeses != null ? String(contrato.prazoVigenciaMeses) : '6',
         status: contrato?.status || 'ativo',
         observacoes: contrato?.observacoes || '',
-        prazoPagamentoDias: contrato?.prazoPagamentoDias != null ? String(contrato.prazoPagamentoDias) : '30',
+        prazoPagamentoDias: contrato?.prazoPagamentoDias != null ? String(contrato.prazoPagamentoDias) : '45',
         percentualJurosMora: contrato?.percentualJurosMora != null ? String(contrato.percentualJurosMora) : '1',
         percentualMultaMora: contrato?.percentualMultaMora != null ? String(contrato.percentualMultaMora) : '1',
         prazoSubstituicaoHoras: contrato?.prazoSubstituicaoHoras != null ? String(contrato.prazoSubstituicaoHoras) : '48',
@@ -126,9 +127,10 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 valorTotal: isFechado ? (parseFloat(form.valorTotalFechado) || 0) : undefined,
                 vigenciaInicio: form.vigenciaInicio || null,
                 vigenciaFim: form.vigenciaFim || null,
+                prazoVigenciaMeses: parseInt(form.prazoVigenciaMeses, 10) || 6,
                 status: form.status,
                 observacoes: form.observacoes || null,
-                prazoPagamentoDias: parseInt(form.prazoPagamentoDias, 10) || 30,
+                prazoPagamentoDias: parseInt(form.prazoPagamentoDias, 10) || 45,
                 percentualJurosMora: parseFloat(form.percentualJurosMora) || 0,
                 percentualMultaMora: parseFloat(form.percentualMultaMora) || 0,
                 prazoSubstituicaoHoras: parseInt(form.prazoSubstituicaoHoras, 10) || 0,
@@ -204,14 +206,10 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
 
                     {/* A. VALOR FECHADO — valor global + descrição (as máquinas/horas vão no bloco abaixo) */}
                     {isFechado && (
-                        <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100 grid grid-cols-2 gap-3">
+                        <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100">
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Valor fechado (R$)</label>
                                 <input type="number" min="0" step="0.01" name="valorTotalFechado" value={form.valorTotalFechado} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="0,00" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Tipo de máquina (descrição, opcional)</label>
-                                <input name="tipoMaquina" value={form.tipoMaquina} onChange={handleChange} placeholder="Ex: Retroescavadeira" className="w-full p-2 border rounded-lg bg-white text-sm" />
                             </div>
                         </div>
                     )}
@@ -304,26 +302,12 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         </div>
                     </div>
 
-                    {/* Representante legal da CONTRATADA (qualificação do assinante) */}
-                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 mb-3">
-                            <FileText size={16} className="text-purple-500" /> Representante legal da CONTRATADA
-                        </h3>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="col-span-2">
-                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Nome do assinante</label>
-                                <input name="contratadaRepresentanteNome" value={form.contratadaRepresentanteNome} onChange={handleChange} placeholder="Ex: João da Silva" className="w-full p-2 border rounded-lg bg-white text-sm" />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Qualificação</label>
-                                <input name="contratadaRepresentanteQualificacao" value={form.contratadaRepresentanteQualificacao} onChange={handleChange} placeholder="Ex: brasileiro, empresário" className="w-full p-2 border rounded-lg bg-white text-sm" />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-bold text-gray-500 mb-1">CPF</label>
-                                <input name="contratadaRepresentanteCpf" value={form.contratadaRepresentanteCpf} onChange={handleChange} placeholder="000.000.000-00" className="w-full p-2 border rounded-lg bg-white text-sm" />
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-gray-400 mt-2">Nome e CPF de quem assina pela CONTRATADA. Sustenta o contrato como título executivo extrajudicial. Se em branco, o PDF usa "por seu representante legal".</p>
+                    {/* Prazo de vigência (meses após assinatura) — é o que entra na cláusula do PDF.
+                        As datas acima ficam apenas para controle interno (opcionais). */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Prazo de vigência (meses após a assinatura)</label>
+                        <input type="number" min="1" name="prazoVigenciaMeses" value={form.prazoVigenciaMeses} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="6" />
+                        <p className="text-[10px] text-gray-400 mt-1">Vai na cláusula de vigência como "{parseInt(form.prazoVigenciaMeses, 10) || 6} meses contados da assinatura". As datas acima são só de controle interno.</p>
                     </div>
 
                     {/* Cláusulas contratuais (parametrizáveis no PDF gerado) */}
@@ -383,7 +367,8 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
 
                     <div>
                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Observações</label>
-                        <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2} placeholder="Cláusulas adicionais que entram no PDF do contrato" className="w-full p-2 border rounded-lg bg-white text-sm" />
+                        <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2} placeholder="Entra como um item adicional na Cláusula 1ª — Do Objeto do contrato" className="w-full p-2 border rounded-lg bg-white text-sm" />
+                        <p className="text-[10px] text-gray-400 mt-1">O que for digitado aqui entra como um novo item da <span className="font-semibold">Cláusula 1ª — Do Objeto</span> no PDF gerado.</p>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">

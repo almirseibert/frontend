@@ -8,6 +8,15 @@ import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// Normaliza e formata um CPF conforme o usuário digita: 000.000.000-00
+const formatCPF = (value) => {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
+    return digits
+        .replace(/^(\d{3})(\d)/, '$1.$2')
+        .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+        .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4');
+};
+
 // --- Página de Parceiros (Postos e Fornecedores) ---
 const PartnersPage = ({
     user, partners = [], vehicles = [], refuelings = [], comboioTransactions = [],
@@ -287,7 +296,9 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+        let novoValor = type === 'checkbox' ? checked : value;
+        if (name === 'representanteLegalCpf') novoValor = formatCPF(value);
+        setFormData(prev => ({ ...prev, [name]: novoValor }));
     };
 
     const handleSubmit = async (e) => {
