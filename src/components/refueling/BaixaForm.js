@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import CurrencyInput from '../ui/CurrencyInput';
 import { Loader, TrendingDown, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
 
@@ -495,14 +496,12 @@ const BaixaForm = ({
             {order.outrosGeraValor && (
                 <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
                     <label className="block text-[10px] font-bold text-yellow-900 mb-0.5">Valor "{order.outros}" (R$) *</label>
-                    <input
-                        type="number"
-                        step="0.01"
+                    <CurrencyInput
                         value={outrosValorConfirmado}
                         onChange={e => setOutrosValorConfirmado(e.target.value)}
                         className="w-full p-1.5 border border-yellow-400 rounded bg-white font-bold text-yellow-900 focus:ring-1 focus:ring-yellow-400 outline-none"
                         required
-                        placeholder="0.00"
+                        placeholder="0,00"
                     />
                 </div>
             )}

@@ -5,6 +5,7 @@ import {
     Settings, FileText, Trash2, RotateCcw, Edit, FileCheck, CornerDownRight
 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import CurrencyInput from '../components/ui/CurrencyInput';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableSelect from '../components/SearchableSelect';
@@ -660,7 +661,7 @@ const NewTireModal = ({ onClose, onSave }) => {
                         <select className="w-full p-2 border rounded" value={data.tireCondition} onChange={e => setData({...data, tireCondition: e.target.value})}><option value="Novo">Novo</option><option value="Usado">Usado</option><option value="Recapado">Recapado</option></select>
                         <div className="grid grid-cols-2 gap-2">
                             <input type="date" className="w-full p-2 border rounded" value={data.purchaseDate} onChange={e => setData({...data, purchaseDate: e.target.value})} />
-                            <input type="number" placeholder="Preço (R$)" className="w-full p-2 border rounded" value={data.price} onChange={e => setData({...data, price: e.target.value})} />
+                            <CurrencyInput placeholder="Preço (R$)" className="w-full p-2 border rounded" value={data.price} onChange={e => setData({...data, price: e.target.value})} />
                         </div>
                     </div>
                     <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Salvar</button></div>

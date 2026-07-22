@@ -8,6 +8,14 @@
 .time-input-clean::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .time-input-clean { appearance: textfield; -moz-appearance: textfield; }
 
+/* Remove as setas (spinners) de TODOS os inputs numéricos do sistema.
+   Nunca são usadas e, ao scrollar a página com o campo focado, alteravam o
+   valor indevidamente. O bloqueio do scroll-altera-valor é feito por JS em
+   index.js (guard global de wheel). */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'] { appearance: textfield; -moz-appearance: textfield; }
+
 /* ─── CSS Custom Properties — Tema Terroso Mineral ───────────── */
 :root {
 

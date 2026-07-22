@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { PlusCircle, Droplet, Users, X, Trash2, Edit2, CheckCircle, Loader } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 import ProtectedComponent from '../ProtectedComponent';
 import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
@@ -196,7 +197,7 @@ const NovaLavagemModal = ({ vehicles, obras, washingPartners, onClose, onSave })
                         </div>
                         <div>
                             <label className="block text-xs font-semibold mb-1">Valor (R$)</label>
-                            <input type="number" step="0.01" name="valor" value={formData.valor} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="0.00"/>
+                            <CurrencyInput name="valor" value={formData.valor} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="0,00"/>
                         </div>
                     </div>
                     <div>

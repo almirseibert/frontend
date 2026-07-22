@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import apiClient from '../services/apiClient';
+import CurrencyInput from '../components/ui/CurrencyInput';
 import ExcavatorLoader from '../components/ui/ExcavatorLoader';
 import {
     Package, Plus, Edit, Trash2, Search, AlertTriangle, TrendingDown,
@@ -504,14 +505,11 @@ const ItemModal = ({ isOpen, onClose, onSave, item = null, categories = [] }) =>
                     {/* Preço */}
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Preço Unitário (R$) *</label>
-                        <input
-                            type="number"
+                        <CurrencyInput
                             value={formData.unitPrice}
                             onChange={e => setFormData({ ...formData, unitPrice: e.target.value })}
                             className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-                            step="0.01"
-                            min="0"
-                            placeholder="0.00"
+                            placeholder="0,00"
                             required
                         />
                     </div>
@@ -620,13 +618,11 @@ const MovementModal = ({ isOpen, onClose, item, onSave, user }) => {
                     {(formData.type === 'entrada') && (
                         <div>
                             <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Preço Unitário (R$)</label>
-                            <input
-                                type="number"
-                                step="0.01"
+                            <CurrencyInput
                                 value={formData.unitPrice}
                                 onChange={e => setFormData({ ...formData, unitPrice: e.target.value })}
                                 className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-                                placeholder="0.00"
+                                placeholder="0,00"
                             />
                         </div>
                     )}

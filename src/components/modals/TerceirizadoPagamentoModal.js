@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import CurrencyInput from '../ui/CurrencyInput';
 import { X, Loader, Save, Wallet } from 'lucide-react';
 
 /**
@@ -101,7 +102,7 @@ const TerceirizadoPagamentoModal = ({ locador, contrato, pagamento, saldo, user,
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Valor (R$)</label>
-                            <input type="number" min="0" step="any" max={temSaldo ? Math.max(0, maxPagavel) : undefined}
+                            <CurrencyInput
                                 name="valor" value={form.valor} onChange={handleChange}
                                 placeholder="0,00" className="w-full p-2 border rounded-lg bg-white text-sm" required />
                         </div>

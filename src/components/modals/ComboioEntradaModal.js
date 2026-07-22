@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Loader, X, AlertTriangle, FileText } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 import SearchableSelect from '../SearchableSelect';
 
 const ComboioEntradaModal = ({ 
@@ -213,14 +214,13 @@ const ComboioEntradaModal = ({
                         </div>
                         <div>
                             <label className="block font-medium mb-1">Preço Litro (R$)</label>
-                            <input 
-                                name="pricePerLiter" 
-                                type="number" 
-                                step="0.001" 
-                                value={formData.pricePerLiter} 
-                                onChange={handleChange} 
-                                className={`w-full p-2 border rounded ${initialPartnerPrice > 0 && parseFloat(formData.pricePerLiter) !== initialPartnerPrice ? 'bg-yellow-50 border-yellow-300' : ''}`} 
-                                placeholder="0.000"
+                            <CurrencyInput
+                                name="pricePerLiter"
+                                decimals={3}
+                                value={formData.pricePerLiter}
+                                onChange={handleChange}
+                                className={`w-full p-2 border rounded ${initialPartnerPrice > 0 && parseFloat(formData.pricePerLiter) !== initialPartnerPrice ? 'bg-yellow-50 border-yellow-300' : ''}`}
+                                placeholder="0,000"
                             />
                         </div>
 

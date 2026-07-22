@@ -1,5 +1,6 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { Edit, Clock, CheckCircle, X, Loader, History, FileText, Wrench, Calendar } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 import ProtectedComponent from '../ProtectedComponent';
 import { checkReadingConsistency, checkVehicleRestrictions, getVehicleMainReading } from '../../utils/vehicleRules';
 
@@ -462,7 +463,7 @@ const CompleteRevisionModal = ({ user, vehicle, onClose, setAlertMessage, apiCli
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-xs font-semibold text-gray-700 mb-1">Custo Total (R$)</label>
-                            <input type="number" step="0.01" name="custo" value={formData.custo} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 outline-none" placeholder="0.00"/>
+                            <CurrencyInput name="custo" value={formData.custo} onChange={handleChange} className="w-full p-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500 outline-none" placeholder="0,00"/>
                         </div>
                         <div>
                             <label className="block text-xs font-semibold text-gray-700 mb-1">Nota Fiscal</label>

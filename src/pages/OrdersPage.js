@@ -1,5 +1,6 @@
 ﻿import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../services/apiClient';
+import CurrencyInput from '../components/ui/CurrencyInput';
 import { getVehicleMainReading } from '../utils/vehicleRules';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -233,7 +234,7 @@ const CreateItemQuickButton = ({ onItemCreated, categories = [] }) => {
             <div className="grid grid-cols-2 gap-2">
                 <input type="text" placeholder="SKU *" value={itemData.sku} onChange={e => setItemData({ ...itemData, sku: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
                 <input type="text" placeholder="Nome *" value={itemData.name} onChange={e => setItemData({ ...itemData, name: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
-                <input type="number" step="0.01" placeholder="Preço R$" value={itemData.unitPrice} onChange={e => setItemData({ ...itemData, unitPrice: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
+                <CurrencyInput placeholder="Preço R$" value={itemData.unitPrice} onChange={e => setItemData({ ...itemData, unitPrice: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
                 {categories.length > 0 && (
                     <select value={itemData.categoryId} onChange={e => setItemData({ ...itemData, categoryId: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400">
                         <option value="">Categoria (opcional)</option>
@@ -1058,7 +1059,7 @@ const CloseOrderModal = ({ order, onClose, onSubmit }) => {
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-700 uppercase">Valor Total Cobrado (R$) *</label>
-                        <input type="number" step="0.01" value={finalValue} onChange={e=>setFinalValue(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
+                        <CurrencyInput value={finalValue} onChange={e=>setFinalValue(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
                     </div>
                 </div>
 
@@ -1648,7 +1649,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                         <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded border shadow-sm">
                                                             <span className="text-[10px] font-black text-gray-400">{idx + 1}ª</span>
                                                             <input type="date" value={inst.dueDate} onChange={e => handleInstallmentChange(idx, 'dueDate', e.target.value)} className="p-1 border rounded text-xs w-full text-gray-700 outline-none" title="Data de Vencimento" required disabled={isReadOnly}/>
-                                                            <input type="number" step="0.01" placeholder="R$" value={inst.value} onChange={e => handleInstallmentChange(idx, 'value', e.target.value)} className="p-1 border rounded text-xs w-24 outline-none" required disabled={isReadOnly}/>
+                                                            <CurrencyInput prefix={false} placeholder="R$" value={inst.value} onChange={e => handleInstallmentChange(idx, 'value', e.target.value)} className="p-1 border rounded text-xs w-24 outline-none" required disabled={isReadOnly}/>
                                                             {!isReadOnly && <button type="button" onClick={() => removeInstallment(idx)} className="text-red-400 hover:text-red-600"><X size={14}/></button>}
                                                         </div>
                                                     ))}

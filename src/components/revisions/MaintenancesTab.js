@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { PlusCircle, Wrench, X, CheckCircle, ArrowRight, Loader } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 import ProtectedComponent from '../ProtectedComponent';
 import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
@@ -332,7 +333,7 @@ const NovaExecutadaModal = ({ vehicles, obras, defaultData = {}, onClose, onSave
                         </div>
                         <div>
                             <label className="block text-xs font-semibold mb-1">Valor (R$)</label>
-                            <input type="number" step="0.01" name="valor" value={formData.valor} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="0.00"/>
+                            <CurrencyInput name="valor" value={formData.valor} onChange={handleChange} className="w-full p-2 border rounded text-sm outline-none" placeholder="0,00"/>
                         </div>
                         <div className="col-span-2">
                             <label className="block text-xs font-semibold mb-1">Oficina/Mecânico</label>

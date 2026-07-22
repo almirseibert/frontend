@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale } from 'lucide-react';
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
+import CurrencyInput from '../ui/CurrencyInput';
 
 const FOROS = ['Santa Maria', 'Lajeado'];
 
@@ -209,7 +210,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100">
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Valor fechado (R$)</label>
-                                <input type="number" min="0" step="0.01" name="valorTotalFechado" value={form.valorTotalFechado} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="0,00" />
+                                <CurrencyInput name="valorTotalFechado" value={form.valorTotalFechado} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="0,00" />
                             </div>
                         </div>
                     )}
@@ -247,7 +248,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                     {showPrice && (
                                         <div className="w-1/2 sm:w-32">
                                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora (R$)</label>
-                                            <input type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(index, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
+                                            <CurrencyInput value={item.price} onChange={(e) => updateItem(index, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
                                         </div>
                                     )}
                                     <button type="button" onClick={() => removeItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5"><Trash2 size={18} /></button>

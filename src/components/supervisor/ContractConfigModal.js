@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { X, Save, FileText, Calendar, DollarSign, Clock, User, AlertCircle, HardHat, EyeOff } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 // IMPORTAÇÃO CORRIGIDA: Usa o caminho relativo correto para src/services/apiClient
 import apiClient from '../../services/apiClient';
 
@@ -71,8 +72,8 @@ const ContractConfigModal = ({ isOpen, onClose, obra, onSuccess }) => {
                             <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Valor Total</label>
                             <div className="relative">
                                 <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
-                                <input
-                                    type="number" step="0.01" value={formData.valor_total}
+                                <CurrencyInput
+                                    prefix={false} value={formData.valor_total}
                                     onChange={e => setFormData({...formData, valor_total: e.target.value})}
                                     className="w-full pl-9 p-2 border rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none"
                                 />

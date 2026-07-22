@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import CurrencyInput from '../ui/CurrencyInput';
 import {
     Loader, BarChart2, Clock, TrendingUp, TrendingDown, Minus, AlertTriangle,
     DollarSign, Activity, Save, Gauge, Truck, FileDown, FileText, Info
@@ -738,8 +739,8 @@ const AproveitamentoProdutivo = ({ apiClient, setAlertMessage }) => {
                                                     <td className="p-3 font-bold text-slate-800">{c.tipo}</td>
                                                     <td className="p-3 text-center text-slate-600">{c.capDiaria}h</td>
                                                     <td className="p-3 text-center">
-                                                        <input
-                                                            type="number"
+                                                        <CurrencyInput
+                                                            prefix={false}
                                                             value={ticket}
                                                             onChange={(e) => handleTicketChange(c.tipo, e.target.value)}
                                                             className="w-24 px-2 py-1.5 border border-slate-300 rounded-lg text-center font-bold text-blue-700 bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"

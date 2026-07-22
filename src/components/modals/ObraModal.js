@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import { X, Loader, MapPin, Clock, Plus, Trash2, DollarSign, User, ClipboardList, Users, Star } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 import { vehicleSubTypes } from '../../utils/vehicleRules';
 import SearchableCitySelect from '../SearchableCitySelect';
 import { cidadePorNome } from '../../utils/geo';
@@ -629,13 +630,11 @@ const ObraModal = ({
                                             </div>
                                             <div className="w-1/2 sm:w-32">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor Unit. (R$)</label>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01"
-                                                    value={item.price} 
-                                                    onChange={(e) => updateContractedItem(index, 'price', e.target.value)} 
+                                                <CurrencyInput
+                                                    value={item.price}
+                                                    onChange={(e) => updateContractedItem(index, 'price', e.target.value)}
                                                     className="w-full p-2 border rounded text-sm"
-                                                    placeholder="0.00"
+                                                    placeholder="0,00"
                                                 />
                                             </div>
                                             <button type="button" onClick={() => removeContractedItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5">
@@ -661,13 +660,11 @@ const ObraModal = ({
                                         </div>
                                         <div className="flex-1">
                                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor Km (R$)</label>
-                                            <input 
-                                                type="number" 
-                                                step="0.01"
-                                                value={valorKmPrancha} 
-                                                onChange={(e) => setValorKmPrancha(e.target.value)} 
-                                                className="w-full p-2 border rounded text-sm" 
-                                                placeholder="0.00"
+                                            <CurrencyInput
+                                                value={valorKmPrancha}
+                                                onChange={(e) => setValorKmPrancha(e.target.value)}
+                                                className="w-full p-2 border rounded text-sm"
+                                                placeholder="0,00"
                                             />
                                         </div>
                                     </div>
@@ -712,13 +709,11 @@ const ObraModal = ({
                                             </div>
                                             <div className="w-1/2 sm:w-32">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Preço Unit. (R$)</label>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01"
-                                                    value={sector.price} 
-                                                    onChange={(e) => updateSector(idx, 'price', e.target.value)} 
-                                                    className="w-full p-2 border rounded text-sm" 
-                                                    placeholder="0.00"
+                                                <CurrencyInput
+                                                    value={sector.price}
+                                                    onChange={(e) => updateSector(idx, 'price', e.target.value)}
+                                                    className="w-full p-2 border rounded text-sm"
+                                                    placeholder="0,00"
                                                 />
                                             </div>
                                             <button type="button" onClick={() => removeSector(idx)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5">
@@ -745,13 +740,11 @@ const ObraModal = ({
                                         </div>
                                         <div className="flex-1">
                                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor Km (R$)</label>
-                                            <input 
-                                                type="number" 
-                                                step="0.01"
-                                                value={valorKmPrancha} 
-                                                onChange={(e) => setValorKmPrancha(e.target.value)} 
-                                                className="w-full p-2 border rounded text-sm" 
-                                                placeholder="0.00"
+                                            <CurrencyInput
+                                                value={valorKmPrancha}
+                                                onChange={(e) => setValorKmPrancha(e.target.value)}
+                                                className="w-full p-2 border rounded text-sm"
+                                                placeholder="0,00"
                                             />
                                         </div>
                                     </div>
