@@ -400,6 +400,10 @@ const apiClient = {
         apiFetch(`/analise-gerencial/jornadas/operador/${encodeURIComponent(employeeId)}?startDate=${startDate}&endDate=${endDate}`),
     getProjecaoObra: async (obraId) =>
         apiFetch(`/analise-gerencial/projecao/${encodeURIComponent(obraId)}`),
+    // Aproveitamento por obra (capacidade líquida vs. horas apontadas) — reusa o
+    // engine do supervisor. Usado na tabela "Frota nesta obra" da Ficha da Obra.
+    getObraAnalytics: async (obraId, { startDate, endDate }) =>
+        apiFetch(`/supervisor/analytics?obraId=${encodeURIComponent(obraId)}&startDate=${startDate}&endDate=${endDate}`),
 
     // --- Abastecimentos (Legado/Admin) ---
     getRefuelings: async () => apiFetch('/refuelings'),

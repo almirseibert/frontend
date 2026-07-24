@@ -101,6 +101,45 @@ Recomendação: **não fazer a Ficha do Veículo em paralelo.** Validar a Ficha 
 - **Deep-link / URL por página.** Hoje o roteamento é estado em memória (`currentPage` no `App.js`), sem URL nem bookmark — impossível "mandar o link da resposta". Pré-requisito para o ganho de acesso valer na prática; avaliar introduzir rota por obra (`/obra/:id`).
 - **Capacidade líquida** (denominador do aproveitamento) precisa de definição fechada: dias úteis × capacidade diária, descontando manutenção.
 
+## 9. Decisões e implementação — Fase 1 (2026-07-22)
+
+Ao aterrissar o plano no código, dois "riscos" da seção 8 já estavam resolvidos no backend e um mandato do plano foi revisto pelo usuário:
+
+- **Capacidade líquida — já definida e implementada.** `obraSupervisorController._computeAnalyticsCore` calcula `(veículos produtivos − em manutenção) × HORAS_POR_DIA × dias úteis`, fins de semana zerados. A Ficha **reusa** via novo `apiClient.getObraAnalytics` sobre `GET /supervisor/analytics`. Não foi criado backend.
+- **Progresso físico — já existe.** `getProjecaoObra` soma `daily_work_logs.totalHours ÷ horas contratadas`. É o número canônico do plano; só o rótulo mudou (era "faturadas").
+- **Cadência: mantida QUINZENAL.** O plano pedia semanal (≥15%/sem), mas o engine roda quinzenal (≥30%/quinz) e é compartilhado com a tela Projeção. Decisão do usuário: reusar o quinzenal como está, sem tocar no endpoint compartilhado.
+- **Histórico de alocação: omitido na Fase 1.** Não há tabela de alocação fiel (só `daily_work_logs`, que é atividade). Removidos o rodapé "os que já saíram" e a coluna "desde". A tabela mostra só a frota alocada agora + aproveitamento médio.
+- **Página em paralelo, sem substituir.** `FichaObraPage` nova, gated por `canAccessAnaliseGerencial`. As telas antigas continuam vivas para validação lado a lado.
+- **Portas de entrada por perfil (conforme seção 2/8).** Índice canônico = grade "Gestão de Obras" (criticidade) no `SupervisorDashboard`: clicar no card abre a Ficha (substitui o antigo `SupervisorObraDetail`). Porta de back-office = botão "Ficha" na lista de obras (`ObrasPage`), para o fluxo de busca. O botão "voltar" retorna ao índice de origem (`fichaOrigin`).
+- **Sem vereditos/conselhos.** Os textos-conselho e os semáforos da tela Projeção **não** foram portados (violam princípios 3 e 4). Cor só no limite de combustível (20%), no desvio de prazo e em margem negativa.
+- **Deep-link: segue como débito.** Roteamento por estado (`currentPage` + `selectedObraId`), sem URL — igual ao resto do app.
+
+- **Detalhamento de despesas (pedido na validação).** Bloco "Despesas por categoria" na coluna esquerda da Visão geral, abaixo do Físico & financeiro. Agrupa `expenses` por `category` client-side — mesma base do `total_despesas` da tela de supervisor (`SUM(amount)` por obra), então casa com a margem exibida. Sem endpoint novo.
+
+### Fase 2 — aba Aproveitamento (2026-07-22)
+
+A Ficha virou **abas** (`Visão geral` | `Aproveitamento`) com o cabeçalho comum; aba só quando a pergunta muda. A aba Aproveitamento (`pages/FichaAproveitamento.js`) reusa o **mesmo** `analytics` já buscado (escopado ao período da obra), sem nova chamada de dados além do ticket:
+
+- KPIs: aproveitamento, capacidade líquida, horas apontadas, horas ociosas.
+- Produção diária vs. capacidade (barras, fim de semana em cinza, linha de capacidade).
+- Ranking por categoria e por máquina (barra monocromática — sem semáforo, mantém a calma da Ficha).
+- **Ticket médio editável por categoria** → faturamento apontado vs. potencial. Simulação, rotulada como tal (não é o faturamento realizado da Visão geral). Persiste em `GET/POST /supervisor/tickets`, como a tela Aproveitamento Produtivo.
+
+Arquivos: `pages/FichaObraPage.js` (novo + abas), `pages/FichaAproveitamento.js` (novo), `services/apiClient.js` (`getObraAnalytics`), `App.js` (rota `ficha_obra` + `navigateToFicha` + porta no `SupervisorDashboard`), `pages/ObrasPage.js` (botão "Ficha"), `pages/SupervisorDashboard.js` (card → Ficha).
+
+### Fase 3 — aba Faturamento (2026-07-22)
+
+Terceira aba `Faturamento` ("o que dá para cobrar"), em `pages/FichaFaturamento.js`. Sem endpoint novo — deriva de dados já disponíveis:
+
+- **Contrato por horas:** comparativo **contratado × apontado por equipamento**, com a dimensão R$ (`horas apontadas × valor unitário` de `obra.valoresPorTipo` — mesma base do `totalRS` da projeção). Horas apontadas vêm dos daily logs (`getDailyLogs(obraId)` + tipo do veículo), como o Relatório de Faturamento. Marca equipamentos "fora do contrato" (apontados sem horas contratadas). KPIs: valor de contrato, faturado até agora, saldo a faturar. Inclui o deslocamento (caminhão prancha).
+- **Contrato por m²/km:** tabela por setor/trecho (contratado, concluído, preço, a cobrar, % exec.).
+
+Limitação honesta: o km do deslocamento e o "km executado" de setores não são rastreados nesta base — mostra o contratado, não o realizado do deslocamento.
+
+Arquivo adicional: `pages/FichaFaturamento.js` (novo).
+
+**Status das fases:** 1 (Visão geral), 2 (Aproveitamento) e 3 (Faturamento) entregues. Fora de escopo por decisão do plano: Divergências (fontes frágeis) e Ficha do Veículo (validar Obra primeiro).
+
 ---
 
 _Última revisão: 2026-07-22. Base: análise das telas `AnaliseGerencialPage`, `ProjecaoObra`, `AproveitamentoProdutivo`, `SupervisorDashboard` (Divergências, Projeção, Aproveitamento, Gestão de Obras)._

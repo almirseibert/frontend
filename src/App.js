@@ -63,6 +63,7 @@ import { processVehiclesWithAlerts } from './utils/vehicleAlerts';
 // ==========================================
 const Dashboard                    = lazy(() => import('./pages/Dashboard'));
 const ObrasPage                    = lazy(() => import('./pages/ObrasPage'));
+const FichaObraPage                = lazy(() => import('./pages/FichaObraPage'));
 const PlanejamentoPage             = lazy(() => import('./pages/PlanejamentoPage'));
 const PartnersPage                 = lazy(() => import('./pages/PartnersPage'));
 const RefuelingPage                = lazy(() => import('./pages/RefuelingPage'));
@@ -349,6 +350,8 @@ const AppContent = () => {
     const [pageFilter, setPageFilter] = useState(null);
     const [alertMessage, setAlertMessage] = useState('');
     const [selectedObraId, setSelectedObraId] = useState(null);
+    // Página de onde a Ficha foi aberta, para o botão "voltar" retornar ao índice certo.
+    const [fichaOrigin, setFichaOrigin] = useState('obras');
 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -578,6 +581,15 @@ const AppContent = () => {
         setCurrentPage('supervisor_detail');
     }, []);
 
+    // Ficha da Obra (Visão geral consolidada) — porta de entrada por perfil:
+    // a grade "Gestão de Obras" (supervisor) e a lista de Obras (back-office).
+    // Roteamento por estado, como o resto do app (sem URL/deep-link ainda).
+    const handleNavigateToFicha = useCallback((obraId, origin = 'obras') => {
+        setSelectedObraId(obraId);
+        setFichaOrigin(origin);
+        setCurrentPage('ficha_obra');
+    }, []);
+
     // ---------- Modal injection (PasswordConfirmationModal com apiClient pré-injetado) ----------
     const PasswordConfirmationModalWrapped = useMemo(
         () => (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />,
@@ -599,6 +611,7 @@ const AppContent = () => {
         apiClient,
         reloadData: reload,
         navigate,
+        navigateToFicha: handleNavigateToFicha,
         vehicles: processedVehicles,
         obras,
         revisions,
@@ -617,7 +630,7 @@ const AppContent = () => {
     }), [
         user,
         PasswordConfirmationModalWrapped,
-        reload, navigate,
+        reload, navigate, handleNavigateToFicha,
         processedVehicles, obras, revisions, expenses, employees, partners,
         refuelings, comboioTransactions, fines, diarioDeBordoLogs, dailyWorkLogs, orders,
         socket,
@@ -840,7 +853,9 @@ const AppContent = () => {
                 return <Dashboard {...commonProps} />;
             case 'supervisor_dashboard':
                 return canAccessAnaliseGerencial(user)
-                    ? <SupervisorDashboard {...commonProps} onNavigateToDetail={handleNavigateToObra} /> : <Denied />;
+                    ? <SupervisorDashboard {...commonProps}
+                        onNavigateToDetail={handleNavigateToObra}
+                        onNavigateToFicha={(id) => handleNavigateToFicha(id, 'supervisor_dashboard')} /> : <Denied />;
             case 'supervisor_detail':
                 return canAccessAnaliseGerencial(user)
                     ? <SupervisorObraDetail obraId={selectedObraId} onBack={() => setCurrentPage('supervisor_dashboard')} /> : <Denied />;
@@ -848,6 +863,9 @@ const AppContent = () => {
                 return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
             case 'obras':
                 return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
+            case 'ficha_obra':
+                return canAccessAnaliseGerencial(user)
+                    ? <FichaObraPage {...commonProps} obraId={selectedObraId} onBack={() => setCurrentPage(fichaOrigin || 'obras')} /> : <Denied />;
             case 'planejamento':
                 return <PlanejamentoPage {...commonProps} />;
             case 'billing':

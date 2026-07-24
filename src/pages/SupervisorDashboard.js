@@ -66,7 +66,7 @@ const KpiCard = ({ icon: Icon, label, value, sub, accent }) => (
 // ============================================================================
 // DASHBOARD DO SUPERVISOR (refatorado)
 // ============================================================================
-const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
+const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) => {
     const [obras, setObras] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -243,8 +243,12 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         setIsConfigModalOpen(true);
     };
 
+    // Porta de entrada da Ficha da Obra: o card de criticidade abre a Visão geral
+    // consolidada (que substitui o antigo detalhe por-obra). Mantém fallback ao
+    // detalhe legado se a Ficha não estiver disponível.
     const handleCardClick = (obraId) => {
-        if (onNavigateToDetail) onNavigateToDetail(obraId);
+        if (onNavigateToFicha) onNavigateToFicha(obraId);
+        else if (onNavigateToDetail) onNavigateToDetail(obraId);
     };
 
     const handleExportPDF = () => {

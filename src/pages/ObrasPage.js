@@ -4,6 +4,7 @@ import {
     AlertTriangle, Search, CheckCircle
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
+import { canAccessAnaliseGerencial } from '../utils/permissions';
 
 // Importação dos Modais
 import ObraModal from '../components/modals/ObraModal'; 
@@ -33,6 +34,7 @@ const ObrasPage = ({
     employees = [],
     apiClient,
     reloadData,
+    navigateToFicha,
 }) => {
     // --- ESTADOS DA PÁGINA ---
     const [filter, setFilter] = useState('todos'); // 'todos' | 'radar' | 'planejada' | 'mobilizacao' | 'ativa' | 'finalizada'
@@ -402,6 +404,12 @@ const ObrasPage = ({
                                             {/* Ações */}
                                             <td className="bg-white group-hover:bg-[#faf9f7]" style={{ padding: '10px 16px', position: 'sticky', right: 0, zIndex: 1, boxShadow: '-8px 0 8px -6px rgba(0,0,0,0.08)' }}>
                                                 <div className="flex items-center justify-end gap-1">
+                                                    {navigateToFicha && canAccessAnaliseGerencial(user) && (obra.tipo_registro || 'obra') !== 'centro_custo' && (
+                                                        <button onClick={() => navigateToFicha(obra.id)}
+                                                            className="px-3 py-1.5 text-sm font-semibold rounded-lg transition mak-btn mak-btn-primary">
+                                                            Ficha
+                                                        </button>
+                                                    )}
                                                     <button onClick={() => openModal('detail', obra)}
                                                         className="px-3 py-1.5 text-sm font-medium rounded-lg transition mak-btn mak-btn-cancel">
                                                         Gerenciar
