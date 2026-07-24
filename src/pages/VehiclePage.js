@@ -26,8 +26,6 @@ import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicl
 
 // STATUS_CONFIG removido — usar StatusBadge de src/components/ui/StatusBadge.js
 
-const ALL_STATUS_OPTIONS = ['Disponível', 'Em Obra', 'Em Operação', 'Em Manutenção', 'Aguardando Manutenção', 'Sucata'];
-
 // Menu de "três pontinhos" (kebab) — agrupa as ações secundárias do veículo.
 const ActionMenu = ({ items }) => {
     const [open, setOpen] = useState(false);
@@ -128,6 +126,15 @@ const VehiclePage = ({
         return [...new Set([...existingTypes, ...predefinedTypes])].sort();
     }, [vehicles, vehicleGroups]);
 
+    // Nome do locador por id (partners.razaoSocial). Usado na coluna "Reg." para
+    // veículos terceirizados, onde `registroInterno` = placa (redundante). Fonte
+    // única = vehicles.locadorId → partners; o texto livre legado é ignorado aqui.
+    const partnerNameById = useMemo(() => {
+        const m = new Map();
+        (partners || []).forEach(p => m.set(p.id, p.razaoSocial));
+        return m;
+    }, [partners]);
+
     // --- Estados ---
     const [isModalOpen, setIsModalOpen] = useState(false);
 const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
@@ -144,7 +151,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [filters, setFilters] = useState({
         type: 'todos', status: 'todos', search: '',
-        group: 'todos', origem: 'todos', showInactive: false, showSucata: false
+        group: 'todos', origem: 'proprios', showInactive: false, showSucata: false
     });
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
 
@@ -433,7 +440,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
     const SortHeader = ({ label, sortKey, className = '' }) => (
         <button
             onClick={() => requestSort(sortKey)}
-            className={`flex items-center gap-1 text-left transition-colors ${className}`}
+            className={`flex items-center gap-1 text-left transition-colors w-full ${className}`}
             style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
             onMouseEnter={e => { e.currentTarget.style.color = '#6a5e4e'; }}
             onMouseLeave={e => { e.currentTarget.style.color = '#9a8a78'; }}
@@ -443,7 +450,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
         </button>
     );
 
-    const activeFiltersCount = [filters.group, filters.type, filters.status, filters.origem].filter(f => f !== 'todos').length
+    const activeFiltersCount = [filters.group, filters.type, filters.status].filter(f => f !== 'todos').length
         + (filters.showInactive ? 1 : 0) + (filters.showSucata ? 1 : 0);
 
     // Controle de botões por role
@@ -525,7 +532,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                 onMouseLeave={e => { e.currentTarget.style.background = isChild ? '#fbfaf8' : 'white'; }}
             >
                 {/* Veículo */}
-                <div className="md:col-span-4 flex items-center gap-2.5 min-w-0" style={isChild ? { paddingLeft: 22 } : undefined}>
+                <div className="md:col-span-3 flex items-center gap-2.5 min-w-0" style={isChild ? { paddingLeft: 22 } : undefined}>
                     {isChild && <CornerDownRight size={15} style={{ color: '#c8b8a8', flexShrink: 0 }} />}
                     <div
                         className="relative shrink-0 cursor-pointer group"
@@ -575,9 +582,20 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                     </div>
                 </div>
 
-                {/* Reg. Interno */}
-                <div className="md:col-span-1 hidden md:block min-w-0 truncate">
-                    <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Roboto Mono', monospace", color: '#6a5e4e' }}>{vehicle.registroInterno}</span>
+                {/* Reg. Interno (próprio) / Fornecedor (terceiro) */}
+                <div className="md:col-span-2 hidden md:block min-w-0 truncate">
+                    {vehicle.isOutsourced ? (
+                        (() => {
+                            const nome = vehicle.locadorId ? partnerNameById.get(vehicle.locadorId) : null;
+                            return nome ? (
+                                <span title={nome} className="truncate inline-block max-w-full" style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }}>{nome}</span>
+                            ) : (
+                                <span title="Terceiro sem locador vinculado — vincule na edição do veículo" style={{ fontSize: 11, fontWeight: 500, fontStyle: 'italic', color: '#b0a090' }}>— Sem fornecedor</span>
+                            );
+                        })()
+                    ) : (
+                        <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Roboto Mono', monospace", color: '#6a5e4e' }}>{vehicle.registroInterno}</span>
+                    )}
                 </div>
 
                 {/* Placa */}
@@ -593,16 +611,16 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                 </div>
 
                 {/* Status */}
-                <div className="md:col-span-2 flex justify-start md:justify-center min-w-0" title={statusDisplayFull}>
+                <div className="md:col-span-3 flex justify-start md:justify-center min-w-0" title={statusDisplayFull}>
                     <StatusBadge
                         status={statusKey}
-                        label={trunc(statusDisplayFull, 22)}
-                        style={{ maxWidth: 170 }}
+                        label={trunc(statusDisplayFull, 30)}
+                        style={{ maxWidth: 240 }}
                     />
                 </div>
 
                 {/* Ações — botão contextual + kebab */}
-                <div className="md:col-span-2 flex gap-1 justify-start md:justify-center items-center">
+                <div className="md:col-span-1 flex gap-1 justify-start md:justify-end items-center">
                     {activeBtn}
                     <ActionMenu items={kebabItems} />
                 </div>
@@ -638,65 +656,56 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                     </ProtectedComponent>
                 </div>
 
-                {/* ── Cards de Sumário compactos (clicáveis) ─────────────── */}
-                <div className="bg-white rounded-xl shadow-sm px-3 py-2.5 flex flex-wrap items-center gap-1.5" style={{ border: "1px solid #f0ebe3" }}>
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mr-0.5 shrink-0">Própria:</span>
+                {/* ── Guias: Nossa Frota / Terceirizados ───────────────────── */}
+                <div className="flex items-center gap-1 border-b" style={{ borderColor: '#f0ebe3' }}>
                     {[
-                        { label: 'Ativos',      value: summary.total,       icon: Truck,         base: 'border-gray-200 bg-gray-50 text-gray-700',           active: 'border-gray-400 bg-gray-200',     filterKey: 'reset'       },
-                        { label: 'Disponíveis', value: summary.disponiveis, icon: CheckCircle2,  base: 'border-emerald-200 bg-emerald-50 text-emerald-700',   active: 'border-emerald-500 bg-emerald-100', filterKey: 'Disponível'  },
-                        { label: 'Em Obra',     value: summary.emObra,      icon: HardHat,       base: 'border-sky-200 bg-sky-50 text-sky-700',               active: 'border-sky-500 bg-sky-100',         filterKey: 'Em Obra'     },
-                        { label: 'Manutenção',  value: summary.manutencao,  icon: Wrench,        base: 'border-orange-200 bg-orange-50 text-orange-700',      active: 'border-orange-500 bg-orange-100',   filterKey: '_manutencao' },
-                        { label: 'Alertas',     value: summary.comAlerta,   icon: AlertTriangle, base: summary.comAlerta > 0 ? 'border-red-200 bg-red-50 text-red-600' : 'border-gray-200 bg-gray-50 text-gray-400', active: 'border-red-500 bg-red-100', filterKey: null },
-                        { label: 'Sucata',      value: summary.sucata,      icon: Package,       base: 'border-zinc-200 bg-zinc-100 text-zinc-600',           active: 'border-zinc-500 bg-zinc-200',       filterKey: '_sucata'     },
-                    ].map(({ label, value, icon: Icon, base, active, filterKey }) => {
-                        const isActive =
-                            filterKey === 'reset'      ? (filters.status === 'todos' && !filters.showSucata) :
-                            filterKey === '_sucata'    ? filters.showSucata :
-                            filterKey === '_manutencao'? filters.status === '_manutencao' :
-                            filterKey                  ? filters.status === filterKey :
-                            false;
+                        { id: 'proprios',      label: 'Nossa Frota',    count: summary.total,     icon: Truck,     accent: 'border-yellow-500 text-gray-900', badge: 'bg-yellow-100 text-yellow-700' },
+                        { id: 'terceirizados', label: 'Terceirizados',  count: summary.terceiros, icon: Briefcase, accent: 'border-purple-500 text-purple-700', badge: 'bg-purple-100 text-purple-700' },
+                    ].map(({ id, label, count, icon: Icon, accent, badge }) => {
+                        const active = filters.origem === id;
                         return (
                             <button
-                                key={label}
-                                disabled={!filterKey}
-                                onClick={() => {
-                                    if (!filterKey) return;
-                                    if (filterKey === 'reset')       setFilters(p => ({ ...p, status: 'todos', showSucata: false, showInactive: false }));
-                                    else if (filterKey === '_sucata') setFilters(p => ({ ...p, status: 'Sucata', showSucata: true }));
-                                    else                             setFilters(p => ({ ...p, status: filterKey, showSucata: false }));
-                                }}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium transition-all ${isActive ? active + ' ring-1 ring-offset-0' : base} ${filterKey ? 'cursor-pointer hover:shadow-sm hover:brightness-95' : 'cursor-default opacity-60'}`}
+                                key={id}
+                                onClick={() => setFilters(p => ({ ...p, origem: id, status: 'todos', showSucata: false }))}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${active ? accent : 'border-transparent text-gray-400 hover:text-gray-600'}`}
                             >
-                                <Icon size={11} className="shrink-0"/>
-                                <span className="font-bold">{value}</span>
-                                <span className="opacity-75">{label}</span>
+                                <Icon size={15} className="shrink-0"/>
+                                {label}
+                                <span className={`text-xs font-bold rounded-full px-1.5 py-0.5 ${active ? badge : 'bg-gray-100 text-gray-400'}`}>{count}</span>
                             </button>
                         );
                     })}
+                </div>
 
-                    {summary.terceiros > 0 && (<>
-                        <span className="text-gray-200 mx-0.5 text-base select-none">|</span>
-                        <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider mr-0.5 shrink-0">Terceiros:</span>
-                        {[
-                            { label: 'Total',       value: summary.terceiros,             dot: 'bg-purple-500', statusKey: null },
-                            { label: 'Disponíveis', value: summary.terceirosDisponiveis,  dot: 'bg-emerald-500', statusKey: 'Disponível' },
-                            { label: 'Em Obra',     value: summary.terceirosEmObra,       dot: 'bg-sky-500', statusKey: 'Em Obra' },
-                            ...(summary.terceirosManutencao > 0 ? [{ label: 'Manutenção', value: summary.terceirosManutencao, dot: 'bg-orange-400', statusKey: '_manutencao' }] : []),
-                        ].map(({ label, value, dot, statusKey }) => {
-                            const isActive = filters.origem === 'terceirizados' && (statusKey ? filters.status === statusKey : filters.status === 'todos');
+                {/* ── KPIs da guia ativa (clicáveis = filtro de status) ────── */}
+                <div className="bg-white rounded-xl shadow-sm px-3 py-2.5 flex flex-wrap items-center gap-1.5" style={{ border: "1px solid #f0ebe3" }}>
+                    {(() => {
+                        const isTerc = filters.origem === 'terceirizados';
+                        return [
+                            { label: 'Total',       value: isTerc ? summary.terceiros            : summary.total,       icon: Truck,        base: 'border-gray-200 bg-gray-50 text-gray-700',          active: 'border-gray-400 bg-gray-200',       filterKey: 'reset'       },
+                            { label: 'Disponíveis', value: isTerc ? summary.terceirosDisponiveis : summary.disponiveis, icon: CheckCircle2, base: 'border-emerald-200 bg-emerald-50 text-emerald-700', active: 'border-emerald-500 bg-emerald-100', filterKey: 'Disponível'  },
+                            { label: 'Em Obra',     value: isTerc ? summary.terceirosEmObra      : summary.emObra,      icon: HardHat,      base: 'border-sky-200 bg-sky-50 text-sky-700',             active: 'border-sky-500 bg-sky-100',         filterKey: 'Em Obra'     },
+                            { label: 'Manutenção',  value: isTerc ? summary.terceirosManutencao  : summary.manutencao,  icon: Wrench,       base: 'border-orange-200 bg-orange-50 text-orange-700',    active: 'border-orange-500 bg-orange-100',   filterKey: '_manutencao' },
+                        ].map(({ label, value, icon: Icon, base, active, filterKey }) => {
+                            const isActive = filterKey === 'reset'
+                                ? (filters.status === 'todos' && !filters.showSucata)
+                                : filters.status === filterKey;
                             return (
                                 <button
                                     key={label}
-                                    onClick={() => setFilters(p => ({ ...p, origem: 'terceirizados', status: statusKey || 'todos', showSucata: false }))}
-                                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium transition-all cursor-pointer hover:shadow-sm hover:brightness-95 ${isActive ? 'border-purple-500 bg-purple-100 text-purple-800 ring-1' : 'border-purple-100 bg-purple-50 text-purple-700'}`}
+                                    onClick={() => {
+                                        if (filterKey === 'reset') setFilters(p => ({ ...p, status: 'todos', showSucata: false }));
+                                        else                       setFilters(p => ({ ...p, status: filterKey, showSucata: false }));
+                                    }}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-all cursor-pointer hover:shadow-sm hover:brightness-95 ${isActive ? active + ' ring-1 ring-offset-0' : base}`}
                                 >
-                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`}/>
+                                    <Icon size={11} className="shrink-0"/>
                                     <span className="font-bold">{value}</span>
                                     <span className="opacity-75">{label}</span>
                                 </button>
                             );
-                        })}
-                    </>)}
+                        });
+                    })()}
                 </div>
 
                 {/* ── Filtros sempre visíveis ──────────────────────────────── */}
@@ -714,33 +723,18 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                         </div>
                         {/* Selects */}
                         <select name="group" value={filters.group} onChange={handleFilterChange} className="px-2.5 py-1.5 text-sm rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none" style={{ border: "1px solid #f0ebe3" }}>
-                            <option value="todos">Todos os tipos</option>
+                            <option value="todos">Todos os grupos</option>
                             {Object.keys(vehicleGroups).map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                         <div className="min-w-[180px]">
                             <SearchableSelect
-                                items={[{ id: 'todos', label: 'Todos os grupos' }, ...vehicleTypes.map(t => ({ id: t, label: t }))]}
+                                items={[{ id: 'todos', label: 'Todos os tipos' }, ...vehicleTypes.map(t => ({ id: t, label: t }))]}
                                 value={filters.type || 'todos'}
                                 onChange={(item) => handleFilterChange({ target: { name: 'type', value: item?.id || 'todos' } })}
                                 getLabel={(t) => t.label}
-                                placeholder="Todos os grupos"
+                                placeholder="Todos os tipos"
                             />
                         </div>
-                        <select
-                            name="status"
-                            value={filters.status === '_manutencao' ? '_manutencao' : filters.status}
-                            onChange={handleFilterChange}
-                            className="px-2.5 py-1.5 text-sm rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none" style={{ border: "1px solid #f0ebe3" }}
-                        >
-                            <option value="todos">Todos os status</option>
-                            <option value="_manutencao">Manutenção (qualquer)</option>
-                            {ALL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <select name="origem" value={filters.origem} onChange={handleFilterChange} className="px-2.5 py-1.5 text-sm rounded-lg bg-white focus:ring-2 focus:ring-yellow-400 outline-none" style={{ border: "1px solid #f0ebe3" }}>
-                            <option value="todos">Própria + Terceiros</option>
-                            <option value="proprios">Somente Própria</option>
-                            <option value="terceirizados">Somente Terceirizados</option>
-                        </select>
                         {/* Toggles */}
                         {[
                             { name: 'showInactive', label: 'Inativos', activeColor: 'peer-checked:bg-yellow-400' },
@@ -760,7 +754,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                             <span className="text-xs text-gray-400">{filteredVehicles.length} veículo{filteredVehicles.length !== 1 ? 's' : ''}</span>
                             {activeFiltersCount > 0 && (
                                 <button
-                                    onClick={() => setFilters({ type: 'todos', status: 'todos', search: '', group: 'todos', origem: 'todos', showInactive: false, showSucata: false })}
+                                    onClick={() => setFilters(p => ({ type: 'todos', status: 'todos', search: '', group: 'todos', origem: p.origem, showInactive: false, showSucata: false }))}
                                     className="text-xs text-yellow-600 hover:text-yellow-700 font-medium"
                                 >
                                     Limpar
@@ -775,12 +769,12 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
 
                     {/* Cabeçalho */}
                     <div className="hidden md:grid grid-cols-12 gap-3 px-4 py-2 rounded-t-xl" style={{ background: '#faf9f7', borderBottom: '1px solid #f0ebe3' }}>
-                        <div className="col-span-4"><SortHeader label="Veículo" sortKey="registroInterno"/></div>
-                        <div className="col-span-1"><SortHeader label="Reg." sortKey="registroInterno"/></div>
+                        <div className="col-span-3"><SortHeader label="Veículo" sortKey="registroInterno"/></div>
+                        <div className="col-span-2"><SortHeader label={filters.origem === 'terceirizados' ? 'Fornecedor' : 'Reg.'} sortKey="registroInterno"/></div>
                         <div className="col-span-1"><SortHeader label="Placa" sortKey="placa"/></div>
                         <div className="col-span-2"><SortHeader label="Leitura" sortKey="vehicleReading" className="justify-center"/></div>
-                        <div className="col-span-2"><SortHeader label="Status" sortKey="computedStatus" className="justify-center"/></div>
-                        <div className="col-span-2 flex justify-center">
+                        <div className="col-span-3"><SortHeader label="Status" sortKey="computedStatus" className="justify-center"/></div>
+                        <div className="col-span-1 flex justify-end">
                             <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>Ações</span>
                         </div>
                     </div>

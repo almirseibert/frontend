@@ -576,17 +576,7 @@ const VehicleModal = ({
                                                         <option key={l.id} value={l.id}>{l.razaoSocial}</option>
                                                     ))}
                                                 </select>
-                                                <p className="text-[10px] text-gray-400 mt-1">Cadastre locadores em Postos &amp; Fornecedores → aba Locadores.</p>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Empresa / Fornecedor (texto livre)</label>
-                                                <input
-                                                    name="nomeEmpresaTerceiro"
-                                                    value={formData.nomeEmpresaTerceiro}
-                                                    onChange={handleChange}
-                                                    placeholder="Ex: Transportes Silva Ltda"
-                                                    className="w-full p-2 border border-purple-200 rounded-lg bg-white focus:ring-2 focus:ring-purple-400 outline-none text-sm"
-                                                />
+                                                <p className="text-[10px] text-gray-400 mt-1">Fonte única do fornecedor. Cadastre locadores em Postos &amp; Fornecedores → aba Locadores.</p>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Nº do Contrato / Referência</label>
