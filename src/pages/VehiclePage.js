@@ -151,7 +151,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [filters, setFilters] = useState({
         type: 'todos', status: 'todos', search: '',
-        group: 'todos', origem: 'proprios', showInactive: false, showSucata: false
+        group: 'todos', origem: 'proprios', locador: 'todos', showInactive: false, showSucata: false
     });
     const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
 
@@ -249,6 +249,28 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
         };
     }, [processedVehicles]);
 
+    // Fornecedores para o filtro (guia Terceirizados): só os que têm veículo na
+    // tela, mais a opção "Sem fornecedor" para achar os que faltam vincular.
+    const locadorOptions = useMemo(() => {
+        const seen = new Map();
+        let temSemFornecedor = false;
+        for (const v of processedVehicles) {
+            if (!v.isOutsourced || v.isSucata) continue;
+            if (v.locadorId) {
+                if (!seen.has(v.locadorId)) seen.set(v.locadorId, partnerNameById.get(v.locadorId) || '— (sem nome)');
+            } else {
+                temSemFornecedor = true;
+            }
+        }
+        const nomes = Array.from(seen, ([id, label]) => ({ id, label }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+        return [
+            { id: 'todos', label: 'Todos os fornecedores' },
+            ...(temSemFornecedor ? [{ id: '__none__', label: '— Sem fornecedor' }] : []),
+            ...nomes,
+        ];
+    }, [processedVehicles, partnerNameById]);
+
     // --- Filtragem e Ordenação ---
     const filteredVehicles = useMemo(() => {
         let items = processedVehicles.filter(v => {
@@ -266,6 +288,10 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
             const origemMatch = filters.origem === 'todos'
                 || (filters.origem === 'terceirizados' ? !!v.isOutsourced : !v.isOutsourced);
 
+            // Fornecedor: só vale na guia Terceirizados
+            const locadorMatch = filters.origem !== 'terceirizados' || filters.locador === 'todos'
+                || (filters.locador === '__none__' ? !v.locadorId : v.locadorId === filters.locador);
+
             // '_manutencao' é valor especial que agrupa Em Manutenção + Aguardando Manutenção
             const statusMatch = filters.status === 'todos' || (
                 filters.status === '_manutencao'
@@ -276,7 +302,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
             if (v.isSucata   && !filters.showSucata)   return false;
             if (!v.ativo && !v.isSucata && !filters.showInactive) return false;
 
-            return searchMatch && typeMatch && statusMatch && groupMatch && origemMatch;
+            return searchMatch && typeMatch && statusMatch && groupMatch && origemMatch && locadorMatch;
         });
 
         items.sort((a, b) => {
@@ -450,7 +476,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
         </button>
     );
 
-    const activeFiltersCount = [filters.group, filters.type, filters.status].filter(f => f !== 'todos').length
+    const activeFiltersCount = [filters.group, filters.type, filters.status, filters.locador].filter(f => f !== 'todos').length
         + (filters.showInactive ? 1 : 0) + (filters.showSucata ? 1 : 0);
 
     // Controle de botões por role
@@ -666,7 +692,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                         return (
                             <button
                                 key={id}
-                                onClick={() => setFilters(p => ({ ...p, origem: id, status: 'todos', showSucata: false }))}
+                                onClick={() => setFilters(p => ({ ...p, origem: id, status: 'todos', locador: 'todos', showSucata: false }))}
                                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${active ? accent : 'border-transparent text-gray-400 hover:text-gray-600'}`}
                             >
                                 <Icon size={15} className="shrink-0"/>
@@ -735,10 +761,24 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                                 placeholder="Todos os tipos"
                             />
                         </div>
-                        {/* Toggles */}
+                        {/* Fornecedor — só na guia Terceirizados */}
+                        {filters.origem === 'terceirizados' && (
+                            <div className="min-w-[190px]">
+                                <SearchableSelect
+                                    items={locadorOptions}
+                                    value={filters.locador || 'todos'}
+                                    onChange={(item) => handleFilterChange({ target: { name: 'locador', value: item?.id || 'todos' } })}
+                                    getLabel={(t) => t.label}
+                                    placeholder="Todos os fornecedores"
+                                />
+                            </div>
+                        )}
+                        {/* Toggles — "Sucatas" só faz sentido na frota própria */}
                         {[
                             { name: 'showInactive', label: 'Inativos', activeColor: 'peer-checked:bg-yellow-400' },
-                            { name: 'showSucata',   label: `Sucatas (${summary.sucata})`, activeColor: 'peer-checked:bg-zinc-500' },
+                            ...(filters.origem === 'terceirizados'
+                                ? []
+                                : [{ name: 'showSucata', label: `Sucatas (${summary.sucata})`, activeColor: 'peer-checked:bg-zinc-500' }]),
                         ].map(({ name, label, activeColor }) => (
                             <label key={name} className="flex items-center gap-1.5 cursor-pointer shrink-0">
                                 <div className="relative">
@@ -754,7 +794,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                             <span className="text-xs text-gray-400">{filteredVehicles.length} veículo{filteredVehicles.length !== 1 ? 's' : ''}</span>
                             {activeFiltersCount > 0 && (
                                 <button
-                                    onClick={() => setFilters(p => ({ type: 'todos', status: 'todos', search: '', group: 'todos', origem: p.origem, showInactive: false, showSucata: false }))}
+                                    onClick={() => setFilters(p => ({ type: 'todos', status: 'todos', search: '', group: 'todos', origem: p.origem, locador: 'todos', showInactive: false, showSucata: false }))}
                                     className="text-xs text-yellow-600 hover:text-yellow-700 font-medium"
                                 >
                                     Limpar
