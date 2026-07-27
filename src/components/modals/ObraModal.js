@@ -36,7 +36,6 @@ const ObraModal = ({
     const [internalContacts, setInternalContacts] = useState([]);
     const [fiscal, setFiscal] = useState('');
     const [contractType, setContractType] = useState('horas'); // 'horas' | 'metrosQuadrados'
-    const [dataInicio, setDataInicio] = useState(new Date().toISOString().split('T')[0]);
     const [dataFim, setDataFim] = useState('');
     const [latitude, setLatitude] = useState('');
     const [longitude, setLongitude] = useState('');
@@ -81,7 +80,6 @@ const ObraModal = ({
             setResponsavelWhatsapp(obra.responsavel_whatsapp || '');
             setFiscal(obra.fiscal || '');
             setContractType(obra.contractType || 'horas');
-            setDataInicio(obra.dataInicio ? new Date(obra.dataInicio).toISOString().split('T')[0] : '');
             // Previsão de fim agora vive em dataFimPrevisto; dataFim antigo serve de fallback
             const fimPrev = obra.dataFimPrevisto || (obra.status !== 'finalizada' ? obra.dataFim : null);
             setDataFim(fimPrev ? new Date(fimPrev).toISOString().split('T')[0] : '');
@@ -202,8 +200,6 @@ const ObraModal = ({
         e.preventDefault();
         setIsSubmitting(true);
 
-        const isPreActive = PRE_ACTIVE_STATUSES.includes(statusObra);
-
         const payload = {
             tipo_registro: tipoRegistro,
             nome,
@@ -212,8 +208,7 @@ const ObraModal = ({
             responsavel_whatsapp: responsavelWhatsapp || null,
             fiscal,
             contractType,
-            // Pré-obra não tem início real — é preenchido na 1ª alocação de equipamento
-            dataInicio: isPreActive ? null : dataInicio,
+            // dataInicio não é enviado: o backend o deriva de MIN(date) dos lançamentos de horas.
             dataFimPrevisto: dataFim || null,
             dataInicioPrevisto: dataInicioPrevisto || null,
             status: tipoRegistro === 'centro_custo' ? 'ativa' : statusObra,
@@ -447,28 +442,18 @@ const ObraModal = ({
                         )}
 
                         <div className="grid grid-cols-2 gap-4">
-                            {PRE_ACTIVE_STATUSES.includes(statusObra) && tipoRegistro !== 'centro_custo' ? (
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Início</label>
-                                    <input
-                                        type="date"
-                                        value={dataInicioPrevisto}
-                                        onChange={(e) => setDataInicioPrevisto(e.target.value)}
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                            ) : (
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">Data Início *</label>
-                                    <input
-                                        type="date"
-                                        value={dataInicio}
-                                        onChange={(e) => setDataInicio(e.target.value)}
-                                        className="w-full p-2 border rounded"
-                                        required
-                                    />
-                                </div>
-                            )}
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Início</label>
+                                <input
+                                    type="date"
+                                    value={dataInicioPrevisto}
+                                    onChange={(e) => setDataInicioPrevisto(e.target.value)}
+                                    className="w-full p-2 border rounded"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    O início real é definido automaticamente pelo 1º lançamento de horas.
+                                </p>
+                            </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Fim</label>
                                 <input

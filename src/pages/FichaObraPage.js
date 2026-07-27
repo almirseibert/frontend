@@ -354,7 +354,6 @@ function Abas({ aba, setAba }) {
 function Cabecalho({ obra, d }) {
     const meta = [
         obra.regiao && { icon: <MapPin size={13} />, txt: obra.regiao },
-        obra.orgao_contratante && { txt: obra.orgao_contratante },
         obra.responsavel && { icon: <User size={13} />, txt: `Líder: ${obra.responsavel}` },
         obra.fiscal && { icon: <ClipboardList size={13} />, txt: `Fiscal: ${obra.fiscal}` },
     ].filter(Boolean);
@@ -364,7 +363,7 @@ function Cabecalho({ obra, d }) {
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 {/* Esquerda: identificação */}
                 <div className="min-w-0">
-                    <h1 style={{ fontSize: 22, fontWeight: 800, color: C.ink, lineHeight: 1.15 }}>{formatObraNome(obra.nome)}</h1>
+                    <h1 style={{ fontSize: 22, fontWeight: 800, color: C.ink, lineHeight: 1.15 }}>{formatObraNome(obra)}</h1>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
                         {meta.map((m, i) => (
                             <span key={i} className="flex items-center gap-1" style={{ fontSize: 12.5, color: C.inkMid }}>
@@ -427,6 +426,7 @@ function Projecao({ d }) {
     return (
         <Card title={`Projeção · meta ${META_DIAS} dias`}>
             <Stat label="Ritmo médio" value={d.ritmoPctQuinzena != null ? fmtPct(d.ritmoPctQuinzena, 1) : '—'} hint="por quinzena" />
+            <Stat label="Ritmo médio em horas" value={d.ritmoHorasDia != null ? fmtH(d.ritmoHorasDia) : '—'} hint="por dia com lançamento" />
             <Stat label="Falta para 100%" value={fmtPct(d.faltaPara100, 1)} />
             <Stat label="Conclusão projetada" value={fmtData(d.conclusaoProjetada)} />
             <Stat label="Desvio contra a meta"

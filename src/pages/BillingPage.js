@@ -794,7 +794,7 @@ const BillingPage = ({
     const handleDateRangeChange = (field, value) => {
         const obra = obras.find(o => o.id === selectedObraId);
         if (obra) {
-            const startLimit = new Date(obra.dataInicio);
+            const startLimit = new Date(obra.dataInicio || obra.dataInicioPrevisto || 0);
             const endLimit = obra.dataFim ? new Date(obra.dataFim) : new Date();
             const checkDate = new Date(value);
             checkDate.setHours(12,0,0,0);
@@ -1090,7 +1090,11 @@ const BillingPage = ({
                         <div className="flex-1 min-w-0">
                             <p className={`font-bold text-sm truncate ${obraIsActive ? 'text-green-800' : 'text-red-700'}`}>{formatObraNome(selectedObra)}</p>
                             <p className="text-xs text-gray-500">
-                                {selectedObra?.dataInicio ? formatDateToBR(selectedObra.dataInicio) : '?'}
+                                {selectedObra?.dataInicio
+                                    ? formatDateToBR(selectedObra.dataInicio)
+                                    : (selectedObra?.dataInicioPrevisto
+                                        ? `${formatDateToBR(selectedObra.dataInicioPrevisto)} (prevista)`
+                                        : '?')}
                                 {' → '}
                                 {selectedObra?.dataFim ? formatDateToBR(selectedObra.dataFim) : 'Em andamento'}
                             </p>
