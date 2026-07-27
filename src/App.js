@@ -48,7 +48,7 @@ import Messenger from './components/chat/Messenger';
 import LoginScreen from './components/LoginScreen';
 
 import apiClient from './services/apiClient';
-import { canAccessPage, canAccessAnaliseGerencial } from './utils/permissions';
+import { canUserAccessPage, canAccessAnaliseGerencial } from './utils/permissions';
 import {
     vehicleGroups,
     extraObraOptions,
@@ -431,7 +431,7 @@ const AppContent = () => {
         }
 
         // Solicitações de abastecimento pendentes
-        if (canAccessPage(user.roleNormalized, 'admin_solicitacoes')) {
+        if (canUserAccessPage(user, 'admin_solicitacoes')) {
             apiClient.get?.('/solicitacoes')
                 .then(res => {
                     const data = Array.isArray(res) ? res : (res?.data || []);
@@ -462,7 +462,7 @@ const AppContent = () => {
         };
 
         const handleAdminNotification = (data) => {
-            const podeAbastecimento = canAccessPage(user.roleNormalized, 'admin_solicitacoes');
+            const podeAbastecimento = canUserAccessPage(user, 'admin_solicitacoes');
             // Função "Abastecimento" em Usuários & Acesso.
             const isAbastecimento = user.roleNormalized === 'abastecimento';
 
@@ -881,20 +881,20 @@ const AppContent = () => {
             case 'terceirizados':
                 return <TerceirizadosPage {...commonProps} />;
             case 'refueling':
-                return canAccessPage(user.roleNormalized, 'refueling')
+                return canUserAccessPage(user, 'refueling')
                     ? <RefuelingPage {...commonProps} /> : <Denied />;
             case 'saldo_postos':
-                return canAccessPage(user.roleNormalized, 'saldo_postos')
+                return canUserAccessPage(user, 'saldo_postos')
                     ? <SaldoEmPostosPage /> : <Denied />;
             case 'admin_solicitacoes':
-                return canAccessPage(user.roleNormalized, 'admin_solicitacoes')
+                return canUserAccessPage(user, 'admin_solicitacoes')
                     ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
             case 'orders':
                 return <OrdersPage {...commonProps} />;
             case 'inventory':
                 return <InventoryPage {...commonProps} />;
             case 'comboio':
-                return canAccessPage(user.roleNormalized, 'comboio')
+                return canUserAccessPage(user, 'comboio')
                     ? <ComboioPage {...commonProps} /> : <Denied />;
             case 'expenses':
                 return <ExpensesPage {...commonProps} />;
@@ -907,22 +907,22 @@ const AppContent = () => {
             case 'reports': 
                 return <ReportsPage {...commonProps} />; 
             case 'admin':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminPage {...commonProps} /> : <Denied />;
             case 'admin_usuarios':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminUsuariosPage {...commonProps} /> : <Denied />;
             case 'admin_frota':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminFrotaPage {...commonProps} /> : <Denied />;
             case 'admin_comunicacao':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminComunicacaoPage {...commonProps} /> : <Denied />;
             case 'admin_sistema':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminSistemaPage {...commonProps} /> : <Denied />;
             case 'sigasul':
-                return canAccessPage(user.roleNormalized, 'sigasul')
+                return canUserAccessPage(user, 'sigasul')
                     ? <SigaSulPage {...commonProps} /> : <Denied />;
             case 'analise_gerencial':
                 return canAccessAnaliseGerencial(user)

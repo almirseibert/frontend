@@ -30,7 +30,14 @@ export const AuthProvider = ({ children }) => {
             const REFUELING_ROLES = ['admin', 'gerencia', 'abastecimento', 'editor'];
             const canAccessRefueling = canAccess || REFUELING_ROLES.includes(roleNormalized);
 
-            setUser({ ...userData, roleNormalized });
+            // Override individual de páginas — garante array|null mesmo se vier como string JSON.
+            let pagePermissions = userData.page_permissions;
+            if (typeof pagePermissions === 'string') {
+                try { pagePermissions = JSON.parse(pagePermissions); } catch { pagePermissions = null; }
+            }
+            if (!Array.isArray(pagePermissions)) pagePermissions = null;
+
+            setUser({ ...userData, roleNormalized, page_permissions: pagePermissions });
             setPermissions({
                 isOperator:      roleNormalized === 'operador',
                 isEditor:        ['editor', 'admin'].includes(roleNormalized),

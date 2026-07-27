@@ -1,6 +1,7 @@
 ﻿import React, { useState } from 'react';
-import { X, User } from 'lucide-react';
+import { X, User, SlidersHorizontal } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
+import { PAGES, PAGE_SECTIONS, getRolePages } from '../../utils/permissions';
 
 const ROLES = [
   { value: 'admin',         label: 'Administrador' },
@@ -28,7 +29,27 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Override individual de páginas. null/[] no usuário = usa o padrão da função.
+  const initialPages = Array.isArray(user?.page_permissions) && user.page_permissions.length > 0
+    ? user.page_permissions
+    : null;
+  const [customize, setCustomize] = useState(!!initialPages);
+  const [pages, setPages] = useState(
+    initialPages ? [...initialPages] : [...getRolePages(user?.user_type || 'viewer')]
+  );
+
   const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  // Ao ligar a personalização, semeia com o padrão da função selecionada no momento.
+  const toggleCustomize = (on) => {
+    if (on) setPages([...getRolePages(form.user_type)]);
+    setCustomize(on);
+  };
+
+  const togglePage = (id) =>
+    setPages(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
+
+  const isAdminRole = form.user_type === 'admin';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,6 +58,8 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
     try {
       const data = { ...form };
       if (!isNew && !data.password) delete data.password;
+      // Só envia lista quando personalizado e não-admin; senão null = volta ao padrão da função.
+      data.page_permissions = (customize && !isAdminRole) ? pages : null;
       await onSave(data, user?.id);
     } catch (err) {
       setError(err.message || 'Erro ao salvar usuário.');
@@ -47,8 +70,8 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
 
   return (
     <div className="mak-modal-backdrop ">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
           <h2 className="mak-modal-title">
             <User size={18} className="text-yellow-500" />
             {isNew ? 'Novo Usuário' : 'Editar Usuário'}
@@ -58,7 +81,8 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
+          <div className="p-5 space-y-4 overflow-y-auto">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Nome completo</label>
             <input
@@ -142,11 +166,77 @@ const UserEditModal = ({ user, groups = [], onClose, onSave }) => {
             )}
           </div>
 
+          {/* Personalização individual de acesso (override sobre o padrão da função) */}
+          {!isAdminRole && (
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/60">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={customize}
+                  onChange={e => toggleCustomize(e.target.checked)}
+                  className="h-4 w-4 text-yellow-500 rounded border-gray-300 focus:ring-yellow-400"
+                />
+                <SlidersHorizontal size={15} className="text-yellow-500" />
+                <span className="text-sm font-medium text-gray-700">Personalizar acesso deste usuário</span>
+              </label>
+
+              {!customize ? (
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Usa o acesso padrão da função <b>{form.user_type}</b>. Ative para liberar ou
+                  remover páginas só para este usuário, sem afetar os demais da mesma função.
+                </p>
+              ) : (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-gray-500">
+                      {pages.length} página(s) selecionada(s)
+                    </span>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setPages([...getRolePages(form.user_type)])} className="text-xs text-blue-600 hover:underline">Padrão da função</button>
+                      <span className="text-gray-300">|</span>
+                      <button type="button" onClick={() => setPages(PAGES.map(p => p.id))} className="text-xs text-blue-600 hover:underline">Todas</button>
+                      <span className="text-gray-300">|</span>
+                      <button type="button" onClick={() => setPages([])} className="text-xs text-red-500 hover:underline">Limpar</button>
+                    </div>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg p-3 bg-white space-y-3">
+                    {PAGE_SECTIONS.map(sec => (
+                      <div key={sec.section}>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">{sec.section}</p>
+                        {sec.note && <p className="text-[10px] text-gray-400 italic mb-1">{sec.note}</p>}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {sec.pages.map(p => (
+                            <label key={p.id} className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={pages.includes(p.id)}
+                                onChange={() => togglePage(p.id)}
+                                className="h-4 w-4 text-yellow-500 rounded border-gray-300 focus:ring-yellow-400"
+                              />
+                              <span className="text-sm text-gray-700">{p.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {form.user_type === 'operador' && (
+                    <p className="text-xs text-amber-600 mt-1.5">
+                      Atenção: operador tem fluxo próprio (redirecionado para a tela de solicitação).
+                      Personalizar páginas aqui pode não ter efeito no app dele.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
           )}
+          </div>
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3 p-5 border-t border-gray-100 shrink-0">
             <button
               type="button"
               onClick={onClose}

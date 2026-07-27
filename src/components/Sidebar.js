@@ -5,14 +5,13 @@ import {
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
     Radio, Search
 } from 'lucide-react';
-import { ROLE_PAGE_ACCESS, canAccessAnaliseGerencial } from '../utils/permissions';
+import { getEffectivePages, canAccessAnaliseGerencial } from '../utils/permissions';
 import { getStatusMeta } from '../utils/chatStatus';
 
 const Sidebar = ({ currentPage, setCurrentPage, user, logout, onOpenSettings, myChatStatus, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
 
-    const roleNorm = user?.roleNormalized || (user?.user_type || 'viewer').toLowerCase();
-    const userPages = ROLE_PAGE_ACCESS[roleNorm] || ROLE_PAGE_ACCESS['viewer'];
+    const userPages = getEffectivePages(user);
     const canAccess = (pageId) => userPages.includes('*') || userPages.includes(pageId);
     const canAccessAny = (pageIds) => pageIds.some(id => canAccess(id));
 
