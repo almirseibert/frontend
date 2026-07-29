@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin, Package, Fuel, FileText, Trash2, Upload, ExternalLink } from 'lucide-react';
 import { checkReadingConsistency, vehicleSubTypes, getGroupUnit } from '../utils/vehicleRules';
+import { getPartnerDisplayName } from '../utils/partners';
 import SearchableSelect from './SearchableSelect';
 
 const ModalBtn = ({ variant = 'primary', onClick, disabled, children }) => {
@@ -573,7 +574,7 @@ const VehicleModal = ({
                                                 >
                                                     <option value="">— Selecionar locador —</option>
                                                     {locadores.map(l => (
-                                                        <option key={l.id} value={l.id}>{l.razaoSocial}</option>
+                                                        <option key={l.id} value={l.id}>{getPartnerDisplayName(l)}</option>
                                                     ))}
                                                 </select>
                                                 <p className="text-[10px] text-gray-400 mt-1">Fonte única do fornecedor. Cadastre locadores em Postos &amp; Fornecedores → aba Locadores.</p>

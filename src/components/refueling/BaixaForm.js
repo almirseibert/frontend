@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import CurrencyInput from '../ui/CurrencyInput';
 import { Loader, TrendingDown, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
+import { getPartnerDisplayName } from '../../utils/partners';
 
 /**
  * Formulário de confirmação de baixa (dados do cupom fiscal).
@@ -297,7 +298,7 @@ const BaixaForm = ({
         }
     };
 
-    const partnerName = partnerInfo?.razaoSocial || '-';
+    const partnerName = getPartnerDisplayName(partnerInfo) || '-';
     const driverName = driverInfo?.nome || '-';
     const vehicleRegistro = vehicleInfo?.registroInterno || '-';
     const vehicleModelo = vehicleInfo?.modelo || '-';

@@ -23,6 +23,7 @@ import ChecklistModal from '../components/ChecklistModal';
 import VehicleDocumentsModal from '../components/VehicleDocumentsModal';
 
 import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
+import { getPartnerDisplayName } from '../utils/partners';
 
 // STATUS_CONFIG removido — usar StatusBadge de src/components/ui/StatusBadge.js
 
@@ -126,12 +127,13 @@ const VehiclePage = ({
         return [...new Set([...existingTypes, ...predefinedTypes])].sort();
     }, [vehicles, vehicleGroups]);
 
-    // Nome do locador por id (partners.razaoSocial). Usado na coluna "Reg." para
-    // veículos terceirizados, onde `registroInterno` = placa (redundante). Fonte
-    // única = vehicles.locadorId → partners; o texto livre legado é ignorado aqui.
+    // Nome do locador por id (Nome Fantasia quando houver, senão Razão Social).
+    // Usado na coluna "Reg." para veículos terceirizados, onde `registroInterno`
+    // = placa (redundante). Fonte única = vehicles.locadorId → partners; o texto
+    // livre legado é ignorado aqui.
     const partnerNameById = useMemo(() => {
         const m = new Map();
-        (partners || []).forEach(p => m.set(p.id, p.razaoSocial));
+        (partners || []).forEach(p => m.set(p.id, getPartnerDisplayName(p)));
         return m;
     }, [partners]);
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import CurrencyInput from '../ui/CurrencyInput';
 import { X, Loader, Save, Wallet } from 'lucide-react';
+import { getPartnerDisplayName } from '../../utils/partners';
 
 /**
  * TerceirizadoPagamentoModal — registra um pagamento em dinheiro a um locador
@@ -84,7 +85,7 @@ const TerceirizadoPagamentoModal = ({ locador, contrato, pagamento, saldo, user,
                 <form onSubmit={handleSubmit} className="p-4 space-y-3">
                     <div>
                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Terceiro</label>
-                        <div className="p-2 bg-gray-50 border rounded-lg text-sm font-medium text-gray-700">{locador?.razaoSocial}</div>
+                        <div className="p-2 bg-gray-50 border rounded-lg text-sm font-medium text-gray-700">{getPartnerDisplayName(locador) || '—'}</div>
                     </div>
                     {contrato && (
                         <div>

@@ -9,6 +9,7 @@ import ComboioSaidaModal from '../components/modals/ComboioSaidaModal';
 import ComboioDrenagemModal from '../components/modals/ComboioDrenagemModal';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 import { formatObraNome } from '../utils/obraFormat';
+import { resolveOrderPartnerName } from '../utils/partners';
 
 import ProtectedComponent from '../components/ProtectedComponent';
 import SearchableSelect from '../components/SearchableSelect';
@@ -131,7 +132,7 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
             ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
             ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
             [leituraLabel, `${leituraValue}`],
-            ['Posto Autorizado', orderData.partnerName || partner?.razaoSocial || (orderData.type === 'saida' ? 'Comboio Interno' : 'N/A')],
+            ['Posto Autorizado', resolveOrderPartnerName(partner, orderData.partnerName, orderData.type === 'saida' ? 'Comboio Interno' : 'N/A')],
             ['Combustível Autorizado', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A'],
             ['Litros Liberados', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`],
         ];

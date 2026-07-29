@@ -15,6 +15,7 @@ import ProtectedComponent from '../components/ProtectedComponent';
 import { PasswordConfirmationModal } from '../App';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
+import { getPartnerDisplayName, resolveOrderPartnerName } from '../utils/partners';
 
 // ===================================================================================
 // HELPERS DE PARSE E FORMATAÇÃO
@@ -81,7 +82,7 @@ const SendNotificationSection = ({ formData, setFormData, partners = [] }) => {
                 {formData.notifyWhatsapp && hasWhatsapp && (
                     <div className="bg-green-50 border border-green-200 rounded p-2">
                         <p className="text-xs text-green-800">
-                            <strong>WhatsApp:</strong> Será enviado para {selectedPartner?.razaoSocial} — {selectedPartner?.whatsapp || selectedPartner?.telefone}
+                            <strong>WhatsApp:</strong> Será enviado para {getPartnerDisplayName(selectedPartner)} — {selectedPartner?.whatsapp || selectedPartner?.telefone}
                         </p>
                     </div>
                 )}
@@ -284,7 +285,7 @@ const SearchableSupplierSelect = ({ partners = [], value, onChange }) => {
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <span className={`truncate ${selected ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
-                    {selected ? `${selected.razaoSocial} ${selected.cnpj ? `(${selected.cnpj})` : ''}` : 'Buscar e selecionar fornecedor...'}
+                    {selected ? `${getPartnerDisplayName(selected)} ${selected.cnpj ? `(${selected.cnpj})` : ''}` : 'Buscar e selecionar fornecedor...'}
                 </span>
                 <ChevronDown size={16} className="text-gray-500 shrink-0" />
             </div>
@@ -307,8 +308,8 @@ const SearchableSupplierSelect = ({ partners = [], value, onChange }) => {
                                 className="p-2 hover:bg-[#fdf8f0] cursor-pointer text-sm border-b last:border-b-0 transition-colors"
                                 onClick={() => { onChange(p.id, p.razaoSocial); setIsOpen(false); setSearch(''); }}
                             >
-                                <div className="font-semibold text-gray-800">{p.razaoSocial}</div>
-                                {p.cnpj && <div className="text-xs text-gray-500">{p.cnpj}</div>}
+                                <div className="font-semibold text-gray-800">{getPartnerDisplayName(p)}</div>
+                                {(p.nomeFantasia || p.cnpj) && <div className="text-xs text-gray-500">{[p.nomeFantasia ? p.razaoSocial : null, p.cnpj].filter(Boolean).join(' · ')}</div>}
                             </div>
                         ))}
                         {filtered.length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado.</div>}
@@ -356,7 +357,7 @@ const buildOrderFileName = (order, vehicle) => {
 // ===================================================================================
 // Modos: returnBlob=true → devolve Blob; downloadName informado → baixa no PC;
 // caso contrário abre no navegador (comportamento de preview).
-const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl, returnBlob = false, downloadName = null) => {
+const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl, returnBlob = false, downloadName = null, partnersList = []) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const effectivePageHeight = 148.5;
@@ -383,7 +384,7 @@ const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl,
     doc.text('Fornecedor:', margin, infoStartY);
     doc.text('Obra de Destino:', midX, infoStartY);
     doc.setFont('helvetica', 'normal');
-    doc.text(order.supplier || 'N/A', margin + 25, infoStartY);
+    doc.text(resolveOrderPartnerName(partnersList.find(p => p.id === order.supplierId), order.supplier), margin + 25, infoStartY);
     doc.text(formatObraNome(obra) || order.obraId || 'Não especificada', midX + 30, infoStartY);
 
     doc.setFont('helvetica', 'bold');
@@ -578,10 +579,10 @@ const OrdersPage = ({
                 const canvas = document.createElement('canvas');
                 canvas.width = logo.width; canvas.height = logo.height;
                 const ctx = canvas.getContext('2d'); ctx.drawImage(logo, 0, 0);
-                generateOrderPDF(order, vehicle, employee, operator, obra, canvas.toDataURL('image/png'));
-            } catch (e) { generateOrderPDF(order, vehicle, employee, operator, obra, null); }
+                generateOrderPDF(order, vehicle, employee, operator, obra, canvas.toDataURL('image/png'), false, null, partners);
+            } catch (e) { generateOrderPDF(order, vehicle, employee, operator, obra, null, false, null, partners); }
         };
-        logo.onerror = () => generateOrderPDF(order, vehicle, employee, operator, obra, null);
+        logo.onerror = () => generateOrderPDF(order, vehicle, employee, operator, obra, null, false, null, partners);
     };
 
     const openEditModal   = (order) => { setEditingOrder(order); setIsModalOpen(true); };
@@ -767,7 +768,10 @@ const OrdersPage = ({
                                     </td>
                                     <td className="p-3">{formatObraNome(obra) || order.obraId || 'N/A'}</td>
                                     <td className="p-3">{vehicle ? <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-mono">{vehicle.registroInterno}</span> : 'N/A'}</td>
-                                    <td className="p-3 max-w-[150px] truncate" title={order.supplier}>{order.supplier}</td>
+                                    {(() => {
+                                        const supplierName = resolveOrderPartnerName(partners.find(p => p.id === order.supplierId), order.supplier);
+                                        return <td className="p-3 max-w-[150px] truncate" title={supplierName}>{supplierName}</td>;
+                                    })()}
                                     <td className="p-3 text-xs leading-tight">
                                         <div><strong>R:</strong> {employee?.nome || 'N/A'}</div>
                                         {operator && operator.id !== employee?.id && <div className="text-gray-500 mt-0.5"><strong>Op:</strong> {operator.nome}</div>}
@@ -836,7 +840,7 @@ const OrdersPage = ({
             {orderDetailsToView && <OrderDetailsModal
                 order={orderDetailsToView}
                 onClose={() => setOrderDetailsToView(null)}
-                vehicles={vehicles} employees={employees} obras={obras}
+                vehicles={vehicles} employees={employees} obras={obras} partners={partners}
             />}
 
             {isCloseModalOpen && orderToClose && <CloseOrderModal
@@ -872,7 +876,7 @@ const OrdersPage = ({
 // ===================================================================================
 // MODAL RAIO-X
 // ===================================================================================
-const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
+const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras, partners = [] }) => {
     const vehicle  = vehicles.find(v => v.id === order.vehicleId);
     const employee = employees.find(e => e.id === order.employeeId);
     const operator = employees.find(e => e.id === order.operatorId);
@@ -919,7 +923,7 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-gray-50 p-4 rounded-lg border">
                             <h3 className="text-xs font-black text-gray-400 uppercase mb-3">Vínculos de Fornecimento</h3>
-                            <p className="text-sm mb-2"><strong className="text-gray-700">Fornecedor:</strong> {order.supplier || 'N/A'}</p>
+                            <p className="text-sm mb-2"><strong className="text-gray-700">Fornecedor:</strong> {resolveOrderPartnerName(partners.find(p => p.id === order.supplierId), order.supplier)}</p>
                             <p className="text-sm mb-2"><strong className="text-gray-700">Obra/Local (Custo):</strong> {formatObraNome(obra) || order.obraId || 'N/A'}</p>
                             <p className="text-sm"><strong className="text-gray-700">Veículo:</strong> {vehicle ? `${vehicle.registroInterno} - ${vehicle.placa}` : 'Uso Geral'}</p>
                         </div>
@@ -1364,7 +1368,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
             // (a) Download local automático — sempre que a ordem é emitida
             try {
-                generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, false, fileName);
+                generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, false, fileName, partners);
             } catch (e) {
                 console.warn('[Ordem] Falha ao baixar PDF localmente:', e.message);
             }
@@ -1372,7 +1376,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             // (b) Notificação ao fornecedor com o PDF anexado (canais marcados)
             if ((formData.notifyEmail || formData.notifyWhatsapp) && savedId) {
                 try {
-                    const pdfBlob = generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, true);
+                    const pdfBlob = generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, true, null, partners);
                     const numStr  = String(realNumber || 'nova').padStart(6, '0');
                     const pdfFile = new File([pdfBlob], `ordem-${numStr}.pdf`, { type: 'application/pdf' });
                     const uploadForm = new FormData();

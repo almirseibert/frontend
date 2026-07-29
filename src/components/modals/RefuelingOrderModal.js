@@ -4,6 +4,8 @@ import { X, Loader, Info, Lock, FileText, Edit, Clock, Activity, TrendingUp, Sen
 import { getAllowedReadingTypes, getGroupUnit, getReadingSourceForUnit, computeConsumption, getGroupForType } from '../../utils/vehicleRules';
 import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
+import { getPartnerDisplayName, resolveOrderPartnerName, getVehicleTerceiroName } from '../../utils/partners';
+import TerceirizadoBadge, { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
 
 const RefuelingOrderModal = ({
     user,
@@ -579,19 +581,27 @@ const RefuelingOrderModal = ({
                                 items={sortedVehicles}
                                 value={formData.vehicleId}
                                 onChange={(v) => setFormData(p => ({...p, vehicleId: v?.id || ''}))}
-                                getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
-                                getSubLabel={(v) => v.tipo || ''}
+                                getLabel={(v) => `${v.registroInterno} - ${v.placa}${terceirizadoPdfMark(v)}`}
+                                getSubLabel={(v) => v.isOutsourced
+                                    ? `3º ${getVehicleTerceiroName(v, partners) || 'sem fornecedor'}`
+                                    : (v.tipo || '')}
                                 getBadge={(v) => v.naoPodeCircular ? { text: 'Não circula', color: 'bg-red-100 text-red-700' } : v.status === 'manutencao' ? { text: 'Manutenção', color: 'bg-yellow-100 text-yellow-700' } : null}
                                 placeholder="Buscar veículo..."
                                 required
                             />
+                            {selectedVehicle?.isOutsourced && (
+                                <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: '#6b21a8' }}>
+                                    <TerceirizadoBadge show />
+                                    <span>Terceiro: {getVehicleTerceiroName(selectedVehicle, partners) || 'Sem fornecedor vinculado'}</span>
+                                </div>
+                            )}
                         </div>
-                        
+
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-1.5 rounded border border-gray-200 text-[10px] text-gray-600 flex justify-between items-center">
                                 <div>
                                     <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> Último: {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
-                                    <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
+                                    <p>Posto: {resolveOrderPartnerName(partners.find(p => p.id === lastRefuelData.partnerId), lastRefuelData.partnerName)}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
                                     
                                     <div className="mt-0.5 pt-0.5 border-t border-gray-300 flex gap-2">
@@ -671,8 +681,8 @@ const RefuelingOrderModal = ({
                                 items={sortedPartners}
                                 value={formData.partnerId}
                                 onChange={(p) => setFormData(prev => ({...prev, partnerId: p?.id || ''}))}
-                                getLabel={(p) => p.razaoSocial || p.nome || ''}
-                                getSubLabel={(p) => [p.cidade, p.estado].filter(Boolean).join(' - ')}
+                                getLabel={(p) => getPartnerDisplayName(p)}
+                                getSubLabel={(p) => [p.nomeFantasia ? p.razaoSocial : null, p.cidade, p.estado].filter(Boolean).join(' · ')}
                                 placeholder="Buscar posto..."
                                 required
                             />

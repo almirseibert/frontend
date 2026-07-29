@@ -6,6 +6,7 @@ import {
 
 import ComboioDistribuicaoModal from '../components/modals/ComboioDistribuicaoModal';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { getPartnerDisplayName } from '../utils/partners';
 
 // ─── Barra de Combustível ─────────────────────────────────────────────────────
 const FuelBar = ({ label, liters, capacity, colorClass }) => {
@@ -204,7 +205,7 @@ const ComboioMobilePage = ({
                         {recentTxns.map(t => {
                             const isEntrada = t.type === 'entrada';
                             const partnerName = isEntrada
-                                ? (partners.find(p => p.id === t.partnerId)?.razaoSocial || 'Fornecedor')
+                                ? (getPartnerDisplayName(partners.find(p => p.id === t.partnerId)) || 'Fornecedor')
                                 : null;
                             const receivingVehicle = !isEntrada
                                 ? vehicles.find(v => v.id === t.receivingVehicleId)

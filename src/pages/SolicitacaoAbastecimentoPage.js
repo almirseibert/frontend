@@ -10,6 +10,7 @@ import {
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome as formatObraNomeUtil } from '../utils/obraFormat';
+import { getPartnerDisplayName } from '../utils/partners';
 
 // --- INÍCIO DA LÓGICA DE REGRAS ---
 const vehicleGroups = {
@@ -1054,8 +1055,8 @@ const SolicitacaoAbastecimentoPage = ({
                                 items={partners.filter(p => p.status_operacional !== 'BLOQUEADO' && (!p.tipo_parceiro || p.tipo_parceiro === 'posto'))}
                                 value={formData.postoId}
                                 onChange={(item) => setFormData({...formData, postoId: item?.id || ''})}
-                                getLabel={(p) => p.razaoSocial || ''}
-                                getSubLabel={(p) => p.cidade || ''}
+                                getLabel={(p) => getPartnerDisplayName(p)}
+                                getSubLabel={(p) => [p.nomeFantasia ? p.razaoSocial : null, p.cidade].filter(Boolean).join(' · ')}
                                 placeholder="Selecione o Posto..."
                             />
                         </div>

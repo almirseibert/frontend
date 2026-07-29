@@ -8,6 +8,8 @@ import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
 import SearchableSelect from '../components/SearchableSelect';
+import TerceirizadoBadge, { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
+import { resolveOrderPartnerName, getVehicleTerceiroName } from '../utils/partners';
 
 const RefuelingPage = ({
     user,
@@ -161,16 +163,25 @@ const RefuelingPage = ({
                         leituraValue = horiVal;
                     }
 
+                    const terceiroName = getVehicleTerceiroName(vehicle, partnersList);
+
                     const body = [
                         ['Data de Emissão', emissionDateStr],
                         ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
-                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}${terceirizadoPdfMark(vehicle)}`],
+                    ];
+
+                    if (vehicle?.isOutsourced) {
+                        body.push(['Terceiro (Locador)', terceiroName || 'Sem fornecedor vinculado']);
+                    }
+
+                    body.push(
                         ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
                         [leituraLabel, `${leituraValue}`],
-                        ['Posto Autorizado', partner?.razaoSocial || order.partnerName || 'N/A'],
+                        ['Posto Autorizado', resolveOrderPartnerName(partner, order.partnerName)],
                         ['Combustível Autorizado', order.fuelType || 'N/A'],
                         ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
-                    ];
+                    );
 
                     if (order.needsArla) {
                         body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
@@ -330,9 +341,17 @@ const RefuelingPage = ({
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <div style={{ fontWeight: 700, fontSize: 16, color: '#3d3528' }}>#{String(order.authNumber).padStart(6, '0')}</div>
-                                                <p style={{ fontSize: 13, fontWeight: 600, color: '#6a5e4e' }}>{vehicle?.registroInterno} — {vehicle?.placa}</p>
+                                                <p className="flex items-center gap-1" style={{ fontSize: 13, fontWeight: 600, color: '#6a5e4e' }}>
+                                                    {vehicle?.registroInterno} — {vehicle?.placa}
+                                                    <TerceirizadoBadge vehicle={vehicle} />
+                                                </p>
+                                                {vehicle?.isOutsourced && (
+                                                    <p style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }}>
+                                                        {getVehicleTerceiroName(vehicle, partners) || 'Terceiro sem fornecedor vinculado'}
+                                                    </p>
+                                                )}
                                                 <p style={{ fontSize: 11, color: '#9a8a78', marginBottom: 2 }}>{formatDateSafe(order.data || order.date)}</p>
-                                                <p style={{ fontSize: 11, color: '#b0a090' }}>{order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || '...'}</p>
+                                                <p style={{ fontSize: 11, color: '#b0a090' }}>{resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName, '...')}</p>
                                                 {isBloqueada && (
                                                     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 9999, background: '#fdf0ec', color: '#b03828', border: '1px solid #e8c8bc', display: 'inline-block', marginTop: 4 }}>
                                                         ⛔ Aguardando Administrador
@@ -400,8 +419,9 @@ const RefuelingPage = ({
                                 <tbody className="divide-y">
                                     {latestRefuelings.map(order => {
                                         const vehicle = vehicles.find(v => v.id === order.vehicleId);
-                                        const displayPartner = order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || 'N/A';
-                                        
+                                        const displayPartner = resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName);
+                                        const terceiroName = getVehicleTerceiroName(vehicle, partners);
+
                                         return (
                                             <tr key={order.id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
@@ -411,8 +431,18 @@ const RefuelingPage = ({
                                                     </span>
                                                 </td>
                                                 <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
-                                                <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
-                                                <td className="p-3 truncate max-w-[150px]">{displayPartner}</td>
+                                                <td className="p-3">
+                                                    <div className="flex items-center gap-1">
+                                                        <span>{vehicle?.registroInterno} - {vehicle?.placa}</span>
+                                                        <TerceirizadoBadge vehicle={vehicle} />
+                                                    </div>
+                                                    {vehicle?.isOutsourced && (
+                                                        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }} title="Terceiro (Locador)">
+                                                            {terceiroName || 'Sem fornecedor vinculado'}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="p-3 truncate max-w-[150px]" title={displayPartner}>{displayPartner}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
                                                     <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
                                                         {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
@@ -441,8 +471,12 @@ const RefuelingPage = ({
                                     items={sortedVehicles}
                                     value={selectedVehicleId}
                                     onChange={(item) => setSelectedVehicleId(item?.id || '')}
-                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
-                                    getSubLabel={(v) => v.modelo || ''}
+                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}${terceirizadoPdfMark(v)}`}
+                                    getSubLabel={(v) => {
+                                        const terceiro = getVehicleTerceiroName(v, partners);
+                                        if (v.isOutsourced) return terceiro ? `3º ${terceiro}` : (v.modelo || '');
+                                        return v.modelo || '';
+                                    }}
                                     placeholder="-- Selecione o Veículo --"
                                 />
                             </div>

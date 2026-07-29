@@ -2,6 +2,7 @@
 import { Loader, X, AlertTriangle, FileText } from 'lucide-react';
 import CurrencyInput from '../ui/CurrencyInput';
 import SearchableSelect from '../SearchableSelect';
+import { getPartnerDisplayName } from '../../utils/partners';
 
 const ComboioEntradaModal = ({ 
     user, 
@@ -194,8 +195,8 @@ const ComboioEntradaModal = ({
                                 items={sortedPartners}
                                 value={formData.partnerId}
                                 onChange={(item) => handleChange({ target: { name: 'partnerId', value: item?.id || '' } })}
-                                getLabel={(p) => p.razaoSocial || ''}
-                                getSubLabel={(p) => p.cidade || ''}
+                                getLabel={(p) => getPartnerDisplayName(p)}
+                                getSubLabel={(p) => [p.nomeFantasia ? p.razaoSocial : null, p.cidade].filter(Boolean).join(' · ')}
                                 placeholder="Selecione o posto..."
                                 required
                             />
