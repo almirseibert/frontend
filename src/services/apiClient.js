@@ -455,7 +455,7 @@ const apiClient = {
     createOrder: async (data) => apiFetch('/orders', { method: 'POST', body: JSON.stringify(data) }),
     updateOrder: async (id, data) => apiFetch(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteOrder: async (id) => apiFetch(`/orders/${id}`, { method: 'DELETE' }),
-    cancelOrder: async (id) => apiFetch(`/orders/${id}/cancel`, { method: 'POST' }),
+    cancelOrder: async (id) => apiFetch(`/orders/${id}/cancel`, { method: 'PUT' }),
     notifyOrder: async (id, payload) => apiFetch(`/orders/${id}/notify`, { method: 'POST', body: JSON.stringify(payload) }),
 
     // --- Contadores ---
