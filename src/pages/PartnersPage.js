@@ -288,6 +288,7 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
         contatoResponsavel: partner?.contatoResponsavel || '',
         representanteLegalNome: partner?.representanteLegalNome || '',
         representanteLegalCpf: partner?.representanteLegalCpf || '',
+        chavePix: partner?.chavePix || '',
         tipo_parceiro: partner?.tipo_parceiro || defaultTipo || 'posto',
         envia_por_whatsapp: !!(partner?.envia_por_whatsapp ?? 0),
         envia_por_email:    !!(partner?.envia_por_email    ?? 0),
@@ -370,6 +371,7 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
                         <div><label className="block font-medium text-gray-700">WhatsApp</label><input name="whatsapp" value={formData.whatsapp} onChange={handleChange} placeholder="(00) 90000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">E-mail</label><input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="contato@empresa.com" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">Contato Responsável (Nome)</label><input name="contatoResponsavel" value={formData.contatoResponsavel} onChange={handleChange} placeholder="Falar com..." className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Chave Pix</label><input name="chavePix" value={formData.chavePix} onChange={handleChange} placeholder="CPF, CNPJ, e-mail, telefone ou aleatória" className="mt-1 p-2 border rounded w-full bg-white" /></div>
 
                         <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-3 mt-1">
                             <label className="block font-bold text-gray-800 mb-2 text-xs uppercase tracking-wide">Representante Legal (assinante do contrato) — opcional</label>
