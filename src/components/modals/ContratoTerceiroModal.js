@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale } from 'lucide-react';
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
 import CurrencyInput from '../ui/CurrencyInput';
+import SearchableObraSelect from '../SearchableObraSelect';
 
 const FOROS = ['Santa Maria', 'Lajeado'];
 
@@ -66,6 +67,14 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         });
         return [...new Set(opts)].sort();
     }, []);
+
+    // Só obras de verdade no seletor de contrato: fora os centros de custo.
+    // O SearchableObraSelect já esconde obras inativas/finalizadas (includeInactive=false)
+    // e exibe o órgão contratante ao lado do nome (formatObraNome).
+    const obrasSelecionaveis = useMemo(
+        () => obras.filter((o) => o.tipo_registro !== 'centro_custo'),
+        [obras]
+    );
 
     const maquinasDoTerceiro = useMemo(
         () => vehicles.filter((v) => v.isOutsourced && v.locadorId === form.locadorId),
@@ -184,11 +193,15 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Obra</label>
-                            <select name="obraId" value={form.obraId} onChange={handleChange}
-                                className="w-full p-2 border rounded-lg bg-white text-sm" required>
-                                <option value="">— Selecionar —</option>
-                                {obras.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                            </select>
+                            <SearchableObraSelect
+                                obras={obrasSelecionaveis}
+                                value={form.obraId}
+                                onChange={(obra) => setForm((f) => ({ ...f, obraId: obra?.id || '' }))}
+                                placeholder="Buscar obra..."
+                                overlay
+                                overlayTitle="Selecione a obra"
+                                storageKey="contratoTerceiro:obrasRecentes"
+                            />
                         </div>
                     </div>
 
