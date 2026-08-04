@@ -1148,44 +1148,61 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
     // -------------------------------------------------------
     // AUTO-PREENCHIMENTO ao selecionar Veículo
+    // Obra de destino e operador são preenchidos com a alocação vigente do
+    // equipamento; se não houver, cai na última alocação registrada.
     // -------------------------------------------------------
-    const handleVehicleChange = useCallback(async (vehicleId) => {
-        setFormData(prev => ({ ...prev, vehicleId }));
-        if (!vehicleId) return;
-        try {
-            const res = await apiClient.get(`/vehicles/${vehicleId}`);
-            const vehicle = res?.data ?? res;
-            if (!vehicle) return;
-
-            let suggestedObraId    = formData.obraId;
-            let suggestedOperatorId = formData.operatorId;
-
-            // Somente sugerir se o campo ainda está vazio ou se veículo está disponível
-            if (vehicle.lastObraId && (!formData.obraId || vehicle.status === 'disponível')) {
-                suggestedObraId = vehicle.lastObraId;
-                // Buscar operador da última obra
-                try {
-                    const obraRes = await apiClient.get(`/obras/${vehicle.lastObraId}`);
-                    const obra = obraRes?.data ?? obraRes;
-                    if (obra?.operatorId && !formData.operatorId) {
-                        suggestedOperatorId = obra.operatorId;
-                    }
-                } catch (_) {}
-            }
-
-            const reading = getVehicleMainReading(vehicle);
-            setFormData(prev => ({
-                ...prev,
-                vehicleId,
-                obraId:     suggestedObraId,
-                operatorId: suggestedOperatorId,
-                kmHrAtual:  reading.raw || '',
-                kmHrUnit:   reading.unit || '',
-            }));
-        } catch (err) {
-            console.warn('[OrderModal] Erro ao buscar dados do veículo:', err?.message);
+    const handleVehicleChange = useCallback((vehicleId) => {
+        if (!vehicleId) {
+            setFormData(prev => ({ ...prev, vehicleId: '', kmHrAtual: '', kmHrUnit: '' }));
+            return;
         }
-    }, [formData.obraId, formData.operatorId]);
+
+        const vehicle = vehicles.find(v => String(v.id) === String(vehicleId));
+        if (!vehicle) { setFormData(prev => ({ ...prev, vehicleId })); return; }
+
+        let suggestedObraId     = '';
+        let suggestedOperatorId = '';
+
+        // 1) Alocação vigente (obra atual do equipamento)
+        if (vehicle.obraAtualId) {
+            const obra = obras.find(o => String(o.id) === String(vehicle.obraAtualId));
+            if (obra) {
+                suggestedObraId = vehicle.obraAtualId;
+                const aloc = (obra.historicoVeiculos || [])
+                    .find(h => String(h.veiculoId) === String(vehicle.id) && !h.dataSaida);
+                if (aloc?.employeeId) suggestedOperatorId = aloc.employeeId;
+            }
+        }
+
+        // 2) Fallback: última alocação registrada em qualquer obra
+        if (!suggestedObraId || !suggestedOperatorId) {
+            let ultima = null;
+            (obras || []).forEach(o => {
+                (o.historicoVeiculos || []).forEach(h => {
+                    if (String(h.veiculoId) !== String(vehicle.id)) return;
+                    const ref = h.dataSaida || h.dataEntrada;
+                    if (!ref) return;
+                    if (!ultima || new Date(ref) > new Date(ultima._ref)) {
+                        ultima = { ...h, _obraId: o.id, _ref: ref };
+                    }
+                });
+            });
+            if (ultima) {
+                if (!suggestedObraId) suggestedObraId = ultima._obraId;
+                if (!suggestedOperatorId && ultima.employeeId) suggestedOperatorId = ultima.employeeId;
+            }
+        }
+
+        const reading = getVehicleMainReading(vehicle);
+        setFormData(prev => ({
+            ...prev,
+            vehicleId,
+            obraId:     suggestedObraId     || prev.obraId,
+            operatorId: suggestedOperatorId || prev.operatorId,
+            kmHrAtual:  reading.raw || reading.value || '',
+            kmHrUnit:   reading.unit || '',
+        }));
+    }, [vehicles, obras]);
 
     // Gestão de Itens
     const handleItemChange = (index, field, value) => {
@@ -1245,6 +1262,58 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         return { ...p, payment: { ...p.payment, installments: newInst } };
     });
 
+    // ------------------------------------------------------------------
+    // GERADOR AUTOMÁTICO DE PARCELAS
+    // Calcula cada vencimento (1º venc. + intervalo em dias) e distribui o
+    // valor total igualmente, com o resto dos centavos na última parcela.
+    // "Acréscimo por parcela" soma um valor fixo em cada uma (ex.: taxa de boleto).
+    // ------------------------------------------------------------------
+    const [installmentGen, setInstallmentGen] = useState({
+        count: '', intervalDays: '30', firstDate: '', extraPerInstallment: ''
+    });
+
+    const installmentsTotal = useMemo(
+        () => (formData.payment.installments || []).reduce((s, i) => s + (parseFloat(i.value) || 0), 0),
+        [formData.payment.installments]
+    );
+
+    const generateInstallments = () => {
+        const count    = parseInt(installmentGen.count, 10);
+        const interval = parseInt(installmentGen.intervalDays, 10);
+        const extra    = parseFloat(String(installmentGen.extraPerInstallment || '0').replace(',', '.')) || 0;
+        const base     = installmentGen.firstDate || formData.date;
+
+        if (!count || count < 1)               { setAlertMessage('Informe quantas parcelas deseja gerar.'); return; }
+        if (isNaN(interval) || interval < 0)   { setAlertMessage('Informe o intervalo (em dias) entre as parcelas.'); return; }
+        if (!base)                             { setAlertMessage('Informe a data do 1º vencimento.'); return; }
+
+        const totalBase = isPricePending ? 0 : totalValue;
+        const share     = totalBase > 0 ? Math.floor((totalBase / count) * 100) / 100 : 0;
+
+        const [y, m, d] = base.split('-').map(Number);
+        const start = new Date(Date.UTC(y, m - 1, d));
+
+        let distributed = 0;
+        const installments = [];
+        for (let i = 0; i < count; i++) {
+            const due = new Date(start);
+            due.setUTCDate(due.getUTCDate() + interval * i);
+
+            let parcela = share;
+            if (i === count - 1 && totalBase > 0) {
+                parcela = Math.round((totalBase - distributed) * 100) / 100; // resto na última
+            }
+            distributed += parcela;
+
+            const valorFinal = parcela + extra;
+            installments.push({
+                dueDate: due.toISOString().split('T')[0],
+                value:   valorFinal > 0 ? valorFinal.toFixed(2) : '',
+            });
+        }
+        setFormData(p => ({ ...p, payment: { ...p.payment, installments } }));
+    };
+
     // Upload de Arquivo
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
@@ -1280,12 +1349,14 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         if (e) e.preventDefault();
 
         const itemsValid   = formData.items.length > 0 && formData.items.every(i => (parseFloat(i.quantity) || 0) > 0 && i.description.trim() !== '');
-        const pricesValid  = isPricePending || formData.items.every(i => (parseFloat(i.unitPrice) || 0) > 0);
+        // Itens podem ser só descrição (sem valor); o total soma apenas os que
+        // tiverem valor. Exige-se ao menos um item com valor quando não for "a cotar".
+        const pricesValid  = isPricePending || formData.items.some(i => (parseFloat(i.unitPrice) || 0) > 0);
         const paymentValid = formData.payment.type !== 'A prazo' || !!formData.payment.method;
 
         if (!formData.supplierId || !formData.date || !formData.employeeId || !formData.obraId || !itemsValid || !pricesValid || !paymentValid) {
             let errorMsg = "Preencha Fornecedor, Data, Func. Autorizado, Obra Destino, e Itens válidos.";
-            if (!isPricePending && !pricesValid) errorMsg += " Informe os valores Unitários.";
+            if (!isPricePending && !pricesValid) errorMsg += " Informe o valor de ao menos um item.";
             if (!paymentValid && formData.payment.type === 'A prazo') errorMsg += " Selecione o método de pagamento a prazo.";
             setAlertMessage(errorMsg);
             return;
@@ -1447,9 +1518,43 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                     <div className="flex-1 overflow-y-auto p-4 sm:p-6 text-sm">
 
                         {/* 1. Informações Base */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 bg-gray-50 p-4 rounded mb-6" style={{ border: "1px solid #f0ebe3" }}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2.5 bg-gray-50 p-3 rounded mb-4" style={{ border: "1px solid #f0ebe3" }}>
+                            {/* Veículo em 1º lugar: ao selecionar, preenche obra e operador automaticamente */}
                             <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Fornecedor *</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Vincular Veículo / Equipamento</label>
+                                <SearchableSelect
+                                    items={sortedVehicles}
+                                    value={formData.vehicleId}
+                                    onChange={(item) => handleVehicleChange(item?.id || '')}
+                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
+                                    getSubLabel={(v) => v.modelo || ''}
+                                    placeholder="Uso Geral / Sem Veículo Específico"
+                                    disabled={isReadOnly}
+                                />
+                                {formData.obraId && formData.vehicleId && (
+                                    <p className="text-[10px] text-green-700 mt-0.5">✔ Obra e operador preenchidos automaticamente com base na alocação do veículo.</p>
+                                )}
+                            </div>
+
+                            {formData.vehicleId && (
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">
+                                        {formData.kmHrUnit === 'Km' ? 'Odômetro Atual (Km)' : formData.kmHrUnit === 'Hr' ? 'Horímetro Atual (Hr)' : 'Km / Hr Atual'}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={formData.kmHrAtual}
+                                        onChange={e => setFormData(prev => ({ ...prev, kmHrAtual: e.target.value }))}
+                                        placeholder={`Leitura atual em ${formData.kmHrUnit || 'Km ou Hr'}`}
+                                        className="p-1.5 border rounded w-full bg-white outline-none focus:border-yellow-500 text-sm"
+                                        disabled={isReadOnly}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Fornecedor *</label>
                                 <SearchableSupplierSelect
                                     partners={partners.filter(p => p.tipo_parceiro === 'fornecedor')}
                                     value={formData.supplierId}
@@ -1458,12 +1563,12 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Data Emissão *</label>
-                                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="p-2 border rounded w-full bg-white outline-none focus:border-yellow-500" required disabled={isReadOnly} />
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Data Emissão *</label>
+                                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="p-1.5 border rounded w-full bg-white outline-none focus:border-yellow-500 text-sm" required disabled={isReadOnly} />
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Obra de Destino (Custo) *</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Obra de Destino (Custo) *</label>
                                 <SearchableSelect
                                     items={[
                                         { id: 'Administração', nome: 'Administração' },
@@ -1480,7 +1585,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1" title="Quem fará o serviço ou irá retirar as peças">Funcionário Autorizado (Retirada) *</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5" title="Quem fará o serviço ou irá retirar as peças">Funcionário Autorizado (Retirada) *</label>
                                 <SearchableSelect
                                     items={sortedEmployees}
                                     value={formData.employeeId}
@@ -1494,7 +1599,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1" title="Para cruzamento de custos de manutenção de equipamento">Operador do Equipamento (Custo)</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5" title="Para cruzamento de custos de manutenção de equipamento">Operador do Equipamento (Custo)</label>
                                 <SearchableSelect
                                     items={sortedEmployees}
                                     value={formData.operatorId}
@@ -1505,40 +1610,6 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     disabled={isReadOnly}
                                 />
                             </div>
-
-                            <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Vincular Veículo / Equipamento</label>
-                                <SearchableSelect
-                                    items={sortedVehicles}
-                                    value={formData.vehicleId}
-                                    onChange={(item) => handleVehicleChange(item?.id || '')}
-                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
-                                    getSubLabel={(v) => v.modelo || ''}
-                                    placeholder="Uso Geral / Sem Veículo Específico"
-                                    disabled={isReadOnly}
-                                />
-                                {formData.obraId && formData.vehicleId && (
-                                    <p className="text-[10px] text-green-700 mt-1">✔ Obra e operador preenchidos automaticamente com base no histórico do veículo.</p>
-                                )}
-                            </div>
-
-                            {formData.vehicleId && (
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                                        {formData.kmHrUnit === 'Km' ? 'Odômetro Atual (Km)' : formData.kmHrUnit === 'Hr' ? 'Horímetro Atual (Hr)' : 'Km / Hr Atual'}
-                                    </label>
-                                    <input
-                                        type="number"
-                                        step="0.1"
-                                        value={formData.kmHrAtual}
-                                        onChange={e => setFormData(prev => ({ ...prev, kmHrAtual: e.target.value }))}
-                                        placeholder={`Leitura atual em ${formData.kmHrUnit || 'Km ou Hr'}`}
-                                        className="p-2 border rounded w-full bg-white outline-none focus:border-yellow-500"
-                                        disabled={isReadOnly}
-                                    />
-                                    <p className="text-[10px] text-gray-400 mt-0.5">Preenchido automaticamente com a leitura atual do veículo. Corrija se necessário.</p>
-                                </div>
-                            )}
                         </div>
 
                         {/* Layout Dividido: Itens | Financeiro + Arquivos */}
@@ -1568,7 +1639,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     </div>
                                 )}
 
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                     {formData.items.map((item, index) => (
                                         <div key={index} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border">
                                             {item.itemId && (
@@ -1587,11 +1658,10 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                     {!isPricePending && <span className="absolute left-2 top-2 text-xs text-gray-500">R$</span>}
                                                     <input
                                                         type="text" inputMode="decimal" step="0.01"
-                                                        placeholder={isPricePending ? "Aguardando" : "Unitário"}
+                                                        placeholder={isPricePending ? "Aguardando" : "Unitário (opcional)"}
                                                         value={item.unitPrice}
                                                         onChange={e => handleItemChange(index, 'unitPrice', e.target.value)}
                                                         className={`p-1.5 border rounded w-full text-sm outline-none focus:border-yellow-500 ${isPricePending ? 'bg-gray-100 cursor-not-allowed text-center text-xs text-gray-400' : 'bg-white pl-7'}`}
-                                                        required={!isPricePending}
                                                         disabled={isPricePending || isReadOnly}
                                                     />
                                                 </div>
@@ -1605,10 +1675,13 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     ))}
                                 </div>
                                 {!isReadOnly && (
-                                    <button type="button" onClick={addItem} className="text-xs text-blue-600 font-bold hover:underline mt-2">+ Adicionar Linha Manual</button>
+                                    <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                                        <button type="button" onClick={addItem} className="text-xs text-blue-600 font-bold hover:underline">+ Adicionar Linha Manual</button>
+                                        {!isPricePending && <span className="text-[10px] text-gray-400 italic">Itens sem valor entram só como descrição — não somam no total.</span>}
+                                    </div>
                                 )}
 
-                                <div className="mt-6 border-t pt-4">
+                                <div className="mt-4 border-t pt-3">
                                     <p className={`text-right font-black text-2xl ${isPricePending ? 'text-gray-400' : 'text-green-700'}`}>
                                         <span className="text-sm font-bold text-gray-500 mr-2 uppercase">Total da Ordem:</span>
                                         {isPricePending ? 'A COTAR' : `R$ ${totalValue.toFixed(2)}`}
@@ -1634,7 +1707,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                         </label>
                                     </div>
                                     {formData.payment.type === 'A prazo' && (
-                                        <div className="space-y-4 animate-fade-in">
+                                        <div className="space-y-3 animate-fade-in">
                                             <div>
                                                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Método de Pagamento*</label>
                                                 <select value={formData.payment.method} onChange={e => setFormData({...formData, payment: {...formData.payment, method: e.target.value}})} className="p-2 border rounded bg-white text-sm w-full outline-none focus:border-yellow-500" required disabled={isReadOnly}>
@@ -1643,6 +1716,42 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                     <option value="Cartão Corporativo">Cartão de Crédito</option>
                                                 </select>
                                             </div>
+
+                                            {/* Gerador automático de parcelas */}
+                                            {!isReadOnly && (
+                                                <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                                                    <h4 className="text-xs font-bold text-blue-800 uppercase mb-2 flex items-center gap-1">
+                                                        <RefreshCw size={12}/> Calcular Parcelas
+                                                    </h4>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">Nº de parcelas</label>
+                                                            <input type="number" min="1" placeholder="Ex: 10" value={installmentGen.count} onChange={e => setInstallmentGen(g => ({...g, count: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">A cada (dias)</label>
+                                                            <input type="number" min="0" placeholder="Ex: 20" value={installmentGen.intervalDays} onChange={e => setInstallmentGen(g => ({...g, intervalDays: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">1º vencimento</label>
+                                                            <input type="date" value={installmentGen.firstDate || formData.date} onChange={e => setInstallmentGen(g => ({...g, firstDate: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5" title="Valor fixo somado em cada parcela, ex.: taxa de boleto">Acréscimo/parcela</label>
+                                                            <input type="text" inputMode="decimal" placeholder="R$ 0,00" value={installmentGen.extraPerInstallment} onChange={e => setInstallmentGen(g => ({...g, extraPerInstallment: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                    </div>
+                                                    <button type="button" onClick={generateInstallments} className="w-full mt-2 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700">
+                                                        Gerar {installmentGen.count || ''} parcela{Number(installmentGen.count) === 1 ? '' : 's'} automaticamente
+                                                    </button>
+                                                    {!isPricePending && (
+                                                        <p className="text-[10px] text-blue-700 mt-1.5 text-center">
+                                                            Total da ordem R$ {totalValue.toFixed(2)} será dividido igualmente (resto na última parcela).
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="bg-gray-50 p-3 rounded border">
                                                 <div className="flex justify-between items-center mb-3">
                                                     <h4 className="text-xs font-bold text-gray-700 uppercase">Detalhamento de Parcelas</h4>
@@ -1658,9 +1767,22 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                         </div>
                                                     ))}
                                                     {(!formData.payment.installments || formData.payment.installments.length === 0) && (
-                                                        <p className="text-xs text-gray-400 italic text-center py-2">Defina as datas e valores acordados.</p>
+                                                        <p className="text-xs text-gray-400 italic text-center py-2">Use o cálculo automático acima ou adicione parcelas manualmente.</p>
                                                     )}
                                                 </div>
+                                                {formData.payment.installments?.length > 0 && (
+                                                    <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs">
+                                                        <span className="font-bold text-gray-600 uppercase">Soma das parcelas:</span>
+                                                        <span className={`font-black ${!isPricePending && Math.abs(installmentsTotal - totalValue) > 0.01 ? 'text-orange-600' : 'text-green-700'}`}>
+                                                            R$ {installmentsTotal.toFixed(2)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {!isPricePending && formData.payment.installments?.length > 0 && Math.abs(installmentsTotal - totalValue) > 0.01 && (
+                                                    <p className="text-[10px] text-orange-600 mt-1 text-right">
+                                                        Difere do total da ordem (R$ {totalValue.toFixed(2)}){installmentsTotal > totalValue ? ' — inclui acréscimos' : ''}.
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
