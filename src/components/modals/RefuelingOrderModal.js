@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Loader, Info, Lock, FileText, Edit, Clock, Activity, TrendingUp, Send } from 'lucide-react';
+import { X, Loader, Info, Lock, FileText, Edit, Clock, Activity, TrendingUp, Send, WifiOff } from 'lucide-react';
 
 import { getAllowedReadingTypes, getGroupUnit, getReadingSourceForUnit, computeConsumption, getGroupForType } from '../../utils/vehicleRules';
 import SearchableObraSelect from '../SearchableObraSelect';
@@ -27,7 +27,22 @@ const RefuelingOrderModal = ({
     reloadData,
     solicitacaoData = null 
 }) => {
-    
+
+    // --- PRÉ-CHECAGEM DO CANAL DE ENVIO ---
+    // Quem emite a ordem precisa saber ANTES de emitir que o WhatsApp está fora
+    // — senão gera a ordem achando que o posto foi avisado, e não foi.
+    const [preflight, setPreflight] = useState(null);
+    useEffect(() => {
+        let vivo = true;
+        (async () => {
+            try {
+                const r = await apiClient.getOrderDeliveryPreflight();
+                if (vivo) setPreflight(r);
+            } catch (_) { /* indisponível: não bloqueia a emissão */ }
+        })();
+        return () => { vivo = false; };
+    }, [apiClient]);
+
     // --- HELPERS DE DATA ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
@@ -476,7 +491,12 @@ const RefuelingOrderModal = ({
                 setAlertMessage(`Ordem atualizada!`);
             } else {
                 res = await apiClient.createRefuelingOrder(payload);
-                setAlertMessage(`Ordem Nº ${res.authNumber} emitida!`);
+                // A entrega ao posto é assíncrona: "emitida" ≠ "recebida pelo posto".
+                setAlertMessage(
+                    preflight && !preflight.whatsappPronto
+                        ? `Ordem Nº ${res.authNumber} emitida — mas o WhatsApp está DESCONECTADO e o posto ainda NÃO foi avisado. Confira o selo de envio na lista de ordens.`
+                        : `Ordem Nº ${res.authNumber} emitida! O envio ao posto aparece na lista em alguns segundos.`
+                );
             }
             reloadData();
             
@@ -539,6 +559,26 @@ const RefuelingOrderModal = ({
                         <div key={i} className="flex items-center gap-2 p-1 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-[10px] font-medium"><Info size={12}/> {w}</div>
                     ))}
                     
+                    {preflight && !preflight.whatsappPronto && (
+                        <div className="flex items-start gap-2 p-2 rounded-md border-2 border-red-500 bg-red-50 text-red-800 text-[11px] font-bold leading-snug">
+                            <WifiOff size={14} className="mt-0.5 flex-shrink-0 text-red-700"/>
+                            <span>
+                                ⚠️ WHATSAPP DESCONECTADO (status: {preflight.whatsappStatus}). A ordem será registrada, mas
+                                <u> NÃO chegará ao posto</u> agora. O sistema reenvia sozinho assim que a conexão voltar —
+                                acompanhe o selo de envio na lista de ordens ou avise o posto por outro meio.
+                            </span>
+                        </div>
+                    )}
+
+                    {preflight?.whatsappPronto && preflight.pendencias48h > 0 && (
+                        <div className="flex items-start gap-2 p-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded text-[10px] font-bold leading-snug">
+                            <Info size={12} className="mt-0.5 flex-shrink-0"/>
+                            <span>
+                                {preflight.pendencias48h} ordem(ns) das últimas 48h ainda não foram entregues ao posto. Verifique na lista de ordens.
+                            </span>
+                        </div>
+                    )}
+
                     {blockReason && (
                         <div className="flex items-center gap-2 p-1.5 bg-red-100 text-red-800 rounded border border-red-200 text-[10px] font-bold animate-pulse">
                             <Lock size={12}/> BLOQUEIO: {blockReason}

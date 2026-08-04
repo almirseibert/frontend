@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
@@ -10,6 +10,8 @@ import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
 import SearchableSelect from '../components/SearchableSelect';
 import TerceirizadoBadge, { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
 import { resolveOrderPartnerName, getVehicleTerceiroName } from '../utils/partners';
+import { OrderDeliveryBadge, ReenviarOrdemButton, useOrderDeliveryStatus } from '../components/OrderDeliveryBadge';
+import { useData } from '../contexts/DataContext';
 
 const RefuelingPage = ({
     user,
@@ -98,6 +100,43 @@ const RefuelingPage = ({
             })
             .slice(0, 20); 
     }, [refuelings, latestOrdersSearchTerm, vehicles]);
+
+    // ─── Status de entrega das ordens (chegou ao posto?) ────────────────────
+    // Antes disso, uma ordem que falhou no WhatsApp era visualmente idêntica a
+    // uma entregue — ninguém ficava sabendo que o posto não recebeu.
+    const { socket } = useData();
+    const [deliveryRefreshKey, setDeliveryRefreshKey] = useState(0);
+
+    const authNumbersVisiveis = useMemo(
+        () => [...openRefuelings, ...latestRefuelings]
+            .map(o => o.authNumber)
+            .filter(n => n != null),
+        [openRefuelings, latestRefuelings]
+    );
+
+    const { statusMap: deliveryMap, recarregar: recarregarEntrega } =
+        useOrderDeliveryStatus(authNumbersVisiveis, deliveryRefreshKey);
+
+    // O envio acontece depois da resposta do POST, então o status muda sozinho:
+    // o backend avisa por socket e nós refazemos a consulta.
+    useEffect(() => {
+        if (!socket) return;
+        const bump = () => setDeliveryRefreshKey(k => k + 1);
+        socket.on('ordem:falha_envio', bump);
+        socket.on('ordem:envio_recuperado', bump);
+        return () => {
+            socket.off('ordem:falha_envio', bump);
+            socket.off('ordem:envio_recuperado', bump);
+        };
+    }, [socket]);
+
+    // Uma ordem recém-emitida leva alguns segundos para ter o envio concluído.
+    // Uma releitura curta evita que o badge fique preso em "Enviando...".
+    useEffect(() => {
+        if (authNumbersVisiveis.length === 0) return;
+        const t = setTimeout(() => setDeliveryRefreshKey(k => k + 1), 8000);
+        return () => clearTimeout(t);
+    }, [authNumbersVisiveis.length]);
 
     const sortedVehicles = useMemo(() => {
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
@@ -357,6 +396,14 @@ const RefuelingPage = ({
                                                         ⛔ Aguardando Administrador
                                                     </span>
                                                 )}
+                                                <div className="flex items-center gap-1" style={{ marginTop: 4 }}>
+                                                    <OrderDeliveryBadge info={deliveryMap[String(order.authNumber)]} />
+                                                    <ReenviarOrdemButton
+                                                        info={deliveryMap[String(order.authNumber)]}
+                                                        setAlertMessage={setAlertMessage}
+                                                        onDone={recarregarEntrega}
+                                                    />
+                                                </div>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 {!isBloqueada && (
@@ -426,9 +473,12 @@ const RefuelingPage = ({
                                             <tr key={order.id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
                                                 <td className="p-3">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                                        {order.status}
-                                                    </span>
+                                                    <div className="flex flex-col gap-1 items-start">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                            {order.status}
+                                                        </span>
+                                                        <OrderDeliveryBadge info={deliveryMap[String(order.authNumber)]} />
+                                                    </div>
                                                 </td>
                                                 <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
                                                 <td className="p-3">
@@ -444,6 +494,11 @@ const RefuelingPage = ({
                                                 </td>
                                                 <td className="p-3 truncate max-w-[150px]" title={displayPartner}>{displayPartner}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
+                                                    <ReenviarOrdemButton
+                                                        info={deliveryMap[String(order.authNumber)]}
+                                                        setAlertMessage={setAlertMessage}
+                                                        onDone={recarregarEntrega}
+                                                    />
                                                     <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
                                                         {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
                                                     </button>
