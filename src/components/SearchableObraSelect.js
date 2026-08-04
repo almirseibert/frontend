@@ -55,7 +55,10 @@ const SearchableObraSelect = ({
         const inactive = [];
         const now = new Date();
         obras.forEach(o => {
-            let isInactive = o.status === 'Finalizada' || o.status === 'Concluída' || o.status === 'Inativa';
+            // Status real das obras é minúsculo ('finalizada'); mantemos as variações
+            // capitalizadas por segurança, comparando sempre normalizado.
+            const st = (o.status || '').toString().trim().toLowerCase();
+            let isInactive = ['finalizada', 'finalizado', 'concluída', 'concluida', 'inativa', 'inativo'].includes(st);
             if (!isInactive && o.dataFim) {
                 const fim = new Date(o.dataFim);
                 fim.setHours(23, 59, 59, 999);
