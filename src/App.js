@@ -92,8 +92,7 @@ const OperadorDocumentosPage       = lazy(() => import('./pages/OperadorDocument
 const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
 const SigaSulPage                  = lazy(() => import('./pages/SigaSulPage'));
 const AnaliseGerencialPage         = lazy(() => import('./pages/AnaliseGerencialPage'));
-const AproveitamentoProdutivoPage  = lazy(() => import('./pages/AproveitamentoProdutivoPage'));
-const ProjecaoObraPage             = lazy(() => import('./pages/ProjecaoObraPage'));
+const FaturamentoHistoricoPage     = lazy(() => import('./pages/FaturamentoHistoricoPage'));
 const MapaOperacionalPage          = lazy(() => import('./pages/MapaOperacionalPage'));
 const TerceirizadosPage            = lazy(() => import('./pages/TerceirizadosPage'));
 const AdminUsuariosPage            = lazy(() => import('./pages/AdminUsuariosPage'));
@@ -301,6 +300,7 @@ const ADMIN_NOTIF_META = {
     requisicao_operacional:   { title: 'Nova requisição operacional',        message: 'Há uma sugestão de mudança de obra/operador aguardando análise.', Icon: Truck, color: 'amber' },
     whatsapp_desconectado:    { title: 'Serviço WhatsApp desconectado',      message: 'A conexão com o WhatsApp caiu. Reconecte o serviço.', Icon: WifiOff,    color: 'red'    },
     whatsapp_nao_configurado: { title: 'WhatsApp não configurado',           message: 'O serviço de WhatsApp ainda não foi configurado.', Icon: WifiOff,     color: 'red'    },
+    ordem_nao_entregue:       { title: 'Ordem NÃO entregue ao posto',        message: 'Uma ordem de abastecimento não chegou ao destinatário.', Icon: AlertTriangle, color: 'red' },
 };
 
 const ADMIN_NOTIF_COLORS = {
@@ -522,14 +522,36 @@ const AppContent = () => {
             setAdminPopups(prev => prev.filter(p => p.tipo !== 'whatsapp_desconectado' && p.tipo !== 'whatsapp_nao_configurado'));
         };
 
+        // Ordem de abastecimento que não chegou ao posto por nenhum canal.
+        // Vai para admins E para quem trabalha com abastecimento — é a pessoa
+        // que emitiu a ordem que precisa agir (ligar para o posto, reenviar).
+        const handleOrdemNaoEntregue = (data) => {
+            if (user.user_type !== 'admin' && !canUserAccessPage(user, 'admin_solicitacoes')) return;
+            const detalhes = [
+                data.whatsapp ? `WhatsApp: ${data.whatsapp}` : null,
+                data.email ? `E-mail: ${data.email}` : null,
+            ].filter(Boolean).join(' | ');
+            setAdminPopups(prev => ([
+                ...prev,
+                {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    tipo: 'ordem_nao_entregue',
+                    message: `A ordem Nº ${String(data.authNumber || '').padStart(6, '0')} NÃO foi entregue a ${data.destinatarioNome || 'destinatário'}. ${detalhes}. Avise o posto por outro meio ou use o botão Reenviar na lista de ordens.`,
+                },
+            ]));
+            try { new Audio('/beep.mp3').play().catch(() => {}); } catch (_) {}
+        };
+
         socket.on('agenda:alerta', handleAgendaAlert);
         socket.on('admin:notificacao', handleAdminNotification);
         socket.on('whatsapp:reconectado', handleWaReconectado);
+        socket.on('ordem:falha_envio', handleOrdemNaoEntregue);
 
         return () => {
             socket.off('agenda:alerta', handleAgendaAlert);
             socket.off('admin:notificacao', handleAdminNotification);
             socket.off('whatsapp:reconectado', handleWaReconectado);
+            socket.off('ordem:falha_envio', handleOrdemNaoEntregue);
         };
     }, [socket, user]);
 
@@ -932,12 +954,12 @@ const AppContent = () => {
             case 'analise_gerencial':
                 return canAccessAnaliseGerencial(user)
                     ? <AnaliseGerencialPage {...commonProps} /> : <Denied />;
-            case 'projecao_obra':
+            case 'faturamento_historico':
                 return canAccessAnaliseGerencial(user)
-                    ? <ProjecaoObraPage {...commonProps} /> : <Denied />;
+                    ? <FaturamentoHistoricoPage {...commonProps} /> : <Denied />;
             case 'aproveitamento':
                 return canAccessAnaliseGerencial(user)
-                    ? <AproveitamentoProdutivoPage {...commonProps} /> : <Denied />;
+                    ? <FaturamentoHistoricoPage {...commonProps} initialTab="fis" /> : <Denied />;
             case 'mapa_operacional':
                 return canAccessAnaliseGerencial(user)
                     ? <MapaOperacionalPage {...commonProps} /> : <Denied />;

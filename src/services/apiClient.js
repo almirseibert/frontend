@@ -430,6 +430,19 @@ const apiClient = {
     // engine do supervisor. Usado na tabela "Frota nesta obra" da Ficha da Obra.
     getObraAnalytics: async (obraId, { startDate, endDate }) =>
         apiFetch(`/supervisor/analytics?obraId=${encodeURIComponent(obraId)}&startDate=${startDate}&endDate=${endDate}`),
+    // Histórico financeiro do portfólio (série mensal: receita produzida × custo × margem).
+    // obraId opcional ('all' = todas as obras ativas não-ocultas).
+    getFinancialHistory: async ({ startDate, endDate, obraId } = {}) => {
+        const p = new URLSearchParams();
+        if (startDate) p.set('startDate', startDate);
+        if (endDate) p.set('endDate', endDate);
+        if (obraId && obraId !== 'all') p.set('obraId', obraId);
+        const qs = p.toString();
+        return apiFetch(`/supervisor/financial-history${qs ? `?${qs}` : ''}`);
+    },
+    // Visão contratual global (ativas + finalizadas no ano) — independente do período de horas.
+    getContractsOverview: async ({ year } = {}) =>
+        apiFetch(`/supervisor/contracts-overview${year ? `?year=${year}` : ''}`),
 
     // --- Abastecimentos (Legado/Admin) ---
     getRefuelings: async () => apiFetch('/refuelings'),
@@ -527,9 +540,22 @@ const apiClient = {
 
     // --- WhatsApp (Admin) ---
     whatsappGetStatus: async () => apiFetch('/whatsapp/status'),
-    whatsappReiniciar: async () => apiFetch('/whatsapp/reiniciar', { method: 'POST' }),
+    // hard = true apaga a sessão e exige novo QR. O padrão preserva a sessão.
+    whatsappReiniciar: async (hard = false) => apiFetch('/whatsapp/reiniciar', { method: 'POST', body: JSON.stringify({ hard }) }),
     whatsappEnviarTeste: async (data) => apiFetch('/whatsapp/enviar-teste', { method: 'POST', body: JSON.stringify(data) }),
     whatsappGetLogs: async () => apiFetch('/whatsapp/logs'),
+
+    // --- Entrega das ordens de abastecimento ---
+    // Responde "a ordem chegou ao posto?" — antes disso o emissor ficava no escuro.
+    getOrderDeliveryStatus: async (authNumbers = []) =>
+        apiFetch(`/orderNotifications/status?authNumbers=${encodeURIComponent(authNumbers.join(','))}`),
+    getOrderDeliveryPendencias: async (dias = 7) =>
+        apiFetch(`/orderNotifications/pendencias?dias=${dias}`),
+    getOrderDeliveryPreflight: async () => apiFetch('/orderNotifications/preflight'),
+    reenviarOrdem: async (authNumber) =>
+        apiFetch(`/orderNotifications/ordem/${authNumber}/reenviar`, { method: 'POST' }),
+    reenviarEnvio: async (id) =>
+        apiFetch(`/orderNotifications/${id}/reenviar`, { method: 'POST' }),
 
     // --- Usuários Admin CRUD (TODO: backend) ---
     adminCreateUser: async (data) => apiFetch('/admin/users', { method: 'POST', body: JSON.stringify(data) }),

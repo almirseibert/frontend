@@ -39,6 +39,12 @@ const WhatsAppStatusPanel = () => {
     const [testMessage, setTestMessage] = useState('Teste de conexão Frotas MAK');
     const [sendingTest, setSendingTest] = useState(false);
     
+    // Ordens que não chegaram ao destino — o painel que faltava para não
+    // dependermos de alguém ler o console do servidor.
+    const [pendencias, setPendencias] = useState({ total: 0, pendencias: [] });
+    const [loadingPendencias, setLoadingPendencias] = useState(false);
+    const [reenviando, setReenviando] = useState(null);
+
     const [logs, setLogs] = useState([]);
     const [showLogs, setShowLogs] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
@@ -91,10 +97,13 @@ const WhatsAppStatusPanel = () => {
         if (showLogs) fetchLogs();
     }, [showLogs, fetchLogs]);
 
-    const handleRestart = async () => {
+    // hard = apaga a sessão e exige novo QR. O reinício suave preserva a sessão
+    // e resolve a maioria das travas — deve ser a primeira tentativa.
+    const handleRestart = async (hard = false) => {
+        if (hard && !window.confirm('Isso APAGA a sessão e exigirá ler o QR Code de novo. Tentou o reinício suave antes?')) return;
         setRestarting(true);
         try {
-            await apiClient.post('/whatsapp/reiniciar');
+            await apiClient.post('/whatsapp/reiniciar', { hard });
             setStatusData({ status: 'DESCONECTADO', qr: null });
         } catch (err) {
             alert('Falha ao reiniciar: ' + err.message);
@@ -103,6 +112,31 @@ const WhatsAppStatusPanel = () => {
                 setRestarting(false);
                 fetchStatus();
             }, 3000);
+        }
+    };
+
+    const fetchPendencias = useCallback(async () => {
+        setLoadingPendencias(true);
+        try {
+            setPendencias(await apiClient.getOrderDeliveryPendencias(7));
+        } catch (err) {
+            console.error('Erro ao buscar pendências de envio:', err);
+        } finally {
+            setLoadingPendencias(false);
+        }
+    }, []);
+
+    useEffect(() => { fetchPendencias(); }, [fetchPendencias]);
+
+    const handleReenviar = async (id) => {
+        setReenviando(id);
+        try {
+            await apiClient.reenviarEnvio(id);
+            await fetchPendencias();
+        } catch (err) {
+            alert('Falha ao reenviar: ' + err.message);
+        } finally {
+            setReenviando(null);
         }
     };
 
@@ -146,8 +180,17 @@ const WhatsAppStatusPanel = () => {
                         <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
                     </button>
                     <button
-                        onClick={handleRestart}
+                        onClick={() => handleRestart(false)}
                         disabled={restarting}
+                        title="Reinicia o navegador do serviço preservando a sessão (não pede QR)"
+                        className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-colors border border-amber-200 text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {restarting ? 'Reiniciando...' : 'Reiniciar (mantém sessão)'}
+                    </button>
+                    <button
+                        onClick={() => handleRestart(true)}
+                        disabled={restarting}
+                        title="Apaga a sessão — exigirá ler o QR Code novamente"
                         className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors border border-red-200 text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
                     >
                         {restarting ? 'Limpando...' : 'Limpar e Reiniciar'}
@@ -245,6 +288,71 @@ const WhatsAppStatusPanel = () => {
                         </button>
                     </form>
                 </div>
+            </div>
+
+            {/* ORDENS NÃO ENTREGUES — o painel que impede de ficarmos "no escuro" */}
+            <div className="border-t border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider flex items-center gap-2">
+                        <AlertTriangle size={16} className={pendencias.total > 0 ? 'text-red-500' : 'text-gray-300'} />
+                        Ordens não entregues (últimos 7 dias)
+                        {pendencias.total > 0 && (
+                            <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs">{pendencias.total}</span>
+                        )}
+                    </h3>
+                    <button
+                        onClick={fetchPendencias}
+                        className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg border border-gray-200"
+                        title="Atualizar"
+                    >
+                        <RefreshCw size={16} className={loadingPendencias ? 'animate-spin' : ''} />
+                    </button>
+                </div>
+
+                {pendencias.total === 0 ? (
+                    <p className="text-sm text-green-700 flex items-center gap-2">
+                        <CheckCircle size={16} /> Todas as ordens do período foram entregues.
+                    </p>
+                ) : (
+                    <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                            <thead className="sticky top-0 bg-gray-50 text-gray-500 uppercase">
+                                <tr>
+                                    <th className="p-2">Ordem</th>
+                                    <th className="p-2">Destinatário</th>
+                                    <th className="p-2">Canal</th>
+                                    <th className="p-2">Situação</th>
+                                    <th className="p-2">Motivo</th>
+                                    <th className="p-2 text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {pendencias.pendencias.map(p => (
+                                    <tr key={p.id} className="hover:bg-gray-50">
+                                        <td className="p-2 font-bold">#{String(p.authNumber || '').padStart(6, '0')}</td>
+                                        <td className="p-2">{p.destinatario_nome || '—'}<div className="text-gray-400">{p.destino || ''}</div></td>
+                                        <td className="p-2 uppercase">{p.canal}</td>
+                                        <td className="p-2">
+                                            <span className="px-2 py-0.5 rounded bg-red-100 text-red-700 font-bold">{p.status}</span>
+                                            <div className="text-gray-400">{p.tentativas} tentativa(s)</div>
+                                        </td>
+                                        <td className="p-2 text-gray-600 max-w-[260px] truncate" title={p.erro || ''}>{p.erro || '—'}</td>
+                                        <td className="p-2 text-right">
+                                            <button
+                                                onClick={() => handleReenviar(p.id)}
+                                                disabled={reenviando === p.id}
+                                                className="px-2 py-1 rounded bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 font-semibold disabled:opacity-50 inline-flex items-center gap-1"
+                                            >
+                                                {reenviando === p.id ? <Loader size={12} className="animate-spin" /> : <Send size={12} />}
+                                                Reenviar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             {/* SEÇÃO INFERIOR: Histórico de Logs */}
