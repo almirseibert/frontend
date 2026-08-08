@@ -75,6 +75,7 @@ const ReportsPage                  = lazy(() => import('./pages/ReportsPage'));
 const FinesPage                    = lazy(() => import('./pages/FinesPage'));
 const VehiclePage                  = lazy(() => import('./pages/VehiclePage'));
 const RevisionsPage                = lazy(() => import('./pages/RevisionsPage'));
+const RelatosPage                  = lazy(() => import('./pages/RelatosPage'));
 const DiarioDeBordoPage            = lazy(() => import('./pages/DiarioDeBordoPage'));
 const AdminPage                    = lazy(() => import('./pages/AdminPage'));
 const ControleDiarioPage           = lazy(() => import('./pages/ControleDiarioPage'));
@@ -539,6 +540,7 @@ const AppContent = () => {
         dashboard:            ['revisions', 'fines', 'refuelings'],
         vehicles:             ['revisions', 'fines'],
         revisions:            ['revisions'],
+        relatos:              ['relatos', 'holidays', 'orders'],
         refueling:            ['refuelings', 'revisions'],
         saldo_postos:         ['partnerFuelCredits'],
         admin_solicitacoes:   ['refuelings'],
@@ -876,6 +878,9 @@ const AppContent = () => {
                 return <ControleDiarioPage {...commonProps} />;
             case 'revisions':
                 return <RevisionsPage {...commonProps} />;
+            case 'relatos':
+                return canUserAccessPage(user, 'relatos')
+                    ? <RelatosPage {...commonProps} /> : <Denied />;
             case 'partners':
                 return <PartnersPage {...commonProps} />;
             case 'terceirizados':

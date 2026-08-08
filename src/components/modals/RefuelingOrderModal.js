@@ -6,6 +6,8 @@ import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
 import { getPartnerDisplayName, resolveOrderPartnerName, getVehicleTerceiroName } from '../../utils/partners';
 import TerceirizadoBadge, { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
+import { useData, useEnsureResources } from '../../contexts/DataContext';
+import { buildHolidaySet, isBusinessDay } from '../../utils/businessDays';
 
 const RefuelingOrderModal = ({
     user,
@@ -25,9 +27,13 @@ const RefuelingOrderModal = ({
     vehicleGroups = {},
     apiClient,
     reloadData,
-    solicitacaoData = null 
+    solicitacaoData = null
 }) => {
-    
+
+    // Feriados para a regra de fim de semana/feriado (antecipação de ordem).
+    useEnsureResources(['holidays']);
+    const { holidays } = useData();
+
     // --- HELPERS DE DATA ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
@@ -161,26 +167,15 @@ const RefuelingOrderModal = ({
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
     const isSolicitacao = !!solicitacaoData;
 
-    // Feriados nacionais BR (fixos). Móveis (Carnaval/Páscoa/Corpus Christi)
-    // ficam de fora — se precisar incluir, migrar para tabela no backend.
-    const FERIADOS_BR_FIXOS = useMemo(() => new Set([
-        '01-01', // Confraternização
-        '04-21', // Tiradentes
-        '05-01', // Trabalho
-        '09-07', // Independência
-        '10-12', // N. Sra. Aparecida
-        '11-02', // Finados
-        '11-15', // Proclamação
-        '12-25', // Natal
-    ]), []);
+    // Feriados vêm de admin_holidays (Admin > Sistema > Feriados), não mais de
+    // uma lista fixa no código — assim os móveis (Carnaval, Sexta-feira Santa,
+    // Corpus Christi) e os municipais também contam.
+    const holidaySet = useMemo(() => buildHolidaySet(holidays), [holidays]);
 
-    const isWeekendOrHoliday = useMemo(() => {
-        if (!formData.date) return false;
-        const d = new Date(formData.date + 'T12:00:00');
-        const dow = d.getDay();
-        if (dow === 0 || dow === 6) return true;
-        return FERIADOS_BR_FIXOS.has(formData.date.slice(5));
-    }, [formData.date, FERIADOS_BR_FIXOS]);
+    const isWeekendOrHoliday = useMemo(
+        () => (formData.date ? !isBusinessDay(formData.date, holidaySet) : false),
+        [formData.date, holidaySet]
+    );
 
     // Ordem aberta = qualquer status que NÃO seja terminal. Inverter a lista
     // (em vez de listar "abertos") protege contra status novos do backend.

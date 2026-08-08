@@ -189,7 +189,19 @@ const PartnersPage = ({
                 {filteredAndSortedPartners.map(partner => (
                     <div key={partner.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${partner.status_operacional === 'BLOQUEADO' ? 'bg-red-50' : ''}`}>
                         <div className="md:col-span-2">
-                            <p className="font-bold text-gray-900">{partner.nomeFantasia || partner.razaoSocial}</p>
+                            <p className="font-bold text-gray-900 flex items-center gap-1.5 flex-wrap">
+                                {partner.nomeFantasia || partner.razaoSocial}
+                                {!!partner.is_oficina && (
+                                    <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full" title="Executa serviços de manutenção — aparece na triagem dos relatos">
+                                        OFICINA
+                                    </span>
+                                )}
+                                {!!partner.is_interno && (
+                                    <span className="text-[9px] font-bold text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded-full" title="Cadastro mantido pelo sistema">
+                                        INTERNO
+                                    </span>
+                                )}
+                            </p>
                             {partner.nomeFantasia && <p className="text-xs text-gray-500 mt-0.5">{partner.razaoSocial}</p>}
                             <p className="text-xs text-gray-500 mt-0.5">{partner.endereco}</p>
                             <p className="text-xs text-gray-400 mt-0.5">{partner.cnpj}</p>
@@ -210,6 +222,13 @@ const PartnersPage = ({
                             )}
                         </div>
                         
+                        {/* A oficina própria é um cadastro-espelho mantido pelo sistema:
+                            editar ou excluir quebraria a geração de ordens do relato. */}
+                        {partner.is_interno ? (
+                            <div className="md:col-span-2 flex justify-start md:justify-center mt-2 md:mt-0">
+                                <span className="text-[10px] text-gray-400 italic">Cadastro mantido pelo sistema</span>
+                            </div>
+                        ) : (
                         <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center mt-2 md:mt-0">
                             {activeTab === 'posto' && (
                                 <button onClick={() => openReportModal(partner)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full" title="Relatório de Abastecimentos"><FileText size={14} /></button>
@@ -231,6 +250,7 @@ const PartnersPage = ({
                                 <button onClick={() => openDeleteModal(partner.id)} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-full"><Trash2 size={14}/></button>
                             </ProtectedComponent>
                         </div>
+                        )}
                     </div>
                 ))}
                 {filteredAndSortedPartners.length === 0 && (
@@ -291,6 +311,9 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
         tipo_parceiro: partner?.tipo_parceiro || defaultTipo || 'posto',
         envia_por_whatsapp: !!(partner?.envia_por_whatsapp ?? 0),
         envia_por_email:    !!(partner?.envia_por_email    ?? 0),
+        // Fornecedor que executa manutenção. Continua tipo_parceiro='fornecedor'
+        // — é só uma marca extra para o seletor de executor dos relatos.
+        is_oficina:         !!(partner?.is_oficina         ?? 0),
     });
     const [isSaving, setIsSaving] = useState(false);
 
@@ -310,6 +333,8 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
         // Converte os checkboxes para 1/0 (esperado pelo banco). Strings vazias viram null.
         dataToSave.envia_por_whatsapp = dataToSave.envia_por_whatsapp ? 1 : 0;
         dataToSave.envia_por_email    = dataToSave.envia_por_email    ? 1 : 0;
+        // Só fornecedor pode ser oficina — trocar a categoria limpa a marca.
+        dataToSave.is_oficina = (dataToSave.tipo_parceiro === 'fornecedor' && dataToSave.is_oficina) ? 1 : 0;
         Object.keys(dataToSave).forEach(key => { if (dataToSave[key] === '') dataToSave[key] = null; });
 
         try {
@@ -379,6 +404,27 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
                             </div>
                             <p className="text-[11px] text-gray-500 mt-2">Se preenchido, entra automaticamente na qualificação da CONTRATADA no contrato. Pode ser sobrescrito no próprio contrato.</p>
                         </div>
+
+                        {formData.tipo_parceiro === 'fornecedor' && (
+                            <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+                                <label className="flex items-start gap-2 cursor-pointer text-sm">
+                                    <input
+                                        type="checkbox"
+                                        name="is_oficina"
+                                        checked={!!formData.is_oficina}
+                                        onChange={handleChange}
+                                        className="w-4 h-4 accent-blue-600 mt-0.5"
+                                    />
+                                    <span>
+                                        <strong>Executa serviços de manutenção (oficina)</strong>
+                                        <span className="block text-xs text-blue-800 mt-0.5">
+                                            Marque para que este fornecedor apareça como executor na triagem dos
+                                            Relatos de Ocorrência. Continua disponível normalmente nas Ordens de Compra/Serviço.
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                        )}
 
                         {formData.tipo_parceiro === 'posto' && (
                             <div className="md:col-span-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-2">

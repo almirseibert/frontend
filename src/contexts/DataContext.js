@@ -139,6 +139,19 @@ const RESOURCE_DEFS = {
         essential: false,
         allowedFor: (u) => !isOperador(u),
     },
+    // Feriados: base do cálculo de prazos em dias úteis. Liberado para todos —
+    // o operador também vê prazos de manutenção do equipamento dele.
+    holidays: {
+        getter: () => apiClient.getHolidays(),
+        essential: false,
+        allowedFor: () => true,
+    },
+    // Relatos de ocorrência (ficha FRM-MAN-001).
+    relatos: {
+        getter: () => apiClient.getRelatos(),
+        essential: false,
+        allowedFor: (u) => !isOperador(u),
+    },
 };
 
 const RESOURCE_KEYS = Object.keys(RESOURCE_DEFS);
@@ -167,6 +180,10 @@ const TARGET_TO_RESOURCE = {
     terceirizadoPagamentos: 'terceirizadoPagamentos',
     terceiro_contratos: 'terceiroContratos',
     terceiroContratos: 'terceiroContratos',
+    holidays: 'holidays',
+    admin_holidays: 'holidays',
+    relatos: 'relatos',
+    relatos_ocorrencia: 'relatos',
 };
 
 // ============================================================================
@@ -192,6 +209,8 @@ export const DataProvider = ({ children }) => {
     const [partnerFuelCredits, setPartnerFuelCredits] = useState(EMPTY_ARRAY);
     const [terceirizadoPagamentos, setTerceirizadoPagamentos] = useState(EMPTY_ARRAY);
     const [terceiroContratos, setTerceiroContratos] = useState(EMPTY_ARRAY);
+    const [holidays, setHolidays] = useState(EMPTY_ARRAY);
+    const [relatos, setRelatos] = useState(EMPTY_ARRAY);
 
     // Status de carregamento essencial (bloqueia tela até terminar)
     const [bootstrapLoading, setBootstrapLoading] = useState(true);
@@ -228,6 +247,8 @@ export const DataProvider = ({ children }) => {
         partnerFuelCredits: setPartnerFuelCredits,
         terceirizadoPagamentos: setTerceirizadoPagamentos,
         terceiroContratos: setTerceiroContratos,
+        holidays: setHolidays,
+        relatos: setRelatos,
     }), []);
 
     // ------------------------------------------------------------------------
@@ -479,6 +500,8 @@ export const DataProvider = ({ children }) => {
         partnerFuelCredits,
         terceirizadoPagamentos,
         terceiroContratos,
+        holidays,
+        relatos,
 
         // Status
         bootstrapLoading,
@@ -497,7 +520,7 @@ export const DataProvider = ({ children }) => {
         vehicles, obras, employees, partners,
         revisions, expenses, refuelings, comboioTransactions, fines,
         diarioDeBordoLogs, dailyWorkLogs, orders, partnerFuelCredits,
-        terceirizadoPagamentos, terceiroContratos,
+        terceirizadoPagamentos, terceiroContratos, holidays, relatos,
         bootstrapLoading, syncing,
         ensure, ensureAll, refresh, invalidate, reload,
         socket,

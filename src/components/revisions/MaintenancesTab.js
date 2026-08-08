@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { PlusCircle, Wrench, X, CheckCircle, ArrowRight, Loader } from 'lucide-react';
+import { PlusCircle, Wrench, X, CheckCircle, ArrowRight, Loader, ClipboardList } from 'lucide-react';
 import CurrencyInput from '../ui/CurrencyInput';
 import ProtectedComponent from '../ProtectedComponent';
 import SearchableObraSelect from '../SearchableObraSelect';
@@ -16,7 +16,7 @@ const getObraName = (id, obras) => {
     return o ? formatObraNome(o) : 'Pátio / Não Alocado';
 }
 
-const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) => {
+const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient, navigate }) => {
     const activeVehicles = vehicles.filter(v => !v.isOutsourced && v.ativo !== 0 && !v.isSucata);
     const [manutencoesProgramadas, setManutencoesProgramadas] = useState([]);
     const [manutencoesExecutadas, setManutencoesExecutadas] = useState([]);
@@ -85,6 +85,26 @@ const MaintenancesTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient
 
     return (
         <div className="animate-fadeIn space-y-6">
+            {/* Ponte para o módulo novo: aqui o relato é uma linha de texto livre,
+                lá é a ficha FRM-MAN-001 inteira (gravidade, executor, prazo, OS do MC). */}
+            {navigate && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                    <div className="flex items-start gap-2">
+                        <ClipboardList size={16} className="text-yellow-700 mt-0.5 flex-shrink-0" />
+                        <p className="text-xs text-yellow-900">
+                            <b>Novo:</b> Relatos de Ocorrência (FRM-MAN-001) — a ficha que o operador preenche,
+                            com gravidade por item, executor, prazo em dias úteis e geração de ordens de serviço.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => navigate('relatos')}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold rounded shadow-sm flex-shrink-0"
+                    >
+                        Abrir <ArrowRight size={13} />
+                    </button>
+                </div>
+            )}
+
             {/* SEÇÃO: PROGRAMADAS (RELATOS) */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex justify-between items-center mb-4">

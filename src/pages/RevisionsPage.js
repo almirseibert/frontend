@@ -9,7 +9,7 @@ import WashingsTab from '../components/revisions/WashingsTab';
 const RevisionsPage = ({
     user, vehicles = [], revisions = [], partners = [], obras = [],
     setAlertMessage, vehicleGroups = {}, apiClient, reloadData,
-    PasswordConfirmationModal
+    PasswordConfirmationModal, navigate
 }) => {
     const [activeTab, setActiveTab] = useState('revisoes');
 
@@ -56,9 +56,10 @@ const RevisionsPage = ({
             )}
             
             {activeTab === 'manutencoes' && (
-                <MaintenancesTab 
-                    vehicles={vehicles} 
+                <MaintenancesTab
+                    vehicles={vehicles}
                     obras={obras}
+                    navigate={navigate}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
                 />

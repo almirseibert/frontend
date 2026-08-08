@@ -85,9 +85,10 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onOpenSettings, my
             id: 'oficina',
             label: 'Oficina',
             icon: <Wrench size={14} />,
-            hidden: !canAccessAny(['revisions', 'tires', 'orders']),
+            hidden: !canAccessAny(['revisions', 'relatos', 'tires', 'orders']),
             items: [
                 { id: 'revisions', label: 'Revisões & Manutenções', hidden: !canAccess('revisions') },
+                { id: 'relatos',   label: 'Relatos de Ocorrência',  hidden: !canAccess('relatos') },
                 { id: 'tires',     label: 'Gestão de Pneus',        hidden: !canAccess('tires') },
                 { id: 'orders',    label: 'Ordens (C/S)',            hidden: !canAccess('orders') },
             ],

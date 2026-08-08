@@ -321,7 +321,33 @@ const apiClient = {
     deleteRevisionPlan: async (id) => apiFetch(`/revisions/${id}`, { method: 'DELETE' }),
     getConsolidatedRevisionPlan: async () => apiFetch('/revisions/consolidated'), 
     getRevisionHistoryByVehicle: async (vehicleId) => apiFetch(`/revisions/history/${vehicleId}`), 
-    completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) }), 
+    completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) }),
+
+    // --- Relatos de Ocorrência e Manutenção (ficha FRM-MAN-001) ---
+    getRelatos: async (params) => {
+        const q = params ? new URLSearchParams(params).toString() : '';
+        return apiFetch(`/relatos${q ? `?${q}` : ''}`);
+    },
+    getRelatoById: async (id) => apiFetch(`/relatos/${id}`),
+    createRelato: async (data) => apiFetch('/relatos', { method: 'POST', body: JSON.stringify(data) }),
+    updateRelato: async (id, data) => apiFetch(`/relatos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteRelato: async (id) => apiFetch(`/relatos/${id}`, { method: 'DELETE' }),
+    createRelatoItem: async (id, data) => apiFetch(`/relatos/${id}/itens`, { method: 'POST', body: JSON.stringify(data) }),
+    updateRelatoItem: async (id, itemId, data) => apiFetch(`/relatos/${id}/itens/${itemId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    updateRelatoItemStatus: async (id, itemId, data) => apiFetch(`/relatos/${id}/itens/${itemId}/status`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteRelatoItem: async (id, itemId) => apiFetch(`/relatos/${id}/itens/${itemId}`, { method: 'DELETE' }),
+    // Prévia do fechamento: não persiste nada, só mostra como as ordens ficariam
+    // agrupadas por executor e o cronograma em dias úteis.
+    previewFechamentoRelato: async (id, data) => apiFetch(`/relatos/${id}/preview-fechamento`, { method: 'POST', body: JSON.stringify(data) }),
+    // Fecha o relato: grava a triagem, persiste o cronograma, faz a saída de
+    // obra / entrada em manutenção e gera as ordens vinculadas à OS do MC.
+    fecharRelato: async (id, data) => apiFetch(`/relatos/${id}/fechar`, { method: 'POST', body: JSON.stringify(data) }),
+    recalcularPrazosRelato: async (id, data) => apiFetch(`/relatos/${id}/recalcular-prazos`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    concluirRelato: async (id, data) => apiFetch(`/relatos/${id}/concluir`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    cancelarRelato: async (id, data) => apiFetch(`/relatos/${id}/cancelar`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    getRelatosPorOsMc: async (numero) => apiFetch(`/relatos/os-mc/${encodeURIComponent(numero)}`),
+    getRelatoSlaConfig: async () => apiFetch('/relatos/config/sla'),
+    updateRelatoSlaConfig: async (data) => apiFetch('/relatos/config/sla', { method: 'PUT', body: JSON.stringify(data) }),
 
     // --- Despesas ---
     getExpenses: async () => apiFetch('/expenses'),
@@ -553,7 +579,10 @@ const apiClient = {
     adminGetApprovalWorkflows: async () => apiFetch('/admin/approval-workflows'),
     adminSaveApprovalWorkflows: async (data) => apiFetch('/admin/approval-workflows', { method: 'PUT', body: JSON.stringify(data) }),
 
-    // --- Feriados (TODO: backend) ---
+    // --- Feriados ---
+    // Leitura por qualquer usuário autenticado (cálculo de dias úteis);
+    // o CRUD abaixo é restrito a admin.
+    getHolidays: async () => apiFetch('/holidays'),
     adminGetHolidays: async () => apiFetch('/admin/holidays'),
     adminCreateHoliday: async (data) => apiFetch('/admin/holidays', { method: 'POST', body: JSON.stringify(data) }),
     adminDeleteHoliday: async (id) => apiFetch(`/admin/holidays/${id}`, { method: 'DELETE' }),
