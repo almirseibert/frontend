@@ -21,9 +21,18 @@ import {
 
 const formatarData = (ymd) => (ymd ? new Date(`${ymd}T12:00:00`).toLocaleDateString('pt-BR') : '—');
 
+// Fora do componente de propósito: declarado dentro, cada render criaria um
+// tipo novo e o React remontaria os cards a cada tecla digitada no filtro.
+const Card = ({ label, valor, cor }) => (
+    <div className="bg-white rounded-lg border border-gray-200 p-3">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{label}</p>
+        <p className={`text-2xl font-bold ${cor}`}>{valor}</p>
+    </div>
+);
+
 const RelatosPage = ({ user, apiClient, setAlertMessage, ConfirmationModal, navigate }) => {
     useEnsureResources(['relatos', 'holidays']);
-    const { relatos, vehicles, partners, employees, refresh, syncing } = useData();
+    const { relatos, vehicles, partners, employees, obras, refresh, syncing } = useData();
 
     const [aba, setAba] = useState('lista');
     const [busca, setBusca] = useState('');
@@ -126,13 +135,6 @@ const RelatosPage = ({ user, apiClient, setAlertMessage, ConfirmationModal, navi
             },
         });
     };
-
-    const Card = ({ label, valor, cor }) => (
-        <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{label}</p>
-            <p className={`text-2xl font-bold ${cor}`}>{valor}</p>
-        </div>
-    );
 
     return (
         <div className="p-4 space-y-4">
@@ -347,6 +349,8 @@ const RelatosPage = ({ user, apiClient, setAlertMessage, ConfirmationModal, navi
                 <RelatoFormModal
                     relato={modalForm.relato || null}
                     vehicles={vehicles}
+                    employees={employees}
+                    obras={obras}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
                     onClose={() => setModalForm(null)}

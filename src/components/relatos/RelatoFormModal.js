@@ -3,6 +3,7 @@ import { X, Loader2, ClipboardList } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
 import RelatoItemGrid from './RelatoItemGrid';
 import { getAllowedReadingTypes } from '../../utils/vehicleRules';
+import { getRegioes } from '../../utils/obraFormat';
 
 // Digitação da ficha FRM-MAN-001 — seções 1, 2, 4 e 5 do formulário impresso.
 // A seção 3 (legenda de gravidade) aparece dentro da grade de itens, e a 6
@@ -12,13 +13,33 @@ import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 const hojeYmd = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 
 const FORM_VAZIO = {
-    relatorNome: '', relatorFuncao: '', filialCidade: '', dataRelato: '',
+    relatorNome: '', relatorEmployeeId: '', relatorFuncao: '', filialCidade: '', dataRelato: '',
     vehicleId: '', veiculoModelo: '', veiculoPlaca: '', veiculoFrota: '',
     hodometro: '', horimetro: '',
     observacoesGerais: '', assinaturaColaborador: '', assinaturaSupervisor: '',
 };
 
-const RelatoFormModal = ({ relato = null, vehicles = [], apiClient, onClose, onSaved, setAlertMessage }) => {
+const INPUT_CLS = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none';
+const LABEL_CLS = 'block text-[11px] font-bold text-gray-600 mb-1 uppercase tracking-wide';
+
+// Precisa ficar FORA do componente. Declarado dentro, cada render criava um
+// tipo de componente novo, e o React desmontava e remontava toda a árvore da
+// seção — o que perdia o foco do campo e jogava o scroll do modal de volta pro
+// topo a cada tecla digitada ou item adicionado.
+const Secao = ({ n, titulo, children }) => (
+    <div className="space-y-3">
+        <div className="flex items-center gap-2">
+            <span className="w-5 h-5 bg-slate-800 text-white rounded text-[11px] font-bold flex items-center justify-center">{n}</span>
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">{titulo}</h3>
+        </div>
+        {children}
+    </div>
+);
+
+const RelatoFormModal = ({
+    relato = null, vehicles = [], employees = [], obras = [],
+    apiClient, onClose, onSaved, setAlertMessage,
+}) => {
     const isEdicao = !!relato?.id;
 
     const [form, setForm] = useState(() => (
@@ -61,8 +82,39 @@ const RelatoFormModal = ({ relato = null, vehicles = [], apiClient, onClose, onS
         [vehicles]
     );
 
+    // Só quem está na empresa hoje. Placeholders (COLABORADOR, TESTE, MAK
+    // SERVIÇOS) ficam de fora: são operadores temporários de alocação, não
+    // pessoas que preenchem ficha.
+    const colaboradoresAtivos = useMemo(
+        () => employees
+            .filter(e => String(e.status || '').toLowerCase() === 'ativo' && !e.isPlaceholder)
+            .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR')),
+        [employees]
+    );
+
+    const regioes = useMemo(() => getRegioes(obras), [obras]);
+
+    // Relatos antigos guardaram só o nome digitado. Ao abrir para edição,
+    // tenta casar com um funcionário para o seletor já vir preenchido.
+    useEffect(() => {
+        if (!isEdicao || form.relatorEmployeeId || !form.relatorNome) return;
+        const alvo = form.relatorNome.trim().toLowerCase();
+        const achado = colaboradoresAtivos.find(e => (e.nome || '').trim().toLowerCase() === alvo);
+        if (achado) setForm(p => ({ ...p, relatorEmployeeId: achado.id }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isEdicao, colaboradoresAtivos]);
+
+    const selecionarRelator = (emp) => setForm(p => ({
+        ...p,
+        relatorEmployeeId: emp?.id || '',
+        relatorNome: emp?.nome || '',
+        // A função vem do cadastro, mas segue editável — a ficha pode trazer
+        // outra coisa escrita à mão.
+        relatorFuncao: emp?.funcao || p.relatorFuncao || '',
+    }));
+
     const validar = () => {
-        if (!form.relatorNome?.trim()) return 'Informe o nome do colaborador que relatou.';
+        if (!form.relatorNome?.trim()) return 'Selecione o colaborador que preencheu a ficha.';
         if (!form.vehicleId) return 'Selecione o veículo/equipamento.';
         if (!form.dataRelato) return 'Informe a data do relato.';
         for (let i = 0; i < itens.length; i++) {
@@ -144,18 +196,8 @@ const RelatoFormModal = ({ relato = null, vehicles = [], apiClient, onClose, onS
         }
     };
 
-    const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none';
-    const labelCls = 'block text-[11px] font-bold text-gray-600 mb-1 uppercase tracking-wide';
-
-    const Secao = ({ n, titulo, children }) => (
-        <div className="space-y-3">
-            <div className="flex items-center gap-2">
-                <span className="w-5 h-5 bg-slate-800 text-white rounded text-[11px] font-bold flex items-center justify-center">{n}</span>
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">{titulo}</h3>
-            </div>
-            {children}
-        </div>
-    );
+    const inputCls = INPUT_CLS;
+    const labelCls = LABEL_CLS;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
@@ -182,11 +224,25 @@ const RelatoFormModal = ({ relato = null, vehicles = [], apiClient, onClose, onS
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                             <div className="md:col-span-2">
                                 <label className={labelCls}>Nome do colaborador *</label>
-                                <input value={form.relatorNome} onChange={e => set('relatorNome', e.target.value)} className={inputCls} placeholder="Quem preencheu a ficha" />
+                                <SearchableSelect
+                                    items={colaboradoresAtivos}
+                                    value={form.relatorEmployeeId}
+                                    onChange={selecionarRelator}
+                                    getLabel={e => e.nome || ''}
+                                    getSubLabel={e => [e.funcao, e.registroInterno && `RE ${e.registroInterno}`].filter(Boolean).join(' · ')}
+                                    placeholder="Quem preencheu a ficha..."
+                                />
+                                {/* Ficha antiga com nome que não bate com nenhum funcionário
+                                    ativo: preserva o que foi digitado em vez de descartar. */}
+                                {form.relatorNome && !form.relatorEmployeeId && (
+                                    <p className="text-[10px] text-amber-700 mt-1">
+                                        Registrado como <b>{form.relatorNome}</b> — não encontrado entre os funcionários ativos.
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <label className={labelCls}>Função / cargo</label>
-                                <input value={form.relatorFuncao} onChange={e => set('relatorFuncao', e.target.value)} className={inputCls} />
+                                <input value={form.relatorFuncao} onChange={e => set('relatorFuncao', e.target.value)} className={inputCls} placeholder="Vem do cadastro" />
                             </div>
                             <div>
                                 <label className={labelCls}>Data do relato *</label>
@@ -194,7 +250,14 @@ const RelatoFormModal = ({ relato = null, vehicles = [], apiClient, onClose, onS
                             </div>
                             <div>
                                 <label className={labelCls}>Filial / cidade</label>
-                                <input value={form.filialCidade} onChange={e => set('filialCidade', e.target.value)} className={inputCls} placeholder="Lajeado, Santa Maria..." />
+                                <select value={form.filialCidade || ''} onChange={e => set('filialCidade', e.target.value)} className={inputCls}>
+                                    <option value="">Selecione...</option>
+                                    {regioes.map(r => <option key={r} value={r}>{r}</option>)}
+                                    {/* Valor legado fora da lista continua visível e selecionado. */}
+                                    {form.filialCidade && !regioes.includes(form.filialCidade) && (
+                                        <option value={form.filialCidade}>{form.filialCidade} (cadastro antigo)</option>
+                                    )}
+                                </select>
                             </div>
                         </div>
                     </Secao>

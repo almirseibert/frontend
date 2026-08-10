@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { GRAVIDADES, GRAVIDADE_LEGENDA } from '../../utils/relatoGravidade';
 import { GravidadeLegenda } from './GravidadeBadge';
@@ -13,6 +13,7 @@ import { GravidadeLegenda } from './GravidadeBadge';
 
 const RelatoItemGrid = ({ itens, onChange, disabled = false }) => {
     const componenteRefs = useRef({});
+    const [focarIndex, setFocarIndex] = useState(null);
 
     const setItem = useCallback((index, patch) => {
         onChange(itens.map((it, i) => (i === index ? { ...it, ...patch } : it)));
@@ -22,11 +23,21 @@ const RelatoItemGrid = ({ itens, onChange, disabled = false }) => {
         const novo = { itemComponente: '', descricaoProblema: '', gravidade: '' };
         const proximoIndex = itens.length;
         onChange([...itens, novo]);
-        if (focar) {
-            // O input só existe depois do render — daí o rAF.
-            requestAnimationFrame(() => componenteRefs.current[proximoIndex]?.focus());
-        }
+        // O input da linha nova só existe depois que o React commita. Guardar o
+        // índice e focar num efeito garante que o elemento já está no DOM —
+        // com requestAnimationFrame a ref às vezes ainda estava vazia.
+        if (focar) setFocarIndex(proximoIndex);
     }, [itens, onChange]);
+
+    useEffect(() => {
+        if (focarIndex === null) return;
+        const alvo = componenteRefs.current[focarIndex];
+        // preventScroll + scrollIntoView('nearest'): rola só o necessário para
+        // a linha nova aparecer, em vez de saltar a página inteira.
+        alvo?.focus({ preventScroll: true });
+        alvo?.scrollIntoView({ block: 'nearest' });
+        setFocarIndex(null);
+    }, [focarIndex, itens.length]);
 
     const removeLinha = useCallback((index) => {
         onChange(itens.filter((_, i) => i !== index));

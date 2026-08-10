@@ -9,9 +9,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Download, Loader2 } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 import { nationalHolidays } from '../../utils/businessDays';
-
-// Mesmos valores de obras.regiao. Vazio = feriado nacional (vale para todas).
-const HOLIDAY_REGIOES = ['Lajeado', 'Santa Maria'];
+// Fonte única das regiões (mesmos valores de obras.regiao).
+// Vazio = feriado nacional, vale para todas as filiais.
+import { REGIOES as HOLIDAY_REGIOES } from '../../utils/obraFormat';
 
 const HolidaysSection = ({ active = true }) => {
     const [holidays, setHolidays] = useState([]);
