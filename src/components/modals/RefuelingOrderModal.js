@@ -100,7 +100,13 @@ const RefuelingOrderModal = ({
         outros: '',
         outrosGeraValor: false,
         outrosValor: '',
+        // Ordem reservada (só para usuários com can_create_hidden_orders)
+        isHidden: false,
+        revealAt: '',
     });
+
+    // Emissão reservada só existe na criação — o PUT de edição ignora essas colunas.
+    const podeOcultar = !!user?.can_create_hidden_orders && !orderToEdit?.id && !solicitacaoData;
 
     const prevVehicleIdRef = useRef(null);
 
@@ -125,6 +131,8 @@ const RefuelingOrderModal = ({
                 outros: orderToEdit.outros || '',
                 outrosGeraValor: orderToEdit.outrosGeraValor || false,
                 outrosValor: orderToEdit.outrosValor?.toString() || '',
+                isHidden: false,
+                revealAt: '',
             });
         } else if (solicitacaoData) {
             setFormData({
@@ -144,6 +152,8 @@ const RefuelingOrderModal = ({
                 outros: solicitacaoData.observacao || '',
                 outrosGeraValor: false,
                 outrosValor: '',
+                isHidden: false,
+                revealAt: '',
             });
         }
     }, [orderToEdit, solicitacaoData]);
@@ -454,7 +464,10 @@ const RefuelingOrderModal = ({
             outrosValor: safeFloat(formData.outrosValor) || 0,
             date: `${formData.date}T${timeBrt}-03:00`,
             createdBy: user,
-            solicitacaoId: solicitacaoData ? solicitacaoData.id : null
+            solicitacaoId: solicitacaoData ? solicitacaoData.id : null,
+            // Reserva só é enviada na criação; o backend revalida a permissão.
+            isHidden: podeOcultar && !!formData.isHidden,
+            revealAt: podeOcultar && formData.isHidden && formData.revealAt ? formData.revealAt : null
         };
 
         const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
@@ -474,7 +487,9 @@ const RefuelingOrderModal = ({
                 setAlertMessage(`Ordem atualizada!`);
             } else {
                 res = await apiClient.createRefuelingOrder(payload);
-                setAlertMessage(`Ordem Nº ${res.authNumber} emitida!`);
+                setAlertMessage(res.isHidden
+                    ? `Ordem Nº ${res.authNumber} emitida em modo reservado.${res.revealAtIgnorado ? ' A data de liberação informada é inválida ou já passou — libere manualmente pelo painel "Ordens Reservadas".' : ''}`
+                    : `Ordem Nº ${res.authNumber} emitida!`);
             }
             reloadData();
             
@@ -728,6 +743,33 @@ const RefuelingOrderModal = ({
                             <input type="checkbox" id="geraValor" name="outrosGeraValor" checked={formData.outrosGeraValor} onChange={handleChange} className="w-3 h-3 text-green-600"/>
                             <label htmlFor="geraValor" className="text-[10px] font-medium text-gray-700">Preenchimento Gera Valor</label>
                         </div>
+
+                        {podeOcultar && (
+                            <div className="mt-2 p-2 rounded-md border border-slate-300 bg-slate-50">
+                                <div className="flex items-center gap-1">
+                                    <input type="checkbox" id="isHidden" name="isHidden" checked={formData.isHidden} onChange={handleChange} className="w-3 h-3 text-slate-700"/>
+                                    <label htmlFor="isHidden" className="text-[10px] font-bold text-slate-700">
+                                        Emitir como ordem reservada (não visível para os demais usuários)
+                                    </label>
+                                </div>
+                                {formData.isHidden && (
+                                    <div className="mt-1.5 pl-4">
+                                        <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Liberar automaticamente em</label>
+                                        <input
+                                            type="datetime-local"
+                                            name="revealAt"
+                                            value={formData.revealAt}
+                                            onChange={handleChange}
+                                            className="w-full p-1 border rounded text-xs"
+                                        />
+                                        <p className="text-[9px] text-gray-500 mt-0.5 leading-snug">
+                                            Deixe em branco para liberar manualmente. A ordem já vai ao posto e já gera despesa
+                                            para a obra — apenas não aparece nas listas dos outros usuários.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {blockReason && (
                             <div className="neon-red-pulse mt-2 p-2 rounded-md border-2 border-red-500 bg-red-50 text-red-800 text-[11px] font-bold leading-snug flex items-start gap-2">

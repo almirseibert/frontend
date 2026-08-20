@@ -288,6 +288,8 @@ const apiClient = {
     deleteRefuelingOrder: async (id) => apiFetch(`/refuelings/${id}`, { method: 'DELETE' }),
     liberarOrdemBloqueada: async (id, data) => apiFetch(`/refuelings/${id}/liberar`, { method: 'PUT', body: JSON.stringify(data || {}) }),
     negarOrdemBloqueada: async (id) => apiFetch(`/refuelings/${id}/negar`, { method: 'DELETE' }),
+    // Ordem reservada: sem body libera agora; com { revealAt } reagenda a liberação.
+    revelarOrdemOculta: async (id, data) => apiFetch(`/refuelings/${id}/revelar`, { method: 'PUT', body: JSON.stringify(data || {}) }),
     sendRefuelingEmail: async (payload) => apiFetch('/refuelings/send-email', { method: 'POST', body: JSON.stringify(payload) }),
     uploadRefuelingPdf: async (formData) => apiFetch('/refuelings/upload-pdf', { method: 'POST', body: formData }),
 

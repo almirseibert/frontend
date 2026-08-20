@@ -1,5 +1,5 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone } from 'lucide-react';
+import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone, EyeOff, Eye, Clock, Ban, Unlock, ChevronDown, ChevronRight } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
 import autoTable from 'jspdf-autotable'; 
@@ -39,6 +39,14 @@ const RefuelingPage = ({
     const [latestOrdersSearchTerm, setLatestOrdersSearchTerm] = useState('');
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
+    // Painel de ordens reservadas (só para quem tem can_create_hidden_orders)
+    const podeVerReservadas = !!user?.can_create_hidden_orders;
+    const [isReservadasOpen, setIsReservadasOpen] = useState(true);
+    const [orderToReveal, setOrderToReveal] = useState(null);
+    const [schedulingOrderId, setSchedulingOrderId] = useState(null);
+    const [scheduleValue, setScheduleValue] = useState('');
+    const [reservadaBusyId, setReservadaBusyId] = useState(null);
+
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
         const str = String(dateString);
@@ -63,16 +71,35 @@ const RefuelingPage = ({
         } catch { return 'Erro'; }
     };
 
+    const formatDateTimeSafe = (dateInput) => {
+        if (!isValidDbDate(dateInput)) return null;
+        try {
+            let dateStr = String(dateInput);
+            if (dateStr.includes(' ') && !dateStr.includes('T')) dateStr = dateStr.replace(' ', 'T');
+            const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return null;
+            return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        } catch { return null; }
+    };
+
     const STATUSES_PENDENTES = ['Aberta', 'BloqueadoLeitura', 'BloqueadoOrcamento'];
 
+    // As ordens reservadas só chegam do backend para o próprio emissor. Aqui elas
+    // saem das listas normais para não duplicarem com o painel "Ordens Reservadas".
     const openRefuelings = useMemo(() => {
         return refuelings
-            .filter(r => STATUSES_PENDENTES.includes(r.status))
+            .filter(r => !r.isHidden && STATUSES_PENDENTES.includes(r.status))
+            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
+    }, [refuelings]);
+
+    const hiddenRefuelings = useMemo(() => {
+        return refuelings
+            .filter(r => r.isHidden)
             .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
     }, [refuelings]);
 
     const latestRefuelings = useMemo(() => {
-        let list = [...refuelings].filter(r => r.status === 'Concluída' || r.status === 'Cancelada'); 
+        let list = [...refuelings].filter(r => !r.isHidden && (r.status === 'Concluída' || r.status === 'Cancelada'));
         
         if (latestOrdersSearchTerm) {
             const term = latestOrdersSearchTerm.toLowerCase();
@@ -257,6 +284,68 @@ const RefuelingPage = ({
         });
     };
 
+    // --- Ordens reservadas ---
+    const handleRevelarAgora = async () => {
+        const order = orderToReveal;
+        setOrderToReveal(null);
+        if (!order) return;
+        setReservadaBusyId(order.id);
+        try {
+            const res = await apiClient.revelarOrdemOculta(order.id);
+            setAlertMessage(res?.message || 'Ordem liberada.');
+            reloadData();
+        } catch (e) {
+            setAlertMessage(`Erro ao liberar ordem: ${e.message}`);
+        } finally {
+            setReservadaBusyId(null);
+        }
+    };
+
+    const handleAgendarLiberacao = async (orderId) => {
+        if (!scheduleValue) {
+            setAlertMessage('Informe a data e hora da liberação.');
+            return;
+        }
+        setReservadaBusyId(orderId);
+        try {
+            const res = await apiClient.revelarOrdemOculta(orderId, { revealAt: scheduleValue });
+            setAlertMessage(res?.message || 'Liberação agendada.');
+            setSchedulingOrderId(null);
+            setScheduleValue('');
+            reloadData();
+        } catch (e) {
+            setAlertMessage(`Erro ao agendar liberação: ${e.message}`);
+        } finally {
+            setReservadaBusyId(null);
+        }
+    };
+
+    const handleLiberarBloqueada = async (orderId) => {
+        setReservadaBusyId(orderId);
+        try {
+            await apiClient.liberarOrdemBloqueada(orderId, { liberadoPor: user });
+            setAlertMessage('Ordem liberada do bloqueio e enviada ao posto.');
+            reloadData();
+        } catch (e) {
+            setAlertMessage(`Erro ao liberar: ${e.message}`);
+        } finally {
+            setReservadaBusyId(null);
+        }
+    };
+
+    const handleNegarBloqueada = async (orderId) => {
+        setReservadaBusyId(orderId);
+        try {
+            await apiClient.negarOrdemBloqueada(orderId);
+            setAlertMessage('Ordem negada e excluída.');
+            reloadData();
+        } catch (e) {
+            setAlertMessage(`Erro ao negar: ${e.message}`);
+        } finally {
+            setReservadaBusyId(null);
+        }
+    };
+
     const handleDeleteOrder = async () => {
         if (!itemToDelete) return;
         try {
@@ -292,6 +381,122 @@ const RefuelingPage = ({
                     </div>
                 </ProtectedComponent>
             </div>
+
+            {podeVerReservadas && (
+                <div className="bg-white rounded-xl" style={{ border: '1px solid #d8d3c8', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)' }}>
+                    <button
+                        onClick={() => setIsReservadasOpen(o => !o)}
+                        className="w-full flex items-center justify-between p-4 text-left"
+                    >
+                        <span className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 700, color: '#1e1a14' }}>
+                            {isReservadasOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+                            <EyeOff size={16} style={{ color: '#5b6472' }}/> Ordens Reservadas
+                            <span style={{ background: '#eef1f5', color: '#5b6472', border: '1px solid #d5dbe4', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 9999 }}>
+                                {hiddenRefuelings.length}
+                            </span>
+                        </span>
+                        <span className="hidden md:block text-right" style={{ fontSize: 10, color: '#9a8a78', maxWidth: 460, lineHeight: 1.4 }}>
+                            Já geram despesa para a obra e já foram enviadas ao posto — apenas não aparecem
+                            para os demais usuários até você liberá-las.
+                        </span>
+                    </button>
+
+                    {isReservadasOpen && (
+                        <div className="px-4 pb-4 overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead style={{ background: '#faf9f7', borderBottom: '1px solid #f0ebe3' }}>
+                                    <tr>
+                                        {['Nº', 'Emissão', 'Veículo', 'Obra', 'Posto', 'Combustível', 'Status', 'Liberação'].map(h => (
+                                            <th key={h} className="p-3" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>{h}</th>
+                                        ))}
+                                        <th className="p-3 text-right" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {hiddenRefuelings.map(order => {
+                                        const vehicle = vehicles.find(v => v.id === order.vehicleId);
+                                        const obra = obras.find(o => o.id === order.obraId);
+                                        const displayPartner = order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || 'N/A';
+                                        const isBloqueada = order.status === 'BloqueadoLeitura' || order.status === 'BloqueadoOrcamento';
+                                        const agendada = formatDateTimeSafe(order.revealAt);
+                                        const busy = reservadaBusyId === order.id;
+                                        const litros = order.isFillUp ? 'Tanque cheio' : `${order.litrosLiberados || 0} L`;
+
+                                        return (
+                                            <React.Fragment key={order.id}>
+                                                <tr className="hover:bg-gray-50">
+                                                    <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
+                                                    <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
+                                                    <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
+                                                    <td className="p-3 truncate max-w-[150px]">{obra?.nome || order.obraId || '—'}</td>
+                                                    <td className="p-3 truncate max-w-[150px]">{displayPartner}</td>
+                                                    <td className="p-3 whitespace-nowrap">{order.fuelType || '—'} · {litros}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${isBloqueada ? 'bg-red-100 text-red-800' : order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                                            {order.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 whitespace-nowrap" style={{ fontSize: 12, color: agendada ? '#2d5a8a' : '#9a8a78' }}>
+                                                        {agendada || 'manual'}
+                                                    </td>
+                                                    <td className="p-3 text-right">
+                                                        <div className="flex justify-end gap-1">
+                                                            {isBloqueada && (
+                                                                <>
+                                                                    <button onClick={() => handleLiberarBloqueada(order.id)} disabled={busy} title="Liberar bloqueio e enviar ao posto" className="p-1.5 text-gray-400 hover:text-green-600 rounded hover:bg-green-50 disabled:opacity-40"><Unlock size={16}/></button>
+                                                                    <button onClick={() => handleNegarBloqueada(order.id)} disabled={busy} title="Negar (exclui a ordem)" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 disabled:opacity-40"><Ban size={16}/></button>
+                                                                </>
+                                                            )}
+                                                            <button
+                                                                onClick={() => { setSchedulingOrderId(schedulingOrderId === order.id ? null : order.id); setScheduleValue(''); }}
+                                                                disabled={busy}
+                                                                title="Agendar/alterar liberação automática"
+                                                                className="p-1.5 text-gray-400 hover:text-[#2d5a8a] rounded hover:bg-blue-50 disabled:opacity-40"
+                                                            ><Clock size={16}/></button>
+                                                            <button onClick={() => setOrderToReveal(order)} disabled={busy} title="Liberar agora (torna visível para todos)" className="p-1.5 text-gray-400 hover:text-[#9E7A42] rounded hover:bg-[#fdf8f0] disabled:opacity-40">
+                                                                {busy ? <Loader size={16} className="animate-spin"/> : <Eye size={16}/>}
+                                                            </button>
+                                                            <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
+                                                                {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
+                                                            </button>
+                                                            <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-[#9E7A42] rounded hover:bg-[#fdf8f0]"><Edit size={16}/></button>
+                                                            <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {schedulingOrderId === order.id && (
+                                                    <tr style={{ background: '#faf9f7' }}>
+                                                        <td colSpan="9" className="p-3">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span style={{ fontSize: 12, fontWeight: 600, color: '#6a5e4e' }}>Liberar automaticamente em:</span>
+                                                                <input
+                                                                    type="datetime-local"
+                                                                    value={scheduleValue}
+                                                                    onChange={e => setScheduleValue(e.target.value)}
+                                                                    className="p-1.5 border rounded text-xs"
+                                                                />
+                                                                <button onClick={() => handleAgendarLiberacao(order.id)} disabled={busy} className="px-3 py-1.5 text-xs font-bold rounded mak-btn mak-btn-primary disabled:opacity-50">
+                                                                    {busy ? 'Salvando...' : 'Agendar'}
+                                                                </button>
+                                                                <button onClick={() => { setSchedulingOrderId(null); setScheduleValue(''); }} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded">
+                                                                    Cancelar
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                    {hiddenRefuelings.length === 0 && (
+                                        <tr><td colSpan="9" className="p-4 text-center text-gray-400 italic">Nenhuma ordem reservada.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 <div className="xl:col-span-4 space-y-4">
@@ -500,8 +705,18 @@ const RefuelingPage = ({
                 />
             )}
 
+            {orderToReveal && (
+                <ConfirmationModal
+                    title="Liberar ordem reservada"
+                    message={`A ordem Nº ${String(orderToReveal.authNumber).padStart(6,'0')} passará a aparecer em Ordens Pendentes / Últimas Ordens para todos os usuários. Esta ação não pode ser desfeita. Confirmar?`}
+                    confirmText="Liberar"
+                    onConfirm={handleRevelarAgora}
+                    onClose={() => setOrderToReveal(null)}
+                />
+            )}
+
             {isDeleteModalOpen && itemToDelete && (
-                <PasswordConfirmationModal 
+                <PasswordConfirmationModal
                     message="Excluir esta ordem? Se confirmada, o custo será estornado."
                     onConfirm={handleDeleteOrder}
                     onClose={() => setIsDeleteModalOpen(false)}
