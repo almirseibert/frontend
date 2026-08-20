@@ -976,7 +976,9 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         notifyWhatsapp: false,
     });
 
-    const [isPricePending, setIsPricePending] = useState(orderToEdit ? orderToEdit.status === 'Pendente de Valor' : true);
+    // Ordem nova nasce SEMPRE com valor (checkbox "a cotar" desmarcado); na edição
+    // o checkbox reflete o status gravado.
+    const [isPricePending, setIsPricePending] = useState(orderToEdit ? orderToEdit.status === 'Pendente de Valor' : false);
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [inventoryCategories, setInventoryCategories] = useState([]);
