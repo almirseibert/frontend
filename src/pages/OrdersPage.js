@@ -330,7 +330,7 @@ const OrdersPage = ({
     const [orderToClose, setOrderToClose] = useState(null);
     const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
 
-    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '' });
+    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '', supplier: '' });
     const [loadingAction, setLoadingAction] = useState(false);
 
     const fetchLocalOrders = async () => {
@@ -363,6 +363,24 @@ const OrdersPage = ({
     const sortedObras    = useMemo(() => [...(obras || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedVehicles = useMemo(() => [...(vehicles || [])].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
 
+    // Fornecedores presentes nas ordens (inclui ordens antigas que só têm o nome
+    // digitado, sem supplierId — essas viram uma opção com id "name:<nome>").
+    const supplierOptions = useMemo(() => {
+        const map = new Map();
+        (activeOrders || []).forEach(order => {
+            const partner = (partners || []).find(p => String(p.id) === String(order.supplierId));
+            const nome = resolveOrderPartnerName(partner, order.supplier, '');
+            if (!nome) return;
+            const id = order.supplierId
+                ? String(order.supplierId)
+                : `name:${String(order.supplier || '').trim().toLowerCase()}`;
+            const found = map.get(id);
+            if (found) found.count += 1;
+            else map.set(id, { id, nome, cnpj: partner?.cnpj || '', count: 1 });
+        });
+        return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome));
+    }, [activeOrders, partners]);
+
     const filteredOrders = useMemo(() => {
         return (activeOrders || []).filter(order => {
             const dateMatch    = !filters.date   || (order.date && new Date(order.date).toISOString().split('T')[0] === filters.date);
@@ -376,7 +394,12 @@ const OrdersPage = ({
             const emissorEmail = getCreatorEmail(order);
             const emitterMatch = !filters.emitter || emissorEmail.toLowerCase().includes(filters.emitter.toLowerCase());
             const statusMatch  = !filters.status || order.status === filters.status;
-            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch;
+            const supplierMatch = !filters.supplier || (
+                filters.supplier.startsWith('name:')
+                    ? !order.supplierId && `name:${String(order.supplier || '').trim().toLowerCase()}` === filters.supplier
+                    : String(order.supplierId || '') === filters.supplier
+            );
+            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch && supplierMatch;
         }).sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0));
     }, [activeOrders, filters]);
 
@@ -508,7 +531,7 @@ const OrdersPage = ({
                 </ProtectedComponent>
             </div>
 
-            <div className="bg-white p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-center text-sm" style={{ border: "1px solid #f0ebe3" }}>
+            <div className="bg-white p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-center text-sm" style={{ border: "1px solid #f0ebe3" }}>
                 <input type="text" placeholder="Nº Ordem" value={filters.number} onChange={e => setFilters({...filters, number: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm" style={{ border: "1px solid #e8e0d4" }}/>
                 <input type="date" value={filters.date} onChange={e => setFilters({...filters, date: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm" style={{ border: "1px solid #e8e0d4" }}/>
                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm outline-none" style={{ border: "1px solid #e8e0d4" }}>
@@ -536,6 +559,14 @@ const OrdersPage = ({
                     getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
                     getSubLabel={(v) => v.modelo || ''}
                     placeholder="Todos os Veículos"
+                />
+                <SearchableSelect
+                    items={supplierOptions}
+                    value={filters.supplier}
+                    onChange={(item) => setFilters({...filters, supplier: item?.id || ''})}
+                    getLabel={(p) => p.nome}
+                    getSubLabel={(p) => [p.cnpj, `${p.count} ${p.count === 1 ? 'ordem' : 'ordens'}`].filter(Boolean).join(' · ')}
+                    placeholder="Todos os Fornecedores"
                 />
                 <input type="text" placeholder="Emissor (email)" value={filters.emitter} onChange={e => setFilters({...filters, emitter: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm" style={{ border: "1px solid #e8e0d4" }}/>
             </div>
