@@ -305,10 +305,9 @@ const SupervisorObraDetail = ({ obraId, onBack }) => {
                             </h3>
                             <span className="text-xs text-slate-500">Contrato: <strong className="text-slate-700">{formatCurrency(valorContrato)}</strong></span>
                         </div>
-                        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FinanceCard tone="blue" label="Medido (físico)" value={formatCurrency(valorProduzido)} />
                             <FinanceCard tone="red" label="Despesas" value={formatCurrency(totalDespesas)} />
-                            <FinanceCard tone="yellow" label="Pendente faturamento" value={formatCurrency(financeiro?.pendente_faturamento)} />
                         </div>
                         <div className="px-5 pb-5">
                             <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider">Despesas por categoria</h4>

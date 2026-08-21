@@ -41,7 +41,7 @@ const ComboioSaidaModal = ({
     const [obraStatus, setObraStatus] = useState(null);
 
     const availableMachines = useMemo(() => vehicles.filter(v => !v.isComboioVehicle && v.id !== comboioVehicle?.id).sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles, comboioVehicle]);
-    const sortedObras = useMemo(() => obras.filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
+    const sortedObras = useMemo(() => obras.filter(o => ['ativa', 'mobilizacao'].includes(o.status)).sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedEmployees = useMemo(() => employees.sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.receivingVehicleId), [formData.receivingVehicleId, vehicles]);
 
@@ -221,7 +221,7 @@ const ComboioSaidaModal = ({
                 odometro: parseFloat(data.odometro) || null,
                 horimetro: parseFloat(data.horimetro) || null,
                 liters: parseFloat(data.liters),
-                date: new Date(data.date + 'T12:00:00Z').toISOString(),
+                date: new Date(data.date + 'T12:00:00-03:00').toISOString(),
                 fuelType: data.fuelType,
                 obraId: data.obraId,
                 employeeId: data.employeeId,

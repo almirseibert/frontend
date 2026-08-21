@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone, EyeOff, Eye, Clock, Ban, Unlock, ChevronDown, ChevronRight } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
@@ -8,6 +8,10 @@ import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import ConfirmRefuelingModal from '../components/modals/ConfirmRefuelingModal';
 import SearchableSelect from '../components/SearchableSelect';
+import TerceirizadoBadge, { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
+import { resolveOrderPartnerName, getVehicleTerceiroName } from '../utils/partners';
+import { OrderDeliveryBadge, ReenviarOrdemButton, useOrderDeliveryStatus } from '../components/OrderDeliveryBadge';
+import { useData } from '../contexts/DataContext';
 
 const RefuelingPage = ({
     user,
@@ -124,6 +128,43 @@ const RefuelingPage = ({
             .slice(0, 20); 
     }, [refuelings, latestOrdersSearchTerm, vehicles]);
 
+    // ─── Status de entrega das ordens (chegou ao posto?) ────────────────────
+    // Antes disso, uma ordem que falhou no WhatsApp era visualmente idêntica a
+    // uma entregue — ninguém ficava sabendo que o posto não recebeu.
+    const { socket } = useData();
+    const [deliveryRefreshKey, setDeliveryRefreshKey] = useState(0);
+
+    const authNumbersVisiveis = useMemo(
+        () => [...openRefuelings, ...latestRefuelings]
+            .map(o => o.authNumber)
+            .filter(n => n != null),
+        [openRefuelings, latestRefuelings]
+    );
+
+    const { statusMap: deliveryMap, recarregar: recarregarEntrega } =
+        useOrderDeliveryStatus(authNumbersVisiveis, deliveryRefreshKey);
+
+    // O envio acontece depois da resposta do POST, então o status muda sozinho:
+    // o backend avisa por socket e nós refazemos a consulta.
+    useEffect(() => {
+        if (!socket) return;
+        const bump = () => setDeliveryRefreshKey(k => k + 1);
+        socket.on('ordem:falha_envio', bump);
+        socket.on('ordem:envio_recuperado', bump);
+        return () => {
+            socket.off('ordem:falha_envio', bump);
+            socket.off('ordem:envio_recuperado', bump);
+        };
+    }, [socket]);
+
+    // Uma ordem recém-emitida leva alguns segundos para ter o envio concluído.
+    // Uma releitura curta evita que o badge fique preso em "Enviando...".
+    useEffect(() => {
+        if (authNumbersVisiveis.length === 0) return;
+        const t = setTimeout(() => setDeliveryRefreshKey(k => k + 1), 8000);
+        return () => clearTimeout(t);
+    }, [authNumbersVisiveis.length]);
+
     const sortedVehicles = useMemo(() => {
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
@@ -188,16 +229,25 @@ const RefuelingPage = ({
                         leituraValue = horiVal;
                     }
 
+                    const terceiroName = getVehicleTerceiroName(vehicle, partnersList);
+
                     const body = [
                         ['Data de Emissão', emissionDateStr],
                         ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
-                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}${terceirizadoPdfMark(vehicle)}`],
+                    ];
+
+                    if (vehicle?.isOutsourced) {
+                        body.push(['Terceiro (Locador)', terceiroName || 'Sem fornecedor vinculado']);
+                    }
+
+                    body.push(
                         ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
                         [leituraLabel, `${leituraValue}`],
-                        ['Posto Autorizado', partner?.razaoSocial || order.partnerName || 'N/A'],
+                        ['Posto Autorizado', resolveOrderPartnerName(partner, order.partnerName)],
                         ['Combustível Autorizado', order.fuelType || 'N/A'],
                         ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
-                    ];
+                    );
 
                     if (order.needsArla) {
                         body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
@@ -416,7 +466,7 @@ const RefuelingPage = ({
                                     {hiddenRefuelings.map(order => {
                                         const vehicle = vehicles.find(v => v.id === order.vehicleId);
                                         const obra = obras.find(o => o.id === order.obraId);
-                                        const displayPartner = order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || 'N/A';
+                                        const displayPartner = resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName);
                                         const isBloqueada = order.status === 'BloqueadoLeitura' || order.status === 'BloqueadoOrcamento';
                                         const agendada = formatDateTimeSafe(order.revealAt);
                                         const busy = reservadaBusyId === order.id;
@@ -535,14 +585,30 @@ const RefuelingPage = ({
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <div style={{ fontWeight: 700, fontSize: 16, color: '#3d3528' }}>#{String(order.authNumber).padStart(6, '0')}</div>
-                                                <p style={{ fontSize: 13, fontWeight: 600, color: '#6a5e4e' }}>{vehicle?.registroInterno} — {vehicle?.placa}</p>
+                                                <p className="flex items-center gap-1" style={{ fontSize: 13, fontWeight: 600, color: '#6a5e4e' }}>
+                                                    {vehicle?.registroInterno} — {vehicle?.placa}
+                                                    <TerceirizadoBadge vehicle={vehicle} />
+                                                </p>
+                                                {vehicle?.isOutsourced && (
+                                                    <p style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }}>
+                                                        {getVehicleTerceiroName(vehicle, partners) || 'Terceiro sem fornecedor vinculado'}
+                                                    </p>
+                                                )}
                                                 <p style={{ fontSize: 11, color: '#9a8a78', marginBottom: 2 }}>{formatDateSafe(order.data || order.date)}</p>
-                                                <p style={{ fontSize: 11, color: '#b0a090' }}>{order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || '...'}</p>
+                                                <p style={{ fontSize: 11, color: '#b0a090' }}>{resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName, '...')}</p>
                                                 {isBloqueada && (
                                                     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 9999, background: '#fdf0ec', color: '#b03828', border: '1px solid #e8c8bc', display: 'inline-block', marginTop: 4 }}>
                                                         ⛔ Aguardando Administrador
                                                     </span>
                                                 )}
+                                                <div className="flex items-center gap-1" style={{ marginTop: 4 }}>
+                                                    <OrderDeliveryBadge info={deliveryMap[String(order.authNumber)]} />
+                                                    <ReenviarOrdemButton
+                                                        info={deliveryMap[String(order.authNumber)]}
+                                                        setAlertMessage={setAlertMessage}
+                                                        onDone={recarregarEntrega}
+                                                    />
+                                                </div>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 {!isBloqueada && (
@@ -605,20 +671,39 @@ const RefuelingPage = ({
                                 <tbody className="divide-y">
                                     {latestRefuelings.map(order => {
                                         const vehicle = vehicles.find(v => v.id === order.vehicleId);
-                                        const displayPartner = order.partnerName || partners.find(p => p.id === order.partnerId)?.razaoSocial || 'N/A';
-                                        
+                                        const displayPartner = resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName);
+                                        const terceiroName = getVehicleTerceiroName(vehicle, partners);
+
                                         return (
                                             <tr key={order.id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
                                                 <td className="p-3">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                                        {order.status}
-                                                    </span>
+                                                    <div className="flex flex-col gap-1 items-start">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                            {order.status}
+                                                        </span>
+                                                        <OrderDeliveryBadge info={deliveryMap[String(order.authNumber)]} />
+                                                    </div>
                                                 </td>
                                                 <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
-                                                <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
-                                                <td className="p-3 truncate max-w-[150px]">{displayPartner}</td>
+                                                <td className="p-3">
+                                                    <div className="flex items-center gap-1">
+                                                        <span>{vehicle?.registroInterno} - {vehicle?.placa}</span>
+                                                        <TerceirizadoBadge vehicle={vehicle} />
+                                                    </div>
+                                                    {vehicle?.isOutsourced && (
+                                                        <div style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }} title="Terceiro (Locador)">
+                                                            {terceiroName || 'Sem fornecedor vinculado'}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="p-3 truncate max-w-[150px]" title={displayPartner}>{displayPartner}</td>
                                                 <td className="p-3 text-right flex justify-end gap-1">
+                                                    <ReenviarOrdemButton
+                                                        info={deliveryMap[String(order.authNumber)]}
+                                                        setAlertMessage={setAlertMessage}
+                                                        onDone={recarregarEntrega}
+                                                    />
                                                     <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
                                                         {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
                                                     </button>
@@ -646,8 +731,12 @@ const RefuelingPage = ({
                                     items={sortedVehicles}
                                     value={selectedVehicleId}
                                     onChange={(item) => setSelectedVehicleId(item?.id || '')}
-                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
-                                    getSubLabel={(v) => v.modelo || ''}
+                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}${terceirizadoPdfMark(v)}`}
+                                    getSubLabel={(v) => {
+                                        const terceiro = getVehicleTerceiroName(v, partners);
+                                        if (v.isOutsourced) return terceiro ? `3º ${terceiro}` : (v.modelo || '');
+                                        return v.modelo || '';
+                                    }}
                                     placeholder="-- Selecione o Veículo --"
                                 />
                             </div>
@@ -688,7 +777,8 @@ const RefuelingPage = ({
             )}
 
             {isConfirmModalOpen && orderToConfirm && (
-                <ConfirmRefuelingModal 
+                <ConfirmRefuelingModal
+                    key={orderToConfirm.id}
                     user={user}
                     order={orderToConfirm}
                     obras={obras}

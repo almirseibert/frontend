@@ -1,5 +1,5 @@
 ﻿import React, { useMemo, useState, useEffect } from 'react';
-import { X, Loader, MapPin, Wrench, FileText, AlertTriangle, User, ArrowRight, Disc } from 'lucide-react';
+import { X, Loader, MapPin, Wrench, FileText, AlertTriangle, User, ArrowRight, Disc, Droplet, Fuel } from 'lucide-react';
 import { formatObraNome } from '../utils/obraFormat';
 
 const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] }) => {
@@ -88,6 +88,50 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
 
         return uniqueHistory;
     }, [historySource]);
+
+    // --- ABA ABASTECIMENTO ---
+    const [activeTab, setActiveTab] = useState('eventos');
+    const [refuelings, setRefuelings] = useState(null); // null = ainda não buscado
+    const [refuelingsLoading, setRefuelingsLoading] = useState(false);
+
+    // Busca sob demanda: só quando a aba Abastecimento é aberta pela 1ª vez.
+    useEffect(() => {
+        if (activeTab !== 'abastecimento' || refuelings !== null || !vehicle || !apiClient) return;
+        let cancelled = false;
+        setRefuelingsLoading(true);
+        apiClient.getRefuelingsByVehicle(vehicle.id)
+            .then(rows => { if (!cancelled) setRefuelings(Array.isArray(rows) ? rows : []); })
+            .catch(err => { console.error('Erro ao carregar abastecimentos:', err); if (!cancelled) setRefuelings([]); })
+            .finally(() => { if (!cancelled) setRefuelingsLoading(false); });
+        return () => { cancelled = true; };
+    }, [activeTab, refuelings, vehicle, apiClient]);
+
+    const refuelingRows = useMemo(() => {
+        if (!Array.isArray(refuelings)) return [];
+        const toTime = (r) => {
+            const d = new Date(String(r.data || r.date || 0).replace(' ', 'T'));
+            return isNaN(d.getTime()) ? 0 : d.getTime();
+        };
+        return [...refuelings]
+            .filter(r => !r.status || r.status === 'Concluída')
+            .sort((a, b) => toTime(b) - toTime(a));
+    }, [refuelings]);
+
+    // Leitura declarada no abastecimento: odômetro (Km) ou horímetro (h).
+    const formatDeclaredReading = (r) => {
+        const odo = parseFloat(r.odometro || 0);
+        const hor = parseFloat(r.horimetro || 0);
+        if (odo > 0) return `${odo.toLocaleString('pt-BR')} Km`;
+        if (hor > 0) return `${hor.toLocaleString('pt-BR')} h`;
+        return '—';
+    };
+
+    const formatRefuelDate = (r) => {
+        const raw = r.data || r.date;
+        if (!raw) return 'N/A';
+        const d = new Date(String(raw).replace(' ', 'T'));
+        return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('pt-BR');
+    };
 
     const renderHistoryDetail = (h) => {
         const details = h.details || {};
@@ -210,14 +254,65 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
             <div className="mak-modal max-w-3xl">
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
                     <div>
-                        <h3 className="text-base font-bold text-gray-800">Histórico de Eventos</h3>
+                        <h3 className="text-base font-bold text-gray-800">Histórico do Veículo</h3>
                         <p className="text-[10px] text-gray-500 font-mono">{vehicle.registroInterno} • {vehicle.placa}</p>
                     </div>
                      <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-200 transition"><X size={16}/></button>
                 </div>
-                
+
+                {/* Abas */}
+                <div className="flex gap-1 px-3 pt-2 bg-gray-50 border-b border-gray-100">
+                    <button
+                        onClick={() => setActiveTab('eventos')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-t-md transition ${activeTab === 'eventos' ? 'bg-white text-gray-800 border border-b-0 border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <FileText size={13}/> Eventos
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('abastecimento')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-t-md transition ${activeTab === 'abastecimento' ? 'bg-white text-gray-800 border border-b-0 border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <Fuel size={13}/> Abastecimento
+                    </button>
+                </div>
+
                 <div className="p-3 flex-1 overflow-y-auto custom-scrollbar">
-                    {loading ? (
+                    {activeTab === 'abastecimento' ? (
+                        refuelingsLoading ? (
+                            <div className="flex flex-col justify-center items-center h-20 text-xs">
+                                <Loader className="animate-spin text-yellow-500 mb-2" size={20} />
+                                <span className="text-gray-500">A carregar abastecimentos...</span>
+                            </div>
+                        ) : refuelingRows.length > 0 ? (
+                            <div className="overflow-hidden border rounded-lg">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-100 text-gray-600 font-bold text-[10px] uppercase sticky top-0">
+                                        <tr>
+                                            <th className="p-2.5">Data</th>
+                                            <th className="p-2.5">Posto</th>
+                                            <th className="p-2.5 text-right">Leitura declarada</th>
+                                            <th className="p-2.5 text-right">Litros</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 bg-white">
+                                        {refuelingRows.map((r, i) => (
+                                            <tr key={r.id || i} className="hover:bg-blue-50/40 transition-colors">
+                                                <td className="p-2.5 whitespace-nowrap text-gray-700">{formatRefuelDate(r)}</td>
+                                                <td className="p-2.5 truncate max-w-[160px] text-gray-600" title={r.partnerName || ''}>{r.partnerName || 'N/A'}</td>
+                                                <td className="p-2.5 text-right font-mono text-gray-700">{formatDeclaredReading(r)}</td>
+                                                <td className="p-2.5 text-right font-bold text-gray-800">{parseFloat(r.litrosAbastecidos || 0).toFixed(2)} L</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                                <Droplet size={32} className="mb-2 opacity-50"/>
+                                <p className="text-sm">Nenhum abastecimento registrado para este veículo.</p>
+                            </div>
+                        )
+                    ) : loading ? (
                         <div className="flex flex-col justify-center items-center h-20 text-xs">
                             <Loader className="animate-spin text-yellow-500 mb-2" size={20} />
                             <span className="text-gray-500">A procurar histórico completo...</span>

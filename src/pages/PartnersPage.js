@@ -8,6 +8,15 @@ import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// Normaliza e formata um CPF conforme o usuário digita: 000.000.000-00
+const formatCPF = (value) => {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
+    return digits
+        .replace(/^(\d{3})(\d)/, '$1.$2')
+        .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+        .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4');
+};
+
 // --- Página de Parceiros (Postos e Fornecedores) ---
 const PartnersPage = ({
     user, partners = [], vehicles = [], refuelings = [], comboioTransactions = [],
@@ -84,6 +93,7 @@ const PartnersPage = ({
         if (filterText) {
             filteredItems = filteredItems.filter(partner =>
                 (partner.razaoSocial || '').toLowerCase().includes(filterText.toLowerCase()) ||
+                (partner.nomeFantasia || '').toLowerCase().includes(filterText.toLowerCase()) ||
                 (partner.cidade || '').toLowerCase().includes(filterText.toLowerCase()) ||
                 (partner.cnpj || '').includes(filterText)
             );
@@ -123,7 +133,7 @@ const PartnersPage = ({
                 <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">Postos & Fornecedores</h1>
                 <ProtectedComponent requiredPermission="editor">
                     <button onClick={() => openModal()} className="flex items-center gap-2 px-3 py-2 mak-btn mak-btn-primary">
-                        <PlusCircle size={18} /> Cadastrar {activeTab === 'posto' ? 'Posto' : 'Fornecedor'}
+                        <PlusCircle size={18} /> Cadastrar {activeTab === 'posto' ? 'Posto' : activeTab === 'locador' ? 'Locador' : 'Fornecedor'}
                     </button>
                 </ProtectedComponent>
             </div>
@@ -141,6 +151,12 @@ const PartnersPage = ({
                     className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'fornecedor' ? 'border-b-2 border-[#9E7A42] text-[#9E7A42] bg-yellow-50' : 'text-[#9a8a78] hover:text-[#6a5e4e] hover:bg-gray-50'}`}
                 >
                     <PackageOpen size={16} /> Peças & Serviços (Fornecedores)
+                </button>
+                <button
+                    onClick={() => setActiveTab('locador')}
+                    className={`py-3 px-4 font-bold text-sm flex items-center gap-2 whitespace-nowrap transition-colors ${activeTab === 'locador' ? 'border-b-2 border-[#9E7A42] text-[#9E7A42] bg-yellow-50' : 'text-[#9a8a78] hover:text-[#6a5e4e] hover:bg-gray-50'}`}
+                >
+                    <Truck size={16} /> Locadores (Equip. Terceirizados)
                 </button>
             </div>
 
@@ -173,7 +189,20 @@ const PartnersPage = ({
                 {filteredAndSortedPartners.map(partner => (
                     <div key={partner.id} className={`grid grid-cols-1 md:grid-cols-8 gap-y-2 gap-x-4 items-center p-3 md:p-4 border-b last:border-b-0 hover:bg-gray-50 text-sm ${partner.status_operacional === 'BLOQUEADO' ? 'bg-red-50' : ''}`}>
                         <div className="md:col-span-2">
-                            <p className="font-bold text-gray-900">{partner.razaoSocial}</p>
+                            <p className="font-bold text-gray-900 flex items-center gap-1.5 flex-wrap">
+                                {partner.nomeFantasia || partner.razaoSocial}
+                                {!!partner.is_oficina && (
+                                    <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full" title="Executa serviços de manutenção — aparece na triagem dos relatos">
+                                        OFICINA
+                                    </span>
+                                )}
+                                {!!partner.is_interno && (
+                                    <span className="text-[9px] font-bold text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded-full" title="Cadastro mantido pelo sistema">
+                                        INTERNO
+                                    </span>
+                                )}
+                            </p>
+                            {partner.nomeFantasia && <p className="text-xs text-gray-500 mt-0.5">{partner.razaoSocial}</p>}
                             <p className="text-xs text-gray-500 mt-0.5">{partner.endereco}</p>
                             <p className="text-xs text-gray-400 mt-0.5">{partner.cnpj}</p>
                         </div>
@@ -193,6 +222,13 @@ const PartnersPage = ({
                             )}
                         </div>
                         
+                        {/* A oficina própria é um cadastro-espelho mantido pelo sistema:
+                            editar ou excluir quebraria a geração de ordens do relato. */}
+                        {partner.is_interno ? (
+                            <div className="md:col-span-2 flex justify-start md:justify-center mt-2 md:mt-0">
+                                <span className="text-[10px] text-gray-400 italic">Cadastro mantido pelo sistema</span>
+                            </div>
+                        ) : (
                         <div className="md:col-span-2 flex flex-wrap gap-1 justify-start md:justify-center mt-2 md:mt-0">
                             {activeTab === 'posto' && (
                                 <button onClick={() => openReportModal(partner)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-full" title="Relatório de Abastecimentos"><FileText size={14} /></button>
@@ -214,6 +250,7 @@ const PartnersPage = ({
                                 <button onClick={() => openDeleteModal(partner.id)} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-full"><Trash2 size={14}/></button>
                             </ProtectedComponent>
                         </div>
+                        )}
                     </div>
                 ))}
                 {filteredAndSortedPartners.length === 0 && (
@@ -257,23 +294,35 @@ const PartnersPage = ({
 const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, apiClient, reloadData }) => {
     const [formData, setFormData] = useState({
         razaoSocial: partner?.razaoSocial || '',
+        nomeFantasia: partner?.nomeFantasia || '',
+        tipoPessoa: partner?.tipoPessoa === 'fisica' ? 'fisica' : 'juridica',
         cnpj: partner?.cnpj || '',
         inscricaoEstadual: partner?.inscricaoEstadual || '',
         endereco: partner?.endereco || '',
+        bairro: partner?.bairro || '',
+        cep: partner?.cep || '',
         cidade: partner?.cidade || '',
         telefone: partner?.telefone || '',
         whatsapp: partner?.whatsapp || '',
         email: partner?.email || '',
         contatoResponsavel: partner?.contatoResponsavel || '',
+        representanteLegalNome: partner?.representanteLegalNome || '',
+        representanteLegalCpf: partner?.representanteLegalCpf || '',
+        chavePix: partner?.chavePix || '',
         tipo_parceiro: partner?.tipo_parceiro || defaultTipo || 'posto',
         envia_por_whatsapp: !!(partner?.envia_por_whatsapp ?? 0),
         envia_por_email:    !!(partner?.envia_por_email    ?? 0),
+        // Fornecedor que executa manutenção. Continua tipo_parceiro='fornecedor'
+        // — é só uma marca extra para o seletor de executor dos relatos.
+        is_oficina:         !!(partner?.is_oficina         ?? 0),
     });
     const [isSaving, setIsSaving] = useState(false);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+        let novoValor = type === 'checkbox' ? checked : value;
+        if (name === 'representanteLegalCpf') novoValor = formatCPF(value);
+        setFormData(prev => ({ ...prev, [name]: novoValor }));
     };
 
     const handleSubmit = async (e) => {
@@ -285,6 +334,8 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
         // Converte os checkboxes para 1/0 (esperado pelo banco). Strings vazias viram null.
         dataToSave.envia_por_whatsapp = dataToSave.envia_por_whatsapp ? 1 : 0;
         dataToSave.envia_por_email    = dataToSave.envia_por_email    ? 1 : 0;
+        // Só fornecedor pode ser oficina — trocar a categoria limpa a marca.
+        dataToSave.is_oficina = (dataToSave.tipo_parceiro === 'fornecedor' && dataToSave.is_oficina) ? 1 : 0;
         Object.keys(dataToSave).forEach(key => { if (dataToSave[key] === '') dataToSave[key] = null; });
 
         try {
@@ -322,18 +373,60 @@ const PartnerModal = ({ user, partner, defaultTipo, onClose, setAlertMessage, ap
                             <div className="flex gap-4">
                                 <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipo_parceiro" value="posto" checked={formData.tipo_parceiro === 'posto'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Posto de Combustível</label>
                                 <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipo_parceiro" value="fornecedor" checked={formData.tipo_parceiro === 'fornecedor'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Fornecedor (Peças, Serviços, etc)</label>
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipo_parceiro" value="locador" checked={formData.tipo_parceiro === 'locador'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Locador (Equip. Terceirizados)</label>
                             </div>
                         </div>
 
-                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Razão Social / Fantasia *</label><input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} required className="mt-1 p-2 border rounded w-full bg-white focus:ring-2 focus:ring-yellow-500 outline-none" /></div>
-                        <div><label className="block font-medium text-gray-700">CNPJ / CPF</label><input name="cnpj" value={formData.cnpj} onChange={handleChange} placeholder="00.000.000/0000-00" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Razão Social *</label><input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} required placeholder="Nome completo / razão social (vai por extenso no contrato)" className="mt-1 p-2 border rounded w-full bg-white focus:ring-2 focus:ring-yellow-500 outline-none" /></div>
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Nome Fantasia (exibição no sistema)</label><input name="nomeFantasia" value={formData.nomeFantasia} onChange={handleChange} placeholder="Nome curto para as telas do sistema" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div>
+                            <label className="block font-medium text-gray-700">Tipo de Pessoa</label>
+                            <div className="mt-1 flex gap-4">
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipoPessoa" value="juridica" checked={formData.tipoPessoa !== 'fisica'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Pessoa Jurídica (CNPJ)</label>
+                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="tipoPessoa" value="fisica" checked={formData.tipoPessoa === 'fisica'} onChange={handleChange} className="text-yellow-500 focus:ring-yellow-500" /> Pessoa Física (CPF)</label>
+                            </div>
+                        </div>
+                        <div><label className="block font-medium text-gray-700">{formData.tipoPessoa === 'fisica' ? 'CPF' : 'CNPJ'}</label><input name="cnpj" value={formData.cnpj} onChange={handleChange} placeholder={formData.tipoPessoa === 'fisica' ? '000.000.000-00' : '00.000.000/0000-00'} className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">Inscrição Estadual</label><input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Endereço Completo</label><input name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, Número, Bairro" className="mt-1 p-2 border rounded w-full bg-white" /></div>
-                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Cidade - UF</label><input name="cidade" value={formData.cidade} onChange={handleChange} placeholder="Lajeado - RS" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">CEP</label><input name="cep" value={formData.cep} onChange={handleChange} placeholder="00000-000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div className="md:col-span-2"><label className="block font-medium text-gray-700">Endereço (Logradouro e Número)</label><input name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, Número" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Bairro</label><input name="bairro" value={formData.bairro} onChange={handleChange} placeholder="Centro" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Cidade - UF</label><input name="cidade" value={formData.cidade} onChange={handleChange} placeholder="Lajeado - RS" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">Telefone Fixo</label><input name="telefone" value={formData.telefone} onChange={handleChange} placeholder="(00) 0000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">WhatsApp</label><input name="whatsapp" value={formData.whatsapp} onChange={handleChange} placeholder="(00) 90000-0000" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">E-mail</label><input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="contato@empresa.com" className="mt-1 p-2 border rounded w-full bg-white" /></div>
                         <div><label className="block font-medium text-gray-700">Contato Responsável (Nome)</label><input name="contatoResponsavel" value={formData.contatoResponsavel} onChange={handleChange} placeholder="Falar com..." className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                        <div><label className="block font-medium text-gray-700">Chave Pix</label><input name="chavePix" value={formData.chavePix} onChange={handleChange} placeholder="CPF, CNPJ, e-mail, telefone ou aleatória" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+
+                        <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-3 mt-1">
+                            <label className="block font-bold text-gray-800 mb-2 text-xs uppercase tracking-wide">Representante Legal (assinante do contrato) — opcional</label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                                <div><label className="block font-medium text-gray-700">Nome do representante</label><input name="representanteLegalNome" value={formData.representanteLegalNome} onChange={handleChange} placeholder="Quem assina pela empresa" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                                <div><label className="block font-medium text-gray-700">CPF do representante</label><input name="representanteLegalCpf" value={formData.representanteLegalCpf} onChange={handleChange} placeholder="000.000.000-00" className="mt-1 p-2 border rounded w-full bg-white" /></div>
+                            </div>
+                            <p className="text-[11px] text-gray-500 mt-2">Se preenchido, entra automaticamente na qualificação da CONTRATADA no contrato. Pode ser sobrescrito no próprio contrato.</p>
+                        </div>
+
+                        {formData.tipo_parceiro === 'fornecedor' && (
+                            <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+                                <label className="flex items-start gap-2 cursor-pointer text-sm">
+                                    <input
+                                        type="checkbox"
+                                        name="is_oficina"
+                                        checked={!!formData.is_oficina}
+                                        onChange={handleChange}
+                                        className="w-4 h-4 accent-blue-600 mt-0.5"
+                                    />
+                                    <span>
+                                        <strong>Executa serviços de manutenção (oficina)</strong>
+                                        <span className="block text-xs text-blue-800 mt-0.5">
+                                            Marque para que este fornecedor apareça como executor na triagem dos
+                                            Relatos de Ocorrência. Continua disponível normalmente nas Ordens de Compra/Serviço.
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                        )}
 
                         {formData.tipo_parceiro === 'posto' && (
                             <div className="md:col-span-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-2">

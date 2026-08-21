@@ -1,5 +1,20 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, MapPin, Clock, Truck, Plus, Trash2, DollarSign, User, ClipboardList } from 'lucide-react';
+import { X, Loader, MapPin, Clock, Plus, Trash2, DollarSign, User, ClipboardList, Users, Star } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
+import { vehicleSubTypes } from '../../utils/vehicleRules';
+import SearchableCitySelect from '../SearchableCitySelect';
+import { cidadePorNome } from '../../utils/geo';
+import { rankOperatorsForObra } from '../../utils/geoSuggest';
+
+// Ciclo de vida de planejamento — transições automáticas:
+// radar (criada) → planejada (contrato de horas) → mobilização (1ª alocação) → ativa (1º lançamento de horas)
+const OBRA_FASES = [
+    { value: 'radar',       label: 'No radar (cadastrada, sem contrato)' },
+    { value: 'planejada',   label: 'Plano definido (plano de trabalho registrado)' },
+    { value: 'mobilizacao', label: 'Em mobilização (equipamento alocado)' },
+    { value: 'ativa',       label: 'Em operação (apontando horas)' },
+];
+const PRE_ACTIVE_STATUSES = ['radar', 'planejada', 'mobilizacao'];
 
 const ObraModal = ({
     user,
@@ -17,9 +32,10 @@ const ObraModal = ({
     const [nome, setNome] = useState('');
     const [responsavel, setResponsavel] = useState('');
     const [responsavelEmail, setResponsavelEmail] = useState('');
+    const [responsavelWhatsapp, setResponsavelWhatsapp] = useState('');
+    const [internalContacts, setInternalContacts] = useState([]);
     const [fiscal, setFiscal] = useState('');
     const [contractType, setContractType] = useState('horas'); // 'horas' | 'metrosQuadrados'
-    const [dataInicio, setDataInicio] = useState(new Date().toISOString().split('T')[0]);
     const [dataFim, setDataFim] = useState('');
     const [latitude, setLatitude] = useState('');
     const [longitude, setLongitude] = useState('');
@@ -37,8 +53,22 @@ const ObraModal = ({
 
     const [orgaoContratante, setOrgaoContratante] = useState('');
     const [regiao, setRegiao] = useState('');
+    const [cidadeIbge, setCidadeIbge] = useState('');
+
+    // --- ESTADOS DE PLANEJAMENTO (pré-obra) ---
+    // Na criação a obra sempre nasce 'radar' e sobe de fase por gatilho; o seletor
+    // de fase só aparece na edição (regressão manual do admin).
+    const [statusObra, setStatusObra] = useState('radar');
+    const [dataInicioPrevisto, setDataInicioPrevisto] = useState('');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Contatos internos (para vincular WhatsApp do responsável da obra)
+    useEffect(() => {
+        apiClient.getInternalContacts()
+            .then(data => setInternalContacts(Array.isArray(data) ? data : []))
+            .catch(() => setInternalContacts([]));
+    }, []);
 
     // --- INICIALIZAÇÃO (Modo Edição) ---
     useEffect(() => {
@@ -47,23 +77,28 @@ const ObraModal = ({
             setNome(obra.nome || '');
             setResponsavel(obra.responsavel || '');
             setResponsavelEmail(obra.responsavel_email || '');
+            setResponsavelWhatsapp(obra.responsavel_whatsapp || '');
             setFiscal(obra.fiscal || '');
             setContractType(obra.contractType || 'horas');
-            setDataInicio(obra.dataInicio ? new Date(obra.dataInicio).toISOString().split('T')[0] : '');
-            setDataFim(obra.dataFim ? new Date(obra.dataFim).toISOString().split('T')[0] : '');
+            // Previsão de fim agora vive em dataFimPrevisto; dataFim antigo serve de fallback
+            const fimPrev = obra.dataFimPrevisto || (obra.status !== 'finalizada' ? obra.dataFim : null);
+            setDataFim(fimPrev ? new Date(fimPrev).toISOString().split('T')[0] : '');
             setLatitude(obra.latitude || '');
             setLongitude(obra.longitude || '');
             setOrgaoContratante(obra.orgao_contratante || '');
             setRegiao(obra.regiao || '');
-            
-            // Restaura Contrato por Horas
-            const horasParsed = typeof obra.horasContratadasPorTipo === 'string' 
-                ? JSON.parse(obra.horasContratadasPorTipo) 
-                : (obra.horasContratadasPorTipo || {});
-            
-            const valoresParsed = typeof obra.valoresPorTipo === 'string'
-                ? JSON.parse(obra.valoresPorTipo)
-                : (obra.valoresPorTipo || {});
+            setCidadeIbge(obra.cidade_ibge || cidadePorNome(obra.local)?.codigo_ibge || '');
+
+            setStatusObra(obra.status && obra.status !== 'finalizada' ? obra.status : 'ativa');
+            setDataInicioPrevisto(obra.dataInicioPrevisto ? new Date(obra.dataInicioPrevisto).toISOString().split('T')[0] : '');
+
+            // Restaura Contrato por Horas — prefere o plano por SUBGRUPO; legado por grupo como fallback
+            const parseMaybe = (v) => (typeof v === 'string' ? JSON.parse(v) : (v || {}));
+            const horasSubParsed = parseMaybe(obra.horasContratadasPorSubTipo);
+            const usaSubTipo = Object.keys(horasSubParsed).length > 0;
+
+            const horasParsed = usaSubTipo ? horasSubParsed : parseMaybe(obra.horasContratadasPorTipo);
+            const valoresParsed = usaSubTipo ? parseMaybe(obra.valoresPorSubTipo) : parseMaybe(obra.valoresPorTipo);
 
             const items = Object.keys(horasParsed).map(type => ({
                 type,
@@ -83,6 +118,36 @@ const ObraModal = ({
             setContractedItems([]);
         }
     }, [obra]);
+
+    // Opções de equipamento: expande cada grupo cobrável nos seus subgrupos;
+    // grupo sem subgrupos entra como opção direta (mesma regra do backend).
+    const equipmentOptions = useMemo(() => {
+        const opts = [];
+        equipmentTypesForHours.forEach(tipo => {
+            const subs = vehicleSubTypes[tipo];
+            if (Array.isArray(subs) && subs.length > 0) opts.push(...subs);
+            else opts.push(tipo);
+        });
+        return [...new Set(opts)].sort();
+    }, [equipmentTypesForHours]);
+
+    // Seleção de cidade (RS/IBGE): grava código + preenche lat/long com o centroide
+    // quando ainda vazias (mantém coordenada manual se já existir).
+    const handleCitySelect = (city) => {
+        if (!city) {
+            setCidadeIbge('');
+            return;
+        }
+        setCidadeIbge(city.codigo_ibge);
+        if (!latitude) setLatitude(String(city.lat));
+        if (!longitude) setLongitude(String(city.lng));
+    };
+
+    // Colaboradores mais próximos da obra (por cidade/coordenada) — sugestão ao cadastrar.
+    const colaboradoresProximos = useMemo(() => {
+        const pseudoObra = { latitude, longitude, cidade_ibge: cidadeIbge };
+        return rankOperatorsForObra(pseudoObra, employees, { incluirInativos: false }).slice(0, 6);
+    }, [latitude, longitude, cidadeIbge, employees]);
 
     // --- CÁLCULO DO VALOR TOTAL ---
     const totalValue = useMemo(() => {
@@ -140,41 +205,70 @@ const ObraModal = ({
             nome,
             responsavel,
             responsavel_email: responsavelEmail || null,
+            responsavel_whatsapp: responsavelWhatsapp || null,
             fiscal,
             contractType,
-            dataInicio,
-            dataFim: dataFim || null,
+            // dataInicio não é enviado: o backend o deriva de MIN(date) dos lançamentos de horas.
+            dataFimPrevisto: dataFim || null,
+            dataInicioPrevisto: dataInicioPrevisto || null,
+            status: tipoRegistro === 'centro_custo' ? 'ativa' : statusObra,
             latitude,
             longitude,
             kmContratadoPrancha: parseFloat(kmContratadoPrancha) || 0,
             valorKmPrancha: parseFloat(valorKmPrancha) || 0,
             valorTotalContrato: totalValue,
             orgao_contratante: orgaoContratante || null,
-            regiao: regiao || null
+            regiao: regiao || null,
+            cidade_ibge: cidadeIbge || null
         };
 
         if (contractType === 'horas') {
+            // Plano detalhado por SUBGRUPO (fonte de verdade do planejamento)
+            const horasSubObj = {};
+            const valoresSubObj = {};
+            // Agregado por GRUPO (compatibilidade com faturamento/relatórios legados)
+            const subToTipo = {};
+            Object.entries(vehicleSubTypes).forEach(([tipo, subs]) => {
+                (subs || []).forEach(s => { subToTipo[s] = tipo; });
+            });
             const horasObj = {};
-            const valoresObj = {};
-            
+            const valorPonderado = {};
+
             contractedItems.forEach(item => {
                 if (item.type) {
-                    horasObj[item.type] = parseFloat(item.hours) || 0;
-                    valoresObj[item.type] = parseFloat(item.price) || 0;
+                    const h = parseFloat(item.hours) || 0;
+                    const v = parseFloat(item.price) || 0;
+                    horasSubObj[item.type] = h;
+                    valoresSubObj[item.type] = v;
+
+                    const tipoPai = subToTipo[item.type] || item.type;
+                    horasObj[tipoPai] = (horasObj[tipoPai] || 0) + h;
+                    valorPonderado[tipoPai] = (valorPonderado[tipoPai] || 0) + h * v;
                 }
             });
 
+            const valoresObj = {};
+            Object.keys(horasObj).forEach(tipoPai => {
+                valoresObj[tipoPai] = horasObj[tipoPai] > 0
+                    ? Math.round((valorPonderado[tipoPai] / horasObj[tipoPai]) * 100) / 100
+                    : 0;
+            });
+
+            payload.horasContratadasPorSubTipo = horasSubObj;
+            payload.valoresPorSubTipo = valoresSubObj;
             payload.horasContratadasPorTipo = horasObj;
-            payload.valoresPorTipo = valoresObj; // Novo campo para salvar preços
-            payload.sectors = []; 
+            payload.valoresPorTipo = valoresObj;
+            payload.sectors = [];
         } else {
             payload.sectors = sectors.map(s => ({
                 ...s,
                 kmContratado: parseFloat(s.kmContratado) || 0,
                 price: parseFloat(s.price) || 0
             }));
-            payload.horasContratadasPorTipo = {}; 
+            payload.horasContratadasPorTipo = {};
             payload.valoresPorTipo = {};
+            payload.horasContratadasPorSubTipo = {};
+            payload.valoresPorSubTipo = {};
         }
 
         try {
@@ -249,7 +343,7 @@ const ObraModal = ({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                                    <User size={14}/> Responsável da Obra
+                                    <User size={14}/> Líder de Obra
                                 </label>
                                 {employees.length > 0 ? (
                                     <select
@@ -278,7 +372,28 @@ const ObraModal = ({
                                         placeholder="Nome do Responsável"
                                     />
                                 )}
-                                <p className="text-xs text-gray-400 mt-0.5">Recebe alertas de progresso da obra (30/50/70%) e de orçamento de combustível.</p>
+                                <p className="text-xs text-gray-400 mt-0.5">Recebe alertas da obra</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                    <User size={14}/> WhatsApp do Responsável
+                                </label>
+                                <select
+                                    value={responsavelWhatsapp}
+                                    onChange={(e) => setResponsavelWhatsapp(e.target.value)}
+                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                >
+                                    <option value="">— Nenhum —</option>
+                                    {internalContacts.filter(c => c.whatsapp).map(c => (
+                                        <option key={c.id} value={c.whatsapp}>
+                                            {c.nome}{c.cargo ? ` — ${c.cargo}` : ''}{c.setor ? ` (${c.setor})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {internalContacts.length === 0 && (
+                                    <p className="text-xs text-red-500 mt-0.5">Nenhum contato interno com WhatsApp. Cadastre em Administração → Contatos Internos.</p>
+                                )}
+                                <p className="text-xs text-gray-400 mt-0.5">Recebe alertas da obra</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
@@ -294,26 +409,75 @@ const ObraModal = ({
                             </div>
                         </div>
 
+                        {/* Fase (ciclo de vida de planejamento) — não se aplica a centro de custo */}
+                        {tipoRegistro !== 'centro_custo' && (
+                            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 space-y-3">
+                                {obra ? (
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Fase da Obra</label>
+                                        <select
+                                            value={statusObra}
+                                            onChange={(e) => setStatusObra(e.target.value)}
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                        >
+                                            {OBRA_FASES.map(f => (
+                                                <option key={f.value} value={f.value}>{f.label}</option>
+                                            ))}
+                                        </select>
+                                        {PRE_ACTIVE_STATUSES.includes(statusObra) && (
+                                            <p className="text-xs text-amber-700 mt-1">
+                                                Obra em fase de planejamento: fica fora dos fluxos operacionais e é ativada
+                                                automaticamente ao receber o primeiro equipamento.
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-amber-700">
+                                        A obra será criada <strong>no radar</strong> e avança de fase
+                                        automaticamente conforme os dados chegam: plano de trabalho registrado,
+                                        equipamento alocado e horas apontadas.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Data Início *</label>
-                                <input 
-                                    type="date" 
-                                    value={dataInicio} 
-                                    onChange={(e) => setDataInicio(e.target.value)} 
-                                    className="w-full p-2 border rounded" 
-                                    required 
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Início</label>
+                                <input
+                                    type="date"
+                                    value={dataInicioPrevisto}
+                                    onChange={(e) => setDataInicioPrevisto(e.target.value)}
+                                    className="w-full p-2 border rounded"
                                 />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    O início real é definido automaticamente pelo 1º lançamento de horas.
+                                </p>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Fim</label>
-                                <input 
-                                    type="date" 
-                                    value={dataFim} 
-                                    onChange={(e) => setDataFim(e.target.value)} 
-                                    className="w-full p-2 border rounded" 
+                                <input
+                                    type="date"
+                                    value={dataFim}
+                                    onChange={(e) => setDataFim(e.target.value)}
+                                    className="w-full p-2 border rounded"
                                 />
                             </div>
+                        </div>
+
+                        {/* Cidade (RS / IBGE) */}
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                <MapPin size={14} /> Cidade (RS)
+                            </label>
+                            <SearchableCitySelect
+                                value={cidadeIbge}
+                                onChange={handleCitySelect}
+                                placeholder="Buscar cidade do RS..."
+                            />
+                            <p className="text-[11px] text-gray-400 mt-1">
+                                Ao escolher a cidade, latitude/longitude são preenchidas com o centro do município (editável abaixo).
+                            </p>
                         </div>
 
                         {/* Órgão Contratante e Região */}
@@ -355,6 +519,34 @@ const ObraModal = ({
                                 <input type="text" value={longitude} onChange={(e) => setLongitude(e.target.value)} className="w-full p-2 border rounded" placeholder="-51.5678"/>
                             </div>
                         </div>
+
+                        {/* Colaboradores mais próximos da obra (sugestão) */}
+                        {colaboradoresProximos.length > 0 && (
+                            <div className="mt-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                <p className="text-xs font-bold text-gray-600 uppercase mb-2 flex items-center gap-1">
+                                    <Users size={13} /> Colaboradores mais próximos
+                                </p>
+                                <ul className="space-y-1">
+                                    {colaboradoresProximos.map(({ employee, distanciaKm, isLider, cidade }) => (
+                                        <li key={employee.id} className="flex items-center gap-2 text-sm">
+                                            {isLider
+                                                ? <Star size={13} className="text-yellow-500 flex-shrink-0" />
+                                                : <User size={13} className="text-gray-400 flex-shrink-0" />}
+                                            <span className="font-medium text-gray-800 truncate">
+                                                {employee.nome}{employee.vulgo ? ` (${employee.vulgo})` : ''}
+                                            </span>
+                                            <span className="text-gray-400 text-xs truncate">{cidade}</span>
+                                            <span className="ml-auto text-xs font-semibold text-gray-500 flex-shrink-0">
+                                                {distanciaKm.toFixed(0)} km
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                                <p className="text-[11px] text-gray-400 mt-2">
+                                    <Star size={10} className="inline text-yellow-500" /> = apto a liderar obra. Ordenado por distância da cidade de residência.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* 2. Configuração do Contrato */}
@@ -399,15 +591,15 @@ const ObraModal = ({
                                     {contractedItems.map((item, index) => (
                                         <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-white p-3 rounded border shadow-sm">
                                             <div className="w-full sm:flex-1">
-                                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Grupo de Veículo</label>
-                                                <select 
-                                                    value={item.type} 
-                                                    onChange={(e) => updateContractedItem(index, 'type', e.target.value)} 
+                                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (Subgrupo)</label>
+                                                <select
+                                                    value={item.type}
+                                                    onChange={(e) => updateContractedItem(index, 'type', e.target.value)}
                                                     className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-400 outline-none"
                                                 >
                                                     <option value="">Selecione...</option>
-                                                    {equipmentTypesForHours.map(t => (
-                                                        <option key={t} value={t}>{t}</option>
+                                                    {equipmentOptions.map(opt => (
+                                                        <option key={opt} value={opt}>{opt}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -423,13 +615,11 @@ const ObraModal = ({
                                             </div>
                                             <div className="w-1/2 sm:w-32">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor Unit. (R$)</label>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01"
-                                                    value={item.price} 
-                                                    onChange={(e) => updateContractedItem(index, 'price', e.target.value)} 
+                                                <CurrencyInput
+                                                    value={item.price}
+                                                    onChange={(e) => updateContractedItem(index, 'price', e.target.value)}
                                                     className="w-full p-2 border rounded text-sm"
-                                                    placeholder="0.00"
+                                                    placeholder="0,00"
                                                 />
                                             </div>
                                             <button type="button" onClick={() => removeContractedItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5">
@@ -455,13 +645,11 @@ const ObraModal = ({
                                         </div>
                                         <div className="flex-1">
                                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor Km (R$)</label>
-                                            <input 
-                                                type="number" 
-                                                step="0.01"
-                                                value={valorKmPrancha} 
-                                                onChange={(e) => setValorKmPrancha(e.target.value)} 
-                                                className="w-full p-2 border rounded text-sm" 
-                                                placeholder="0.00"
+                                            <CurrencyInput
+                                                value={valorKmPrancha}
+                                                onChange={(e) => setValorKmPrancha(e.target.value)}
+                                                className="w-full p-2 border rounded text-sm"
+                                                placeholder="0,00"
                                             />
                                         </div>
                                     </div>
@@ -506,13 +694,11 @@ const ObraModal = ({
                                             </div>
                                             <div className="w-1/2 sm:w-32">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Preço Unit. (R$)</label>
-                                                <input 
-                                                    type="number" 
-                                                    step="0.01"
-                                                    value={sector.price} 
-                                                    onChange={(e) => updateSector(idx, 'price', e.target.value)} 
-                                                    className="w-full p-2 border rounded text-sm" 
-                                                    placeholder="0.00"
+                                                <CurrencyInput
+                                                    value={sector.price}
+                                                    onChange={(e) => updateSector(idx, 'price', e.target.value)}
+                                                    className="w-full p-2 border rounded text-sm"
+                                                    placeholder="0,00"
                                                 />
                                             </div>
                                             <button type="button" onClick={() => removeSector(idx)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5">
@@ -539,13 +725,11 @@ const ObraModal = ({
                                         </div>
                                         <div className="flex-1">
                                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor Km (R$)</label>
-                                            <input 
-                                                type="number" 
-                                                step="0.01"
-                                                value={valorKmPrancha} 
-                                                onChange={(e) => setValorKmPrancha(e.target.value)} 
-                                                className="w-full p-2 border rounded text-sm" 
-                                                placeholder="0.00"
+                                            <CurrencyInput
+                                                value={valorKmPrancha}
+                                                onChange={(e) => setValorKmPrancha(e.target.value)}
+                                                className="w-full p-2 border rounded text-sm"
+                                                placeholder="0,00"
                                             />
                                         </div>
                                     </div>

@@ -1,660 +1,398 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
-    Loader, BarChart2, Clock, TrendingUp, TrendingDown, Minus, AlertTriangle,
-    DollarSign, Activity, Save, Gauge, Truck, FileDown, FileText, Info
+    BarChart2, Clock, AlertTriangle, Activity, Gauge, Truck, FileDown, FileText,
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import SearchableSelect from '../SearchableSelect';
-import { formatObraNome } from '../../utils/obraFormat';
 import DrillDownDiaModal from './DrillDownDiaModal';
+import {
+    C, fmtH, fmtPct, fmtDateBR, utilTone, aproveitamentoColor,
+} from './shared/tokens';
+import { KpiCard, UtilBar, StateBlock, Card } from './shared/ui';
+import { downloadCSV, downloadPDF } from './shared/exportUtils';
 
 // ============================================================================
-// Helpers
+// Aba "Visão física" (aproveitamento produtivo). Período/obra vêm do shell.
+// Visão sempre global (a análise por obra vive no card da obra) → obraId fixo.
 // ============================================================================
-const fmtH = (h) => `${(Number(h) || 0).toFixed(1)}h`;
-const fmtPct = (n) => `${(Number(n) || 0).toFixed(1)}%`;
-const fmtCurrency = (v) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
-const fmtDate = (d) =>
-    d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-const fmtDateBR = (s) => (s || '').split('-').reverse().join('/');
-
-const utilTone = (pct) => {
-    if (pct >= 80) return { text: 'text-emerald-700', bg: 'bg-emerald-500', soft: 'bg-emerald-50', border: 'border-emerald-200' };
-    if (pct >= 60) return { text: 'text-yellow-700',  bg: 'bg-yellow-500',  soft: 'bg-yellow-50',  border: 'border-yellow-200' };
-    if (pct >= 40) return { text: 'text-orange-700',  bg: 'bg-orange-500',  soft: 'bg-orange-50',  border: 'border-orange-200' };
-    return            { text: 'text-red-700',     bg: 'bg-red-500',     soft: 'bg-red-50',     border: 'border-red-200' };
-};
-
-// Presets de período
-const buildPresets = () => {
-    const today = new Date(); today.setHours(12, 0, 0, 0);
-    const y = today.getFullYear(), m = today.getMonth();
-    const firstThisMonth = new Date(y, m, 1);
-    const lastPrevMonth  = new Date(y, m, 0);
-    const firstPrevMonth = new Date(y, m - 1, 1);
-    const last7Start  = new Date(today); last7Start.setDate(today.getDate() - 6);
-    const last30Start = new Date(today); last30Start.setDate(today.getDate() - 29);
-    const qStartMonth = Math.floor(m / 3) * 3;
-    const firstQ = new Date(y, qStartMonth, 1);
-    const firstY = new Date(y, 0, 1);
-    return [
-        { id: '7d',    label: 'Últimos 7 dias',  start: last7Start,   end: today },
-        { id: '30d',   label: 'Últimos 30 dias', start: last30Start,  end: today },
-        { id: 'mtd',   label: 'Mês atual',       start: firstThisMonth, end: today },
-        { id: 'prev',  label: 'Mês passado',     start: firstPrevMonth, end: lastPrevMonth },
-        { id: 'qtd',   label: 'Trimestre',       start: firstQ,       end: today },
-        { id: 'ytd',   label: 'Ano até hoje',    start: firstY,       end: today },
-    ];
-};
-
-// ============================================================================
-// Sub-componentes
-// ============================================================================
-const KpiCard = ({ icon: Icon, label, value, sub, delta, accent = 'border-l-slate-300', valueClass = 'text-slate-800' }) => {
-    const Arrow = delta == null ? null : delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
-    const deltaColor = delta == null ? '' : delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-600' : 'text-slate-500';
-    return (
-        <div className={`bg-white p-4 rounded-lg shadow-sm border border-slate-200 border-l-4 ${accent}`}>
-            <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-                <Icon size={14} /> {label}
-            </div>
-            <div className="flex items-baseline gap-2 mt-2">
-                <p className={`text-2xl font-bold ${valueClass}`}>{value}</p>
-                {Arrow && (
-                    <span className={`text-[11px] font-bold flex items-center gap-0.5 ${deltaColor}`}>
-                        <Arrow size={12} />
-                        {Math.abs(delta).toFixed(1)}
-                    </span>
-                )}
-            </div>
-            {sub && <p className="text-[11px] text-slate-500 mt-1">{sub}</p>}
-        </div>
-    );
-};
-
-const UtilBar = ({ pct }) => {
-    const tone = utilTone(pct);
-    const safe = Math.max(0, Math.min(100, pct));
-    return (
-        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-            <div className={`h-2 rounded-full ${tone.bg}`} style={{ width: `${safe}%` }} />
-        </div>
-    );
-};
-
-// ============================================================================
-// Componente principal
-// ============================================================================
-const AproveitamentoProdutivo = ({ apiClient, setAlertMessage }) => {
-    const presets = useMemo(buildPresets, []);
-    const [obras, setObras] = useState([]);
-    const [filtroObra, setFiltroObra] = useState('geral');
-    const [presetId, setPresetId] = useState('30d');
-    const [range, setRange] = useState(() => ({
-        start: fmtDate(presets[1].start),
-        end: fmtDate(presets[1].end),
-    }));
-    const [metaRealista, setMetaRealista] = useState(75);
-
+const AproveitamentoProdutivo = ({ active = true, range, refreshKey = 0, apiClient, setAlertMessage }) => {
+    const filtroObra = 'geral';
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [ticketMedio, setTicketMedio] = useState({});
-    const [unsavedTickets, setUnsavedTickets] = useState(false);
-    const [isSavingTickets, setIsSavingTickets] = useState(false);
+    const [error, setError] = useState(null);
     const [drillDate, setDrillDate] = useState(null);
+    const [hoverIdx, setHoverIdx] = useState(null);
+    const lastKey = useRef(null);
 
-    // Carrega obras para o seletor
+    // Busca só quando a aba está ativa e a chave mudou (evita refetch ao alternar).
     useEffect(() => {
-        apiClient.get('/supervisor/dashboard')
-            .then(res => setObras((res || []).filter(o => (o.tipo_registro || 'obra') !== 'centro_custo')))
+        if (!active) return;
+        if (!range?.start || !range?.end || range.start > range.end) return;
+        const key = `${range.start}|${range.end}|${refreshKey}`;
+        if (key === lastKey.current) return;
+        lastKey.current = key;
+        setLoading(true);
+        setError(null);
+        apiClient.get(`/supervisor/analytics?obraId=${filtroObra}&startDate=${range.start}&endDate=${range.end}`)
+            .then(setData)
             .catch(err => {
                 console.error(err);
-                setAlertMessage?.('Falha ao carregar lista de obras.');
-            });
-    }, [apiClient, setAlertMessage]);
+                setError('Falha ao processar dados de produtividade.');
+                setAlertMessage?.('Falha ao processar dados de produtividade.');
+            })
+            .finally(() => setLoading(false));
+    }, [active, range?.start, range?.end, refreshKey, apiClient, setAlertMessage]);
 
-    // Aplica preset
-    const applyPreset = useCallback((id) => {
-        setPresetId(id);
-        if (id === 'custom') return;
-        const p = presets.find(x => x.id === id);
-        if (p) setRange({ start: fmtDate(p.start), end: fmtDate(p.end) });
-    }, [presets]);
+    const hasData = !!(data && (data.summary?.qtdVeiculos > 0 || data.summary?.horasExecutadas > 0));
 
-    // Carrega analytics
-    useEffect(() => {
-        if (!range.start || !range.end || range.start > range.end) return;
-        setLoading(true);
-        Promise.all([
-            apiClient.get(`/supervisor/analytics?obraId=${filtroObra}&startDate=${range.start}&endDate=${range.end}`),
-            apiClient.get('/supervisor/tickets'),
-        ])
-        .then(([analyticsRes, ticketsRes]) => {
-            setData(analyticsRes);
-            const newTicket = { ...ticketsRes };
-            (analyticsRes.frotaPorTipo || []).forEach(t => {
-                if (newTicket[t.tipo] === undefined) newTicket[t.tipo] = 120;
-            });
-            setTicketMedio(newTicket);
-            setUnsavedTickets(false);
-        })
-        .catch(err => {
-            console.error(err);
-            setAlertMessage?.('Falha ao processar dados de produtividade.');
-        })
-        .finally(() => setLoading(false));
-    }, [apiClient, filtroObra, range.start, range.end, setAlertMessage]);
-
-    const handleTicketChange = (tipo, value) => {
-        setTicketMedio(prev => ({ ...prev, [tipo]: Number(value) }));
-        setUnsavedTickets(true);
-    };
-
-    const saveTickets = async () => {
-        setIsSavingTickets(true);
-        try {
-            await apiClient.post('/supervisor/tickets', { tickets: ticketMedio });
-            setUnsavedTickets(false);
-            setAlertMessage?.('Tickets médios salvos com sucesso.');
-        } catch (err) {
-            console.error(err);
-            setAlertMessage?.('Erro ao salvar os tickets médios.');
-        } finally {
-            setIsSavingTickets(false);
-        }
-    };
-
-    // Métricas derivadas
-    const m = useMemo(() => {
-        if (!data) return null;
-        const s = data.summary;
-        const meta = metaRealista / 100;
-
-        const totalPotencialDiario = (data.frotaPorTipo || []).reduce(
-            (acc, c) => acc + (c.capDiaria * (ticketMedio[c.tipo] || 0)),
-            0
-        );
-        const totalFaturado = (data.frotaPorTipo || []).reduce(
-            (acc, c) => acc + (c.horas_executadas * (ticketMedio[c.tipo] || 0)),
-            0
-        );
-        // Receita "potencialmente recuperável" se atingisse a META realista
-        const horasMeta = s.capPeriodoLiquida * meta;
-        const horasFaltaMeta = Math.max(0, horasMeta - s.horasExecutadas);
-        // Distribui receita perdida proporcionalmente aos tipos (capPeriodo × ticket)
-        const denom = (data.frotaPorTipo || []).reduce((a, c) => a + c.capPeriodo, 0);
-        const receitaPerdidaRealista = denom > 0
-            ? (data.frotaPorTipo || []).reduce((acc, c) => {
-                const share = c.capPeriodo / denom;
-                return acc + (horasFaltaMeta * share) * (ticketMedio[c.tipo] || 0);
-            }, 0)
-            : 0;
-
-        return {
-            totalPotencialDiario,
-            totalFaturado,
-            horasMeta,
-            horasFaltaMeta,
-            receitaPerdidaRealista,
-        };
-    }, [data, ticketMedio, metaRealista]);
-
-    // Export CSV
-    const exportCSV = () => {
-        if (!data) return;
-        const lines = [];
-        lines.push(['Aproveitamento Produtivo']);
-        lines.push([`Período`, `${fmtDateBR(data.range.startDate)} a ${fmtDateBR(data.range.endDate)}`]);
-        lines.push([`Dias úteis`, data.range.diasUteis]);
-        lines.push([]);
-        lines.push(['Resumo']);
-        lines.push(['Capacidade líquida', fmtH(data.summary.capPeriodoLiquida)]);
-        lines.push(['Horas executadas', fmtH(data.summary.horasExecutadas)]);
-        lines.push(['Aproveitamento', fmtPct(data.summary.aproveitamento)]);
-        lines.push(['Horas perdidas', fmtH(data.summary.horasPerdidasTotal)]);
-        lines.push([]);
-
+    // ─── Export (via helpers compartilhados) ─────────────────────────────────
+    const handleCSV = () => {
+        if (!hasData) return;
+        const rows = [
+            ['Aproveitamento Produtivo'],
+            ['Período', `${fmtDateBR(data.range.startDate)} a ${fmtDateBR(data.range.endDate)}`],
+            ['Dias úteis', data.range.diasUteis],
+            [],
+            ['Resumo'],
+            ['Capacidade líquida', fmtH(data.summary.capPeriodoLiquida)],
+            ['Horas executadas', fmtH(data.summary.horasExecutadas)],
+            ['Aproveitamento', fmtPct(data.summary.aproveitamento)],
+            ['Horas perdidas', fmtH(data.summary.horasPerdidasTotal)],
+            [],
+        ];
         if (data.porObra?.length) {
-            lines.push(['Ranking por obra (pior → melhor)']);
-            lines.push(['Obra','Responsável','Fiscal','Veículos','Capacidade','Executado','Aproveitamento','Perdidas']);
-            data.porObra.forEach(o => lines.push([
+            rows.push(['Ranking por obra (pior → melhor)']);
+            rows.push(['Obra', 'Responsável', 'Fiscal', 'Veículos', 'Capacidade', 'Executado', 'Aproveitamento', 'Perdidas']);
+            data.porObra.forEach(o => rows.push([
                 o.obraNome, o.responsavel || '', o.fiscal || '', o.qtdVeiculos,
                 fmtH(o.capPeriodo), fmtH(o.horas_executadas), fmtPct(o.aproveitamento), fmtH(o.horas_perdidas),
             ]));
-            lines.push([]);
+            rows.push([]);
         }
-
-        lines.push(['Ranking por máquina (pior → melhor)']);
-        lines.push(['Registro','Modelo','Tipo','Obra atual','Capacidade','Executado','Aproveitamento','Perdidas']);
-        data.porVeiculo.forEach(v => lines.push([
+        rows.push(['Ranking por máquina (pior → melhor)']);
+        rows.push(['Registro', 'Modelo', 'Tipo', 'Obra atual', 'Capacidade', 'Executado', 'Aproveitamento', 'Perdidas']);
+        data.porVeiculo.forEach(v => rows.push([
             v.registroInterno || '', v.modelo || '', v.tipo || '', v.obraNome || '',
             fmtH(v.capPeriodo), fmtH(v.horas_executadas), fmtPct(v.aproveitamento), fmtH(v.horas_perdidas),
         ]));
-
-        const csv = lines.map(r => r.map(c => {
-            const s = String(c ?? '');
-            return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
-        }).join(',')).join('\n');
-
-        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `aproveitamento_${data.range.startDate}_${data.range.endDate}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+        downloadCSV(`aproveitamento_${data.range.startDate}_${data.range.endDate}.csv`, rows);
     };
 
-    // Export PDF
-    const exportPDF = () => {
-        if (!data) return;
-        const doc = new jsPDF('portrait');
-        doc.setFontSize(14);
-        doc.text('MAK Frotas — Aproveitamento Produtivo', 14, 16);
-        doc.setFontSize(9);
-        doc.setTextColor(100);
-        doc.text(`Período: ${fmtDateBR(data.range.startDate)} a ${fmtDateBR(data.range.endDate)}  •  ${data.range.diasUteis} dias úteis`, 14, 22);
-        const obraName = filtroObra === 'geral' ? 'Visão geral da frota' : (obras.find(o => String(o.id) === String(filtroObra))?.nome || filtroObra);
-        doc.text(`Escopo: ${obraName}`, 14, 27);
-
-        autoTable(doc, {
-            startY: 33,
-            head: [['Indicador', 'Valor']],
+    const handlePDF = () => {
+        if (!hasData) return;
+        const tables = [{
+            head: ['Indicador', 'Valor'],
             body: [
                 ['Capacidade líquida no período', fmtH(data.summary.capPeriodoLiquida)],
-                ['Horas executadas',              fmtH(data.summary.horasExecutadas)],
-                ['Aproveitamento',                fmtPct(data.summary.aproveitamento)],
-                ['Horas perdidas',                fmtH(data.summary.horasPerdidasTotal)],
+                ['Horas executadas', fmtH(data.summary.horasExecutadas)],
+                ['Aproveitamento', fmtPct(data.summary.aproveitamento)],
+                ['Horas perdidas', fmtH(data.summary.horasPerdidasTotal)],
                 ['Delta de aproveitamento vs. período anterior', `${data.comparativo.delta.aproveitamento >= 0 ? '+' : ''}${data.comparativo.delta.aproveitamento.toFixed(1)} pp`],
             ],
-            styles: { fontSize: 9 },
-            headStyles: { fillColor: [158, 122, 66] },
-        });
-
+        }];
         if (data.porObra?.length) {
-            autoTable(doc, {
-                head: [['Obra', 'Responsável', 'Veículos', 'Executado', 'Aprov.']],
-                body: data.porObra.map(o => [
-                    o.obraNome, o.responsavel || '—', o.qtdVeiculos,
-                    fmtH(o.horas_executadas), fmtPct(o.aproveitamento),
-                ]),
-                styles: { fontSize: 8 },
-                headStyles: { fillColor: [158, 122, 66] },
+            tables.push({
+                head: ['Obra', 'Responsável', 'Veículos', 'Executado', 'Aprov.'],
+                body: data.porObra.map(o => [o.obraNome, o.responsavel || '—', o.qtdVeiculos, fmtH(o.horas_executadas), fmtPct(o.aproveitamento)]),
             });
         }
-
-        autoTable(doc, {
-            head: [['Máquina', 'Tipo', 'Obra atual', 'Executado', 'Aprov.']],
-            body: data.porVeiculo.map(v => [
-                v.registroInterno || v.modelo || '—',
-                v.tipo || '—',
-                v.obraNome || '—',
-                fmtH(v.horas_executadas),
-                fmtPct(v.aproveitamento),
-            ]),
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [158, 122, 66] },
+        tables.push({
+            head: ['Máquina', 'Tipo', 'Obra atual', 'Executado', 'Aprov.'],
+            body: data.porVeiculo.map(v => [v.registroInterno || v.modelo || '—', v.tipo || '—', v.obraNome || '—', fmtH(v.horas_executadas), fmtPct(v.aproveitamento)]),
         });
-
-        doc.save(`aproveitamento_${data.range.startDate}_${data.range.endDate}.pdf`);
+        downloadPDF({
+            filename: `aproveitamento_${data.range.startDate}_${data.range.endDate}.pdf`,
+            title: 'MAK Frotas — Aproveitamento Produtivo',
+            subtitle: `Período: ${fmtDateBR(data.range.startDate)} a ${fmtDateBR(data.range.endDate)}  •  ${data.range.diasUteis} dias úteis  •  Visão geral da frota`,
+            tables,
+        });
     };
 
-    // ----------------------------------------------------------------------
-    // Render
-    // ----------------------------------------------------------------------
+    // Cabeçalho de tabela quente reutilizado
+    const thBase = 'p-3 uppercase text-[10px] tracking-wider font-bold';
+    const headStyle = { background: C.goldLt, color: C.textMid };
+
     return (
-        <div className="p-6">
-            {/* Header */}
-            <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 mb-1">Aproveitamento Produtivo</h1>
-                    <p className="text-sm text-slate-500 max-w-2xl">
-                        Capacidade líquida da frota vs. horas efetivamente apontadas. A capacidade
-                        desconta fins de semana e máquinas atualmente em manutenção.
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={exportCSV}
-                        disabled={!data || loading}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                    >
-                        <FileDown size={14} /> CSV
-                    </button>
-                    <button
-                        onClick={exportPDF}
-                        disabled={!data || loading}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 disabled:opacity-50"
-                    >
-                        <FileText size={14} /> PDF
-                    </button>
-                </div>
+        <div className="px-6 pt-2 pb-6">
+            {/* Ações de export (filtro vem do shell) */}
+            <div className="flex justify-end gap-2 mb-3">
+                <button onClick={handleCSV} disabled={!hasData}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold border hover:bg-slate-50 disabled:opacity-50"
+                    style={{ borderColor: C.border, color: C.textMid }} title="Exportar CSV">
+                    <FileDown size={14} /> CSV
+                </button>
+                <button onClick={handlePDF} disabled={!hasData}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                    style={{ background: C.text }} title="Exportar PDF">
+                    <FileText size={14} /> PDF
+                </button>
             </div>
 
-            {/* Filtros */}
-            <div className="bg-white rounded-lg shadow-sm p-4 mb-4 space-y-3">
-                <div className="flex flex-wrap items-end gap-4">
-                    <div className="min-w-[260px]">
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Obra</label>
-                        <SearchableSelect
-                            items={[{ id: 'geral', nome: '🌍 Visão Geral da Frota' }, ...obras]}
-                            value={filtroObra}
-                            onChange={(item) => setFiltroObra(item?.id || 'geral')}
-                            getLabel={(o) => formatObraNome(o)}
-                            placeholder="Selecione obra..."
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">De</label>
-                        <input
-                            type="date"
-                            value={range.start}
-                            onChange={(e) => { setRange(r => ({ ...r, start: e.target.value })); setPresetId('custom'); }}
-                            className="border border-slate-300 rounded px-2 py-1.5 text-sm"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Até</label>
-                        <input
-                            type="date"
-                            value={range.end}
-                            onChange={(e) => { setRange(r => ({ ...r, end: e.target.value })); setPresetId('custom'); }}
-                            className="border border-slate-300 rounded px-2 py-1.5 text-sm"
-                        />
-                    </div>
-                    <div className="ml-auto flex items-end gap-2">
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1">
-                                Meta realista de aproveitamento
-                                <span title="Usada no cálculo de receita potencialmente perdida. 100% nunca é atingível na prática (deslocamento, intervalo, ausência de operador).">
-                                    <Info size={12} className="text-slate-400" />
-                                </span>
-                            </label>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="range" min={50} max={100} step={5}
-                                    value={metaRealista}
-                                    onChange={(e) => setMetaRealista(Number(e.target.value))}
-                                    className="w-32"
-                                />
-                                <span className="text-sm font-bold text-slate-800 w-10">{metaRealista}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <p className="text-[11px] mb-4" style={{ color: C.textSub }}>
+                Capacidade líquida desconta fins de semana e máquinas em manutenção.
+            </p>
 
-                <div className="flex flex-wrap gap-1.5">
-                    {presets.map(p => (
-                        <button
-                            key={p.id}
-                            onClick={() => applyPreset(p.id)}
-                            className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
-                                presetId === p.id
-                                    ? 'bg-slate-800 text-white'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                        >
-                            {p.label}
-                        </button>
-                    ))}
-                    {presetId === 'custom' && (
-                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-                            Personalizado
-                        </span>
-                    )}
-                </div>
-            </div>
-
-            {/* Conteúdo */}
-            {loading || !data ? (
-                <div className="flex justify-center py-20">
-                    <Loader className="animate-spin" size={32} style={{ color: '#9E7A42' }} />
-                </div>
+            {loading || error || !hasData ? (
+                <StateBlock
+                    loading={loading}
+                    error={error}
+                    empty={!loading && !error && !hasData}
+                    loadingText="Processando produtividade…"
+                    emptyText="Sem frota produtiva ou horas apontadas no período selecionado."
+                    emptyIcon={Gauge}
+                />
             ) : (
-                <div className="space-y-6">
-                    {/* KPIs principais com delta vs período anterior */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <KpiCard
-                            icon={Gauge}
-                            label="Aproveitamento"
+                <div className="space-y-4">
+                    {/* KPIs principais */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <KpiCard icon={Gauge} label="Aproveitamento"
                             value={fmtPct(data.summary.aproveitamento)}
+                            valueColor={aproveitamentoColor(data.summary.aproveitamento)}
                             sub={`${fmtH(data.summary.horasExecutadas)} de ${fmtH(data.summary.capPeriodoLiquida)} possíveis`}
-                            delta={data.comparativo.delta.aproveitamento}
-                            accent={`border-l-${
-                                data.summary.aproveitamento >= 80 ? 'emerald' :
-                                data.summary.aproveitamento >= 60 ? 'yellow'  :
-                                data.summary.aproveitamento >= 40 ? 'orange'  : 'red'
-                            }-500`}
-                            valueClass={utilTone(data.summary.aproveitamento).text}
-                        />
-                        <KpiCard
-                            icon={Clock}
-                            label="Capacidade líquida"
+                            delta={{ value: data.comparativo.delta.aproveitamento, good: true, suffix: ' pp' }} />
+                        <KpiCard icon={Clock} label="Capacidade líquida"
                             value={`${data.summary.capDiariaLiquida}h/dia`}
-                            sub={`${data.summary.qtdVeiculos} veículos • ${data.summary.qtdManutencao} em manutenção • ${data.range.diasUteis} dias úteis`}
-                            accent="border-l-emerald-500"
-                        />
-                        <KpiCard
-                            icon={Activity}
-                            label="Média executada"
+                            sub={`${data.summary.qtdVeiculos} veículos • ${data.summary.qtdManutencao} em manutenção • ${data.range.diasUteis} dias úteis`} />
+                        <KpiCard icon={Activity} label="Média executada"
                             value={`${data.summary.mediaExecutadaDiasUteis.toFixed(1)}h`}
-                            sub="por dia útil no período"
-                            accent="border-l-blue-500"
-                        />
-                        <KpiCard
-                            icon={AlertTriangle}
-                            label="Horas perdidas"
-                            value={fmtH(data.summary.horasPerdidasTotal)}
+                            sub="por dia útil no período" />
+                        <KpiCard icon={AlertTriangle} label="Horas perdidas"
+                            value={fmtH(data.summary.horasPerdidasTotal)} valueColor={C.red}
                             sub={`Sendo ${fmtH(data.summary.horasPerdidasManutencao)} em manutenção`}
-                            delta={-data.comparativo.delta.horasPerdidasTotal /* sinal invertido: menos perdas é positivo */}
-                            accent="border-l-red-500"
-                            valueClass="text-red-600"
-                        />
+                            delta={{ value: -data.comparativo.delta.horasPerdidasTotal, good: true, suffix: 'h' }} />
                     </div>
 
-                    {/* Gráfico Diário */}
+                    {/* Gráfico — diário em janelas curtas, mensal em janelas longas */}
                     {(() => {
+                        const NOMES_MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+                        const daily = data.chartData || [];
+                        const monthly = daily.length > 62;
                         const capRef = data.summary.capDiariaLiquida;
-                        const maxVal = Math.max(capRef, ...data.chartData.map(d => d.horas_faturadas), 10) * 1.15;
+
+                        let bars;
+                        if (monthly) {
+                            const map = new Map();
+                            daily.forEach(d => {
+                                const ym = d.date.slice(0, 7);
+                                const o = map.get(ym) || { key: ym, horas: 0, cap: 0 };
+                                o.horas += d.horas_faturadas;
+                                o.cap += d.capacidade_dia;
+                                map.set(ym, o);
+                            });
+                            bars = [...map.values()].map(o => {
+                                const [yy, mm] = o.key.split('-');
+                                const label = `${NOMES_MES[+mm - 1]}/${yy.slice(2)}`;
+                                return { ...o, label, full: label, isBiz: true, date: null, pct: o.cap > 0 ? (o.horas / o.cap) * 100 : 0 };
+                            });
+                        } else {
+                            bars = daily.map(d => {
+                                const full = fmtDateBR(d.date);
+                                return {
+                                    key: d.date, label: full.slice(0, 5), full,
+                                    horas: d.horas_faturadas, cap: d.capacidade_dia, isBiz: d.is_business_day, date: d.date,
+                                    pct: capRef > 0 && d.is_business_day ? (d.horas_faturadas / capRef) * 100 : 0,
+                                };
+                            });
+                        }
+
+                        const maxVal = Math.max(...bars.map(b => b.horas), monthly ? 0 : capRef, 10) * 1.15;
+                        const hb = hoverIdx != null ? bars[hoverIdx] : null;
+
                         return (
-                            <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-                                <div className="flex flex-wrap justify-between items-start mb-6 gap-2">
-                                    <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                                        <BarChart2 size={18} className="text-slate-600" />
-                                        Produção diária vs. capacidade
+                            <Card className="p-5">
+                                <div className="flex flex-wrap justify-between items-start mb-2 gap-2">
+                                    <h3 className="text-base font-bold flex items-center gap-2" style={{ color: C.text }}>
+                                        <BarChart2 size={18} style={{ color: C.gold }} />
+                                        {monthly ? 'Produção mensal vs. capacidade' : 'Produção diária vs. capacidade'}
                                     </h3>
-                                    <div className="text-[11px] text-slate-500 max-w-md text-right">
-                                        Cinza claro = sábado/domingo (capacidade zero). Clique em um dia para abrir o detalhamento por máquina.
+                                    {/* Readout ao vivo — fora da área com scroll, então nunca é cortado */}
+                                    <div className="text-xs px-3 py-1.5 rounded-lg" style={{ background: C.goldLt, color: C.textMid, minHeight: 30 }}>
+                                        {hb ? (
+                                            <span>
+                                                <b style={{ color: C.text }}>{hb.full}</b>
+                                                {' · '}Executado <b style={{ color: C.text }}>{fmtH(hb.horas)}</b>
+                                                {hb.isBiz
+                                                    ? <> · Aproveitamento <b style={{ color: aproveitamentoColor(hb.pct) }}>{fmtPct(hb.pct)}</b></>
+                                                    : <span style={{ color: C.textSub }}> · fim de semana</span>}
+                                            </span>
+                                        ) : (
+                                            <span style={{ color: C.textSub }}>
+                                                {monthly ? 'Barras por mês — passe o mouse para os detalhes.' : 'Cinza = fim de semana · clique num dia para o detalhamento.'}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
-                                <div className="relative h-72 flex items-end gap-1.5 border-b border-l border-slate-200 p-2 pb-0 overflow-x-auto">
-                                    {capRef > 0 && (
-                                        <div
-                                            className="absolute left-0 w-full border-t-[3px] border-dashed border-emerald-500 z-0 pointer-events-none"
-                                            style={{ bottom: `${(capRef / maxVal) * 100}%` }}
-                                        >
-                                            <span className="absolute -top-6 left-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shadow-sm border border-emerald-200">
+                                <div className="relative h-72 flex items-end gap-1.5 p-2 pb-0 overflow-x-auto"
+                                    onMouseLeave={() => setHoverIdx(null)}
+                                    style={{ borderBottom: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}` }}>
+                                    {!monthly && capRef > 0 && (
+                                        <div className="absolute left-0 w-full border-t-[3px] border-dashed z-0 pointer-events-none"
+                                            style={{ bottom: `${(capRef / maxVal) * 100}%`, borderColor: C.green }}>
+                                            <span className="absolute -top-6 left-2 text-[10px] font-bold px-2 py-0.5 rounded shadow-sm border"
+                                                style={{ color: C.green, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
                                                 Capacidade líquida: {capRef}h/dia
                                             </span>
                                         </div>
                                     )}
-                                    {data.chartData.map((d, i) => {
-                                        const height = (d.horas_faturadas / maxVal) * 100;
-                                        const pct = capRef > 0 && d.is_business_day ? (d.horas_faturadas / capRef) * 100 : 0;
-                                        const tone = utilTone(pct);
-                                        const dateStr = fmtDateBR(d.date);
+                                    {bars.map((b, i) => {
+                                        const height = (b.horas / maxVal) * 100;
+                                        const tone = utilTone(b.pct);
+                                        const clickable = !!b.date;
                                         return (
-                                            <button
-                                                key={i}
-                                                onClick={() => setDrillDate(d.date)}
-                                                className="flex-1 flex flex-col justify-end items-center relative group h-full z-10 min-w-[24px]"
-                                                title="Ver detalhe do dia"
-                                            >
-                                                {!d.is_business_day && (
-                                                    <div className="absolute inset-x-0 bottom-6 top-0 bg-slate-50 -z-10" />
+                                            <button key={b.key}
+                                                onClick={clickable ? () => setDrillDate(b.date) : undefined}
+                                                onMouseEnter={() => setHoverIdx(i)}
+                                                className={`flex-1 flex flex-col justify-end items-center relative h-full z-10 ${monthly ? 'min-w-[46px]' : 'min-w-[24px]'} ${clickable ? 'cursor-pointer' : 'cursor-default'}`}>
+                                                {!b.isBiz && (
+                                                    <div className="absolute inset-x-0 bottom-6 top-0 -z-10" style={{ background: C.goldLt }} />
                                                 )}
-                                                <div
-                                                    className={`w-full max-w-[40px] ${d.is_business_day ? tone.bg : 'bg-slate-300'} rounded-t transition-all cursor-pointer relative shadow-sm`}
-                                                    style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0', opacity: 0.85 }}
-                                                >
-                                                    <div className="opacity-0 group-hover:opacity-100 absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl whitespace-nowrap pointer-events-none z-20">
-                                                        <p className="font-bold text-slate-300 mb-1">{dateStr}{!d.is_business_day && ' (fim de semana)'}</p>
-                                                        <p className="font-bold">Executado: <span className="text-blue-300">{fmtH(d.horas_faturadas)}</span></p>
-                                                        {d.is_business_day && <p>Aproveitamento: <span className={tone.text.replace('700','300')}>{fmtPct(pct)}</span></p>}
-                                                    </div>
-                                                </div>
-                                                <span className="text-[9px] text-slate-500 mt-2 h-6 text-center font-medium">{dateStr.slice(0, 5)}</span>
+                                                <div className={`w-full rounded-t transition-all shadow-sm ${monthly ? 'max-w-[54px]' : 'max-w-[40px]'} ${b.isBiz ? tone.bg : ''}`}
+                                                    style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0', opacity: hoverIdx === i ? 1 : 0.85, background: b.isBiz ? undefined : '#cbd5e1', outline: hoverIdx === i ? `2px solid ${C.gold}` : 'none' }} />
+                                                <span className="text-[9px] mt-2 h-6 text-center font-medium" style={{ color: C.textSub }}>{b.label}</span>
                                             </button>
                                         );
                                     })}
                                 </div>
 
-                                <div className="flex flex-wrap justify-center gap-6 mt-4 text-[11px] font-semibold text-slate-600">
-                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block"/>≥80%</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-yellow-500 inline-block"/>60–79%</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-orange-500 inline-block"/>40–59%</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block"/>&lt;40%</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-slate-300 inline-block"/>Fim de semana</span>
+                                <div className="flex flex-wrap justify-center gap-6 mt-4 text-[11px] font-semibold" style={{ color: C.textMid }}>
+                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" />≥80%</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-yellow-500 inline-block" />60–79%</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-orange-500 inline-block" />40–59%</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block" />&lt;40%</span>
+                                    {!monthly && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#cbd5e1' }} />Fim de semana</span>}
                                 </div>
-                            </div>
+                            </Card>
                         );
                     })()}
 
-                    {/* Ranking por obra (apenas em visão geral) */}
+                    {/* Ranking por obra */}
                     {data.porObra && data.porObra.length > 0 && (
-                        <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
+                        <Card className="p-6">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                                    <Truck size={18} className="text-slate-600" />
-                                    Ranking por obra
+                                <h3 className="text-base font-bold flex items-center gap-2" style={{ color: C.text }}>
+                                    <Truck size={18} style={{ color: C.gold }} /> Ranking por obra
                                 </h3>
-                                <span className="text-[11px] text-slate-500">
-                                    Pior → melhor aproveitamento. Quem cobrar.
-                                </span>
+                                <span className="text-[11px]" style={{ color: C.textSub }}>Pior → melhor aproveitamento. Quem cobrar.</span>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
-                                    <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider font-bold">
+                                    <thead style={headStyle}>
                                         <tr>
-                                            <th className="p-3 text-left">Obra</th>
-                                            <th className="p-3 text-left">Responsável</th>
-                                            <th className="p-3 text-left">Fiscal</th>
-                                            <th className="p-3 text-center">Veículos</th>
-                                            <th className="p-3 text-right">Executado</th>
-                                            <th className="p-3 text-left w-[24%]">Aproveitamento</th>
-                                            <th className="p-3 text-right">Perdidas</th>
+                                            <th className={`${thBase} text-left`}>Obra</th>
+                                            <th className={`${thBase} text-left`}>Responsável</th>
+                                            <th className={`${thBase} text-left`}>Fiscal</th>
+                                            <th className={`${thBase} text-center`}>Veículos</th>
+                                            <th className={`${thBase} text-right`}>Executado</th>
+                                            <th className={`${thBase} text-left w-[24%]`}>Aproveitamento</th>
+                                            <th className={`${thBase} text-right`}>Perdidas</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
+                                    <tbody className="divide-y" style={{ borderColor: C.border }}>
                                         {data.porObra.map(o => {
                                             const tone = utilTone(o.aproveitamento);
                                             return (
-                                                <tr key={o.obraId} className="hover:bg-slate-50">
-                                                    <td className="p-3 font-bold text-slate-800">{o.obraNome}</td>
-                                                    <td className="p-3 text-slate-600">{o.responsavel || <span className="text-slate-400 italic">—</span>}</td>
-                                                    <td className="p-3 text-slate-600">{o.fiscal || <span className="text-slate-400 italic">—</span>}</td>
-                                                    <td className="p-3 text-center text-slate-600">{o.qtdVeiculos}</td>
-                                                    <td className="p-3 text-right text-slate-700 font-semibold">{fmtH(o.horas_executadas)}</td>
-                                                    <td className="p-3">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="flex-1"><UtilBar pct={o.aproveitamento} /></div>
-                                                            <span className={`font-bold min-w-[52px] text-right ${tone.text}`}>{fmtPct(o.aproveitamento)}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-3 text-right text-red-600 font-semibold">{fmtH(o.horas_perdidas)}</td>
-                                                </tr>
+                                                <React.Fragment key={o.obraId}>
+                                                    <tr className="hover:bg-slate-50" style={{ borderTop: `1px solid ${C.border}` }}>
+                                                        <td className="p-3 font-bold" style={{ color: C.text }}>{o.obraNome}</td>
+                                                        <td className="p-3" style={{ color: C.textMid }}>{o.responsavel || <span style={{ color: C.textSub }} className="italic">—</span>}</td>
+                                                        <td className="p-3" style={{ color: C.textMid }}>{o.fiscal || <span style={{ color: C.textSub }} className="italic">—</span>}</td>
+                                                        <td className="p-3 text-center" style={{ color: C.textMid }}>{o.qtdVeiculos}</td>
+                                                        <td className="p-3 text-right font-semibold" style={{ color: C.textMid }}>{fmtH(o.horas_executadas)}</td>
+                                                        <td className="p-3">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="flex-1"><UtilBar pct={o.aproveitamento} /></div>
+                                                                <span className={`font-bold min-w-[52px] text-right ${tone.text}`}>{fmtPct(o.aproveitamento)}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-3 text-right font-semibold" style={{ color: C.red }}>{fmtH(o.horas_perdidas)}</td>
+                                                    </tr>
+                                                </React.Fragment>
                                             );
                                         })}
                                     </tbody>
                                 </table>
                             </div>
-                        </div>
+                        </Card>
                     )}
 
                     {/* Aproveitamento por categoria */}
-                    <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-                        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 mb-4">
-                            <Truck size={18} className="text-slate-600" />
-                            Aproveitamento por categoria
+                    <Card className="p-6">
+                        <h3 className="text-base font-bold flex items-center gap-2 mb-4" style={{ color: C.text }}>
+                            <Truck size={18} style={{ color: C.gold }} /> Aproveitamento por categoria
                         </h3>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
-                                <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider font-bold">
+                                <thead style={headStyle}>
                                     <tr>
-                                        <th className="p-3 text-left">Categoria</th>
-                                        <th className="p-3 text-center">Qtd.</th>
-                                        <th className="p-3 text-center">Em manut.</th>
-                                        <th className="p-3 text-center">Executado</th>
-                                        <th className="p-3 text-left w-[28%]">Aproveitamento</th>
-                                        <th className="p-3 text-right">Perdidas</th>
+                                        <th className={`${thBase} text-left`}>Categoria</th>
+                                        <th className={`${thBase} text-center`}>Qtd.</th>
+                                        <th className={`${thBase} text-center`}>Em manut.</th>
+                                        <th className={`${thBase} text-center`}>Executado</th>
+                                        <th className={`${thBase} text-left w-[28%]`}>Aproveitamento</th>
+                                        <th className={`${thBase} text-right`}>Perdidas</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody>
                                     {(data.frotaPorTipo || []).map(c => {
                                         const tone = utilTone(c.aproveitamento);
                                         return (
-                                            <tr key={c.tipo} className="hover:bg-slate-50">
-                                                <td className="p-3 font-bold text-slate-800">{c.tipo}</td>
-                                                <td className="p-3 text-center text-slate-600">{c.qtd}</td>
-                                                <td className="p-3 text-center text-amber-700 font-semibold">{c.qtdManutencao || 0}</td>
-                                                <td className="p-3 text-center text-slate-700 font-semibold">{fmtH(c.horas_executadas)}</td>
+                                            <tr key={c.tipo} className="hover:bg-slate-50" style={{ borderTop: `1px solid ${C.border}` }}>
+                                                <td className="p-3 font-bold" style={{ color: C.text }}>{c.tipo}</td>
+                                                <td className="p-3 text-center" style={{ color: C.textMid }}>{c.qtd}</td>
+                                                <td className="p-3 text-center font-semibold" style={{ color: C.gold }}>{c.qtdManutencao || 0}</td>
+                                                <td className="p-3 text-center font-semibold" style={{ color: C.textMid }}>{fmtH(c.horas_executadas)}</td>
                                                 <td className="p-3">
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex-1"><UtilBar pct={c.aproveitamento} /></div>
                                                         <span className={`font-bold min-w-[52px] text-right ${tone.text}`}>{fmtPct(c.aproveitamento)}</span>
                                                     </div>
                                                 </td>
-                                                <td className="p-3 text-right text-red-600 font-semibold">{fmtH(c.horas_perdidas)}</td>
+                                                <td className="p-3 text-right font-semibold" style={{ color: C.red }}>{fmtH(c.horas_perdidas)}</td>
                                             </tr>
                                         );
                                     })}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
+                    </Card>
 
                     {/* Ranking por máquina individual */}
-                    <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
+                    <Card className="p-6">
                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                                <Activity size={18} className="text-slate-600" />
-                                Máquinas individualmente
+                            <h3 className="text-base font-bold flex items-center gap-2" style={{ color: C.text }}>
+                                <Activity size={18} style={{ color: C.gold }} /> Máquinas individualmente
                             </h3>
-                            <span className="text-[11px] text-slate-500">Da menos aproveitada para a mais aproveitada</span>
+                            <span className="text-[11px]" style={{ color: C.textSub }}>Da menos aproveitada para a mais aproveitada</span>
                         </div>
                         <div className="overflow-x-auto max-h-[480px]">
                             <table className="w-full text-sm">
-                                <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider font-bold sticky top-0">
+                                <thead style={{ ...headStyle, position: 'sticky', top: 0 }}>
                                     <tr>
-                                        <th className="p-3 text-left">Máquina</th>
-                                        <th className="p-3 text-left">Tipo</th>
-                                        <th className="p-3 text-left">Obra atual</th>
-                                        <th className="p-3 text-right">Executado</th>
-                                        <th className="p-3 text-left w-[24%]">Aproveitamento</th>
-                                        <th className="p-3 text-right">Perdidas</th>
+                                        <th className={`${thBase} text-left`}>Máquina</th>
+                                        <th className={`${thBase} text-left`}>Tipo</th>
+                                        <th className={`${thBase} text-left`}>Obra atual</th>
+                                        <th className={`${thBase} text-right`}>Executado</th>
+                                        <th className={`${thBase} text-left w-[24%]`}>Aproveitamento</th>
+                                        <th className={`${thBase} text-right`}>Perdidas</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody>
                                     {data.porVeiculo.map(v => {
                                         const isManut = v.estado === 'manutencao';
                                         const tone = utilTone(v.aproveitamento);
                                         return (
-                                            <tr key={v.id} className="hover:bg-slate-50">
-                                                <td className="p-3 font-bold text-slate-800">
+                                            <tr key={v.id} className="hover:bg-slate-50" style={{ borderTop: `1px solid ${C.border}` }}>
+                                                <td className="p-3 font-bold" style={{ color: C.text }}>
                                                     {v.registroInterno || v.modelo}
                                                     {v.registroInterno && v.modelo && (
-                                                        <span className="text-slate-400 font-normal text-xs"> — {v.modelo}</span>
+                                                        <span className="font-normal text-xs" style={{ color: C.textSub }}> — {v.modelo}</span>
                                                     )}
                                                 </td>
-                                                <td className="p-3 text-slate-600">{v.tipo}</td>
-                                                <td className="p-3 text-slate-600">{v.obraNome || '—'}</td>
-                                                <td className="p-3 text-right font-semibold text-slate-700">{fmtH(v.horas_executadas)}</td>
+                                                <td className="p-3" style={{ color: C.textMid }}>{v.tipo}</td>
+                                                <td className="p-3" style={{ color: C.textMid }}>{v.obraNome || '—'}</td>
+                                                <td className="p-3 text-right font-semibold" style={{ color: C.textMid }}>{fmtH(v.horas_executadas)}</td>
                                                 <td className="p-3">
                                                     {isManut ? (
-                                                        <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                                                        <span className="text-[11px] font-bold px-2 py-0.5 rounded" style={{ color: C.gold, background: C.goldLt }}>
                                                             Em manutenção
                                                         </span>
                                                     ) : (
@@ -664,101 +402,14 @@ const AproveitamentoProdutivo = ({ apiClient, setAlertMessage }) => {
                                                         </div>
                                                     )}
                                                 </td>
-                                                <td className="p-3 text-right text-red-600 font-semibold">{isManut ? '—' : fmtH(v.horas_perdidas)}</td>
+                                                <td className="p-3 text-right font-semibold" style={{ color: C.red }}>{isManut ? '—' : fmtH(v.horas_perdidas)}</td>
                                             </tr>
                                         );
                                     })}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-
-                    {/* Reflexo financeiro com meta realista */}
-                    <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                            <div>
-                                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                                    <DollarSign size={18} className="text-yellow-600" />
-                                    Reflexo financeiro
-                                </h3>
-                                <p className="text-xs text-slate-500 mt-1">
-                                    Ticket médio por categoria × horas. "Receita não capturada" usa a meta realista
-                                    de <strong>{metaRealista}%</strong> definida acima, não 100%.
-                                </p>
-                            </div>
-                            {unsavedTickets && (
-                                <button
-                                    onClick={saveTickets}
-                                    disabled={isSavingTickets}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm flex items-center gap-2 transition-colors"
-                                >
-                                    {isSavingTickets ? <Loader size={16} className="animate-spin" /> : <Save size={16} />}
-                                    Salvar tickets
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-2 overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider font-bold">
-                                        <tr>
-                                            <th className="p-3 text-left">Categoria</th>
-                                            <th className="p-3 text-center">Cap/dia</th>
-                                            <th className="p-3 text-center text-blue-700">Ticket (R$/h)</th>
-                                            <th className="p-3 text-right">Potencial / dia</th>
-                                            <th className="p-3 text-right">Faturado no período</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {(data.frotaPorTipo || []).map(c => {
-                                            const ticket = ticketMedio[c.tipo] || 0;
-                                            return (
-                                                <tr key={c.tipo} className="hover:bg-slate-50">
-                                                    <td className="p-3 font-bold text-slate-800">{c.tipo}</td>
-                                                    <td className="p-3 text-center text-slate-600">{c.capDiaria}h</td>
-                                                    <td className="p-3 text-center">
-                                                        <input
-                                                            type="number"
-                                                            value={ticket}
-                                                            onChange={(e) => handleTicketChange(c.tipo, e.target.value)}
-                                                            className="w-24 px-2 py-1.5 border border-slate-300 rounded-lg text-center font-bold text-blue-700 bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                                                        />
-                                                    </td>
-                                                    <td className="p-3 text-right font-bold text-slate-700">{fmtCurrency(c.capDiaria * ticket)}</td>
-                                                    <td className="p-3 text-right font-bold text-emerald-700">{fmtCurrency(c.horas_executadas * ticket)}</td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div className="flex flex-col gap-4">
-                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                    <p className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">Potencial diário (100%)</p>
-                                    <p className="text-2xl font-black text-slate-800 mt-1">{fmtCurrency(m?.totalPotencialDiario || 0)}</p>
-                                    <p className="text-xs text-slate-500 mt-2">Referência teórica máxima.</p>
-                                </div>
-                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                                    <p className="text-[11px] text-blue-600 uppercase font-bold tracking-wider">Faturado no período</p>
-                                    <p className="text-2xl font-black text-blue-800 mt-1">{fmtCurrency(m?.totalFaturado || 0)}</p>
-                                    <p className="text-xs text-blue-600 mt-2">
-                                        Média de <strong className="bg-blue-100 px-1 py-0.5 rounded">{fmtCurrency((m?.totalFaturado || 0) / Math.max(1, data.range.diasUteis))}</strong> por dia útil.
-                                    </p>
-                                </div>
-                                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                                    <p className="text-[11px] text-red-600 uppercase font-bold tracking-wider flex items-center gap-1">
-                                        <TrendingUp size={12}/> Não capturado vs. meta de {metaRealista}%
-                                    </p>
-                                    <p className="text-2xl font-black text-red-700 mt-1">{fmtCurrency(m?.receitaPerdidaRealista || 0)}</p>
-                                    <p className="text-xs text-red-600 mt-2">
-                                        Receita que faltaria para atingir a meta realista — não a teórica de 100%.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    </Card>
                 </div>
             )}
 

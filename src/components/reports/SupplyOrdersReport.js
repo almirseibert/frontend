@@ -6,6 +6,8 @@ import { SectionHeader, FilterSection } from './ReportComponents';
 import SearchableObraSelect from '../SearchableObraSelect';
 import { formatObraNome } from '../../utils/obraFormat';
 import SearchableSelect from '../SearchableSelect';
+import { resolveOrderPartnerName, getVehicleTerceiroName, getPartnerDisplayName } from '../../utils/partners';
+import { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
 
 const SupplyOrdersReport = ({ 
     supplyOrders = [], 
@@ -94,8 +96,10 @@ const SupplyOrdersReport = ({
             return {
                 ...order,
                 id: order.id,
-                vehicleName: vehicle ? `${vehicle.registroInterno} - ${vehicle.modelo}` : (order.vehicleName || 'N/A'),
-                partnerName: partner ? (partner.razaoSocial || partner.nome) : (order.partnerName || order.postoNome || 'Posto N/A'),
+                vehicleName: vehicle
+                    ? `${vehicle.registroInterno} - ${vehicle.modelo}${terceirizadoPdfMark(vehicle)}${vehicle.isOutsourced ? ` [${getVehicleTerceiroName(vehicle, partnersData) || 'sem fornecedor'}]` : ''}`
+                    : (order.vehicleName || 'N/A'),
+                partnerName: resolveOrderPartnerName(partner, order.partnerName || order.postoNome, 'Posto N/A'),
                 obraName: obra ? formatObraNome(obra) : 'N/A',
                 driverName: employee ? employee.nome : (order.employeeName || 'N/A'),
                 formattedDate: dateObj.getTime() > 0 ? dateObj.toLocaleDateString('pt-BR') : 'Data Inválida',
@@ -199,8 +203,8 @@ const SupplyOrdersReport = ({
                     items={sortedPartners}
                     value={filters.partnerId}
                     onChange={(item) => setFilters({...filters, partnerId: item?.id || ''})}
-                    getLabel={(p) => p.razaoSocial || p.nome || 'Sem Nome'}
-                    getSubLabel={(p) => p.cidade || ''}
+                    getLabel={(p) => getPartnerDisplayName(p) || 'Sem Nome'}
+                    getSubLabel={(p) => [p.nomeFantasia ? p.razaoSocial : null, p.cidade].filter(Boolean).join(' · ')}
                     placeholder={`Todos os Postos (${sortedPartners.length})`}
                 />
 

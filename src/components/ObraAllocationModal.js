@@ -1,6 +1,7 @@
 ﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Loader, X, AlertTriangle, Shield, Calendar, Gauge, MapPin, ChevronDown, Search, User, Building2 } from 'lucide-react';
+import { Loader, X, AlertTriangle, Shield, Calendar, Gauge, MapPin, ChevronDown, Search, User, Building2, History } from 'lucide-react';
 import FinishObraModal from './FinishObraModal';
+import EstadiaRetroativaModal from './EstadiaRetroativaModal';
 import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions, checkReadingConsistency } from '../utils/vehicleRules';
 import SearchableSelect from './SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
@@ -155,8 +156,12 @@ const ObraAllocationModal = ({
     const currentVehicleReading = getVehicleMainReading(vehicle).value || '';
     const [readingValue, setReadingValue] = useState(currentVehicleReading.toString());
 
+    // Inclui obras em fase de planejamento (planejada/mobilizacao): alocar o 1º
+    // equipamento nelas as ativa automaticamente no backend. Única tela
+    // operacional que enxerga status pré-obra.
     const activeObras = useMemo(() =>
-        obras.filter(o => o.status === 'ativa').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
+        obras.filter(o => ['ativa', 'planejada', 'mobilizacao'].includes(o.status))
+            .sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
     [obras]);
 
     // Somente funcionários com status 'ativo'
@@ -168,6 +173,7 @@ const ObraAllocationModal = ({
 
     const [isFinishObraModalOpen, setIsFinishObraModalOpen] = useState(false);
     const [obraToFinalize, setObraToFinalize] = useState(null);
+    const [isRetroModalOpen, setIsRetroModalOpen] = useState(false);
 
     const currentObra = obras.find(o => o.id === vehicle.obraAtualId);
 
@@ -425,6 +431,21 @@ const ObraAllocationModal = ({
                                 >
                                     {isSaving ? <Loader className="animate-spin" size={16} /> : 'Finalizar & Desalocar'}
                                 </button>
+
+                                {/* Estadia retroativa: registrar passagem passada por outra obra sem desalocar */}
+                                <div className="pt-2 border-t border-gray-100">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsRetroModalOpen(true)}
+                                        disabled={isSaving}
+                                        className="w-full py-2.5 bg-white border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50 font-semibold rounded-lg text-sm flex items-center justify-center gap-2 transition"
+                                    >
+                                        <History size={15} /> Registrar estadia retroativa em outra obra
+                                    </button>
+                                    <p className="text-[11px] text-gray-400 mt-1.5 text-center">
+                                        A máquina esteve em outra obra por um período e voltou — sem tirá-la da obra atual.
+                                    </p>
+                                </div>
                             </div>
                         ) : (
                             /* ── ALOCAÇÃO ── */
@@ -435,7 +456,7 @@ const ObraAllocationModal = ({
                                         <Building2 size={12} /> Obra Destino <span className="text-red-500">*</span>
                                     </label>
                                     <SearchableSelect
-                                        items={activeObras.map(o => ({ ...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}` }))}
+                                        items={activeObras.map(o => ({ ...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}${o.status !== 'ativa' ? ' [PLANEJADA]' : ''}` }))}
                                         value={obraId}
                                         onChange={(item) => setObraId(item?.id || '')}
                                         getLabel={(o) => o._displayNome || o.nome}
@@ -508,11 +529,41 @@ const ObraAllocationModal = ({
                                 >
                                     {isSaving ? <Loader className="animate-spin" size={16} /> : 'Confirmar Alocação'}
                                 </button>
+
+                                {/* Estadia retroativa: registrar passagem passada por uma obra sem alocar agora */}
+                                <div className="pt-2 border-t border-gray-100">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsRetroModalOpen(true)}
+                                        disabled={isSaving}
+                                        className="w-full py-2.5 bg-white border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50 font-semibold rounded-lg text-sm flex items-center justify-center gap-2 transition"
+                                    >
+                                        <History size={15} /> Lançar estadia retroativa em uma obra
+                                    </button>
+                                    <p className="text-[11px] text-gray-400 mt-1.5 text-center">
+                                        A máquina trabalhou em uma obra num período passado — registra sem alocá-la agora.
+                                    </p>
+                                </div>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
+
+            {isRetroModalOpen && (
+                <EstadiaRetroativaModal
+                    vehicle={vehicle}
+                    currentObra={currentObra}
+                    obras={obras}
+                    employees={employees}
+                    readingType={readingType}
+                    readingLabel={readingLabel}
+                    onClose={() => setIsRetroModalOpen(false)}
+                    setAlertMessage={setAlertMessage}
+                    apiClient={apiClient}
+                    reloadData={reloadData}
+                />
+            )}
 
             {isFinishObraModalOpen && (
                 <FinishObraModal

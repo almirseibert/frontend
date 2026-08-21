@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { X, Loader, FileText, Save, Stethoscope, Briefcase, User, Shield, PlusCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Loader, FileText, Save, Stethoscope, User, Shield, PlusCircle, MapPin, Wrench, Star } from 'lucide-react';
+import SearchableCitySelect from '../SearchableCitySelect';
+import { vehicleGroups } from '../../utils/vehicleRules';
+import { cidadePorNome } from '../../utils/geo';
 
 const EmployeeModal = ({ 
     user, 
@@ -31,6 +34,10 @@ const EmployeeModal = ({
         email: '',
         status: 'ativo',
         isPlaceholder: false,
+        // Geolocalização + aptidões (Mapa Operacional / sugestão de equipe)
+        cidade_ibge: '',
+        equipamentos_aptos: [],
+        is_lider_obra: false,
         // CNH: Mapeamos para um objeto para facilitar a UI
         cnh: { numero: '', categoria: '', validade: '', emissao: '', exameToxicologicoVencimento: '', anexo: null },
         // ASO: Nova aba
@@ -66,6 +73,12 @@ const EmployeeModal = ({
                 email: employee.email || '',
                 status: employee.status || 'ativo',
                 isPlaceholder: employee.isPlaceholder === 1 || employee.isPlaceholder === true,
+                // Backfill do código IBGE por nome quando o registro é legado (só tinha texto).
+                cidade_ibge: employee.cidade_ibge || cidadePorNome(employee.cidade)?.codigo_ibge || '',
+                equipamentos_aptos: Array.isArray(employee.equipamentos_aptos)
+                    ? employee.equipamentos_aptos
+                    : parseJson(employee.equipamentos_aptos, []),
+                is_lider_obra: employee.is_lider_obra === 1 || employee.is_lider_obra === true,
 
                 cnh: {
                     numero: cnhNumero,
@@ -97,6 +110,32 @@ const EmployeeModal = ({
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    // Lista de tipos de equipamento (taxonomia hidratada do DB via vehicleGroups).
+    const equipamentoOptions = useMemo(() => {
+        const set = new Set();
+        Object.values(vehicleGroups || {}).forEach(arr => (arr || []).forEach(t => set.add(t)));
+        return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    }, []);
+
+    const toggleEquipamento = (tipo) => {
+        setFormData(prev => {
+            const atuais = Array.isArray(prev.equipamentos_aptos) ? prev.equipamentos_aptos : [];
+            const has = atuais.includes(tipo);
+            return {
+                ...prev,
+                equipamentos_aptos: has ? atuais.filter(t => t !== tipo) : [...atuais, tipo],
+            };
+        });
+    };
+
+    const handleCitySelect = (city) => {
+        setFormData(prev => ({
+            ...prev,
+            cidade_ibge: city ? city.codigo_ibge : '',
+            cidade: city ? city.nome : '',
+        }));
     };
 
     const handleNestedChange = (section, field, value) => {
@@ -157,6 +196,8 @@ const EmployeeModal = ({
             const payload = {
                 ...formData,
                 isPlaceholder: formData.isPlaceholder ? 1 : 0,
+                is_lider_obra: formData.is_lider_obra ? 1 : 0,
+                equipamentos_aptos: Array.isArray(formData.equipamentos_aptos) ? formData.equipamentos_aptos : [],
                 // Envia campos planos de CNH explicitamente para o backend salvar nas colunas do MySQL
                 cnhNumero: formData.cnh.numero,
                 cnhCategoria: formData.cnh.categoria,
@@ -207,7 +248,8 @@ const EmployeeModal = ({
                         { id: 'dados', label: 'Dados Pessoais', icon: User },
                         { id: 'cnh', label: 'CNH e Exames', icon: FileText },
                         { id: 'aso', label: 'Atestado Médico (ASO)', icon: Stethoscope },
-                        { id: 'epi', label: 'EPIs', icon: Shield }
+                        { id: 'epi', label: 'EPIs', icon: Shield },
+                        { id: 'aptidoes', label: 'Aptidões', icon: Wrench }
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -280,8 +322,15 @@ const EmployeeModal = ({
                                 <input name="endereco" value={formData.endereco} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cidade</label>
-                                <input name="cidade" value={formData.cidade} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1">
+                                    <MapPin size={12} /> Cidade (RS)
+                                </label>
+                                <SearchableCitySelect
+                                    value={formData.cidade_ibge}
+                                    onChange={handleCitySelect}
+                                    overlay
+                                    placeholder={formData.cidade || 'Buscar cidade do RS...'}
+                                />
                             </div>
 
                             <div className="md:col-span-1">
@@ -416,6 +465,52 @@ const EmployeeModal = ({
                                             ) : <span className="text-xs text-gray-400 italic">Nenhum arquivo</span>}
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NOVA ABA: APTIDÕES */}
+                    {activeTab === 'aptidoes' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            <div className="bg-gray-50 p-5 rounded-lg border border-gray-200">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                        <Wrench size={18}/> Equipamentos que sabe operar
+                                    </h3>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={!!formData.is_lider_obra}
+                                            onChange={e => setFormData(prev => ({ ...prev, is_lider_obra: e.target.checked }))}
+                                            className="h-4 w-4 text-yellow-600 rounded focus:ring-yellow-500"
+                                        />
+                                        <span className="text-sm font-semibold text-gray-700 flex items-center gap-1">
+                                            <Star size={13} className="text-yellow-500" /> Apto a liderar obra
+                                        </span>
+                                    </label>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {equipamentoOptions.map(tipo => {
+                                        const ativo = (formData.equipamentos_aptos || []).includes(tipo);
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={tipo}
+                                                onClick={() => toggleEquipamento(tipo)}
+                                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${
+                                                    ativo
+                                                        ? 'bg-yellow-500 text-white border-yellow-500'
+                                                        : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400'
+                                                }`}
+                                            >
+                                                {tipo}
+                                            </button>
+                                        );
+                                    })}
+                                    {equipamentoOptions.length === 0 && (
+                                        <span className="text-xs text-gray-400 italic">Taxonomia de veículos não carregada.</span>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
     Building, HardHat, ClipboardCheck, FileText,
-    Fuel, Wrench, User, Shield, LogOut, Key,
+    Fuel, Wrench, User, Shield, LogOut, Settings,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
     Radio, Search
 } from 'lucide-react';
-import { ROLE_PAGE_ACCESS, canAccessAnaliseGerencial } from '../utils/permissions';
+import { getEffectivePages, canAccessAnaliseGerencial } from '../utils/permissions';
+import { getStatusMeta } from '../utils/chatStatus';
 
-const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, pendingSolicitacoesCount }) => {
+const Sidebar = ({ currentPage, setCurrentPage, user, logout, onOpenSettings, myChatStatus, pendingSolicitacoesCount }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
 
-    const roleNorm = user?.roleNormalized || (user?.user_type || 'viewer').toLowerCase();
-    const userPages = ROLE_PAGE_ACCESS[roleNorm] || ROLE_PAGE_ACCESS['viewer'];
+    const userPages = getEffectivePages(user);
     const canAccess = (pageId) => userPages.includes('*') || userPages.includes(pageId);
     const canAccessAny = (pageIds) => pageIds.some(id => canAccess(id));
 
@@ -31,18 +31,20 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             icon: <HardHat size={14} />,
             hidden: !canAccessAny(['obras', 'expenses']),
             items: [
-                { id: 'obras',    label: 'Obras' },
-                { id: 'expenses', label: 'Despesas', hidden: !canAccess('expenses') },
+                { id: 'obras',        label: 'Obras' },
+                { id: 'planejamento', label: 'Planejamento', hidden: !canAccess('planejamento') },
+                { id: 'expenses',     label: 'Despesas', hidden: !canAccess('expenses') },
             ],
         },
         {
             id: 'faturamento',
             label: 'Faturamento',
             icon: <ClipboardCheck size={14} />,
-            hidden: !canAccessAny(['operacional', 'billing']),
+            hidden: !canAccessAny(['operacional', 'billing', 'terceirizados']),
             items: [
-                { id: 'operacional', label: 'Central Operacional', hidden: !canAccess('operacional') },
-                { id: 'billing',     label: 'Relatório de Horas',  hidden: !canAccess('billing') },
+                { id: 'operacional',   label: 'Central Operacional', hidden: !canAccess('operacional') },
+                { id: 'billing',       label: 'Relatório de Horas',  hidden: !canAccess('billing') },
+                { id: 'terceirizados', label: 'Terceirizados',       hidden: !canAccess('terceirizados') },
             ],
         },
         {
@@ -60,10 +62,10 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             icon: <Search size={14} />,
             hidden: !canAccessAnaliseGerencial(user),
             items: [
-                { id: 'analise_gerencial',     label: 'Divergências Operacionais' },
-                { id: 'projecao_obra',         label: 'Projeção de Obra' },
-                { id: 'supervisor_dashboard',  label: 'Gestão de Obras' },
-                { id: 'aproveitamento',        label: 'Aproveitamento Produtivo' },
+                { id: 'analise_gerencial',      label: 'Divergências Operacionais' },
+                { id: 'mapa_operacional',       label: 'Mapa Operacional' },
+                { id: 'supervisor_dashboard',   label: 'Gestão de Obras' },
+                { id: 'faturamento_historico',  label: 'Desempenho do Negócio' },
             ],
         },
         {
@@ -82,9 +84,10 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             id: 'oficina',
             label: 'Oficina',
             icon: <Wrench size={14} />,
-            hidden: !canAccessAny(['revisions', 'tires', 'orders']),
+            hidden: !canAccessAny(['revisions', 'relatos', 'tires', 'orders']),
             items: [
                 { id: 'revisions', label: 'Revisões & Manutenções', hidden: !canAccess('revisions') },
+                { id: 'relatos',   label: 'Relatos de Ocorrência',  hidden: !canAccess('relatos') },
                 { id: 'tires',     label: 'Gestão de Pneus',        hidden: !canAccess('tires') },
                 { id: 'orders',    label: 'Ordens (C/S)',            hidden: !canAccess('orders') },
             ],
@@ -360,11 +363,23 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
             <div className="shrink-0 p-2" style={{ borderTop: '1px solid #3d3528' }}>
                 {/* Usuário */}
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded-md mb-1 ${isCollapsed ? 'justify-center' : ''}`}>
-                    <div
-                        className="flex items-center justify-center rounded-full shrink-0 text-white font-bold"
-                        style={{ width: 26, height: 26, background: '#9E7A42', fontSize: 10, fontWeight: 700 }}
-                    >
-                        {userInitial}
+                    <div className="relative shrink-0">
+                        <div
+                            className="flex items-center justify-center rounded-full text-white font-bold"
+                            style={{ width: 26, height: 26, background: '#9E7A42', fontSize: 10, fontWeight: 700 }}
+                        >
+                            {userInitial}
+                        </div>
+                        {/* Bolinha de status do chat (MSN) */}
+                        <span
+                            title={getStatusMeta(myChatStatus).label}
+                            style={{
+                                position: 'absolute', bottom: -1, right: -1,
+                                width: 9, height: 9, borderRadius: '50%',
+                                background: getStatusMeta(myChatStatus).dot,
+                                border: '1.5px solid #1c1a17',
+                            }}
+                        />
                     </div>
                     {!isCollapsed && (
                         <div className="overflow-hidden">
@@ -372,14 +387,14 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onChangePassword, 
                             <div className="flex items-center gap-1">
                                 <span style={{ fontSize: 9, color: '#5a4e3a' }}>{userRole}</span>
                                 <button
-                                    onClick={onChangePassword}
+                                    onClick={onOpenSettings}
                                     className="flex items-center gap-0.5 transition-colors"
                                     style={{ fontSize: 9, color: '#5a4e3a' }}
                                     onMouseEnter={e => e.currentTarget.style.color = '#9E7A42'}
                                     onMouseLeave={e => e.currentTarget.style.color = '#5a4e3a'}
-                                    title="Trocar senha"
+                                    title="Configurações"
                                 >
-                                    · <Key size={9} /> Trocar Senha
+                                    · <Settings size={9} /> Configurações
                                 </button>
                             </div>
                         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Loader, X, AlertTriangle, Save, Camera, ShieldCheck, Briefcase, Gauge, MapPin, Package, Fuel, FileText, Trash2, Upload, ExternalLink } from 'lucide-react';
 import { checkReadingConsistency, vehicleSubTypes, getGroupUnit } from '../utils/vehicleRules';
+import { getPartnerDisplayName } from '../utils/partners';
 import SearchableSelect from './SearchableSelect';
 
 const ModalBtn = ({ variant = 'primary', onClick, disabled, children }) => {
@@ -32,6 +33,7 @@ const VehicleModal = ({
     user,
     vehicle,
     vehicles = [],
+    partners = [],
     vehicleTypes = [],
     vehicleGroups = {},
     vehicleTypeConfigs = [],
@@ -77,6 +79,9 @@ const VehicleModal = ({
         // Dados do terceirizado (campos dedicados no banco)
         nomeEmpresaTerceiro: vehicle?.nomeEmpresaTerceiro || '',
         contratoTerceiro:    vehicle?.contratoTerceiro    || '',
+
+        // Contrato de locação (equipamento terceirizado) — alimenta cálculo de tarifa/hora
+        locadorId:               vehicle?.locadorId || '',
 
         // Rastreador
         rastreador: vehicle?.rastreador || 'Sem Rastreador',
@@ -229,6 +234,12 @@ const VehicleModal = ({
 
     const availableSubTypes = useMemo(() => vehicleSubTypes[formData.tipo] || [], [formData.tipo]);
 
+    // Locadores (parceiros tipo 'locador') para vincular equipamento terceirizado
+    const locadores = useMemo(
+        () => (partners || []).filter(p => p.tipo_parceiro === 'locador'),
+        [partners]
+    );
+
     // Busca a config padrão do tipo/sub-tipo cadastrada
     const typeConfigDefault = useMemo(() => {
         if (!vehicleTypeConfigs.length) return null;
@@ -355,6 +366,8 @@ const VehicleModal = ({
             sub_tipo:   formData.sub_tipo || null,
             media_consumo: formData.media_consumo !== '' ? parseFloat(formData.media_consumo) : null,
             percentual_tolerancia: formData.percentual_tolerancia !== '' ? parseFloat(formData.percentual_tolerancia) : 20,
+            // Contrato de locação (só faz sentido para terceirizado)
+            locadorId:               formData.isOutsourced ? (formData.locadorId || null) : null,
             // Sucata: força canCirculate = false e remove alocações ativas
             ...(isSucata && { canCirculate: false }),
         };
@@ -550,16 +563,21 @@ const VehicleModal = ({
                                     </div>
                                     {formData.isOutsourced && (
                                         <div className="px-3 pb-3 space-y-2.5 border-t border-purple-200 pt-3">
-                                            <p className="text-[10px] text-purple-500 font-medium uppercase tracking-wide">Dados do fornecedor</p>
+                                            <p className="text-[10px] text-purple-500 font-medium uppercase tracking-wide">Locador</p>
                                             <div>
-                                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Empresa / Fornecedor</label>
-                                                <input
-                                                    name="nomeEmpresaTerceiro"
-                                                    value={formData.nomeEmpresaTerceiro}
+                                                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Empresa Locadora (cadastro)</label>
+                                                <select
+                                                    name="locadorId"
+                                                    value={formData.locadorId}
                                                     onChange={handleChange}
-                                                    placeholder="Ex: Transportes Silva Ltda"
                                                     className="w-full p-2 border border-purple-200 rounded-lg bg-white focus:ring-2 focus:ring-purple-400 outline-none text-sm"
-                                                />
+                                                >
+                                                    <option value="">— Selecionar locador —</option>
+                                                    {locadores.map(l => (
+                                                        <option key={l.id} value={l.id}>{getPartnerDisplayName(l)}</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-gray-400 mt-1">Fonte única do fornecedor. Cadastre locadores em Postos &amp; Fornecedores → aba Locadores.</p>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Nº do Contrato / Referência</label>
@@ -571,6 +589,12 @@ const VehicleModal = ({
                                                     className="w-full p-2 border border-purple-200 rounded-lg bg-white focus:ring-2 focus:ring-purple-400 outline-none text-sm font-mono"
                                                 />
                                             </div>
+
+                                            <p className="text-[10px] text-gray-400 pt-1 leading-relaxed">
+                                                Os dados de contrato (horas, valor, vigência) são gerenciados na tela
+                                                <b> Terceirizados</b> — 1 contrato por obra, com valor fechado. Aqui basta
+                                                marcar o veículo como terceirizado e indicar o locador.
+                                            </p>
                                         </div>
                                     )}
                                 </div>

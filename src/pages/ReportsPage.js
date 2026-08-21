@@ -19,6 +19,7 @@ import AveragesReport from '../components/reports/AveragesReport'; // Novo
 import FuelConsumptionReport from '../components/reports/FuelConsumptionReport';
 import JornadasOperadorReport from '../components/reports/JornadasOperadorReport';
 import ComboioVolumeReport from '../components/reports/ComboioVolumeReport';
+import PlanejamentoObrasReport from '../components/reports/PlanejamentoObrasReport';
 
 const ReportsPage = ({ 
     vehicles = [], 
@@ -79,7 +80,8 @@ const ReportsPage = ({
         { id: 'averages', label: 'Médias & Consumo', icon: TrendingUp, desc: 'Comparativos e médias (Km/L, L/Hr).', color: 'bg-teal-600' },
         { id: 'fuel_obra', label: 'Consumo por Obra', icon: Droplet, desc: 'Litros e valores de combustível agrupados por obra.', color: 'bg-orange-600' },
         { id: 'jornadas_operador', label: 'Jornadas por Operador', icon: Clock, desc: 'Comparativo Faturado × Rastreador × Ponto.', color: 'bg-amber-600' },
-        { id: 'comboio_volume', label: 'Volume de Comboio', icon: Droplet, desc: 'Entradas/saídas e saldo de litragem por comboio.', color: 'bg-cyan-600' }
+        { id: 'comboio_volume', label: 'Volume de Comboio', icon: Droplet, desc: 'Entradas/saídas e saldo de litragem por comboio.', color: 'bg-cyan-600' },
+        { id: 'planejamento_obras', label: 'Planejamento de Obras', icon: HardHat, desc: 'Quadro por fase + balanço de demanda × frota.', color: 'bg-yellow-600' }
     ];
 
     return (
@@ -135,6 +137,7 @@ const ReportsPage = ({
                             {reportType === 'fuel_obra' && <FuelConsumptionReport refuelings={activeRefuelings} obras={obras} vehicles={vehicles} expenses={expenses} />}
                             {reportType === 'jornadas_operador' && <JornadasOperadorReport employees={employees} />}
                             {reportType === 'comboio_volume' && <ComboioVolumeReport vehicles={vehicles} obras={obras} />}
+                            {reportType === 'planejamento_obras' && <PlanejamentoObrasReport />}
                         </ProtectedComponent>
                     </div>
                 )}

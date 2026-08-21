@@ -5,6 +5,7 @@ import {
     Settings, FileText, Trash2, RotateCcw, Edit, FileCheck, CornerDownRight
 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import CurrencyInput from '../components/ui/CurrencyInput';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableSelect from '../components/SearchableSelect';
@@ -660,7 +661,7 @@ const NewTireModal = ({ onClose, onSave }) => {
                         <select className="w-full p-2 border rounded" value={data.tireCondition} onChange={e => setData({...data, tireCondition: e.target.value})}><option value="Novo">Novo</option><option value="Usado">Usado</option><option value="Recapado">Recapado</option></select>
                         <div className="grid grid-cols-2 gap-2">
                             <input type="date" className="w-full p-2 border rounded" value={data.purchaseDate} onChange={e => setData({...data, purchaseDate: e.target.value})} />
-                            <input type="number" placeholder="Preço (R$)" className="w-full p-2 border rounded" value={data.price} onChange={e => setData({...data, price: e.target.value})} />
+                            <CurrencyInput placeholder="Preço (R$)" className="w-full p-2 border rounded" value={data.price} onChange={e => setData({...data, price: e.target.value})} />
                         </div>
                     </div>
                     <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Salvar</button></div>
@@ -718,7 +719,7 @@ const StockActionModal = ({ tire, employees, obras, onClose, onSave }) => {
                             <>
                                 <div className="p-2 bg-orange-50 text-orange-800 text-xs rounded">Ao confirmar, será gerado um Termo de Responsabilidade PDF.</div>
                                 <div><label className="block text-sm font-bold mb-1">Funcionário</label><SearchableSelect items={employees} value={formData.employeeId} onChange={item => setFormData({...formData, employeeId: item?.id || ''})} getLabel={e => e.nome} getSubLabel={e => e.profissao || ''} placeholder="-- Selecione --" required /></div>
-                                <div><label className="block text-sm font-bold mb-1">Obra</label><SearchableSelect items={obras.filter(o => o.status === 'ativa').map(o => ({...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}`}))} value={formData.obraId} onChange={item => setFormData({...formData, obraId: item?.id || ''})} getLabel={o => o._displayNome || o.nome} placeholder="-- Selecione --" required /></div>
+                                <div><label className="block text-sm font-bold mb-1">Obra</label><SearchableSelect items={obras.filter(o => ['ativa', 'mobilizacao'].includes(o.status)).map(o => ({...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}`}))} value={formData.obraId} onChange={item => setFormData({...formData, obraId: item?.id || ''})} getLabel={o => o._displayNome || o.nome} placeholder="-- Selecione --" required /></div>
                             </>
                         )}
                         {actionType === 'maintenance' && <div><label className="block text-sm font-bold mb-1">Fornecedor</label><input required className="w-full p-2 border rounded" value={formData.vendorName} onChange={e => setFormData({...formData, vendorName: e.target.value})} placeholder="Nome do fornecedor" /></div>}
@@ -747,7 +748,7 @@ const SpareTireModal = ({ stockTires, employees, obras, onClose, onSave }) => {
                     <div className="space-y-3">
                         <div><label className="block text-sm font-bold mb-1">Pneu</label><SearchableSelect items={stockTires} value={formData.tireId} onChange={item => setFormData({...formData, tireId: item?.id || ''})} getLabel={t => `${t.fireNumber} - ${t.brand}`} placeholder="-- Selecione --" required /></div>
                         <div><label className="block text-sm font-bold mb-1">Funcionário</label><SearchableSelect items={employees} value={formData.employeeId} onChange={item => setFormData({...formData, employeeId: item?.id || ''})} getLabel={e => e.nome} getSubLabel={e => e.profissao || ''} placeholder="-- Selecione --" required /></div>
-                        <div><label className="block text-sm font-bold mb-1">Obra</label><SearchableSelect items={obras.filter(o => o.status === 'ativa').map(o => ({...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}`}))} value={formData.obraId} onChange={item => setFormData({...formData, obraId: item?.id || ''})} getLabel={o => o._displayNome || o.nome} placeholder="-- Selecione --" required /></div>
+                        <div><label className="block text-sm font-bold mb-1">Obra</label><SearchableSelect items={obras.filter(o => ['ativa', 'mobilizacao'].includes(o.status)).map(o => ({...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}`}))} value={formData.obraId} onChange={item => setFormData({...formData, obraId: item?.id || ''})} getLabel={o => o._displayNome || o.nome} placeholder="-- Selecione --" required /></div>
                         <div><label className="block text-sm font-bold mb-1">Obs</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.observation} onChange={e => setFormData({...formData, observation: e.target.value})}></textarea></div>
                     </div>
                     <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Cancelar</button><button type="submit" className="px-4 py-2 bg-orange-600 text-white rounded">Enviar</button></div>

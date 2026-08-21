@@ -1,16 +1,93 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Activity, Search, X, ArrowRight, AlertTriangle,
-    BarChart2, ChevronLeft, PackageX, Truck, TrendingUp,
-    Gauge, MapPin, User, Clock, Fuel, FileText, Mail, Phone, Send
+    BarChart2, ChevronLeft, PackageX, Truck,
+    Gauge, MapPin, User, Clock, Fuel, FileText, Mail, Phone, Send, ChevronRight
 } from 'lucide-react';
 import apiClientModule from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
+import TerceirizadoBadge from '../components/ui/TerceirizadoBadge';
 
 const GAP_THRESHOLD_DAYS = 10;
+
+// Os apontamentos de campo levam ~1 semana para chegar até o escritório. Dias mais
+// recentes que isso ainda não podem ser cobrados: a ausência de lançamento neles é
+// esperada, não é falha. Todo cálculo de gap/status ignora essa janela.
+const REPORTING_LAG_DAYS = 7;
+
+const riskConfig = {
+    critico: { border: 'border-red-500', badge: 'bg-red-100 text-red-700',       label: 'Sem Registro' },
+    atencao: { border: 'border-orange-400', badge: 'bg-orange-100 text-orange-700', label: 'Atenção'    },
+    ok:      { border: 'border-green-500', badge: 'bg-green-100 text-green-700',  label: 'Operando'    },
+};
+
+/**
+ * Badge de risco com tooltip renderizado via portal em `position: fixed`.
+ * O tooltip precisa sair do fluxo porque a tabela vive dentro de um wrapper
+ * `overflow-x-auto` — em `position: absolute` ele expandia a área rolável e
+ * fazia surgir barra de rolagem na linha ao passar o mouse.
+ */
+const RiskBadge = ({ riskLevel, riskScore, riskReasons, size = 'sm' }) => {
+    const cfg = riskConfig[riskLevel];
+    const sizeClass = size === 'md' ? 'px-3 py-1 text-sm' : 'px-2 py-0.5 text-xs';
+    const anchorRef = useRef(null);
+    const [coords, setCoords] = useState(null);
+
+    const hide = useCallback(() => setCoords(null), []);
+
+    const show = useCallback(() => {
+        const rect = anchorRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        // Alinha a borda direita do tooltip à do badge, sem deixar sair da viewport.
+        const right = Math.min(rect.right, window.innerWidth - 8);
+        setCoords({ top: rect.bottom + 8, right: window.innerWidth - right });
+    }, []);
+
+    // Enquanto o tooltip está aberto, qualquer rolagem invalida a posição fixa.
+    useEffect(() => {
+        if (!coords) return;
+        window.addEventListener('scroll', hide, true);
+        window.addEventListener('resize', hide);
+        return () => {
+            window.removeEventListener('scroll', hide, true);
+            window.removeEventListener('resize', hide);
+        };
+    }, [coords, hide]);
+
+    return (
+        <span ref={anchorRef} className="inline-block" onMouseEnter={show} onMouseLeave={hide}>
+            <span className={`cursor-help rounded-full font-bold ${sizeClass} ${cfg.badge}`}>{cfg.label}</span>
+            {coords && createPortal(
+                <div
+                    className="pointer-events-none fixed z-[100] w-64 bg-gray-900 text-white text-xs rounded-xl shadow-2xl p-3.5"
+                    style={{ top: coords.top, right: coords.right }}
+                >
+                    <div className="absolute -top-1.5 right-4 w-3 h-3 bg-gray-900 rotate-45 rounded-sm" />
+                    <p className="font-bold mb-2 text-yellow-400 uppercase tracking-wider text-[10px]">Composição do status</p>
+                    <ul className="space-y-1.5">
+                        {riskReasons.map((reason, i) => (
+                            <li key={i} className="flex items-start gap-1.5 leading-snug">
+                                <span className="mt-px shrink-0 text-yellow-400">·</span>
+                                <span>{reason}</span>
+                            </li>
+                        ))}
+                    </ul>
+                    {riskScore > 0 && (
+                        <p className="mt-2.5 pt-2 border-t border-gray-700 text-gray-400 text-[10px]">
+                            Score: <span className="font-bold text-white">{riskScore} pts</span>
+                            {riskScore >= 10 ? ' — Sem Registro (≥ 10)' : riskScore >= 3 ? ' — Atenção (3–9)' : ''}
+                        </p>
+                    )}
+                </div>,
+                document.body
+            )}
+        </span>
+    );
+};
 
 const JUSTIFICATIVA_LABELS = {
     chuva: 'Chuva',
@@ -74,13 +151,18 @@ const OperacionalPage = ({
     const [obraStatus, setObraStatus] = useState('ativas');
     const [obraHasActive, setObraHasActive] = useState('');
     const [obraSort, setObraSort] = useState('risco');
+    const [obraSortDir, setObraSortDir] = useState('desc');
     const [obraDetailStatus, setObraDetailStatus] = useState('todos');
     const [obraDetailSort, setObraDetailSort] = useState('padrao');
+    const [obraOnlyAlerts, setObraOnlyAlerts] = useState(false);
+    const [selectedObraStatId, setSelectedObraStatId] = useState(null);
     const [showCentroCusto, setShowCentroCusto] = useState(false);
 
     useEffect(() => {
         if (obraId && activeView === 'obra') fetchObraData();
         if (!obraId) setObraLogs([]);
+        setObraOnlyAlerts(false);
+        setSelectedObraStatId(null);
     }, [obraId, activeView]);
 
     const fetchObraData = async () => {
@@ -88,12 +170,22 @@ const OperacionalPage = ({
         if (!obra) return;
         setLoadingObra(true);
         try {
-            const startDate = obra.dataInicio.split('T')[0];
+            // Obras sem dataInicio existem (cadastro incompleto / centro de custo).
+            // Nesse caso o piso da janela vem da entrada mais antiga do histórico de veículos.
+            const historico = obra.historicoVeiculos || [];
+            const fallbackStart = historico
+                .map(h => h.dataEntrada)
+                .filter(Boolean)
+                .sort()[0];
+            const startRaw = obra.dataInicio || fallbackStart;
+            const startDate = startRaw ? startRaw.split('T')[0] : undefined;
             const endDate = obra.dataFim ? obra.dataFim.split('T')[0] : new Date().toISOString().split('T')[0];
-            const logs = await apiClient.getDailyLogs(obraId, { startDate, endDate });
+            const logs = await apiClient.getDailyLogs(obraId, startDate ? { startDate, endDate } : { endDate });
             setObraLogs(logs || []);
-        } catch {
-            setAlertMessage('Erro ao carregar dados da obra.');
+        } catch (err) {
+            console.error('[OperacionalPage] falha ao carregar lançamentos da obra', obraId, err);
+            setObraLogs([]);
+            setAlertMessage(`Erro ao carregar dados da obra: ${err?.message || 'falha desconhecida'}`);
         } finally {
             setLoadingObra(false);
         }
@@ -102,12 +194,6 @@ const OperacionalPage = ({
     // ==========================================================
     // VIEW: POR OBRA — memos
     // ==========================================================
-
-    const riskConfig = {
-        critico: { border: 'border-red-500', badge: 'bg-red-100 text-red-700',       label: 'Sem Registro' },
-        atencao: { border: 'border-orange-400', badge: 'bg-orange-100 text-orange-700', label: 'Atenção'    },
-        ok:      { border: 'border-green-500', badge: 'bg-green-100 text-green-700',  label: 'Operando'    },
-    };
 
     const obrasComRisco = useMemo(() => {
         return obras.filter(o => showCentroCusto || (o.tipo_registro || 'obra') !== 'centro_custo').map(obra => {
@@ -193,31 +279,42 @@ const OperacionalPage = ({
         if (obraHasActive === 'sim') result = result.filter(o => o.ativos > 0);
         else if (obraHasActive === 'nao') result = result.filter(o => o.ativos === 0);
         if (obraSearch.trim()) result = result.filter(o => o.obra.nome.toLowerCase().includes(obraSearch.toLowerCase().trim()));
-        if (obraSort === 'risco') {
-            const riskOrder = { critico: 0, atencao: 1, ok: 2 };
-            result = [...result].sort((a, b) => {
-                if (a.isFinished !== b.isFinished) return a.isFinished ? 1 : -1;
+        // Ordenação por coluna. `risco` é o default e usa desempate próprio;
+        // as demais chaves respeitam a direção escolhida no cabeçalho.
+        const riskOrder = { critico: 0, atencao: 1, ok: 2 };
+        const comparators = {
+            risco: (a, b) => {
                 if (riskOrder[a.riskLevel] !== riskOrder[b.riskLevel]) return riskOrder[a.riskLevel] - riskOrder[b.riskLevel];
                 if (b.ativos !== a.ativos) return b.ativos - a.ativos;
                 return a.obra.nome.localeCompare(b.obra.nome);
-            });
-        } else if (obraSort === 'dataInicio') {
-            result = [...result].sort((a, b) => new Date(a.obra.dataInicio) - new Date(b.obra.dataInicio));
-        } else if (obraSort === 'semLancamento') {
-            result = [...result].sort((a, b) => {
-                const sA = a.totalHoras === 0 ? a.diasDeObra * 1000 : a.diasDeObra / Math.max(1, a.totalHoras);
-                const sB = b.totalHoras === 0 ? b.diasDeObra * 1000 : b.diasDeObra / Math.max(1, b.totalHoras);
-                return sB - sA;
-            });
-        }
+            },
+            nome: (a, b) => a.obra.nome.localeCompare(b.obra.nome),
+            dias: (a, b) => a.diasDeObra - b.diasDeObra,
+            ativos: (a, b) => a.ativos - b.ativos,
+            semLancamento: (a, b) => a.equipSemLancamento10d - b.equipSemLancamento10d,
+            horas: (a, b) => a.totalHoras - b.totalHoras,
+        };
+        const cmp = comparators[obraSort] || comparators.risco;
+        // Em `risco`, "desc" significa mais crítico primeiro — o comparador já entrega nessa ordem.
+        const invert = obraSort === 'risco' ? (obraSortDir === 'asc') : (obraSortDir === 'desc');
+        result = [...result].sort((a, b) => {
+            if (a.isFinished !== b.isFinished) return a.isFinished ? 1 : -1;
+            const r = cmp(a, b);
+            return invert ? -r : r;
+        });
         return result;
-    }, [obrasComRisco, obraSearch, obraRisk, obraStatus, obraHasActive, obraSort]);
+    }, [obrasComRisco, obraSearch, obraRisk, obraStatus, obraHasActive, obraSort, obraSortDir]);
 
     const hasObraFilters = obraSearch !== '' || obraRisk !== '' || obraStatus !== 'ativas' || obraHasActive !== '' || obraSort !== 'risco';
 
     const clearObraFilters = () => {
         setObraSearch(''); setObraRisk(''); setObraStatus('ativas');
-        setObraHasActive(''); setObraSort('risco');
+        setObraHasActive(''); setObraSort('risco'); setObraSortDir('desc');
+    };
+
+    const toggleObraSort = (key) => {
+        if (obraSort === key) setObraSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
+        else { setObraSort(key); setObraSortDir('desc'); }
     };
 
     const obraStats = useMemo(() => {
@@ -230,6 +327,13 @@ const OperacionalPage = ({
             ? JSON.parse(horasContratadasRaw || '{}')
             : (horasContratadasRaw || {});
         const totalContratado = Object.values(horasContratadas).reduce((s, h) => s + (parseFloat(h) || 0), 0);
+
+        // Último dia que já deveria ter chegado ao escritório.
+        const reportingCutoffStr = (() => {
+            const d = new Date(today);
+            d.setDate(d.getDate() - REPORTING_LAG_DAYS);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })();
 
         const vehicleHistoryMap = {};
         obra.historicoVeiculos.forEach(h => {
@@ -276,8 +380,12 @@ const OperacionalPage = ({
                 vehicleLogs.map(l => l.date.split('T')[0]).filter(d => d >= periodStartStr && d <= periodEndStr)
             );
 
+            // Dias já "cobráveis": descontada a janela de atraso de recebimento.
+            const evaluableDays = currentPeriodDays.filter(d => d <= reportingCutoffStr);
+            const isWithinReportingWindow = evaluableDays.length === 0;
+
             let maxGapHistorico = 0, gapAcc = 0;
-            currentPeriodDays.forEach(d => {
+            evaluableDays.forEach(d => {
                 if (!currentPeriodLogSet.has(d)) { gapAcc++; maxGapHistorico = Math.max(maxGapHistorico, gapAcc); }
                 else gapAcc = 0;
             });
@@ -286,31 +394,91 @@ const OperacionalPage = ({
                 .filter(l => { const d = l.date.split('T')[0]; return d >= periodStartStr && d <= periodEndStr; })
                 .sort((a, b) => new Date(b.date) - new Date(a.date));
             const lastLogDate = sortedCurrentLogs[0]?.date?.split('T')[0] || null;
-            const daysSinceLast = lastLogDate ? Math.floor((today - new Date(lastLogDate)) / 86400000) : null;
+            // Referência de "hoje" para o período: se o período já foi encerrado, o relógio
+            // para na data de saída — não faz sentido cobrar lançamento de um veículo que
+            // não está mais na obra. Só período aberto conta até hoje.
+            // Além disso, o relógio nunca corre além do corte de recebimento.
+            const periodRefDate = new Date(periodEndStr + 'T00:00:00Z');
+            const cutoffDate = new Date(reportingCutoffStr + 'T00:00:00Z');
+            const gapReference = new Date(Math.min(
+                (isActive ? today : periodRefDate).getTime(),
+                cutoffDate.getTime()
+            ));
+            const daysSinceLast = lastLogDate
+                ? Math.max(0, Math.floor((gapReference - new Date(lastLogDate + 'T00:00:00Z')) / 86400000))
+                : null;
             const maxGap = Math.max(maxGapHistorico, daysSinceLast ?? 0);
+
+            // Último lançamento considerando TODOS os períodos do veículo nesta obra.
+            // Serve para explicar horas > 0 quando o período atual não tem nenhum lançamento.
+            const lastLogDateAnyPeriod = [...vehicleLogs]
+                .sort((a, b) => new Date(b.date) - new Date(a.date))[0]?.date?.split('T')[0] || null;
+
+            // Detalhamento por período — consumido apenas pelo modal de detalhe.
+            const todayStr = new Date().toISOString().split('T')[0];
+            const periodBreakdown = sortedPeriods.map(p => {
+                const pStart = p.dataEntrada.split('T')[0];
+                const pEnd = p.dataSaida ? p.dataSaida.split('T')[0] : todayStr;
+                const pLogs = vehicleLogs
+                    .filter(l => { const d = l.date.split('T')[0]; return d >= pStart && d <= pEnd; })
+                    .sort((a, b) => new Date(b.date) - new Date(a.date));
+                const pLogSet = new Set(pLogs.map(l => l.date.split('T')[0]));
+
+                const pDays = [];
+                { const cur = new Date(pStart + 'T00:00:00Z');
+                  const end = new Date(pEnd + 'T00:00:00Z');
+                  while (cur <= end) { pDays.push(cur.toISOString().split('T')[0]); cur.setUTCDate(cur.getUTCDate() + 1); } }
+
+                let pMaxGap = 0, acc = 0;
+                pDays.forEach(d => { if (!pLogSet.has(d)) { acc++; pMaxGap = Math.max(pMaxGap, acc); } else acc = 0; });
+
+                return {
+                    id: p.id ?? `${pStart}-${pEnd}`,
+                    start: pStart,
+                    end: p.dataSaida ? pEnd : null,
+                    isOpen: !p.dataSaida,
+                    totalDays: pDays.length,
+                    daysWithLogs: pLogSet.size,
+                    hours: pLogs.reduce((acc2, l) => acc2 + parseFloat(l.totalHours || 0), 0),
+                    maxGap: pMaxGap,
+                    lastLog: pLogs[0]?.date?.split('T')[0] || null,
+                    lastLogJustificativaTipo: pLogs[0]?.justificativaTipo || null,
+                };
+            }).reverse(); // mais recente primeiro
 
             const contractedHours = parseFloat(horasContratadas[vehicle.tipo] || 0);
             const coveragePercent = contractedHours > 0 ? (totalHours / contractedHours) * 100 : null;
 
+            // Só há "sem lançamentos" se existirem dias já cobráveis e nenhum deles tiver lançamento.
+            const logsInEvaluableDays = evaluableDays.filter(d => currentPeriodLogSet.has(d)).length;
+
             let status = 'ok';
-            if (currentPeriodLogSet.size === 0 && currentPeriodDays.length > 3) status = 'nunca';
+            if (isWithinReportingWindow) status = 'aguardando';
+            // Sem o filtro de "> 3 dias": todo dia aqui já passou do prazo de envio.
+            // Zero lançamento em dia vencido é problema real, mesmo que seja um só.
+            else if (logsInEvaluableDays === 0) status = 'nunca';
             else if (maxGap > GAP_THRESHOLD_DAYS) status = 'atencao';
 
             return {
                 vehicleId: String(vehicleId), vehicle, isActive,
                 periods: sortedPeriods,
                 totalDays: allDays.length, daysWithLogs, totalHours, contractedHours,
-                lastLogDate, daysSinceLast, maxGap, status, coveragePercent,
+                lastLogDate, lastLogDateAnyPeriod, daysSinceLast, maxGap, status, coveragePercent,
+                periodBreakdown, periodStart: periodStartStr, periodEnd: relevantPeriod.dataSaida ? periodEndStr : null,
+                isWithinReportingWindow, evaluableDays: evaluableDays.length, reportingCutoff: reportingCutoffStr,
                 lastLogJustificativaTipo: sortedCurrentLogs[0]?.justificativaTipo || null,
                 entryDate,
             };
         }).filter(Boolean).sort((a, b) => {
-            const order = { nunca: 0, atencao: 1, ok: 2 };
+            // Regra fixa: ativos sempre antes de inativos.
+            if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+            const order = { nunca: 0, atencao: 1, aguardando: 2, ok: 3 };
             if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
             return (a.vehicle.registroInterno || '').localeCompare(b.vehicle.registroInterno || '');
         });
 
-        const withAlerts = vehicleStats.filter(v => v.status !== 'ok').length;
+        // 'aguardando' não é alerta — é prazo de recebimento ainda correndo.
+        const withAlerts = vehicleStats.filter(v => v.status !== 'ok' && v.status !== 'aguardando').length;
         const totalHorasObra = vehicleStats.reduce((acc, v) => acc + v.totalHours, 0);
         const allLogDates = [...obraLogs].map(l => l.date.split('T')[0]).sort();
 
@@ -327,58 +495,69 @@ const OperacionalPage = ({
 
     const obraStatsFiltered = useMemo(() => {
         let stats = [...(obraStats.vehicleStats || [])];
+        if (obraOnlyAlerts) stats = stats.filter(s => s.status !== 'ok' && s.status !== 'aguardando');
         if (obraDetailStatus === 'ativos') stats = stats.filter(s => s.isActive);
         else if (obraDetailStatus === 'inativos') stats = stats.filter(s => !s.isActive);
-        if (obraDetailSort === 'horas') stats = stats.sort((a, b) => b.totalHours - a.totalHours);
-        else if (obraDetailSort === 'gap') stats = stats.sort((a, b) => b.maxGap - a.maxGap);
+        // Ativos sempre antes de inativos, independente da ordenação escolhida.
+        const byActiveFirst = (cmp) => (a, b) => {
+            if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+            return cmp(a, b);
+        };
+
+        if (obraDetailSort === 'horas') stats = stats.sort(byActiveFirst((a, b) => b.totalHours - a.totalHours));
+        else if (obraDetailSort === 'gap') stats = stats.sort(byActiveFirst((a, b) => b.maxGap - a.maxGap));
         else if (obraDetailSort === 'cobertura') {
-            stats = stats.sort((a, b) => {
+            stats = stats.sort(byActiveFirst((a, b) => {
                 if (a.coveragePercent === null && b.coveragePercent === null) return 0;
                 if (a.coveragePercent === null) return 1;
                 if (b.coveragePercent === null) return -1;
                 return a.coveragePercent - b.coveragePercent;
-            });
+            }));
         }
         return stats;
-    }, [obraStats.vehicleStats, obraDetailStatus, obraDetailSort]);
+    }, [obraStats.vehicleStats, obraDetailStatus, obraDetailSort, obraOnlyAlerts]);
+
+    const selectedObraStat = useMemo(
+        () => (obraStats.vehicleStats || []).find(s => s.vehicleId === selectedObraStatId) || null,
+        [obraStats.vehicleStats, selectedObraStatId]
+    );
 
     // ==========================================================
     // VIEW: POR OBRA — render helpers
     // ==========================================================
 
-    const renderRiskBadge = (riskLevel, riskScore, riskReasons, size = 'sm') => {
-        const cfg = riskConfig[riskLevel];
-        const sizeClass = size === 'md' ? 'px-3 py-1 text-sm' : 'px-2 py-0.5 text-xs';
-        return (
-            <div className="relative group inline-block">
-                <span className={`cursor-help rounded-full font-bold ${sizeClass} ${cfg.badge}`}>{cfg.label}</span>
-                <div className="pointer-events-none absolute right-0 top-full mt-2 z-50 hidden group-hover:block w-64 bg-gray-900 text-white text-xs rounded-xl shadow-2xl p-3.5">
-                    <div className="absolute -top-1.5 right-4 w-3 h-3 bg-gray-900 rotate-45 rounded-sm" />
-                    <p className="font-bold mb-2 text-yellow-400 uppercase tracking-wider text-[10px]">Composição do status</p>
-                    <ul className="space-y-1.5">
-                        {riskReasons.map((reason, i) => (
-                            <li key={i} className="flex items-start gap-1.5 leading-snug">
-                                <span className="mt-px shrink-0 text-yellow-400">·</span>
-                                <span>{reason}</span>
-                            </li>
-                        ))}
-                    </ul>
-                    {riskScore > 0 && (
-                        <p className="mt-2.5 pt-2 border-t border-gray-700 text-gray-400 text-[10px]">
-                            Score: <span className="font-bold text-white">{riskScore} pts</span>
-                            {riskScore >= 10 ? ' — Sem Registro (≥ 10)' : riskScore >= 3 ? ' — Atenção (3–9)' : ''}
-                        </p>
-                    )}
-                </div>
-            </div>
-        );
-    };
+    // Estilos alinhados ao padrão de tabela do ObrasPage (Gestão de Obras).
+    const thStyle = { padding: '10px 16px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9a8a78', whiteSpace: 'nowrap' };
+    const tdStyle = { padding: '10px 16px' };
+    const labelStyle = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9a8a78', whiteSpace: 'nowrap' };
+    const selectStyle = { fontSize: 13, padding: '5px 10px', borderRadius: 8, border: '1px solid #e8e0d4', background: '#fff', color: '#3d3528', outline: 'none' };
 
-    const renderStatusBadge = (status, isActive) => {
-        if (status === 'nunca') return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">Sem lançamentos</span>;
-        if (status === 'atencao') return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">Gap &gt; {GAP_THRESHOLD_DAYS}d</span>;
-        if (!isActive) return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">Encerrado</span>;
-        return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">Sem gaps</span>;
+    const riskDotColor = { critico: '#dc2626', atencao: '#f97316', ok: '#16a34a' };
+
+    const SortHeader = ({ label, sortKey, align = 'left' }) => (
+        <th style={{ ...thStyle, textAlign: align, cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => toggleObraSort(sortKey)}
+            title="Ordenar por esta coluna">
+            <span className="inline-flex items-center gap-1" style={{ color: obraSort === sortKey ? '#9E7A42' : undefined }}>
+                {label}
+                {obraSort === sortKey && (obraSortDir === 'desc' ? '▾' : '▴')}
+            </span>
+        </th>
+    );
+
+    // Badge único da tabela: absorve o "maior gap" para não precisar de coluna própria.
+    const renderStatusBadgeWithGap = (stat) => {
+        const base = 'px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap';
+        if (stat.status === 'aguardando') return (
+            <span className={`${base} bg-sky-100 text-sky-700`}
+                  title={`Período iniciado há menos de ${REPORTING_LAG_DAYS} dias — os apontamentos ainda estão a caminho.`}>
+                Aguardando apontamento
+            </span>
+        );
+        if (stat.status === 'nunca') return <span className={`${base} bg-red-100 text-red-700`}>Sem lançamentos</span>;
+        if (stat.status === 'atencao') return <span className={`${base} bg-orange-100 text-orange-700`}>Gap {stat.maxGap}d</span>;
+        if (!stat.isActive) return <span className={`${base} bg-gray-100 text-gray-500`}>Encerrado</span>;
+        return <span className={`${base} bg-green-100 text-green-700`}>Em dia</span>;
     };
 
     const renderCoverageBar = (coveragePercent, totalHours, contractedHours) => {
@@ -412,6 +591,7 @@ const OperacionalPage = ({
 
     const [maqSearch, setMaqSearch] = useState('');
     const [maqCriticality, setMaqCriticality] = useState('');
+    const [maqGapOnly, setMaqGapOnly] = useState(false);
     const [maqObraId, setMaqObraId] = useState('');
     const [showWithoutObra, setShowWithoutObra] = useState(false);
     const [maqSort, setMaqSort] = useState('dias');
@@ -632,6 +812,7 @@ const OperacionalPage = ({
         let result = [...machineData];
         if (!showWithoutObra && maqCriticality !== 'sem_obra') result = result.filter(m => m.currentObra);
         if (maqCriticality) result = result.filter(m => m.criticality === maqCriticality);
+        if (maqGapOnly) result = result.filter(m => m.gapAfterReallocation);
         if (maqObraId) result = result.filter(m => String(m.currentObra?.id) === String(maqObraId));
         if (maqSearch.trim()) {
             const s = maqSearch.toLowerCase().trim();
@@ -651,7 +832,7 @@ const OperacionalPage = ({
             return (b.daysSinceLastLog ?? 9999) - (a.daysSinceLastLog ?? 9999);
         });
         return result;
-    }, [machineData, showWithoutObra, maqCriticality, maqObraId, maqSearch, maqSort]);
+    }, [machineData, showWithoutObra, maqCriticality, maqGapOnly, maqObraId, maqSearch, maqSort]);
 
     const maqCritConfig = {
         nunca:    { row: 'bg-red-50 border-l-4 border-red-600',    badge: 'bg-red-100 text-red-700',      label: 'Nunca lançou' },
@@ -672,8 +853,8 @@ const OperacionalPage = ({
         return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{status}</span>;
     };
 
-    const hasMaqFilters = maqSearch || maqCriticality || maqObraId || showWithoutObra;
-    const clearMaqFilters = () => { setMaqSearch(''); setMaqCriticality(''); setMaqObraId(''); setShowWithoutObra(false); };
+    const hasMaqFilters = maqSearch || maqCriticality || maqObraId || showWithoutObra || maqGapOnly;
+    const clearMaqFilters = () => { setMaqSearch(''); setMaqCriticality(''); setMaqObraId(''); setShowWithoutObra(false); setMaqGapOnly(false); };
 
     const formatDate = (dateStr) => {
         if (!dateStr) return '—';
@@ -713,114 +894,139 @@ const OperacionalPage = ({
                 <div className="space-y-6">
                     {!obraId ? (
                         <>
-                            {/* Cards globais */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Obras Ativas</p>
-                                    <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obrasComRisco.filter(o => !o.isFinished).length}</p>
-                                </div>
-                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-red-500 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Sem Registro</p>
-                                    <p className="text-2xl font-bold text-red-600">{obrasComRisco.filter(o => o.riskLevel === 'critico').length}</p>
-                                    <p className="text-xs text-gray-400 mt-1">+7d sem nenhum lançamento</p>
-                                </div>
-                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-orange-400 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Atenção</p>
-                                    <p className="text-2xl font-bold text-orange-500">{obrasComRisco.filter(o => o.riskLevel === 'atencao').length}</p>
-                                    <p className="text-xs text-gray-400 mt-1">equip. sem lançar há +10d</p>
-                                </div>
-                                <div className="bg-white rounded-xl shadow-sm border-l-4 border-green-500 p-4">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Operando</p>
-                                    <p className="text-2xl font-bold text-green-600">{obrasComRisco.filter(o => o.riskLevel === 'ok' && !o.isFinished).length}</p>
-                                </div>
-                            </div>
-
                             {/* Filtros */}
-                            <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-                                <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
-                                    <div className="relative w-full md:w-64">
+                            <div className="bg-white rounded-xl shadow-sm p-4">
+                                <div className="flex flex-col md:flex-row gap-3 md:items-center">
+                                    <div className="relative w-full md:w-72">
                                         <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
                                         <input type="text" placeholder="Buscar obra..." value={obraSearch} onChange={e => setObraSearch(e.target.value)}
                                             className="pl-9 pr-4 py-2 border rounded-lg w-full text-sm focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none" />
                                     </div>
-                                    <div className="flex bg-gray-100 p-1 rounded-lg text-sm">
-                                        {[['ativas', 'Ativas'], ['finalizadas', 'Finalizadas'], ['todas', 'Todas']].map(([val, label]) => (
-                                            <button key={val} onClick={() => setObraStatus(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraStatus === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
-                                        ))}
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span style={labelStyle}>Status</span>
+                                            <select value={obraStatus} onChange={e => setObraStatus(e.target.value)} style={selectStyle}>
+                                                <option value="ativas">Ativas</option>
+                                                <option value="finalizadas">Finalizadas</option>
+                                                <option value="todas">Todas</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span style={labelStyle}>Situação</span>
+                                            <select value={obraRisk} onChange={e => setObraRisk(e.target.value)} style={selectStyle}>
+                                                <option value="">Todas</option>
+                                                <option value="critico">Sem Registro</option>
+                                                <option value="atencao">Atenção</option>
+                                                <option value="ok">Operando</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span style={labelStyle}>Equip.</span>
+                                            <select value={obraHasActive} onChange={e => setObraHasActive(e.target.value)} style={selectStyle}>
+                                                <option value="">Todos</option>
+                                                <option value="sim">Com ativos</option>
+                                                <option value="nao">Sem ativos</option>
+                                            </select>
+                                        </div>
+                                        <label className="flex items-center gap-1.5 cursor-pointer shrink-0" title="Exibir/Ocultar Centros de Custo">
+                                            <div className="relative">
+                                                <input type="checkbox" checked={showCentroCusto} onChange={e => setShowCentroCusto(e.target.checked)} className="sr-only peer" />
+                                                <div className="w-8 h-4 bg-gray-200 rounded-full transition-colors peer-checked:bg-yellow-400" />
+                                                <div className="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+                                            </div>
+                                            <span style={labelStyle}>Centros de custo</span>
+                                        </label>
                                     </div>
-                                    <select value={obraSort} onChange={e => setObraSort(e.target.value)} className="text-sm border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-yellow-400 outline-none">
-                                        <option value="risco">Ordenar: Por risco</option>
-                                        <option value="dataInicio">Ordenar: Data de início</option>
-                                        <option value="semLancamento">Ordenar: Sem lançamento</option>
-                                    </select>
-                                </div>
-                                <div className="flex flex-wrap gap-2 items-center">
-                                    <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
-                                        {[['', 'Todos'], ['critico', 'Sem Registro'], ['atencao', 'Atenção'], ['ok', 'Operando']].map(([val, label]) => (
-                                            <button key={val} onClick={() => setObraRisk(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraRisk === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
-                                        ))}
-                                    </div>
-                                    <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
-                                        {[['', 'Todos equip.'], ['sim', 'Com ativos'], ['nao', 'Sem ativos']].map(([val, label]) => (
-                                            <button key={val} onClick={() => setObraHasActive(val)} className={`px-3 py-1 rounded-md font-medium transition-all ${obraHasActive === val ? 'bg-white shadow text-yellow-600' : 'text-[#9a8a78] hover:text-[#6a5e4e]'}`}>{label}</button>
-                                        ))}
-                                    </div>
-                                    <button
-                                        onClick={() => setShowCentroCusto(v => !v)}
-                                        className={`px-3 py-1 rounded-md font-medium text-xs transition-all border ${showCentroCusto ? 'bg-yellow-50 border-yellow-400 text-yellow-700' : 'bg-white border-gray-200 text-[#9a8a78] hover:text-[#6a5e4e]'}`}
-                                        title="Exibir/Ocultar Centros de Custo"
-                                    >
-                                        {showCentroCusto ? 'Ocultar Centros de Custo' : 'Exibir Centros de Custo'}
-                                    </button>
-                                    <div className="ml-auto flex items-center gap-3">
-                                        <span className="text-xs text-gray-400">{obrasFiltradas.length} {obrasFiltradas.length === 1 ? 'obra' : 'obras'}</span>
+                                    <div className="md:ml-auto flex items-center gap-3 shrink-0">
                                         {hasObraFilters && (
                                             <button onClick={clearObraFilters} className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium">
-                                                <X size={13} /> Limpar filtros
+                                                <X size={13} /> Limpar
                                             </button>
                                         )}
+                                        <span style={{ fontSize: 12, fontWeight: 600, color: '#9a8a78', whiteSpace: 'nowrap' }}>
+                                            {obrasFiltradas.length} {obrasFiltradas.length === 1 ? 'obra' : 'obras'}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Grid de cards de obras */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                                {obrasFiltradas.map(({ obra, isFinished, ativos, equipSemLancamento10d, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons }) => {
-                                    const cfg = riskConfig[riskLevel];
-                                    return (
-                                        <div key={obra.id} onClick={() => setObraId(obra.id)}
-                                            className={`bg-white rounded-xl shadow-sm border-l-4 ${cfg.border} hover:shadow-md transition-all cursor-pointer p-5 flex flex-col justify-between`}
-                                        >
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="flex-1 min-w-0">
-                                                    <h3 className="text-base font-bold text-gray-800 truncate" title={formatObraNome(obra)}>{formatObraNome(obra)}</h3>
-                                                    <p className="text-xs text-gray-400 mt-0.5">{isFinished ? 'Finalizada' : `Em andamento · ${diasDeObra}d`}</p>
-                                                </div>
-                                                <div className="ml-3 shrink-0">{renderRiskBadge(riskLevel, riskScore, riskReasons)}</div>
-                                            </div>
-                                            <div className="space-y-2 text-sm mb-4">
-                                                <div className="flex justify-between border-b border-dashed border-gray-100 pb-2">
-                                                    <span className="text-gray-500 flex items-center gap-1"><Truck size={13} /> Equip. pesados ativos</span>
-                                                    <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${ativos > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{ativos}</span>
-                                                </div>
-                                                {equipSemLancamento10d > 0 && (
-                                                    <div className="flex justify-between border-b border-dashed border-gray-100 pb-2">
-                                                        <span className="text-gray-500 flex items-center gap-1"><AlertTriangle size={13} className="text-orange-400" /> Sem lançamento há +10d</span>
-                                                        <span className="font-bold px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-600">{equipSemLancamento10d}</span>
-                                                    </div>
-                                                )}
-                                                <div className="flex justify-between">
-                                                    <span className="text-gray-500 flex items-center gap-1"><TrendingUp size={13} /> Horas lançadas</span>
-                                                    <span className="font-bold text-gray-700">{formatDecimalToTime(totalHoras)}</span>
-                                                </div>
-                                            </div>
-                                            <div className="pt-3 border-t border-gray-100">
-                                                <span className="text-xs text-yellow-600 font-semibold">Ver cobertura detalhada →</span>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                            {/* Tabela de obras */}
+                            {obrasFiltradas.length > 0 && (
+                                <div className="bg-white rounded-xl overflow-hidden" style={{ border: '1px solid #f0ebe3', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)' }}>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 13 }}>
+                                            <thead>
+                                                <tr style={{ background: '#faf9f7', borderBottom: '1px solid #f0ebe3' }}>
+                                                    <SortHeader label="Obra" sortKey="nome" />
+                                                    <SortHeader label="Dias" sortKey="dias" align="center" />
+                                                    <SortHeader label="Equip. ativos" sortKey="ativos" align="center" />
+                                                    <SortHeader label="Sem lançar +10d" sortKey="semLancamento" align="center" />
+                                                    <SortHeader label="Horas lançadas" sortKey="horas" align="center" />
+                                                    <SortHeader label="Situação" sortKey="risco" align="center" />
+                                                    <th style={{ ...thStyle, textAlign: 'right', position: 'sticky', right: 0, background: '#faf9f7', zIndex: 2, boxShadow: '-8px 0 8px -6px rgba(0,0,0,0.08)' }}>Ações</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {obrasFiltradas.map(({ obra, isFinished, ativos, equipSemLancamento10d, totalHoras, diasDeObra, riskLevel, riskScore, riskReasons }) => (
+                                                    <tr key={obra.id} onClick={() => setObraId(obra.id)}
+                                                        title="Ver cobertura detalhada"
+                                                        className={`group cursor-pointer transition-colors ${riskLevel === 'critico' && !isFinished ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-[#faf9f7]'}`}
+                                                        style={{ borderBottom: '1px solid #f5f2ed' }}>
+                                                        {/* Obra */}
+                                                        <td style={{ ...tdStyle, maxWidth: 340 }}>
+                                                            <div className="flex items-center gap-2">
+                                                                <span style={{ width: 8, height: 8, borderRadius: 9999, background: isFinished ? '#c4b8a8' : riskDotColor[riskLevel], flexShrink: 0 }} title={riskConfig[riskLevel].label} />
+                                                                <div className="min-w-0">
+                                                                    <div className="line-clamp-1" style={{ fontWeight: 600, color: '#3d3528' }} title={formatObraNome(obra)}>
+                                                                        {formatObraNome(obra)}
+                                                                    </div>
+                                                                    <div style={{ fontSize: 11, color: '#9a8a78', marginTop: 2 }}>
+                                                                        {isFinished ? 'Finalizada' : 'Em andamento'}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        {/* Dias */}
+                                                        <td style={{ ...tdStyle, textAlign: 'center', color: '#6a5e4e', whiteSpace: 'nowrap' }}>
+                                                            {isFinished ? <span style={{ color: '#c4b8a8' }}>—</span> : `${diasDeObra}d`}
+                                                        </td>
+                                                        {/* Equip. ativos */}
+                                                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 9999, background: ativos > 0 ? '#e0f2fe' : '#f5f2ed', color: ativos > 0 ? '#0c4a6e' : '#9a8a78' }}>
+                                                                {ativos}
+                                                            </span>
+                                                        </td>
+                                                        {/* Sem lançar +10d */}
+                                                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                                            {equipSemLancamento10d > 0 ? (
+                                                                <span className="inline-flex items-center gap-1" style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 9999, background: '#ffedd5', color: '#c2410c' }}>
+                                                                    <AlertTriangle size={11} /> {equipSemLancamento10d}
+                                                                </span>
+                                                            ) : <span style={{ color: '#c4b8a8' }}>—</span>}
+                                                        </td>
+                                                        {/* Horas lançadas */}
+                                                        <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 600, color: totalHoras > 0 ? '#3d3528' : '#c4b8a8', whiteSpace: 'nowrap' }}>
+                                                            {formatDecimalToTime(totalHoras)}
+                                                        </td>
+                                                        {/* Situação */}
+                                                        <td style={{ ...tdStyle, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                                            <RiskBadge riskLevel={riskLevel} riskScore={riskScore} riskReasons={riskReasons} />
+                                                        </td>
+                                                        {/* Ações */}
+                                                        <td className={`${riskLevel === 'critico' && !isFinished ? 'bg-red-50 group-hover:bg-red-100' : 'bg-white group-hover:bg-[#faf9f7]'}`}
+                                                            style={{ ...tdStyle, textAlign: 'right', position: 'sticky', right: 0, zIndex: 1, boxShadow: '-8px 0 8px -6px rgba(0,0,0,0.08)' }}>
+                                                            <button onClick={(e) => { e.stopPropagation(); setObraId(obra.id); }}
+                                                                className="px-3 py-1.5 text-sm font-medium rounded-lg transition mak-btn mak-btn-cancel whitespace-nowrap">
+                                                                Ver cobertura
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
 
                             {obrasFiltradas.length === 0 && (
                                 <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed">
@@ -842,7 +1048,7 @@ const OperacionalPage = ({
                                 <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{formatObraNome(obras.find(o => o.id === obraId))}</h2>
                                 {(() => {
                                     const r = obrasComRisco.find(o => o.obra.id === obraId);
-                                    return r ? renderRiskBadge(r.riskLevel, r.riskScore, r.riskReasons, 'md') : null;
+                                    return r ? <RiskBadge riskLevel={r.riskLevel} riskScore={r.riskScore} riskReasons={r.riskReasons} size="md" /> : null;
                                 })()}
                             </div>
 
@@ -850,37 +1056,57 @@ const OperacionalPage = ({
                                 <div className="py-16 text-center text-gray-400">Carregando dados de cobertura...</div>
                             ) : (
                                 <>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-4">
-                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Equipamentos</p>
-                                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obraStats.summary?.total ?? '—'}</p>
-                                            <p className="text-xs text-gray-400 mt-1">{obraStats.summary?.active ?? 0} ativos na obra</p>
-                                        </div>
-                                        <div className={`bg-white rounded-xl shadow-sm border-l-4 p-4 ${(obraStats.summary?.withAlerts ?? 0) > 0 ? 'border-red-500' : 'border-green-500'}`}>
-                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Com Alertas</p>
-                                            <p className={`text-2xl font-bold ${(obraStats.summary?.withAlerts ?? 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>{obraStats.summary?.withAlerts ?? '—'}</p>
-                                            <p className="text-xs text-gray-400 mt-1">{(obraStats.summary?.withAlerts ?? 0) === 0 ? 'Nenhum gap crítico' : 'requerem atenção'}</p>
-                                        </div>
-                                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-yellow-500 p-4">
-                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Total Lançado</p>
-                                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{formatDecimalToTime(obraStats.summary?.totalHoras ?? 0)}</p>
-                                            {(obraStats.summary?.totalContratado ?? 0) > 0 ? (() => {
-                                                const pct = Math.min(((obraStats.summary.totalHoras / obraStats.summary.totalContratado) * 100), 100);
-                                                const barColor = pct < 50 ? 'bg-orange-400' : pct < 80 ? 'bg-yellow-400' : 'bg-green-500';
-                                                return (
-                                                    <>
-                                                        <p className="text-xs text-gray-400 mt-1">de {formatDecimalToTime(obraStats.summary.totalContratado)}h contratadas</p>
-                                                        <div className="mt-2 bg-gray-200 rounded-full h-1.5">
-                                                            <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-                                                        </div>
-                                                    </>
-                                                );
-                                            })() : <p className="text-xs text-gray-400 mt-1">horas na obra</p>}
-                                        </div>
-                                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-gray-300 p-4">
-                                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Último Lançamento</p>
-                                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{obraStats.summary?.lastLog ? formatDateToBR(obraStats.summary.lastLog) : '—'}</p>
-                                            <p className="text-xs text-gray-400 mt-1">em qualquer equip.</p>
+                                    {/* Resumo da obra — mesmo modelo do painel "Gestão de Obras":
+                                        card único com colunas divididas, em vez de 4 cartões soltos. */}
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                                        <div className="grid grid-cols-2 lg:grid-cols-4 divide-y divide-x-0 lg:divide-y-0 lg:divide-x divide-slate-100">
+                                            <div className="pb-3 lg:pb-0 lg:pr-4">
+                                                <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                                                    <Truck size={14} /> Equipamentos
+                                                </div>
+                                                <p className="text-2xl font-bold text-slate-800 mt-1">{obraStats.summary?.total ?? '—'}</p>
+                                                <p className="text-[11px] text-slate-500 mt-1">{obraStats.summary?.active ?? 0} ativos na obra</p>
+                                            </div>
+
+                                            <div
+                                                onClick={() => { if ((obraStats.summary?.withAlerts ?? 0) > 0) setObraOnlyAlerts(v => !v); }}
+                                                title={(obraStats.summary?.withAlerts ?? 0) > 0 ? 'Clique para filtrar a tabela abaixo' : undefined}
+                                                className={`pb-3 lg:pb-0 lg:px-4 transition-colors rounded-lg ${(obraStats.summary?.withAlerts ?? 0) > 0 ? 'cursor-pointer hover:bg-slate-50' : ''} ${obraOnlyAlerts ? 'bg-red-50' : ''}`}>
+                                                <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                                                    <AlertTriangle size={14} /> Com alertas
+                                                </div>
+                                                <p className={`text-2xl font-bold mt-1 ${(obraStats.summary?.withAlerts ?? 0) > 0 ? 'text-red-600' : 'text-slate-800'}`}>{obraStats.summary?.withAlerts ?? '—'}</p>
+                                                <p className="text-[11px] text-slate-500 mt-1">
+                                                    {(obraStats.summary?.withAlerts ?? 0) === 0 ? 'Nenhum gap crítico' : obraOnlyAlerts ? 'Filtrando — clique p/ limpar' : 'Clique para filtrar a tabela'}
+                                                </p>
+                                            </div>
+
+                                            <div className="pt-3 lg:pt-0 lg:px-4">
+                                                <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                                                    <Gauge size={14} /> Total lançado
+                                                </div>
+                                                <p className="text-2xl font-bold text-slate-800 mt-1">{formatDecimalToTime(obraStats.summary?.totalHoras ?? 0)}</p>
+                                                {(obraStats.summary?.totalContratado ?? 0) > 0 ? (() => {
+                                                    const pct = Math.min(((obraStats.summary.totalHoras / obraStats.summary.totalContratado) * 100), 100);
+                                                    const barColor = pct < 50 ? 'bg-orange-400' : pct < 80 ? 'bg-yellow-400' : 'bg-green-500';
+                                                    return (
+                                                        <>
+                                                            <p className="text-[11px] text-slate-500 mt-1">{Math.round(pct)}% de {formatDecimalToTime(obraStats.summary.totalContratado)}h contratadas</p>
+                                                            <div className="mt-1.5 bg-slate-100 rounded-full h-1.5">
+                                                                <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })() : <p className="text-[11px] text-slate-500 mt-1">Sem horas contratadas</p>}
+                                            </div>
+
+                                            <div className="pt-3 lg:pt-0 lg:pl-4">
+                                                <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                                                    <Clock size={14} /> Último lançamento
+                                                </div>
+                                                <p className="text-2xl font-bold text-slate-800 mt-1">{obraStats.summary?.lastLog ? formatDateToBR(obraStats.summary.lastLog) : '—'}</p>
+                                                <p className="text-[11px] text-slate-500 mt-1">Em qualquer equipamento</p>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -891,7 +1117,7 @@ const OperacionalPage = ({
                                                     <Activity size={16} className="text-yellow-500" />
                                                     Cobertura de Lançamentos por Equipamento
                                                 </h2>
-                                                <span className="text-xs text-gray-400">Gap crítico: &gt; {GAP_THRESHOLD_DAYS} dias</span>
+                                                <span className="text-xs text-gray-400">Gap crítico: &gt; {GAP_THRESHOLD_DAYS} dias · últimos {REPORTING_LAG_DAYS} dias não são cobrados (prazo de envio)</span>
                                             </div>
                                             <div className="flex flex-wrap items-center gap-3">
                                                 <div className="flex bg-gray-100 p-1 rounded-lg text-xs">
@@ -918,79 +1144,56 @@ const OperacionalPage = ({
                                             <div className="py-10 text-center text-gray-400 text-sm">Nenhum equipamento corresponde ao filtro.</div>
                                         ) : (
                                             <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
-                                                    <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                                                <table className="w-full text-[13px]">
+                                                    <thead className="bg-[#faf9f7] text-[#9a8a78] text-[11px] font-bold uppercase tracking-[0.04em]">
                                                         <tr>
-                                                            <th className="px-4 py-3 text-left">Equipamento</th>
-                                                            <th className="px-4 py-3 text-left">Situação</th>
-                                                            <th className="px-4 py-3 text-left">Entrada na Obra</th>
-                                                            <th className="px-4 py-3 text-left">Status</th>
-                                                            <th className="px-4 py-3 text-left">Cobertura contratada</th>
-                                                            <th className="px-4 py-3 text-center">Maior gap</th>
-                                                            <th className="px-4 py-3 text-left">Último lançamento</th>
-                                                            <th className="px-4 py-3 text-right">Horas</th>
+                                                            <th className="px-4 py-2.5 text-left">Equipamento</th>
+                                                            <th className="px-4 py-2.5 text-left">Status</th>
+                                                            <th className="px-4 py-2.5 text-left">Cobertura contratada</th>
+                                                            <th className="px-4 py-2.5 text-left">Último lançamento</th>
+                                                            <th className="px-4 py-2.5 text-right" title="Soma de todos os períodos do equipamento nesta obra">Horas (total)</th>
+                                                            <th className="px-2 py-3 w-8"><span className="sr-only">Detalhes</span></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100">
                                                         {obraStatsFiltered.map(stat => (
-                                                            <tr key={stat.vehicleId} className={`hover:bg-gray-50 ${stat.status === 'nunca' ? 'bg-red-50' : stat.status === 'atencao' ? 'bg-orange-50' : ''}`}>
-                                                                <td className="px-4 py-3">
-                                                                    <p className="font-semibold text-gray-800">{stat.vehicle.registroInterno}</p>
-                                                                    <p className="text-xs text-gray-400">{stat.vehicle.tipo} · {stat.vehicle.marca} {stat.vehicle.modelo}</p>
+                                                            <tr key={stat.vehicleId}
+                                                                onClick={() => setSelectedObraStatId(stat.vehicleId)}
+                                                                title="Clique para ver o detalhe completo"
+                                                                className={`group cursor-pointer transition-colors hover:bg-yellow-50 ${stat.status === 'nunca' ? 'bg-red-50' : stat.status === 'atencao' ? 'bg-orange-50' : ''}`}>
+                                                                <td className="px-4 py-2.5 whitespace-nowrap">
+                                                                    <p className="font-semibold text-gray-800 flex items-center gap-1.5">
+                                                                        <span
+                                                                            title={stat.isActive ? 'Ativo na obra' : 'Período encerrado'}
+                                                                            className={`inline-block w-2 h-2 rounded-full shrink-0 ${stat.isActive ? 'bg-green-500' : 'bg-gray-300'}`}
+                                                                        />
+                                                                        {stat.vehicle.registroInterno} <TerceirizadoBadge vehicle={stat.vehicle} />
+                                                                    </p>
+                                                                    <p className="text-xs text-gray-400 truncate max-w-[230px]">{stat.vehicle.tipo} · {stat.vehicle.marca} {stat.vehicle.modelo}</p>
                                                                 </td>
-                                                                <td className="px-4 py-3">
-                                                                    {stat.isActive
-                                                                        ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Ativo</span>
-                                                                        : <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">Inativo</span>
-                                                                    }
-                                                                    {!stat.isActive && stat.status !== 'ok' && (
-                                                                        <p className="text-[10px] text-red-500 mt-1 leading-tight">Período encerrado — gaps permanentes</p>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-4 py-3">
-                                                                    {stat.entryDate ? (
-                                                                        <div>
-                                                                            <span className="text-gray-700 text-sm">{formatDateToBR(stat.entryDate)}</span>
-                                                                            {stat.isActive && (
-                                                                                <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">
-                                                                                    {(() => {
-                                                                                        const entry = new Date(stat.entryDate.split('T')[0] + 'T00:00:00Z');
-                                                                                        const dias = Math.floor((today - entry) / 86400000);
-                                                                                        return dias > 0 ? `${dias}d na obra` : 'hoje';
-                                                                                    })()}
-                                                                                </p>
-                                                                            )}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <span className="text-gray-300 text-xs">—</span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-4 py-3">{renderStatusBadge(stat.status, stat.isActive)}</td>
-                                                                <td className="px-4 py-3 min-w-[150px]">{renderCoverageBar(stat.coveragePercent, stat.totalHours, stat.contractedHours)}</td>
-                                                                <td className="px-4 py-3 text-center">
-                                                                    <span className={`text-xs font-bold ${stat.maxGap > GAP_THRESHOLD_DAYS ? 'text-red-600' : stat.maxGap > 5 ? 'text-orange-500' : 'text-gray-500'}`}>{stat.maxGap}d</span>
-                                                                    {stat.isActive && stat.daysSinceLast !== null && stat.daysSinceLast === stat.maxGap && stat.maxGap > 0 && (
-                                                                        <p className="text-[10px] text-orange-400 leading-tight">atual</p>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-4 py-3">
+                                                                <td className="px-4 py-2.5">{renderStatusBadgeWithGap(stat)}</td>
+                                                                <td className="px-4 py-2.5 min-w-[150px]">{renderCoverageBar(stat.coveragePercent, stat.totalHours, stat.contractedHours)}</td>
+                                                                <td className="px-4 py-2.5 whitespace-nowrap">
                                                                     {stat.lastLogDate ? (
-                                                                        <div>
-                                                                            <span className="text-gray-700">{formatDateToBR(stat.lastLogDate)}</span>
-                                                                            {stat.lastLogJustificativaTipo && (
-                                                                                <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">
-                                                                                    {JUSTIFICATIVA_LABELS[stat.lastLogJustificativaTipo] || stat.lastLogJustificativaTipo}
-                                                                                </span>
-                                                                            )}
+                                                                        <span className="text-gray-700">
+                                                                            {formatDateToBR(stat.lastLogDate)}
                                                                             {stat.isActive && stat.daysSinceLast !== null && (
-                                                                                <span className={`ml-2 text-xs ${stat.daysSinceLast > GAP_THRESHOLD_DAYS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>({stat.daysSinceLast}d atrás)</span>
+                                                                                <span className={`ml-1.5 text-xs ${stat.daysSinceLast > GAP_THRESHOLD_DAYS ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>· {stat.daysSinceLast}d atrás</span>
                                                                             )}
-                                                                        </div>
+                                                                        </span>
+                                                                    ) : stat.lastLogDateAnyPeriod ? (
+                                                                        <span className="text-gray-500 text-xs" title="Nenhum lançamento no período atual desta obra">
+                                                                            <span className="text-red-400 font-semibold mr-1">—</span>
+                                                                            ant. {formatDateToBR(stat.lastLogDateAnyPeriod)}
+                                                                        </span>
                                                                     ) : (
-                                                                        <span className="text-red-400 font-semibold text-xs">Nunca preenchido</span>
+                                                                        <span className="text-red-400 font-semibold text-xs" title="Este equipamento nunca teve lançamento nesta obra">— nunca</span>
                                                                     )}
                                                                 </td>
-                                                                <td className="px-4 py-3 text-right font-bold text-gray-700">{formatDecimalToTime(stat.totalHours)}</td>
+                                                                <td className="px-4 py-2.5 text-right font-bold text-gray-700 whitespace-nowrap">{formatDecimalToTime(stat.totalHours)}</td>
+                                                                <td className="px-2 py-3 text-right">
+                                                                    <ChevronRight size={16} className="text-gray-300 group-hover:text-yellow-600 transition-colors" />
+                                                                </td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
@@ -1008,42 +1211,35 @@ const OperacionalPage = ({
             {/* ===== VISÃO: POR MÁQUINA ===== */}
             {activeView === 'maquina' && (
                 <div className="space-y-4">
-                    {/* Cards de resumo */}
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-blue-500 p-3">
-                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Em Obra</p>
-                            <p style={{ fontSize: 22, fontWeight: 700, color: "#1e1a14" }} className="">{maqSummary.emObra}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">equip. ativos</p>
-                        </div>
-                        <div className={`bg-white rounded-xl shadow-sm border-l-4 border-orange-400 p-3 cursor-pointer hover:shadow-md transition-shadow ${maqCriticality === 'atencao' ? 'ring-2 ring-orange-400' : ''}`}
-                            onClick={() => setMaqCriticality(maqCriticality === 'atencao' ? '' : 'atencao')}>
-                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Sem Lançar &gt; 3d</p>
-                            <p className="text-2xl font-bold text-orange-500">{maqSummary.semLancamento3}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">requerem atenção</p>
-                        </div>
-                        <div className={`bg-white rounded-xl shadow-sm border-l-4 border-red-500 p-3 cursor-pointer hover:shadow-md transition-shadow ${maqCriticality === 'critico' ? 'ring-2 ring-red-500' : ''}`}
-                            onClick={() => setMaqCriticality(maqCriticality === 'critico' ? '' : 'critico')}>
-                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Sem Lançar &gt; 7d</p>
-                            <p className="text-2xl font-bold text-red-600">{maqSummary.semLancamento7}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">críticos</p>
-                        </div>
-                        <div className={`bg-white rounded-xl shadow-sm border-l-4 border-red-700 p-3 cursor-pointer hover:shadow-md transition-shadow ${maqCriticality === 'nunca' ? 'ring-2 ring-red-700' : ''}`}
-                            onClick={() => setMaqCriticality(maqCriticality === 'nunca' ? '' : 'nunca')}>
-                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Nunca Lançaram</p>
-                            <p className="text-2xl font-bold text-red-700">{maqSummary.nunca}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">em obra ativa</p>
-                        </div>
-                        <div className={`bg-white rounded-xl shadow-sm border-l-4 border-gray-400 p-3 cursor-pointer hover:shadow-md transition-shadow ${maqCriticality === 'sem_obra' ? 'ring-2 ring-gray-400' : ''}`}
-                            onClick={() => setMaqCriticality(maqCriticality === 'sem_obra' ? '' : 'sem_obra')}>
-                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Sem Obra</p>
-                            <p className="text-2xl font-bold text-gray-600">{maqSummary.semObra}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">disponíveis/oficina</p>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-purple-400 p-3">
-                            <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Gap Pós-Realocar</p>
-                            <p className="text-2xl font-bold text-purple-600">{maqSummary.gap}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">revisão pendente</p>
-                        </div>
+                    {/* Faixa de contadores — todos filtram a tabela abaixo */}
+                    <div className="bg-white rounded-xl shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-2 gap-y-2">
+                        {[
+                            { key: 'emObra',   label: 'Em obra',     value: maqSummary.emObra,          color: '#0c4a6e', bg: '#e0f2fe', active: !maqCriticality && !maqGapOnly && !showWithoutObra,
+                              onClick: () => { setMaqCriticality(''); setMaqGapOnly(false); setShowWithoutObra(false); } },
+                            { key: 'atencao',  label: 'Sem lançar >3d', value: maqSummary.semLancamento3, color: '#c2410c', bg: '#ffedd5', active: maqCriticality === 'atencao',
+                              onClick: () => { setMaqGapOnly(false); setMaqCriticality(maqCriticality === 'atencao' ? '' : 'atencao'); } },
+                            { key: 'critico',  label: 'Sem lançar >7d', value: maqSummary.semLancamento7, color: '#b91c1c', bg: '#fee2e2', active: maqCriticality === 'critico',
+                              onClick: () => { setMaqGapOnly(false); setMaqCriticality(maqCriticality === 'critico' ? '' : 'critico'); } },
+                            { key: 'nunca',    label: 'Nunca lançaram', value: maqSummary.nunca,        color: '#7f1d1d', bg: '#fee2e2', active: maqCriticality === 'nunca',
+                              onClick: () => { setMaqGapOnly(false); setMaqCriticality(maqCriticality === 'nunca' ? '' : 'nunca'); } },
+                            { key: 'sem_obra', label: 'Sem obra',    value: maqSummary.semObra,         color: '#6a5e4e', bg: '#f5f2ed', active: maqCriticality === 'sem_obra',
+                              onClick: () => { setMaqGapOnly(false); setMaqCriticality(maqCriticality === 'sem_obra' ? '' : 'sem_obra'); } },
+                            { key: 'gap',      label: 'Gap pós-realocação', value: maqSummary.gap,      color: '#6d28d9', bg: '#ede9fe', active: maqGapOnly,
+                              onClick: () => { setMaqCriticality(''); setShowWithoutObra(true); setMaqGapOnly(v => !v); } },
+                        ].map(chip => (
+                            <button key={chip.key} onClick={chip.onClick}
+                                className="inline-flex items-center gap-2 rounded-lg transition-all"
+                                style={{
+                                    padding: '5px 12px',
+                                    border: `1px solid ${chip.active ? chip.color : '#f0ebe3'}`,
+                                    background: chip.active ? chip.bg : '#fff',
+                                    boxShadow: chip.active ? `inset 0 0 0 1px ${chip.color}` : 'none',
+                                }}
+                                title={`Filtrar: ${chip.label}`}>
+                                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9a8a78' }}>{chip.label}</span>
+                                <span style={{ fontSize: 15, fontWeight: 700, color: chip.color }}>{chip.value}</span>
+                            </button>
+                        ))}
                     </div>
 
                     {/* Filtros */}
@@ -1092,17 +1288,17 @@ const OperacionalPage = ({
                             ))}
                         </div>
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
+                            <table className="w-full text-[13px]">
                                 <thead>
-                                    <tr className="border-b bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                                        <th className="px-4 py-3 text-left">Máquina</th>
-                                        <th className="px-4 py-3 text-left">Obra Atual</th>
-                                        <th className="px-4 py-3 text-left">Status</th>
-                                        <th className="px-4 py-3 text-center">Ult. Lançamento</th>
-                                        <th className="px-4 py-3 text-center">Dias Sem Lançar</th>
-                                        <th className="px-4 py-3 text-left">Operador</th>
-                                        <th className="px-4 py-3 text-center">Situação</th>
-                                        {!isViewer && <th className="px-4 py-3 text-center">Ação</th>}
+                                    <tr className="border-b bg-[#faf9f7] text-[11px] font-bold text-[#9a8a78] uppercase tracking-[0.04em]">
+                                        <th className="px-4 py-2.5 text-left">Máquina</th>
+                                        <th className="px-4 py-2.5 text-left">Obra Atual</th>
+                                        <th className="px-4 py-2.5 text-left">Status</th>
+                                        <th className="px-4 py-2.5 text-center">Ult. Lançamento</th>
+                                        <th className="px-4 py-2.5 text-center">Dias Sem Lançar</th>
+                                        <th className="px-4 py-2.5 text-left">Operador</th>
+                                        <th className="px-4 py-2.5 text-center">Situação</th>
+                                        {!isViewer && <th className="px-4 py-2.5 text-center">Ação</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1119,38 +1315,38 @@ const OperacionalPage = ({
                                         return (
                                             <tr key={vehicle.id} onClick={() => setSelectedMachineId(vehicle.id)} title="Ver detalhes do equipamento"
                                                 className={`border-b last:border-b-0 hover:brightness-95 transition-all cursor-pointer ${cfg.row}`}>
-                                                <td className="px-4 py-3">
-                                                    <div className="font-semibold text-gray-800">{vehicle.registroInterno || '—'}</div>
+                                                <td className="px-4 py-2.5">
+                                                    <div className="font-semibold text-gray-800 flex items-center gap-1.5">{vehicle.registroInterno || '—'} <TerceirizadoBadge vehicle={vehicle} /></div>
                                                     <div className="text-xs text-gray-500">{vehicle.tipo}{vehicle.modelo ? ` · ${vehicle.modelo}` : ''}</div>
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-4 py-2.5">
                                                     {currentObra ? <span className="text-gray-700">{formatObraNome(currentObra)}</span>
                                                         : recentDepartureObra ? <span className="text-gray-400 text-xs italic">Saiu de: {formatObraNome(recentDepartureObra)}</span>
                                                         : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-4 py-3"><MaqStatusBadge vehicle={vehicle} /></td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-4 py-2.5"><MaqStatusBadge vehicle={vehicle} /></td>
+                                                <td className="px-4 py-2.5 text-center">
                                                     <span className={!lastLogDate ? 'text-red-500 font-semibold' : 'text-gray-600'}>{formatDate(lastLogDate)}</span>
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-4 py-2.5 text-center">
                                                     {daysSinceLastLog === null
                                                         ? <span className="font-bold text-red-700">Nunca</span>
                                                         : <span className={`font-bold text-lg ${daysSinceLastLog > 7 ? 'text-red-600' : daysSinceLastLog > 3 ? 'text-orange-500' : 'text-green-600'}`}>{daysSinceLastLog}d</span>
                                                     }
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-4 py-2.5">
                                                     {operator
                                                         ? <span className="text-gray-700 text-xs">{operator.nome || operator.name || '—'}</span>
                                                         : <span className="text-gray-400 text-xs italic">Não definido</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-4 py-2.5 text-center">
                                                     <div className="flex flex-col items-center gap-1">
                                                         <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${cfg.badge}`}>{cfg.label}</span>
                                                         {gapAfterReallocation && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Gap realocação</span>}
                                                     </div>
                                                 </td>
                                                 {!isViewer && (
-                                                    <td className="px-4 py-3 text-center">
+                                                    <td className="px-4 py-2.5 text-center">
                                                         {currentObra
                                                             ? <button onClick={(e) => { e.stopPropagation(); navigate('billing', { tab: 'lancamentos', obraId: currentObra.id, vehicleId: vehicle.id }); }}
                                                                 className="inline-flex items-center gap-1 px-3 py-1.5 bg-yellow-400 hover:bg-[#fdf8f0]0 text-gray-900 text-xs font-semibold rounded-lg transition-colors">
@@ -1167,7 +1363,7 @@ const OperacionalPage = ({
                             </table>
                         </div>
                         {maqFiltered.length > 0 && (
-                            <div className="px-4 py-3 border-t bg-gray-50 text-xs text-gray-400 flex flex-wrap items-center gap-4">
+                            <div className="px-4 py-2.5 border-t bg-gray-50 text-xs text-gray-400 flex flex-wrap items-center gap-4">
                                 <span className="font-medium text-gray-500">Legenda:</span>
                                 {[['bg-red-700', 'Nunca lançou'], ['bg-red-400', 'Crítico (>7d)'], ['bg-orange-400', 'Atenção (3–7d)'], ['bg-green-400', 'Em dia (≤3d)'], ['bg-purple-400', 'Gap pós-realocação']].map(([color, label]) => (
                                     <span key={label} className="flex items-center gap-1.5">
@@ -1176,6 +1372,145 @@ const OperacionalPage = ({
                                 ))}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ===== MODAL: COBERTURA DO EQUIPAMENTO NA OBRA ===== */}
+            {selectedObraStat && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+                    onClick={() => setSelectedObraStatId(null)}>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+                        onClick={e => e.stopPropagation()}>
+                        <div className="flex items-start justify-between p-5 border-b border-gray-100">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-11 h-11 rounded-xl bg-yellow-100 flex items-center justify-center shrink-0">
+                                    <Truck size={22} className="text-yellow-600" />
+                                </div>
+                                <div className="min-w-0">
+                                    <h3 className="text-lg font-bold text-gray-800 truncate flex items-center gap-2">
+                                        {selectedObraStat.vehicle.registroInterno || 'Equipamento'}
+                                        <TerceirizadoBadge vehicle={selectedObraStat.vehicle} />
+                                        {renderStatusBadgeWithGap(selectedObraStat)}
+                                    </h3>
+                                    <p className="text-xs text-gray-500 truncate">
+                                        {selectedObraStat.vehicle.tipo}
+                                        {selectedObraStat.vehicle.modelo ? ` · ${selectedObraStat.vehicle.marca || ''} ${selectedObraStat.vehicle.modelo}` : ''}
+                                        {selectedObraStat.vehicle.placa ? ` · ${selectedObraStat.vehicle.placa}` : ''}
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedObraStatId(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-5 space-y-4">
+                            {/* Situação atual */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                    <div className="flex items-center gap-1.5 text-xs text-gray-500 font-semibold uppercase mb-1"><MapPin size={13} /> Situação</div>
+                                    <p className="text-sm font-medium text-gray-800">{selectedObraStat.isActive ? 'Ativo na obra' : 'Período encerrado'}</p>
+                                    {!selectedObraStat.isActive && selectedObraStat.status !== 'ok' && selectedObraStat.status !== 'aguardando' && (
+                                        <p className="text-[11px] text-red-500 mt-0.5 leading-tight">Gaps deste período são permanentes — não há mais como lançar.</p>
+                                    )}
+                                </div>
+                                <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                    <div className="flex items-center gap-1.5 text-xs text-gray-500 font-semibold uppercase mb-1"><Clock size={13} /> Horas (todos os períodos)</div>
+                                    <p className="text-sm font-medium text-gray-800">
+                                        {formatDecimalToTime(selectedObraStat.totalHours)}
+                                        {selectedObraStat.contractedHours > 0 && (
+                                            <span className="text-xs text-gray-400 font-normal"> de {formatDecimalToTime(selectedObraStat.contractedHours)}h contratadas</span>
+                                        )}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                    <div className="flex items-center gap-1.5 text-xs text-gray-500 font-semibold uppercase mb-1"><Activity size={13} /> Último lançamento</div>
+                                    {selectedObraStat.lastLogDate ? (
+                                        <p className="text-sm font-medium text-gray-800">
+                                            {formatDateToBR(selectedObraStat.lastLogDate)}
+                                            {selectedObraStat.isActive && selectedObraStat.daysSinceLast !== null && (
+                                                <span className={`text-xs font-normal ${selectedObraStat.daysSinceLast > GAP_THRESHOLD_DAYS ? 'text-red-500' : 'text-gray-400'}`}> · {selectedObraStat.daysSinceLast}d atrás</span>
+                                            )}
+                                            {selectedObraStat.lastLogJustificativaTipo && (
+                                                <span className="ml-2 text-[11px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">
+                                                    {JUSTIFICATIVA_LABELS[selectedObraStat.lastLogJustificativaTipo] || selectedObraStat.lastLogJustificativaTipo}
+                                                </span>
+                                            )}
+                                        </p>
+                                    ) : selectedObraStat.lastLogDateAnyPeriod ? (
+                                        <p className="text-sm font-medium text-gray-800">
+                                            <span className={selectedObraStat.isWithinReportingWindow ? 'text-sky-600' : 'text-red-500'}>
+                                                {selectedObraStat.isWithinReportingWindow ? 'Ainda no prazo de envio' : 'Nada no período atual'}
+                                            </span>
+                                            <span className="block text-xs text-gray-400 font-normal">último em {formatDateToBR(selectedObraStat.lastLogDateAnyPeriod)}, em período anterior</span>
+                                        </p>
+                                    ) : selectedObraStat.isWithinReportingWindow ? (
+                                        <p className="text-sm text-sky-600 font-medium">Ainda no prazo de envio</p>
+                                    ) : (
+                                        <p className="text-sm text-red-500 font-medium">Nunca lançou nesta obra</p>
+                                    )}
+                                    {selectedObraStat.isWithinReportingWindow && (
+                                        <p className="text-[11px] text-gray-400 mt-0.5 leading-tight">
+                                            Período iniciado há menos de {REPORTING_LAG_DAYS} dias. Só será cobrado a partir de lançamentos até {formatDateToBR(selectedObraStat.reportingCutoff)}.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Histórico completo de períodos */}
+                            <div>
+                                <h4 className="text-xs text-gray-500 font-semibold uppercase mb-2 flex items-center gap-1.5">
+                                    <FileText size={13} /> Períodos nesta obra ({selectedObraStat.periodBreakdown.length})
+                                </h4>
+                                <div className="rounded-xl border border-gray-100 overflow-hidden">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 text-gray-500 text-[11px] uppercase">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left">Período</th>
+                                                <th className="px-3 py-2 text-center">Dias c/ lançamento</th>
+                                                <th className="px-3 py-2 text-center">Maior gap</th>
+                                                <th className="px-3 py-2 text-left">Último lançamento</th>
+                                                <th className="px-3 py-2 text-right">Horas</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {selectedObraStat.periodBreakdown.map(p => (
+                                                <tr key={p.id} className={p.isOpen ? 'bg-green-50/60' : ''}>
+                                                    <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                                                        {formatDateToBR(p.start)} → {p.end ? formatDateToBR(p.end) : <span className="text-green-600 font-semibold">hoje</span>}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center text-gray-600">
+                                                        {p.daysWithLogs}/{p.totalDays}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <span className={`font-bold text-xs ${p.maxGap > GAP_THRESHOLD_DAYS ? 'text-red-600' : p.maxGap > 5 ? 'text-orange-500' : 'text-gray-500'}`}>{p.maxGap}d</span>
+                                                    </td>
+                                                    <td className="px-3 py-2 whitespace-nowrap">
+                                                        {p.lastLog ? (
+                                                            <span className="text-gray-700">
+                                                                {formatDateToBR(p.lastLog)}
+                                                                {p.lastLogJustificativaTipo && (
+                                                                    <span className="ml-1.5 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">
+                                                                        {JUSTIFICATIVA_LABELS[p.lastLogJustificativaTipo] || p.lastLogJustificativaTipo}
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-red-400 font-semibold text-xs">nenhum</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-semibold text-gray-700 whitespace-nowrap">{formatDecimalToTime(p.hours)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p className="text-[11px] text-gray-400 mt-2 leading-tight">
+                                    A coluna "Horas (total)" da tabela principal soma todos os períodos acima. O status e o gap consideram apenas o período mais recente.
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1193,7 +1528,7 @@ const OperacionalPage = ({
                                     <Truck size={22} className="text-yellow-600" />
                                 </div>
                                 <div className="min-w-0">
-                                    <h3 className="text-lg font-bold text-gray-800 truncate">{selectedMachine.vehicle.registroInterno || 'Equipamento'}</h3>
+                                    <h3 className="text-lg font-bold text-gray-800 truncate flex items-center gap-2">{selectedMachine.vehicle.registroInterno || 'Equipamento'} <TerceirizadoBadge vehicle={selectedMachine.vehicle} /></h3>
                                     <p className="text-xs text-gray-500 truncate">
                                         {selectedMachine.vehicle.tipo}
                                         {selectedMachine.vehicle.modelo ? ` · ${selectedMachine.vehicle.modelo}` : ''}

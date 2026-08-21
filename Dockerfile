@@ -25,6 +25,11 @@ ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
 # Executa o comando de build de produção
 # O React vai inserir o valor de $REACT_APP_API_URL no código
+# CI=false: o Create React App, sob CI=true (padrão em builders como o Easypanel),
+# trata TODO warning de eslint como erro e aborta o build. Há dívida de lint
+# pré-existente em dezenas de arquivos; até ela ser limpa, mantemos os warnings
+# como não-fatais para não travar o deploy.
+ENV CI=false
 RUN npm run build
 
 # --- Estágio 2: Production (Servidor) ---

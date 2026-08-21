@@ -41,12 +41,14 @@ import ExcavatorLoader from './components/ui/ExcavatorLoader';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DataProvider, useData } from './contexts/DataContext';
 import Sidebar from './components/Sidebar';
+import SettingsModal from './components/modals/SettingsModal';
+import Messenger from './components/chat/Messenger';
 
 // LoginScreen carrega de forma síncrona (necessário antes do login)
 import LoginScreen from './components/LoginScreen';
 
 import apiClient from './services/apiClient';
-import { canAccessPage, canAccessAnaliseGerencial } from './utils/permissions';
+import { canUserAccessPage, canAccessAnaliseGerencial } from './utils/permissions';
 import {
     vehicleGroups,
     extraObraOptions,
@@ -61,6 +63,8 @@ import { processVehiclesWithAlerts } from './utils/vehicleAlerts';
 // ==========================================
 const Dashboard                    = lazy(() => import('./pages/Dashboard'));
 const ObrasPage                    = lazy(() => import('./pages/ObrasPage'));
+const FichaObraPage                = lazy(() => import('./pages/FichaObraPage'));
+const PlanejamentoPage             = lazy(() => import('./pages/PlanejamentoPage'));
 const PartnersPage                 = lazy(() => import('./pages/PartnersPage'));
 const RefuelingPage                = lazy(() => import('./pages/RefuelingPage'));
 const SaldoEmPostosPage            = lazy(() => import('./pages/SaldoEmPostosPage'));
@@ -71,6 +75,7 @@ const ReportsPage                  = lazy(() => import('./pages/ReportsPage'));
 const FinesPage                    = lazy(() => import('./pages/FinesPage'));
 const VehiclePage                  = lazy(() => import('./pages/VehiclePage'));
 const RevisionsPage                = lazy(() => import('./pages/RevisionsPage'));
+const RelatosPage                  = lazy(() => import('./pages/RelatosPage'));
 const DiarioDeBordoPage            = lazy(() => import('./pages/DiarioDeBordoPage'));
 const AdminPage                    = lazy(() => import('./pages/AdminPage'));
 const ControleDiarioPage           = lazy(() => import('./pages/ControleDiarioPage'));
@@ -87,8 +92,9 @@ const OperadorDocumentosPage       = lazy(() => import('./pages/OperadorDocument
 const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
 const SigaSulPage                  = lazy(() => import('./pages/SigaSulPage'));
 const AnaliseGerencialPage         = lazy(() => import('./pages/AnaliseGerencialPage'));
-const AproveitamentoProdutivoPage  = lazy(() => import('./pages/AproveitamentoProdutivoPage'));
-const ProjecaoObraPage             = lazy(() => import('./pages/ProjecaoObraPage'));
+const FaturamentoHistoricoPage     = lazy(() => import('./pages/FaturamentoHistoricoPage'));
+const MapaOperacionalPage          = lazy(() => import('./pages/MapaOperacionalPage'));
+const TerceirizadosPage            = lazy(() => import('./pages/TerceirizadosPage'));
 const AdminUsuariosPage            = lazy(() => import('./pages/AdminUsuariosPage'));
 const AdminFrotaPage               = lazy(() => import('./pages/AdminFrotaPage'));
 const AdminComunicacaoPage         = lazy(() => import('./pages/AdminComunicacaoPage'));
@@ -233,84 +239,8 @@ const PasswordConfirmationModalRaw = ({ onConfirm, onClose, message, apiClient: 
 };
 const PasswordConfirmationModal = React.memo(PasswordConfirmationModalRaw);
 
-const ChangePasswordModalRaw = ({ isOpen, onClose, apiClient: apiClientProp }) => {
-    const [currentPassword, setCurrentPassword] = useState('');
-    const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [message, setMessage] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const client = apiClientProp || apiClient;
-
-    useEffect(() => {
-        if (isOpen) {
-            setCurrentPassword('');
-            setNewPassword('');
-            setConfirmPassword('');
-            setMessage(null);
-        }
-    }, [isOpen]);
-
-    if (!isOpen) return null;
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setMessage(null);
-
-        if (newPassword !== confirmPassword) {
-            setMessage({ type: 'error', text: 'As novas senhas não conferem.' });
-            return;
-        }
-        if (newPassword.length < 6) {
-            setMessage({ type: 'error', text: 'A nova senha deve ter no mínimo 6 caracteres.' });
-            return;
-        }
-
-        setLoading(true);
-        try {
-            await client.changePassword({ currentPassword, newPassword });
-            setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
-            setTimeout(onClose, 1500);
-        } catch (error) {
-            setMessage({ type: 'error', text: error.message || 'Erro ao alterar senha.' });
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm p-6">
-                <h2 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Alterar Senha</h2>
-                {message && (
-                    <div className={`p-2 mb-3 rounded text-sm text-center ${message.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {message.text}
-                    </div>
-                )}
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <div>
-                        <label className="block text-xs font-bold text-gray-600 uppercase">Senha Atual</label>
-                        <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-600 uppercase">Nova Senha</label>
-                        <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-600 uppercase">Confirmar Nova Senha</label>
-                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 border rounded focus:border-yellow-500 outline-none" required />
-                    </div>
-                    <div className="flex justify-end gap-2 mt-4">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm font-bold">Cancelar</button>
-                        <button type="submit" disabled={loading} className="px-4 py-2 bg-yellow-400 text-gray-900 rounded hover:bg-yellow-500 text-sm font-bold disabled:opacity-50">
-                            {loading ? 'Salvando...' : 'Confirmar'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-const ChangePasswordModal = React.memo(ChangePasswordModalRaw);
+// (O antigo ChangePasswordModal inline foi substituído pelo SettingsModal —
+// a troca de senha agora vive na aba "Segurança" das Configurações.)
 
 const UpdateMessageModal = React.memo(({ message, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[99999]">
@@ -370,6 +300,7 @@ const ADMIN_NOTIF_META = {
     requisicao_operacional:   { title: 'Nova requisição operacional',        message: 'Há uma sugestão de mudança de obra/operador aguardando análise.', Icon: Truck, color: 'amber' },
     whatsapp_desconectado:    { title: 'Serviço WhatsApp desconectado',      message: 'A conexão com o WhatsApp caiu. Reconecte o serviço.', Icon: WifiOff,    color: 'red'    },
     whatsapp_nao_configurado: { title: 'WhatsApp não configurado',           message: 'O serviço de WhatsApp ainda não foi configurado.', Icon: WifiOff,     color: 'red'    },
+    ordem_nao_entregue:       { title: 'Ordem NÃO entregue ao posto',        message: 'Uma ordem de abastecimento não chegou ao destinatário.', Icon: AlertTriangle, color: 'red' },
 };
 
 const ADMIN_NOTIF_COLORS = {
@@ -420,16 +351,33 @@ const AppContent = () => {
     const [pageFilter, setPageFilter] = useState(null);
     const [alertMessage, setAlertMessage] = useState('');
     const [selectedObraId, setSelectedObraId] = useState(null);
+    // Página de onde a Ficha foi aberta, para o botão "voltar" retornar ao índice certo.
+    const [fichaOrigin, setFichaOrigin] = useState('obras');
 
     const [updateMessage, setUpdateMessage] = useState(null);
     const [showUpdateModal, setShowUpdateModal] = useState(false);
-    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
+    const [myChatStatus, setMyChatStatus] = useState('disponivel');
     const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
     const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
     const [operadorTelaAtual, setOperadorTelaAtual] = useState(null); // null | 'comboio' | 'normal'
 
     const [agendaAlerts, setAgendaAlerts] = useState([]);
     const [adminPopups, setAdminPopups] = useState([]); // pop-ups de notificação (somente admin)
+
+    // Status inicial do chat (carrega o último status salvo do usuário).
+    useEffect(() => {
+        if (!user || user.user_type === 'operador') return;
+        apiClient.getMySettings()
+            .then(s => { if (s?.chatStatus) setMyChatStatus(s.chatStatus); })
+            .catch(() => {});
+    }, [user]);
+
+    // Troca de status: atualiza o dot local, propaga presença via socket e persiste.
+    const handleChatStatusChange = useCallback((status) => {
+        setMyChatStatus(status);
+        if (socket) socket.emit('chat:setStatus', { status });
+    }, [socket]);
 
     // ---------- Taxonomia de veículos (hidratada do banco) ----------
     // Incrementa a cada hidratação para forçar recompute dos consumidores.
@@ -484,7 +432,7 @@ const AppContent = () => {
         }
 
         // Solicitações de abastecimento pendentes
-        if (canAccessPage(user.roleNormalized, 'admin_solicitacoes')) {
+        if (canUserAccessPage(user, 'admin_solicitacoes')) {
             apiClient.get?.('/solicitacoes')
                 .then(res => {
                     const data = Array.isArray(res) ? res : (res?.data || []);
@@ -515,7 +463,7 @@ const AppContent = () => {
         };
 
         const handleAdminNotification = (data) => {
-            const podeAbastecimento = canAccessPage(user.roleNormalized, 'admin_solicitacoes');
+            const podeAbastecimento = canUserAccessPage(user, 'admin_solicitacoes');
             // Função "Abastecimento" em Usuários & Acesso.
             const isAbastecimento = user.roleNormalized === 'abastecimento';
 
@@ -531,12 +479,22 @@ const AppContent = () => {
                 } catch (e) {}
             };
 
+            // Notificações de "estado" do WhatsApp são reemitidas enquanto o serviço
+            // permanece fora — deve existir no máximo um pop-up por tipo na tela.
+            const TIPOS_ESTADO_UNICO = ['whatsapp_desconectado', 'whatsapp_nao_configurado'];
+
             const mostrarPopup = () => {
-                tocarBeep();
-                setAdminPopups(prev => [
-                    ...prev,
-                    { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tipo: data.tipo, message: data.mensagem || data.message || null },
-                ]);
+                setAdminPopups(prev => {
+                    // Se já existe um pop-up deste tipo de estado, não abre outro (nem toca beep).
+                    if (TIPOS_ESTADO_UNICO.includes(data.tipo) && prev.some(p => p.tipo === data.tipo)) {
+                        return prev;
+                    }
+                    tocarBeep();
+                    return [
+                        ...prev,
+                        { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tipo: data.tipo, message: data.mensagem || data.message || null },
+                    ];
+                });
             };
 
             // Nova solicitação de abastecimento (página Solicitações App): o pop-up vai
@@ -564,14 +522,36 @@ const AppContent = () => {
             setAdminPopups(prev => prev.filter(p => p.tipo !== 'whatsapp_desconectado' && p.tipo !== 'whatsapp_nao_configurado'));
         };
 
+        // Ordem de abastecimento que não chegou ao posto por nenhum canal.
+        // Vai para admins E para quem trabalha com abastecimento — é a pessoa
+        // que emitiu a ordem que precisa agir (ligar para o posto, reenviar).
+        const handleOrdemNaoEntregue = (data) => {
+            if (user.user_type !== 'admin' && !canUserAccessPage(user, 'admin_solicitacoes')) return;
+            const detalhes = [
+                data.whatsapp ? `WhatsApp: ${data.whatsapp}` : null,
+                data.email ? `E-mail: ${data.email}` : null,
+            ].filter(Boolean).join(' | ');
+            setAdminPopups(prev => ([
+                ...prev,
+                {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    tipo: 'ordem_nao_entregue',
+                    message: `A ordem Nº ${String(data.authNumber || '').padStart(6, '0')} NÃO foi entregue a ${data.destinatarioNome || 'destinatário'}. ${detalhes}. Avise o posto por outro meio ou use o botão Reenviar na lista de ordens.`,
+                },
+            ]));
+            try { new Audio('/beep.mp3').play().catch(() => {}); } catch (_) {}
+        };
+
         socket.on('agenda:alerta', handleAgendaAlert);
         socket.on('admin:notificacao', handleAdminNotification);
         socket.on('whatsapp:reconectado', handleWaReconectado);
+        socket.on('ordem:falha_envio', handleOrdemNaoEntregue);
 
         return () => {
             socket.off('agenda:alerta', handleAgendaAlert);
             socket.off('admin:notificacao', handleAdminNotification);
             socket.off('whatsapp:reconectado', handleWaReconectado);
+            socket.off('ordem:falha_envio', handleOrdemNaoEntregue);
         };
     }, [socket, user]);
 
@@ -582,6 +562,7 @@ const AppContent = () => {
         dashboard:            ['revisions', 'fines', 'refuelings'],
         vehicles:             ['revisions', 'fines'],
         revisions:            ['revisions'],
+        relatos:              ['relatos', 'holidays', 'orders'],
         refueling:            ['refuelings', 'revisions'],
         saldo_postos:         ['partnerFuelCredits'],
         admin_solicitacoes:   ['refuelings'],
@@ -595,6 +576,7 @@ const AppContent = () => {
         orders:               ['orders'],
         obras:                ['revisions'],
         operacional:          ['dailyWorkLogs', 'refuelings'],
+        terceirizados:        ['dailyWorkLogs', 'refuelings', 'comboioTransactions', 'terceirizadoPagamentos', 'terceiroContratos'],
         supervisor_dashboard: ['revisions', 'fines'],
         supervisor_detail:    ['revisions', 'fines', 'refuelings', 'expenses'],
     }), []);
@@ -623,6 +605,15 @@ const AppContent = () => {
         setCurrentPage('supervisor_detail');
     }, []);
 
+    // Ficha da Obra (Visão geral consolidada) — porta de entrada por perfil:
+    // a grade "Gestão de Obras" (supervisor) e a lista de Obras (back-office).
+    // Roteamento por estado, como o resto do app (sem URL/deep-link ainda).
+    const handleNavigateToFicha = useCallback((obraId, origin = 'obras') => {
+        setSelectedObraId(obraId);
+        setFichaOrigin(origin);
+        setCurrentPage('ficha_obra');
+    }, []);
+
     // ---------- Modal injection (PasswordConfirmationModal com apiClient pré-injetado) ----------
     const PasswordConfirmationModalWrapped = useMemo(
         () => (props) => <PasswordConfirmationModal {...props} apiClient={apiClient} />,
@@ -644,6 +635,7 @@ const AppContent = () => {
         apiClient,
         reloadData: reload,
         navigate,
+        navigateToFicha: handleNavigateToFicha,
         vehicles: processedVehicles,
         obras,
         revisions,
@@ -662,7 +654,7 @@ const AppContent = () => {
     }), [
         user,
         PasswordConfirmationModalWrapped,
-        reload, navigate,
+        reload, navigate, handleNavigateToFicha,
         processedVehicles, obras, revisions, expenses, employees, partners,
         refuelings, comboioTransactions, fines, diarioDeBordoLogs, dailyWorkLogs, orders,
         socket,
@@ -697,21 +689,56 @@ const AppContent = () => {
             );
         }
 
-        // Detecta veículos vinculados ao operador via alocacaoAtual.description
-        const employeeRecord = employees.find(e =>
-            e.id === user.employeeId || e.nome === user.name
-        );
+        // --- Detecta veículos vinculados ao operador ---
+        // Identificação robusta do funcionário (mesma estratégia da SolicitacaoAbastecimentoPage):
+        // employeeId/employee_id direto e, na falta, casamento NORMALIZADO por e-mail/nome.
+        // A versão antiga usava igualdade estrita (e.id === user.employeeId || e.nome === user.name),
+        // que falhava quando user.employeeId era null ou o nome tinha acento/espaço divergente —
+        // nesse caso a detecção do comboio sumia e o operador caía direto na solicitação normal.
+        const normalizeStr = (str) => (str || '').toString().toLowerCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/\s+/g, ' ').trim();
 
-        const registrosVinculados = employeeRecord?.alocacaoAtual?.isAllocated
-            ? employeeRecord.alocacaoAtual.description.split(',').map(s => s.trim()).filter(Boolean)
-            : [];
+        const employeeRecord = employees.find(e => {
+            if (user.employeeId != null && String(e.id) === String(user.employeeId)) return true;
+            if (user.employee_id != null && String(e.id) === String(user.employee_id)) return true;
+            if (user.email && normalizeStr(e.email) === normalizeStr(user.email)) return true;
+            if (user.name && normalizeStr(e.nome) === normalizeStr(user.name)) return true;
+            return false;
+        });
 
-        const veiculosVinculados = registrosVinculados
-            .map(reg => vehicles.find(v => v.registroInterno === reg))
+        const myEmployeeId = employeeRecord?.id ?? user.employeeId ?? user.employee_id ?? null;
+
+        // Fonte primária: veículos ativos do operador no histórico das obras
+        // (mesma fonte — comprovadamente funcional — usada na tela de solicitação).
+        const veiculoIdsVinculados = new Set();
+        if (myEmployeeId != null) {
+            obras.forEach(obra => {
+                (obra.historicoVeiculos || []).forEach(h => {
+                    if (!h.dataSaida && String(h.employeeId) === String(myEmployeeId) && h.veiculoId) {
+                        veiculoIdsVinculados.add(String(h.veiculoId));
+                    }
+                });
+            });
+        }
+
+        // Fonte secundária (fallback): alocacaoAtual.description por registroInterno.
+        if (employeeRecord?.alocacaoAtual?.isAllocated && employeeRecord.alocacaoAtual.description) {
+            employeeRecord.alocacaoAtual.description.split(',').map(s => s.trim()).filter(Boolean)
+                .forEach(reg => {
+                    const v = vehicles.find(vv => String(vv.registroInterno) === String(reg));
+                    if (v) veiculoIdsVinculados.add(String(v.id));
+                });
+        }
+
+        const veiculosVinculados = [...veiculoIdsVinculados]
+            .map(vid => vehicles.find(v => String(v.id) === vid))
             .filter(Boolean);
 
-        const comboiosVinculados  = veiculosVinculados.filter(v => v.isComboioVehicle);
-        const normaisVinculados   = veiculosVinculados.filter(v => !v.isComboioVehicle);
+        // isComboioVehicle vem do banco como TINYINT(1); toleramos número, boolean e string.
+        const isComboio = (v) => v.isComboioVehicle === 1 || v.isComboioVehicle === true || v.isComboioVehicle === '1';
+        const comboiosVinculados  = veiculosVinculados.filter(isComboio);
+        const normaisVinculados   = veiculosVinculados.filter(v => !isComboio(v));
 
         const temComboio  = comboiosVinculados.length > 0;
         const temNormal   = normaisVinculados.length > 0;
@@ -850,7 +877,9 @@ const AppContent = () => {
                 return <Dashboard {...commonProps} />;
             case 'supervisor_dashboard':
                 return canAccessAnaliseGerencial(user)
-                    ? <SupervisorDashboard {...commonProps} onNavigateToDetail={handleNavigateToObra} /> : <Denied />;
+                    ? <SupervisorDashboard {...commonProps}
+                        onNavigateToDetail={handleNavigateToObra}
+                        onNavigateToFicha={(id) => handleNavigateToFicha(id, 'supervisor_dashboard')} /> : <Denied />;
             case 'supervisor_detail':
                 return canAccessAnaliseGerencial(user)
                     ? <SupervisorObraDetail obraId={selectedObraId} onBack={() => setCurrentPage('supervisor_dashboard')} /> : <Denied />;
@@ -858,6 +887,11 @@ const AppContent = () => {
                 return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
             case 'obras':
                 return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
+            case 'ficha_obra':
+                return canAccessAnaliseGerencial(user)
+                    ? <FichaObraPage {...commonProps} obraId={selectedObraId} onBack={() => setCurrentPage(fichaOrigin || 'obras')} /> : <Denied />;
+            case 'planejamento':
+                return <PlanejamentoPage {...commonProps} />;
             case 'billing':
                 return <BillingPage {...commonProps} initialFilter={pageFilter} />;
             case 'operacional':
@@ -866,23 +900,28 @@ const AppContent = () => {
                 return <ControleDiarioPage {...commonProps} />;
             case 'revisions':
                 return <RevisionsPage {...commonProps} />;
+            case 'relatos':
+                return canUserAccessPage(user, 'relatos')
+                    ? <RelatosPage {...commonProps} /> : <Denied />;
             case 'partners':
                 return <PartnersPage {...commonProps} />;
+            case 'terceirizados':
+                return <TerceirizadosPage {...commonProps} />;
             case 'refueling':
-                return canAccessPage(user.roleNormalized, 'refueling')
+                return canUserAccessPage(user, 'refueling')
                     ? <RefuelingPage {...commonProps} /> : <Denied />;
             case 'saldo_postos':
-                return canAccessPage(user.roleNormalized, 'saldo_postos')
+                return canUserAccessPage(user, 'saldo_postos')
                     ? <SaldoEmPostosPage /> : <Denied />;
             case 'admin_solicitacoes':
-                return canAccessPage(user.roleNormalized, 'admin_solicitacoes')
+                return canUserAccessPage(user, 'admin_solicitacoes')
                     ? <AdminSolicitacoesPage {...commonProps} /> : <Denied />;
             case 'orders':
                 return <OrdersPage {...commonProps} />;
             case 'inventory':
                 return <InventoryPage {...commonProps} />;
             case 'comboio':
-                return canAccessPage(user.roleNormalized, 'comboio')
+                return canUserAccessPage(user, 'comboio')
                     ? <ComboioPage {...commonProps} /> : <Denied />;
             case 'expenses':
                 return <ExpensesPage {...commonProps} />;
@@ -895,32 +934,35 @@ const AppContent = () => {
             case 'reports': 
                 return <ReportsPage {...commonProps} />; 
             case 'admin':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminPage {...commonProps} /> : <Denied />;
             case 'admin_usuarios':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminUsuariosPage {...commonProps} /> : <Denied />;
             case 'admin_frota':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminFrotaPage {...commonProps} /> : <Denied />;
             case 'admin_comunicacao':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminComunicacaoPage {...commonProps} /> : <Denied />;
             case 'admin_sistema':
-                return canAccessPage(user.roleNormalized, 'admin')
+                return canUserAccessPage(user, 'admin')
                     ? <AdminSistemaPage {...commonProps} /> : <Denied />;
             case 'sigasul':
-                return canAccessPage(user.roleNormalized, 'sigasul')
+                return canUserAccessPage(user, 'sigasul')
                     ? <SigaSulPage {...commonProps} /> : <Denied />;
             case 'analise_gerencial':
                 return canAccessAnaliseGerencial(user)
                     ? <AnaliseGerencialPage {...commonProps} /> : <Denied />;
-            case 'projecao_obra':
+            case 'faturamento_historico':
                 return canAccessAnaliseGerencial(user)
-                    ? <ProjecaoObraPage {...commonProps} /> : <Denied />;
+                    ? <FaturamentoHistoricoPage {...commonProps} /> : <Denied />;
             case 'aproveitamento':
                 return canAccessAnaliseGerencial(user)
-                    ? <AproveitamentoProdutivoPage {...commonProps} /> : <Denied />;
+                    ? <FaturamentoHistoricoPage {...commonProps} initialTab="fis" /> : <Denied />;
+            case 'mapa_operacional':
+                return canAccessAnaliseGerencial(user)
+                    ? <MapaOperacionalPage {...commonProps} /> : <Denied />;
             default:
                 return <Dashboard {...commonProps} />; 
         }
@@ -978,14 +1020,30 @@ const AppContent = () => {
                 setCurrentPage={setCurrentPage}
                 user={user}
                 logout={logout}
-                onChangePassword={() => setShowChangePasswordModal(true)}
+                onOpenSettings={() => setShowSettingsModal(true)}
+                myChatStatus={myChatStatus}
                 pendingSolicitacoesCount={pendingSolicitacoesCount}
             />
 
-            <ChangePasswordModal
-                isOpen={showChangePasswordModal}
-                onClose={() => setShowChangePasswordModal(false)}
+            {showSettingsModal && (
+                <SettingsModal
+                    onClose={() => setShowSettingsModal(false)}
+                    apiClient={apiClient}
+                    socket={socket}
+                    onProfileSaved={(s) => { if (s?.chatStatus) setMyChatStatus(s.chatStatus); }}
+                />
+            )}
+
+            {/* Mensageiro interno (não aparece para operadores — que nem chegam aqui) */}
+            <Messenger
+                socket={socket}
+                user={user}
                 apiClient={apiClient}
+                myStatus={myChatStatus}
+                onStatusChange={handleChatStatusChange}
+                vehicles={vehicles}
+                obras={obras}
+                onNavigate={setCurrentPage}
             />
 
             <main className="flex-1 flex flex-col relative overflow-hidden">

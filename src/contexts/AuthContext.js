@@ -30,7 +30,14 @@ export const AuthProvider = ({ children }) => {
             const REFUELING_ROLES = ['admin', 'gerencia', 'abastecimento', 'editor'];
             const canAccessRefueling = canAccess || REFUELING_ROLES.includes(roleNormalized);
 
-            setUser({ ...userData, roleNormalized });
+            // Override individual de páginas — garante array|null mesmo se vier como string JSON.
+            let pagePermissions = userData.page_permissions;
+            if (typeof pagePermissions === 'string') {
+                try { pagePermissions = JSON.parse(pagePermissions); } catch { pagePermissions = null; }
+            }
+            if (!Array.isArray(pagePermissions)) pagePermissions = null;
+
+            setUser({ ...userData, roleNormalized, page_permissions: pagePermissions });
             setPermissions({
                 isOperator:      roleNormalized === 'operador',
                 isEditor:        ['editor', 'admin'].includes(roleNormalized),
@@ -90,6 +97,9 @@ export const AuthProvider = ({ children }) => {
 
             if (token) {
                 localStorage.setItem('authToken', token);
+                if (response.refreshToken) {
+                    localStorage.setItem('refreshToken', response.refreshToken);
+                }
                 const userData = await apiClient.getMe();
                 setUserAndPermissions(userData);
                 return { success: true, user: userData };
@@ -98,17 +108,30 @@ export const AuthProvider = ({ children }) => {
             }
         } catch (error) {
             console.error("Erro no processo de login:", error);
-            localStorage.removeItem('authToken'); 
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('refreshToken');
             setUserAndPermissions(null);
-            throw error; 
+            throw error;
         } finally {
             setLoading(false);
         }
     }, []);
 
     const logout = useCallback(() => {
+        // Revoga o refresh token no servidor (best-effort) antes de limpar local.
+        apiClient.logout?.();
         localStorage.removeItem('authToken');
+        localStorage.removeItem('refreshToken');
         setUserAndPermissions(null);
+    }, []);
+
+    // O apiClient dispara 'auth:logout' quando a renovação silenciosa falha
+    // (refresh token expirado/revogado). Aqui limpamos o estado para a UI
+    // voltar à tela de login sem o usuário ver erros soltos.
+    useEffect(() => {
+        const handleForcedLogout = () => setUserAndPermissions(null);
+        window.addEventListener('auth:logout', handleForcedLogout);
+        return () => window.removeEventListener('auth:logout', handleForcedLogout);
     }, []);
 
     const value = useMemo(() => ({ 

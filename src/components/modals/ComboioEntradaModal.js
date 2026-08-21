@@ -1,6 +1,8 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Loader, X, AlertTriangle, FileText } from 'lucide-react';
+import CurrencyInput from '../ui/CurrencyInput';
 import SearchableSelect from '../SearchableSelect';
+import { getPartnerDisplayName } from '../../utils/partners';
 
 const ComboioEntradaModal = ({ 
     user, 
@@ -193,8 +195,8 @@ const ComboioEntradaModal = ({
                                 items={sortedPartners}
                                 value={formData.partnerId}
                                 onChange={(item) => handleChange({ target: { name: 'partnerId', value: item?.id || '' } })}
-                                getLabel={(p) => p.razaoSocial || ''}
-                                getSubLabel={(p) => p.cidade || ''}
+                                getLabel={(p) => getPartnerDisplayName(p)}
+                                getSubLabel={(p) => [p.nomeFantasia ? p.razaoSocial : null, p.cidade].filter(Boolean).join(' · ')}
                                 placeholder="Selecione o posto..."
                                 required
                             />
@@ -213,14 +215,13 @@ const ComboioEntradaModal = ({
                         </div>
                         <div>
                             <label className="block font-medium mb-1">Preço Litro (R$)</label>
-                            <input 
-                                name="pricePerLiter" 
-                                type="number" 
-                                step="0.001" 
-                                value={formData.pricePerLiter} 
-                                onChange={handleChange} 
-                                className={`w-full p-2 border rounded ${initialPartnerPrice > 0 && parseFloat(formData.pricePerLiter) !== initialPartnerPrice ? 'bg-yellow-50 border-yellow-300' : ''}`} 
-                                placeholder="0.000"
+                            <CurrencyInput
+                                name="pricePerLiter"
+                                decimals={3}
+                                value={formData.pricePerLiter}
+                                onChange={handleChange}
+                                className={`w-full p-2 border rounded ${initialPartnerPrice > 0 && parseFloat(formData.pricePerLiter) !== initialPartnerPrice ? 'bg-yellow-50 border-yellow-300' : ''}`}
+                                placeholder="0,000"
                             />
                         </div>
 

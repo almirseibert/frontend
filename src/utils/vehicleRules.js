@@ -275,10 +275,11 @@ export const checkVehicleRestrictions = (vehicle, revisions = []) => {
                 const d = new Date(doc.date);
                 const dCompare = new Date(d.getFullYear(), d.getMonth(), d.getDate());
                 
+                const dLabel = dCompare.toLocaleDateString('pt-BR');
                 if (now > dCompare) {
-                    issues.push({ category: 'documento', type: 'error', message: `${doc.name} VENCIDO.` });
+                    issues.push({ category: 'documento', type: 'error', docName: doc.name, dueDate: dCompare, message: `${doc.name} VENCIDO em ${dLabel}.` });
                 } else if (dCompare <= thirtyDaysFromNow) {
-                    issues.push({ category: 'documento', type: 'warning', message: `${doc.name} vence em breve.` });
+                    issues.push({ category: 'documento', type: 'warning', docName: doc.name, dueDate: dCompare, message: `${doc.name} vence em ${dLabel}.` });
                 }
             }
         });

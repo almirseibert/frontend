@@ -3,6 +3,7 @@ import { Download, Printer, Droplet, Loader, Filter, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getGroupUnit, getReadingSourceForUnit, computeConsumption } from '../utils/vehicleRules';
+import { resolveOrderPartnerName } from '../utils/partners';
 
 const RefuelingHistory = ({ 
     vehicleId, 
@@ -75,7 +76,7 @@ const RefuelingHistory = ({
             const getReading = (item) => parseFloat((readingSource === 'horimetro' ? item.horimetro : item.odometro) || 0);
 
             const displayReading = (readingSource === 'horimetro' ? current.horimetro : current.odometro) || '-';
-            const displayPartner = current.partnerName || partners.find(p => p.id === current.partnerId)?.razaoSocial || 'N/A';
+            const displayPartner = resolveOrderPartnerName(partners.find(p => p.id === current.partnerId), current.partnerName);
 
             if (previous) {
                 const currentVal = getReading(current);

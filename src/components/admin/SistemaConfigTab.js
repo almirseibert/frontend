@@ -1,22 +1,10 @@
 import React, { useState } from 'react';
 import { GitBranch, Clock, Calendar, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import HolidaysSection from './HolidaysSection';
 
 const WORKFLOW_MODULES = ['Despesas', 'Abastecimento', 'Ordens de Compra', 'Estoque', 'Outros'];
 const REPORT_MODULES  = ['Abastecimento', 'Obras', 'Manutenções', 'Faturamento', 'Estoque', 'Pneus', 'Multas', 'Veículos'];
 const FREQ_LABELS     = { daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal' };
-
-const DEFAULT_HOLIDAYS = [
-  { id: 1,  name: 'Ano Novo',                  date: '2026-01-01' },
-  { id: 2,  name: 'Carnaval',                  date: '2026-03-03' },
-  { id: 3,  name: 'Tiradentes',                date: '2026-04-21' },
-  { id: 4,  name: 'Dia do Trabalho',           date: '2026-05-01' },
-  { id: 5,  name: 'Corpus Christi',            date: '2026-06-04' },
-  { id: 6,  name: 'Independência',             date: '2026-09-07' },
-  { id: 7,  name: 'Nossa Sra. Aparecida',      date: '2026-10-12' },
-  { id: 8,  name: 'Finados',                   date: '2026-11-02' },
-  { id: 9,  name: 'Proclamação da República',  date: '2026-11-15' },
-  { id: 10, name: 'Natal',                     date: '2026-12-25' },
-];
 
 const SectionHeader = ({ title, icon, open, onToggle }) => (
   <button
@@ -53,16 +41,6 @@ const SistemaConfigTab = () => {
     if (!newRpt.name) return;
     setReports(p => [...p, { ...newRpt, id: Date.now() }]);
     setNewRpt({ name: '', module: 'Abastecimento', frequency: 'weekly', time: '08:00' });
-  };
-
-  // Feriados
-  const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
-  const [newHoliday, setNewHoliday] = useState({ name: '', date: '' });
-
-  const addHoliday = () => {
-    if (!newHoliday.name || !newHoliday.date) return;
-    setHolidays(p => [...p, { ...newHoliday, id: Date.now() }]);
-    setNewHoliday({ name: '', date: '' });
   };
 
   return (
@@ -238,53 +216,7 @@ const SistemaConfigTab = () => {
           open={open.holidays}
           onToggle={() => toggle('holidays')}
         />
-        {open.holidays && (
-          <div className="p-5 border-t space-y-4">
-            <p className="text-sm text-gray-500">
-              Feriados são considerados no cálculo de prazos, escalas e relatórios de dias úteis.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
-              {holidays
-                .sort((a, b) => a.date.localeCompare(b.date))
-                .map(h => (
-                  <div key={h.id} className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border border-gray-100">
-                    <div>
-                      <span className="text-sm font-medium text-gray-800">{h.name}</span>
-                      <span className="text-xs text-gray-400 ml-2">
-                        {new Date(h.date + 'T12:00:00').toLocaleDateString('pt-BR')}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setHolidays(p => p.filter(x => x.id !== h.id))}
-                      className="p-1 rounded hover:bg-red-50 text-red-400 transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-            </div>
-            <div className="flex gap-3 border-t pt-3">
-              <input
-                value={newHoliday.name}
-                onChange={e => setNewHoliday(p => ({ ...p, name: e.target.value }))}
-                placeholder="Nome do feriado"
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-              />
-              <input
-                type="date"
-                value={newHoliday.date}
-                onChange={e => setNewHoliday(p => ({ ...p, date: e.target.value }))}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-              />
-              <button
-                onClick={addHoliday}
-                className="flex items-center gap-1 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-lg text-sm transition-colors"
-              >
-                <Plus size={14} /> Adicionar
-              </button>
-            </div>
-          </div>
-        )}
+        {open.holidays && <HolidaysSection active={open.holidays} />}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import ComboioSaidaModal from '../components/modals/ComboioSaidaModal';
 import ComboioDrenagemModal from '../components/modals/ComboioDrenagemModal';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 import { formatObraNome } from '../utils/obraFormat';
+import { resolveOrderPartnerName } from '../utils/partners';
 
 import ProtectedComponent from '../components/ProtectedComponent';
 import SearchableSelect from '../components/SearchableSelect';
@@ -131,7 +132,7 @@ const generateAuthorizationPDF = (orderData, vehicles = [], partners = [], emplo
             ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
             ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
             [leituraLabel, `${leituraValue}`],
-            ['Posto Autorizado', orderData.partnerName || partner?.razaoSocial || (orderData.type === 'saida' ? 'Comboio Interno' : 'N/A')],
+            ['Posto Autorizado', resolveOrderPartnerName(partner, orderData.partnerName, orderData.type === 'saida' ? 'Comboio Interno' : 'N/A')],
             ['Combustível Autorizado', orderData.fuelType === 'dieselS10' ? 'Diesel S10' : (orderData.fuelType === 'dieselComum' ? 'Diesel Comum' : orderData.fuelType) || 'N/A'],
             ['Litros Liberados', `${parseFloat(orderData.litrosAbastecidos || orderData.liters || 0).toFixed(2)} L`],
         ];
@@ -275,10 +276,16 @@ const ComboioPage = ({
     const closeModal = () => setModalState({ type: null, data: null, isEditing: false });
     
     const handleEdit = (transaction) => {
+        // Drenagem tem efeitos colaterais (ajuste de média + custo). A edição não é
+        // suportada — para corrigir, exclua e registre novamente.
+        if (transaction.type === 'drenagem') {
+            setAlertMessage("Drenagem não pode ser editada. Exclua e registre novamente.");
+            return;
+        }
+
         let modalType = null;
         if (transaction.type === 'entrada') modalType = 'entrada';
         else if (transaction.type === 'saida') modalType = 'saida';
-        else if (transaction.type === 'drenagem') modalType = 'drenagem';
 
         if (modalType) {
             setModalState({ type: modalType, data: transaction, isEditing: true });
@@ -474,7 +481,7 @@ const ComboioPage = ({
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center mb-1">
                                         <p className="text-sm font-bold text-gray-800 truncate pr-2">
-                                            {t.type === 'entrada' ? `ENTRADA: ${t.partnerName}` : t.type === 'saida' ? `SAÍDA: ${t.receivingVehicleName || 'Veículo'}` : `DRENAGEM: ${t.drainingVehicleName}`}
+                                            {t.type === 'entrada' ? `ENTRADA: ${t.partnerName}` : t.type === 'saida' ? `SAÍDA: ${t.receivingVehicleName || 'Veículo'}` : `DRENAGEM ← ${t.drainingVehicleName}`}
                                         </p>
                                         <span className={`text-base font-mono font-bold whitespace-nowrap ${t.type === 'entrada' || t.type === 'drenagem' ? 'text-green-600' : 'text-red-600'}`}>
                                             {t.type === 'entrada' || t.type === 'drenagem' ? '+' : '-'}{parseFloat(t.liters).toFixed(1)} L
@@ -583,9 +590,11 @@ const ComboioPage = ({
             {modalState.type === 'drenagem' && (
                 <ComboioDrenagemModal
                     onClose={closeModal}
-                    transactionData={modalState.isEditing ? modalState.data : null}
                     user={user}
                     vehicles={vehicles}
+                    refuelings={refuelings}
+                    employees={employees}
+                    obras={obras}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
                     reloadData={reloadData}

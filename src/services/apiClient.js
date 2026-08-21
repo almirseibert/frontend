@@ -4,17 +4,52 @@
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api'; 
 
 const getToken = () => localStorage.getItem('authToken');
+const getRefreshToken = () => localStorage.getItem('refreshToken');
+
+// Compartilhada entre chamadas 401 simultâneas: todas esperam UMA renovação
+// em vez de disparar várias (mesmo padrão de dedupe do DataContext).
+let refreshPromise = null;
+
+// Limpa a sessão e avisa o AuthContext para redirecionar ao login.
+const forceLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('refreshToken');
+    window.dispatchEvent(new Event('auth:logout'));
+};
+
+// Troca o refresh token por um novo access token. Retorna true se renovou.
+const runRefresh = async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return false;
+    try {
+        const res = await fetch(`${API_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (data.token) {
+            localStorage.setItem('authToken', data.token);
+            if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+            return true;
+        }
+        return false;
+    } catch {
+        return false;
+    }
+};
 
 const apiFetch = async (endpoint, options = {}) => {
     const token = getToken();
-    
+
     const headers = {
         'Content-Type': 'application/json',
         ...options.headers,
     };
 
     if (token) {
-        headers['Authorization'] = `Bearer ${token}`; 
+        headers['Authorization'] = `Bearer ${token}`;
     }
 
     if (options.body instanceof FormData) {
@@ -27,6 +62,25 @@ const apiFetch = async (endpoint, options = {}) => {
             headers,
         });
 
+        // Access token expirado (401): tenta renovar silenciosamente UMA vez e
+        // refaz a requisição. Não se aplica às próprias rotas de auth.
+        if (
+            response.status === 401 &&
+            !options._retry &&
+            !endpoint.startsWith('/auth/login') &&
+            !endpoint.startsWith('/auth/refresh')
+        ) {
+            if (!refreshPromise) {
+                refreshPromise = runRefresh().finally(() => { refreshPromise = null; });
+            }
+            const renewed = await refreshPromise;
+            if (renewed) {
+                return apiFetch(endpoint, { ...options, _retry: true });
+            }
+            // Refresh token ausente/expirado/revogado → sessão realmente acabou.
+            forceLogout();
+        }
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.message || errorData.error || `Erro ${response.status}: ${response.statusText}`;
@@ -38,15 +92,15 @@ const apiFetch = async (endpoint, options = {}) => {
             err.response = { status: response.status, data: errorData };
             throw err;
         }
-        
+
         if (response.status === 204) {
             return null;
         }
 
-        return await response.json(); 
+        return await response.json();
     } catch (error) {
         console.error(`Erro na chamada da API para ${API_URL}${endpoint}:`, error);
-        throw error; 
+        throw error;
     }
 };
 
@@ -60,6 +114,15 @@ const apiClient = {
             method: 'POST',
             body: JSON.stringify({ email, password }),
         });
+    },
+    // Revoga o refresh token no servidor (best-effort no logout).
+    logout: async () => {
+        const refreshToken = localStorage.getItem('refreshToken');
+        if (!refreshToken) return { ok: true };
+        return apiFetch('/auth/logout', {
+            method: 'POST',
+            body: JSON.stringify({ refreshToken }),
+        }).catch(() => ({ ok: false }));
     },
     getMe: async () => {
         return apiFetch('/auth/me');
@@ -91,6 +154,7 @@ const apiClient = {
     deleteVehicle: async (id) => apiFetch(`/vehicles/${id}`, { method: 'DELETE' }),
     allocateVehicleToObra: async (id, data) => apiFetch(`/vehicles/${id}/allocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
     deallocateVehicleFromObra: async (id, data) => apiFetch(`/vehicles/${id}/deallocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
+    registrarEstadiaRetroativa: async (id, data) => apiFetch(`/vehicles/${id}/estadia-retroativa`, { method: 'POST', body: JSON.stringify(data) }),
     assignVehicleToOperational: async (id, data) => apiFetch(`/vehicles/${id}/assign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     unassignVehicleFromOperational: async (id, data) => apiFetch(`/vehicles/${id}/unassign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     startVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/start-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
@@ -98,7 +162,7 @@ const apiClient = {
     uploadVehicleImage: async (id, formData) => {
         return apiFetch(`/vehicles/${id}/upload-image`, {
             method: 'POST',
-            body: formData, 
+            body: formData,
         });
     },
 
@@ -167,6 +231,7 @@ const apiClient = {
 
     // --- Obras ---
     getObras: async () => apiFetch('/obras'),
+    getPlanejamentoObras: async (janelaDias) => apiFetch(`/obras/planejamento${janelaDias ? `?janelaDias=${janelaDias}` : ''}`),
     getObraById: async (id) => apiFetch(`/obras/${id}`),
     createObra: async (data) => apiFetch('/obras', { method: 'POST', body: JSON.stringify(data) }),
     updateObra: async (id, data) => apiFetch(`/obras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -180,6 +245,48 @@ const apiClient = {
     },
     deleteObraHistoryEntry: async (obraId, historyId) =>
         apiFetch(`/obras/${obraId}/historico/${historyId}`, { method: 'DELETE' }),
+
+    // --- Configurações do usuário (perfil de chat) ---
+    getMySettings: async () => apiFetch('/users/me/settings'),
+    updateMySettings: async (data) => apiFetch('/users/me/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+    // --- Mensageiro interno (chat direto) ---
+    getChatContacts: async () => apiFetch('/chat/contacts'),
+    // opts: { limit, before } — `before` (ISO) pagina o histórico para scroll infinito.
+    getChatMessages: async (userId, opts = {}) => {
+        const limit = typeof opts === 'number' ? opts : (opts.limit || 200);
+        const before = typeof opts === 'object' ? opts.before : null;
+        const qs = new URLSearchParams({ limit: String(limit) });
+        if (before) qs.set('before', before);
+        return apiFetch(`/chat/messages/${userId}?${qs.toString()}`);
+    },
+    sendChatMessage: async (data) => apiFetch('/chat/messages', { method: 'POST', body: JSON.stringify(data) }),
+    markChatRead: async (fromUserId) => apiFetch('/chat/read', { method: 'POST', body: JSON.stringify({ fromUserId }) }),
+    editChatMessage: async (id, body) => apiFetch(`/chat/messages/${id}`, { method: 'PUT', body: JSON.stringify({ body }) }),
+    deleteChatMessage: async (id) => apiFetch(`/chat/messages/${id}`, { method: 'DELETE' }),
+    reactChatMessage: async (id, emoji) => apiFetch(`/chat/messages/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+    pinChatMessage: async (id) => apiFetch(`/chat/messages/${id}/pin`, { method: 'POST' }),
+    searchChatMessages: async (q, withUser) => {
+        const qs = new URLSearchParams({ q });
+        if (withUser) qs.set('with', withUser);
+        return apiFetch(`/chat/search?${qs.toString()}`);
+    },
+    blockChatUser: async (userId) => apiFetch('/chat/block', { method: 'POST', body: JSON.stringify({ userId }) }),
+    unblockChatUser: async (userId) => apiFetch('/chat/unblock', { method: 'POST', body: JSON.stringify({ userId }) }),
+    reportChatUser: async (userId, reason) => apiFetch('/chat/report', { method: 'POST', body: JSON.stringify({ userId, reason }) }),
+    // Baixa o PDF da conversa (blob) e dispara o download no navegador.
+    exportChatConversation: async (userId, filename = 'conversa.pdf') => {
+        const res = await fetch(`${API_URL}/chat/export/${userId}`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) throw new Error('Falha ao exportar conversa.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    },
 
     // --- MÓDULO SUPERVISOR (Novo) ---
     getSupervisorDashboard: async () => apiFetch('/supervisor/dashboard'),
@@ -214,13 +321,55 @@ const apiClient = {
     deleteRevisionPlan: async (id) => apiFetch(`/revisions/${id}`, { method: 'DELETE' }),
     getConsolidatedRevisionPlan: async () => apiFetch('/revisions/consolidated'), 
     getRevisionHistoryByVehicle: async (vehicleId) => apiFetch(`/revisions/history/${vehicleId}`), 
-    completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) }), 
+    completeRevision: async (data) => apiFetch('/revisions/complete', { method: 'POST', body: JSON.stringify(data) }),
+
+    // --- Relatos de Ocorrência e Manutenção (ficha FRM-MAN-001) ---
+    getRelatos: async (params) => {
+        const q = params ? new URLSearchParams(params).toString() : '';
+        return apiFetch(`/relatos${q ? `?${q}` : ''}`);
+    },
+    getRelatoById: async (id) => apiFetch(`/relatos/${id}`),
+    createRelato: async (data) => apiFetch('/relatos', { method: 'POST', body: JSON.stringify(data) }),
+    updateRelato: async (id, data) => apiFetch(`/relatos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteRelato: async (id) => apiFetch(`/relatos/${id}`, { method: 'DELETE' }),
+    createRelatoItem: async (id, data) => apiFetch(`/relatos/${id}/itens`, { method: 'POST', body: JSON.stringify(data) }),
+    updateRelatoItem: async (id, itemId, data) => apiFetch(`/relatos/${id}/itens/${itemId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    updateRelatoItemStatus: async (id, itemId, data) => apiFetch(`/relatos/${id}/itens/${itemId}/status`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteRelatoItem: async (id, itemId) => apiFetch(`/relatos/${id}/itens/${itemId}`, { method: 'DELETE' }),
+    // Prévia do fechamento: não persiste nada, só mostra como as ordens ficariam
+    // agrupadas por executor e o cronograma em dias úteis.
+    previewFechamentoRelato: async (id, data) => apiFetch(`/relatos/${id}/preview-fechamento`, { method: 'POST', body: JSON.stringify(data) }),
+    // Fecha o relato: grava a triagem, persiste o cronograma, faz a saída de
+    // obra / entrada em manutenção e gera as ordens vinculadas à OS do MC.
+    fecharRelato: async (id, data) => apiFetch(`/relatos/${id}/fechar`, { method: 'POST', body: JSON.stringify(data) }),
+    recalcularPrazosRelato: async (id, data) => apiFetch(`/relatos/${id}/recalcular-prazos`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    concluirRelato: async (id, data) => apiFetch(`/relatos/${id}/concluir`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    cancelarRelato: async (id, data) => apiFetch(`/relatos/${id}/cancelar`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    getRelatosPorOsMc: async (numero) => apiFetch(`/relatos/os-mc/${encodeURIComponent(numero)}`),
+    getRelatoSlaConfig: async () => apiFetch('/relatos/config/sla'),
+    updateRelatoSlaConfig: async (data) => apiFetch('/relatos/config/sla', { method: 'PUT', body: JSON.stringify(data) }),
 
     // --- Despesas ---
     getExpenses: async () => apiFetch('/expenses'),
     createExpense: async (data) => apiFetch('/expenses', { method: 'POST', body: JSON.stringify(data) }),
     updateExpense: async (id, data) => apiFetch(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteExpense: async (id) => apiFetch(`/expenses/${id}`, { method: 'DELETE' }),
+
+    // --- Pagamentos a terceirizados (locadores) ---
+    getTerceirizadoPagamentos: async () => apiFetch('/terceirizadoPagamentos'),
+    createTerceirizadoPagamento: async (data) => apiFetch('/terceirizadoPagamentos', { method: 'POST', body: JSON.stringify(data) }),
+    updateTerceirizadoPagamento: async (id, data) => apiFetch(`/terceirizadoPagamentos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteTerceirizadoPagamento: async (id) => apiFetch(`/terceirizadoPagamentos/${id}`, { method: 'DELETE' }),
+
+    // --- Contratos de terceirizados (1 contrato = 1 terceiro + 1 obra) ---
+    getTerceiroContratos: async () => apiFetch('/terceiroContratos'),
+    createTerceiroContrato: async (data) => apiFetch('/terceiroContratos', { method: 'POST', body: JSON.stringify(data) }),
+    updateTerceiroContrato: async (id, data) => apiFetch(`/terceiroContratos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteTerceiroContrato: async (id) => apiFetch(`/terceiroContratos/${id}`, { method: 'DELETE' }),
+    gerarContratoPdf: async (id) => apiFetch(`/terceiroContratos/${id}/pdf`, { method: 'POST' }),
+    getContratoDocs: async (id) => apiFetch(`/terceiroContratos/${id}/docs`),
+    enviarContratoAssinado: async (id, formData) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'POST', body: formData }),
+    removerContratoAssinado: async (id, data) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'DELETE', body: JSON.stringify(data || {}) }),
 
     // --- Parceiros (Postos) ---
     getPartners: async () => apiFetch('/partners'),
@@ -277,9 +426,27 @@ const apiClient = {
         apiFetch(`/analise-gerencial/jornadas/operador/${encodeURIComponent(employeeId)}?startDate=${startDate}&endDate=${endDate}`),
     getProjecaoObra: async (obraId) =>
         apiFetch(`/analise-gerencial/projecao/${encodeURIComponent(obraId)}`),
+    // Aproveitamento por obra (capacidade líquida vs. horas apontadas) — reusa o
+    // engine do supervisor. Usado na tabela "Frota nesta obra" da Ficha da Obra.
+    getObraAnalytics: async (obraId, { startDate, endDate }) =>
+        apiFetch(`/supervisor/analytics?obraId=${encodeURIComponent(obraId)}&startDate=${startDate}&endDate=${endDate}`),
+    // Histórico financeiro do portfólio (série mensal: receita produzida × custo × margem).
+    // obraId opcional ('all' = todas as obras ativas não-ocultas).
+    getFinancialHistory: async ({ startDate, endDate, obraId } = {}) => {
+        const p = new URLSearchParams();
+        if (startDate) p.set('startDate', startDate);
+        if (endDate) p.set('endDate', endDate);
+        if (obraId && obraId !== 'all') p.set('obraId', obraId);
+        const qs = p.toString();
+        return apiFetch(`/supervisor/financial-history${qs ? `?${qs}` : ''}`);
+    },
+    // Visão contratual global (ativas + finalizadas no ano) — independente do período de horas.
+    getContractsOverview: async ({ year } = {}) =>
+        apiFetch(`/supervisor/contracts-overview${year ? `?year=${year}` : ''}`),
 
     // --- Abastecimentos (Legado/Admin) ---
     getRefuelings: async () => apiFetch('/refuelings'),
+    getRefuelingsByVehicle: async (vehicleId) => apiFetch(`/refuelings/vehicle/${vehicleId}`),
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -297,6 +464,7 @@ const apiClient = {
     getComboioTransactions: async () => apiFetch('/comboioTransactions'),
     getComboioTransactionById: async (id) => apiFetch(`/comboioTransactions/${id}`),
     deleteComboioTransaction: async (id) => apiFetch(`/comboioTransactions/${id}`, { method: 'DELETE' }),
+    updateComboioTransaction: async (id, data) => apiFetch(`/comboioTransactions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     createComboioEntrada: async (data) => apiFetch('/comboioTransactions/entrada', { method: 'POST', body: JSON.stringify(data) }),
     createComboioSaida: async (data) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: JSON.stringify(data) }),
     // Distribuição do operador do comboio (com fotos). Recebe um FormData já montado.
@@ -328,7 +496,8 @@ const apiClient = {
     createOrder: async (data) => apiFetch('/orders', { method: 'POST', body: JSON.stringify(data) }),
     updateOrder: async (id, data) => apiFetch(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteOrder: async (id) => apiFetch(`/orders/${id}`, { method: 'DELETE' }),
-    cancelOrder: async (id) => apiFetch(`/orders/${id}/cancel`, { method: 'POST' }),
+    cancelOrder: async (id) => apiFetch(`/orders/${id}/cancel`, { method: 'PUT' }),
+    notifyOrder: async (id, payload) => apiFetch(`/orders/${id}/notify`, { method: 'POST', body: JSON.stringify(payload) }),
 
     // --- Contadores ---
     getCounter: async (name) => apiFetch(`/counters/${name}`),
@@ -373,9 +542,22 @@ const apiClient = {
 
     // --- WhatsApp (Admin) ---
     whatsappGetStatus: async () => apiFetch('/whatsapp/status'),
-    whatsappReiniciar: async () => apiFetch('/whatsapp/reiniciar', { method: 'POST' }),
+    // hard = true apaga a sessão e exige novo QR. O padrão preserva a sessão.
+    whatsappReiniciar: async (hard = false) => apiFetch('/whatsapp/reiniciar', { method: 'POST', body: JSON.stringify({ hard }) }),
     whatsappEnviarTeste: async (data) => apiFetch('/whatsapp/enviar-teste', { method: 'POST', body: JSON.stringify(data) }),
     whatsappGetLogs: async () => apiFetch('/whatsapp/logs'),
+
+    // --- Entrega das ordens de abastecimento ---
+    // Responde "a ordem chegou ao posto?" — antes disso o emissor ficava no escuro.
+    getOrderDeliveryStatus: async (authNumbers = []) =>
+        apiFetch(`/orderNotifications/status?authNumbers=${encodeURIComponent(authNumbers.join(','))}`),
+    getOrderDeliveryPendencias: async (dias = 7) =>
+        apiFetch(`/orderNotifications/pendencias?dias=${dias}`),
+    getOrderDeliveryPreflight: async () => apiFetch('/orderNotifications/preflight'),
+    reenviarOrdem: async (authNumber) =>
+        apiFetch(`/orderNotifications/ordem/${authNumber}/reenviar`, { method: 'POST' }),
+    reenviarEnvio: async (id) =>
+        apiFetch(`/orderNotifications/${id}/reenviar`, { method: 'POST' }),
 
     // --- Usuários Admin CRUD (TODO: backend) ---
     adminCreateUser: async (data) => apiFetch('/admin/users', { method: 'POST', body: JSON.stringify(data) }),
@@ -425,7 +607,10 @@ const apiClient = {
     adminGetApprovalWorkflows: async () => apiFetch('/admin/approval-workflows'),
     adminSaveApprovalWorkflows: async (data) => apiFetch('/admin/approval-workflows', { method: 'PUT', body: JSON.stringify(data) }),
 
-    // --- Feriados (TODO: backend) ---
+    // --- Feriados ---
+    // Leitura por qualquer usuário autenticado (cálculo de dias úteis);
+    // o CRUD abaixo é restrito a admin.
+    getHolidays: async () => apiFetch('/holidays'),
     adminGetHolidays: async () => apiFetch('/admin/holidays'),
     adminCreateHoliday: async (data) => apiFetch('/admin/holidays', { method: 'POST', body: JSON.stringify(data) }),
     adminDeleteHoliday: async (id) => apiFetch(`/admin/holidays/${id}`, { method: 'DELETE' }),
@@ -466,6 +651,7 @@ const apiClient = {
         apiFetch(`/admin/notification-targets/${id}`, { method: 'DELETE' }),
 
     // --- Contatos Internos (Fase 4.1) ---
+    getInternalContacts:         async () => apiFetch('/internal-contacts'), // ativos, leitura (qualquer usuário autenticado)
     adminListInternalContacts:   async () => apiFetch('/admin/internal-contacts'),
     adminCreateInternalContact:  async (data) =>
         apiFetch('/admin/internal-contacts', { method: 'POST', body: JSON.stringify(data) }),

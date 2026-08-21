@@ -8,6 +8,14 @@
 .time-input-clean::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .time-input-clean { appearance: textfield; -moz-appearance: textfield; }
 
+/* Remove as setas (spinners) de TODOS os inputs numéricos do sistema.
+   Nunca são usadas e, ao scrollar a página com o campo focado, alteravam o
+   valor indevidamente. O bloqueio do scroll-altera-valor é feito por JS em
+   index.js (guard global de wheel). */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'] { appearance: textfield; -moz-appearance: textfield; }
+
 /* ─── CSS Custom Properties — Tema Terroso Mineral ───────────── */
 :root {
 
@@ -376,6 +384,12 @@ button.bg-yellow-500 {
   display: flex; align-items: center; justify-content: center;
   z-index: 50; padding: 16px;
 }
+/* Enquanto qualquer modal estiver aberto, oculta o mensageiro interno para o
+   balão flutuante (fixed bottom-right, z-alto) não cobrir os botões do rodapé
+   dos modais — crítico em telas pequenas. display:none mantém o componente
+   montado: o estado (aberto/conversa) é preservado e o balão reaparece ao
+   fechar o modal. */
+body:has(.mak-modal-backdrop) .msn-widget { display: none; }
 .mak-modal {
   background: #ffffff;
   border-radius: 12px;
@@ -383,7 +397,17 @@ button.bg-yellow-500 {
   width: 100%;
   display: flex; flex-direction: column;
   max-height: 92vh;
+  /* dvh acompanha a barra dinâmica dos navegadores mobile: sem isso o modal
+     centralizado transborda o visor real e o rodapé (botões) fica abaixo da
+     dobra em celulares. Fallback em vh para navegadores sem suporte a dvh. */
+  max-height: 92dvh;
   overflow: hidden;
+}
+/* Em telas pequenas, aproveitar melhor a altura e reduzir a margem do backdrop
+   para o rodapé de ações nunca ser cortado. */
+@media (max-width: 640px) {
+  .mak-modal-backdrop { padding: 8px; }
+  .mak-modal { max-height: 96vh; max-height: 96dvh; }
 }
 .mak-modal-header {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -445,6 +469,17 @@ button.bg-yellow-500 {
 .dot-pulse { animation: dot-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   .dot-pulse { animation: none; opacity: 1; }
+}
+
+/* ─── MSN Nudge — "chacoalhada" da janela do mensageiro ─── */
+@keyframes msn-shake {
+  0%, 100% { transform: translate(0, 0); }
+  10%, 30%, 50%, 70%, 90% { transform: translate(-6px, 4px); }
+  20%, 40%, 60%, 80%      { transform: translate(6px, -4px); }
+}
+.msn-shake { animation: msn-shake 0.6s cubic-bezier(.36,.07,.19,.97) both; }
+@media (prefers-reduced-motion: reduce) {
+  .msn-shake { animation: none; }
 }
 
 /* ─── Neon Red Pulse — usado em avisos críticos de bloqueio ─── */

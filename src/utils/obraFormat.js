@@ -17,6 +17,29 @@ export const formatObraNome = (obra) => {
     return orgaoLimpo ? `${nome} (${orgaoLimpo})` : nome;
 };
 
+// Regiões (filiais) da operação — mesmos valores do ENUM obras.regiao.
+// Fonte única para os seletores de região: cadastro de feriados municipais,
+// filial do relator no relato de ocorrência, etc.
+export const REGIOES = ['Lajeado', 'Santa Maria'];
+
+/**
+ * Regiões disponíveis para seleção: as canônicas do ENUM mais qualquer valor
+ * que já apareça nas obras cadastradas.
+ *
+ * A união é proposital — hoje a maioria das obras está com `regiao` nula, então
+ * derivar só dos dados devolveria uma lista quase vazia; e listar só o ENUM
+ * esconderia uma região nova cadastrada direto no banco.
+ *
+ * @param {Array} obras
+ * @returns {string[]} ordenadas alfabeticamente
+ */
+export const getRegioes = (obras = []) => {
+    const encontradas = (obras || [])
+        .map(o => (o?.regiao || '').trim())
+        .filter(Boolean);
+    return [...new Set([...REGIOES, ...encontradas])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+};
+
 /**
  * Igual a formatObraNome, mas resolve a obra a partir do id e de uma lista.
  * Útil em telas que só têm o `obraId`.

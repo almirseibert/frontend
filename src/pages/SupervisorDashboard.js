@@ -3,8 +3,8 @@ import ExcavatorLoader from '../components/ui/ExcavatorLoader';
 import {
     LayoutDashboard, RefreshCw, Loader, AlertCircle, Truck,
     Activity, Search, X, Clock, CheckCircle2,
-    AlertTriangle, ArrowUpDown, DollarSign, TrendingDown,
-    FileDown, Users, Percent
+    AlertTriangle, ArrowUpDown,
+    FileDown, Users
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -51,22 +51,9 @@ const computeObraFinance = (o) => {
 const STATUS_ORDER = { red: 0, violet: 1, yellow: 2, green: 3 };
 
 // ============================================================================
-// KPI CARD (header da listagem)
-// ============================================================================
-const KpiCard = ({ icon: Icon, label, value, sub, accent }) => (
-    <div className={`bg-white p-4 rounded-xl shadow-sm border border-slate-200 border-l-4 ${accent}`}>
-        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-            <Icon size={14} /> {label}
-        </div>
-        <p className="text-2xl font-bold text-slate-800 mt-2">{value}</p>
-        {sub && <p className="text-[11px] text-slate-500 mt-1">{sub}</p>}
-    </div>
-);
-
-// ============================================================================
 // DASHBOARD DO SUPERVISOR (refatorado)
 // ============================================================================
-const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
+const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) => {
     const [obras, setObras] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -172,6 +159,15 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         return counts;
     }, [obras]);
 
+    // Obra com o prazo estimado mais próximo (para o resumo operacional do topo)
+    const proximoPrazo = useMemo(() => {
+        const comPrazo = obras.filter(o => (o.kpi?.dias_restantes_estimados || 0) > 0 && !o.kpi?.is_hidden);
+        if (!comPrazo.length) return null;
+        return comPrazo.reduce((min, o) =>
+            o.kpi.dias_restantes_estimados < min.kpi.dias_restantes_estimados ? o : min
+        );
+    }, [obras]);
+
     const filteredAndSorted = useMemo(() => {
         const normalize = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
         const q = normalize(search);
@@ -243,8 +239,12 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
         setIsConfigModalOpen(true);
     };
 
+    // Porta de entrada da Ficha da Obra: o card de criticidade abre a Visão geral
+    // consolidada (que substitui o antigo detalhe por-obra). Mantém fallback ao
+    // detalhe legado se a Ficha não estiver disponível.
     const handleCardClick = (obraId) => {
-        if (onNavigateToDetail) onNavigateToDetail(obraId);
+        if (onNavigateToFicha) onNavigateToFicha(obraId);
+        else if (onNavigateToDetail) onNavigateToDetail(obraId);
     };
 
     const handleExportPDF = () => {
@@ -372,68 +372,39 @@ const SupervisorDashboard = ({ user, onNavigateToDetail }) => {
                 </div>
             </div>
 
-            {/* KPIs agregados — linha 1: visão executiva */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                <KpiCard
-                    icon={DollarSign}
-                    label="Receita contratada"
-                    value={fmtBRLCompact(aggregateKpis.receitaTotal)}
-                    sub="Soma dos contratos ativos"
-                    accent="border-l-blue-500"
-                />
-                <KpiCard
-                    icon={TrendingDown}
-                    label="Custo realizado"
-                    value={fmtBRLCompact(aggregateKpis.custoTotal)}
-                    sub={`Produzido: ${fmtBRLCompact(aggregateKpis.valorProduzido)}`}
-                    accent="border-l-slate-500"
-                />
-                <KpiCard
-                    icon={Percent}
-                    label="Margem média"
-                    value={`${aggregateKpis.margemMediaPct.toFixed(1)}%`}
-                    sub={`Abs.: ${fmtBRLCompact(aggregateKpis.margemAbsoluta || 0)}`}
-                    accent={aggregateKpis.margemMediaPct >= 20 ? 'border-l-emerald-500' : aggregateKpis.margemMediaPct >= 5 ? 'border-l-yellow-500' : 'border-l-red-500'}
-                />
-                <KpiCard
-                    icon={AlertTriangle}
-                    label="Exposição a aditivo"
-                    value={fmtBRLCompact(aggregateKpis.aditivoEstourado)}
-                    sub={`+ ${fmtBRLCompact(aggregateKpis.aditivoRisco)} em risco (90-100%)`}
-                    accent={aggregateKpis.aditivoEstourado > 0 ? 'border-l-red-500' : aggregateKpis.aditivoRisco > 0 ? 'border-l-orange-500' : 'border-l-slate-300'}
-                />
-            </div>
-
-            {/* KPIs agregados — linha 2: operacional */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <KpiCard
-                    icon={LayoutDashboard}
-                    label="Obras ativas"
-                    value={aggregateKpis.total}
-                    sub={`${statusCounts.green} saudáveis • ${statusCounts.yellow} em and.`}
-                    accent="border-l-blue-300"
-                />
-                <KpiCard
-                    icon={Clock}
-                    label="Horas contratadas"
-                    value={`${aggregateKpis.capacidadeTotal.toLocaleString('pt-BR')}h`}
-                    sub="Soma do contratado"
-                    accent="border-l-emerald-300"
-                />
-                <KpiCard
-                    icon={Activity}
-                    label="Conclusão ponderada"
-                    value={`${aggregateKpis.conclusaoPonderada}%`}
-                    sub="∑horas exec ÷ ∑horas contratadas"
-                    accent="border-l-yellow-400"
-                />
-                <KpiCard
-                    icon={AlertTriangle}
-                    label="Obras críticas"
-                    value={aggregateKpis.criticas}
-                    sub={aggregateKpis.criticas > 0 ? 'Exigem atenção imediata' : 'Nenhuma obra crítica'}
-                    accent={aggregateKpis.criticas > 0 ? 'border-l-red-500' : 'border-l-slate-300'}
-                />
+            {/* Resumo operacional — visão rápida antes de entrar em qualquer obra.
+                Números financeiros (receita, custo, margem) vivem em "Desempenho do negócio". */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+                <div className="grid grid-cols-2 lg:grid-cols-4 divide-y divide-x-0 lg:divide-y-0 lg:divide-x divide-slate-100">
+                    <div className="pb-3 lg:pb-0 lg:pr-4">
+                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                            <LayoutDashboard size={14} /> Obras ativas
+                        </div>
+                        <p className="text-2xl font-bold text-slate-800 mt-1">{aggregateKpis.total}</p>
+                        <p className="text-[11px] text-slate-500 mt-1">{statusCounts.green} saudáveis • {statusCounts.yellow} em andamento</p>
+                    </div>
+                    <div className="pb-3 lg:pb-0 lg:px-4">
+                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                            <AlertTriangle size={14} /> Obras críticas
+                        </div>
+                        <p className={`text-2xl font-bold mt-1 ${aggregateKpis.criticas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{aggregateKpis.criticas}</p>
+                        <p className="text-[11px] text-slate-500 mt-1">{aggregateKpis.criticas > 0 ? 'Exigem atenção imediata' : 'Nenhuma pendência'}</p>
+                    </div>
+                    <div className="pt-3 lg:pt-0 lg:px-4">
+                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                            <Activity size={14} /> Conclusão ponderada
+                        </div>
+                        <p className="text-2xl font-bold text-slate-800 mt-1">{aggregateKpis.conclusaoPonderada}%</p>
+                        <p className="text-[11px] text-slate-500 mt-1">{aggregateKpis.capacidadeTotal.toLocaleString('pt-BR')}h contratadas no total</p>
+                    </div>
+                    <div className="pt-3 lg:pt-0 lg:pl-4">
+                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
+                            <Clock size={14} /> Próximo prazo
+                        </div>
+                        <p className="text-2xl font-bold text-slate-800 mt-1">{proximoPrazo ? `${proximoPrazo.kpi.dias_restantes_estimados}d` : '—'}</p>
+                        <p className="text-[11px] text-slate-500 mt-1 truncate">{proximoPrazo ? proximoPrazo.nome : 'Nenhuma previsão de término'}</p>
+                    </div>
+                </div>
             </div>
 
             {/* Barra de busca + filtros */}

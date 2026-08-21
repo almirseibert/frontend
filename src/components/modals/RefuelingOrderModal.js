@@ -1,9 +1,13 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Loader, Info, Lock, FileText, Edit, Clock, Activity, TrendingUp, Send } from 'lucide-react';
+import { X, Loader, Info, Lock, FileText, Edit, Clock, Activity, TrendingUp, Send, WifiOff } from 'lucide-react';
 
 import { getAllowedReadingTypes, getGroupUnit, getReadingSourceForUnit, computeConsumption, getGroupForType } from '../../utils/vehicleRules';
 import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
+import { getPartnerDisplayName, resolveOrderPartnerName, getVehicleTerceiroName } from '../../utils/partners';
+import TerceirizadoBadge, { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
+import { useData, useEnsureResources } from '../../contexts/DataContext';
+import { buildHolidaySet, isBusinessDay } from '../../utils/businessDays';
 
 const RefuelingOrderModal = ({
     user,
@@ -23,9 +27,28 @@ const RefuelingOrderModal = ({
     vehicleGroups = {},
     apiClient,
     reloadData,
-    solicitacaoData = null 
+    solicitacaoData = null
 }) => {
-    
+
+    // Feriados para a regra de fim de semana/feriado (antecipação de ordem).
+    useEnsureResources(['holidays']);
+    const { holidays } = useData();
+
+    // --- PRÉ-CHECAGEM DO CANAL DE ENVIO ---
+    // Quem emite a ordem precisa saber ANTES de emitir que o WhatsApp está fora
+    // — senão gera a ordem achando que o posto foi avisado, e não foi.
+    const [preflight, setPreflight] = useState(null);
+    useEffect(() => {
+        let vivo = true;
+        (async () => {
+            try {
+                const r = await apiClient.getOrderDeliveryPreflight();
+                if (vivo) setPreflight(r);
+            } catch (_) { /* indisponível: não bloqueia a emissão */ }
+        })();
+        return () => { vivo = false; };
+    }, [apiClient]);
+
     // --- HELPERS DE DATA ---
     const isValidDbDate = (dateString) => {
         if (!dateString) return false;
@@ -169,26 +192,15 @@ const RefuelingOrderModal = ({
     const isEditing = !!orderToEdit && !!orderToEdit.id && orderToEdit.id !== 'PREVIEW';
     const isSolicitacao = !!solicitacaoData;
 
-    // Feriados nacionais BR (fixos). Móveis (Carnaval/Páscoa/Corpus Christi)
-    // ficam de fora — se precisar incluir, migrar para tabela no backend.
-    const FERIADOS_BR_FIXOS = useMemo(() => new Set([
-        '01-01', // Confraternização
-        '04-21', // Tiradentes
-        '05-01', // Trabalho
-        '09-07', // Independência
-        '10-12', // N. Sra. Aparecida
-        '11-02', // Finados
-        '11-15', // Proclamação
-        '12-25', // Natal
-    ]), []);
+    // Feriados vêm de admin_holidays (Admin > Sistema > Feriados), não mais de
+    // uma lista fixa no código — assim os móveis (Carnaval, Sexta-feira Santa,
+    // Corpus Christi) e os municipais também contam.
+    const holidaySet = useMemo(() => buildHolidaySet(holidays), [holidays]);
 
-    const isWeekendOrHoliday = useMemo(() => {
-        if (!formData.date) return false;
-        const d = new Date(formData.date + 'T12:00:00');
-        const dow = d.getDay();
-        if (dow === 0 || dow === 6) return true;
-        return FERIADOS_BR_FIXOS.has(formData.date.slice(5));
-    }, [formData.date, FERIADOS_BR_FIXOS]);
+    const isWeekendOrHoliday = useMemo(
+        () => (formData.date ? !isBusinessDay(formData.date, holidaySet) : false),
+        [formData.date, holidaySet]
+    );
 
     // Ordem aberta = qualquer status que NÃO seja terminal. Inverter a lista
     // (em vez de listar "abertos") protege contra status novos do backend.
@@ -276,7 +288,7 @@ const RefuelingOrderModal = ({
                 && p.status_operacional !== 'BLOQUEADO')
             .sort((a,b) => (a.razaoSocial || '').localeCompare(b.razaoSocial || ''))
     , [partners]);
-    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
+    const sortedObras = useMemo(() => [...obras].filter(o => ['ativa', 'mobilizacao'].includes(o.status)).sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.vehicleId), [formData.vehicleId, vehicles]);
     
@@ -311,7 +323,7 @@ const RefuelingOrderModal = ({
 
                 if (selectedVehicle.obraAtualId) {
                     const obra = obras.find(o => o.id === selectedVehicle.obraAtualId);
-                    if (obra && obra.status === 'ativa') {
+                    if (obra && ['ativa', 'mobilizacao'].includes(obra.status)) {
                         autoObraId = selectedVehicle.obraAtualId;
                         const alocacao = obra?.historicoVeiculos?.find(h => h.veiculoId === selectedVehicle.id && !h.dataSaida);
                         if (alocacao?.employeeId) autoEmployeeId = alocacao.employeeId;
@@ -487,9 +499,16 @@ const RefuelingOrderModal = ({
                 setAlertMessage(`Ordem atualizada!`);
             } else {
                 res = await apiClient.createRefuelingOrder(payload);
-                setAlertMessage(res.isHidden
-                    ? `Ordem Nº ${res.authNumber} emitida em modo reservado.${res.revealAtIgnorado ? ' A data de liberação informada é inválida ou já passou — libere manualmente pelo painel "Ordens Reservadas".' : ''}`
-                    : `Ordem Nº ${res.authNumber} emitida!`);
+                // A entrega ao posto é assíncrona: "emitida" ≠ "recebida pelo posto".
+                const avisoReservada = res.isHidden
+                    ? ` Ordem reservada${res.revealAtIgnorado ? ' — a data de liberação informada é inválida ou já passou; libere manualmente pelo painel "Ordens Reservadas".' : '.'}`
+                    : '';
+                setAlertMessage(
+                    (preflight && !preflight.whatsappPronto
+                        ? `Ordem Nº ${res.authNumber} emitida — mas o WhatsApp está DESCONECTADO e o posto ainda NÃO foi avisado. Confira o selo de envio na lista de ordens.`
+                        : `Ordem Nº ${res.authNumber} emitida! O envio ao posto aparece na lista em alguns segundos.`)
+                    + avisoReservada
+                );
             }
             reloadData();
             
@@ -552,6 +571,26 @@ const RefuelingOrderModal = ({
                         <div key={i} className="flex items-center gap-2 p-1 bg-yellow-50 text-yellow-800 rounded border border-yellow-200 text-[10px] font-medium"><Info size={12}/> {w}</div>
                     ))}
                     
+                    {preflight && !preflight.whatsappPronto && (
+                        <div className="flex items-start gap-2 p-2 rounded-md border-2 border-red-500 bg-red-50 text-red-800 text-[11px] font-bold leading-snug">
+                            <WifiOff size={14} className="mt-0.5 flex-shrink-0 text-red-700"/>
+                            <span>
+                                ⚠️ WHATSAPP DESCONECTADO (status: {preflight.whatsappStatus}). A ordem será registrada, mas
+                                <u> NÃO chegará ao posto</u> agora. O sistema reenvia sozinho assim que a conexão voltar —
+                                acompanhe o selo de envio na lista de ordens ou avise o posto por outro meio.
+                            </span>
+                        </div>
+                    )}
+
+                    {preflight?.whatsappPronto && preflight.pendencias48h > 0 && (
+                        <div className="flex items-start gap-2 p-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded text-[10px] font-bold leading-snug">
+                            <Info size={12} className="mt-0.5 flex-shrink-0"/>
+                            <span>
+                                {preflight.pendencias48h} ordem(ns) das últimas 48h ainda não foram entregues ao posto. Verifique na lista de ordens.
+                            </span>
+                        </div>
+                    )}
+
                     {blockReason && (
                         <div className="flex items-center gap-2 p-1.5 bg-red-100 text-red-800 rounded border border-red-200 text-[10px] font-bold animate-pulse">
                             <Lock size={12}/> BLOQUEIO: {blockReason}
@@ -594,19 +633,27 @@ const RefuelingOrderModal = ({
                                 items={sortedVehicles}
                                 value={formData.vehicleId}
                                 onChange={(v) => setFormData(p => ({...p, vehicleId: v?.id || ''}))}
-                                getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
-                                getSubLabel={(v) => v.tipo || ''}
+                                getLabel={(v) => `${v.registroInterno} - ${v.placa}${terceirizadoPdfMark(v)}`}
+                                getSubLabel={(v) => v.isOutsourced
+                                    ? `3º ${getVehicleTerceiroName(v, partners) || 'sem fornecedor'}`
+                                    : (v.tipo || '')}
                                 getBadge={(v) => v.naoPodeCircular ? { text: 'Não circula', color: 'bg-red-100 text-red-700' } : v.status === 'manutencao' ? { text: 'Manutenção', color: 'bg-yellow-100 text-yellow-700' } : null}
                                 placeholder="Buscar veículo..."
                                 required
                             />
+                            {selectedVehicle?.isOutsourced && (
+                                <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: '#6b21a8' }}>
+                                    <TerceirizadoBadge show />
+                                    <span>Terceiro: {getVehicleTerceiroName(selectedVehicle, partners) || 'Sem fornecedor vinculado'}</span>
+                                </div>
+                            )}
                         </div>
-                        
+
                         {lastRefuelData && (
                             <div className="bg-gray-100 p-1.5 rounded border border-gray-200 text-[10px] text-gray-600 flex justify-between items-center">
                                 <div>
                                     <div className="font-bold text-gray-700 mb-0.5 flex items-center gap-1"><Clock size={10}/> Último: {formatDateDisplay(lastRefuelData.data || lastRefuelData.date)}</div>
-                                    <p>Posto: {lastRefuelData.partnerName || 'N/A'}</p>
+                                    <p>Posto: {resolveOrderPartnerName(partners.find(p => p.id === lastRefuelData.partnerId), lastRefuelData.partnerName)}</p>
                                     <p>Litros: <strong>{lastRefuelData.litrosAbastecidos} L</strong> ({lastRefuelData.fuelType})</p>
                                     
                                     <div className="mt-0.5 pt-0.5 border-t border-gray-300 flex gap-2">
@@ -648,6 +695,8 @@ const RefuelingOrderModal = ({
                                 onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
                                 placeholder="Selecione..."
                                 includeInactive={true}
+                                overlay={true}
+                                overlayTitle="Buscar obra / alocação..."
                             />
                         </div>
 
@@ -684,8 +733,8 @@ const RefuelingOrderModal = ({
                                 items={sortedPartners}
                                 value={formData.partnerId}
                                 onChange={(p) => setFormData(prev => ({...prev, partnerId: p?.id || ''}))}
-                                getLabel={(p) => p.razaoSocial || p.nome || ''}
-                                getSubLabel={(p) => [p.cidade, p.estado].filter(Boolean).join(' - ')}
+                                getLabel={(p) => getPartnerDisplayName(p)}
+                                getSubLabel={(p) => [p.nomeFantasia ? p.razaoSocial : null, p.cidade, p.estado].filter(Boolean).join(' · ')}
                                 placeholder="Buscar posto..."
                                 required
                             />

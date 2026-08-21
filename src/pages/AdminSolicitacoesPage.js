@@ -9,6 +9,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getAllowedReadingTypes } from '../utils/vehicleRules';
 import { formatObraNome } from '../utils/obraFormat';
+import { resolveOrderPartnerName, getVehicleTerceiroName, getPartnerDisplayName } from '../utils/partners';
+import { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import BaixaForm from '../components/refueling/BaixaForm';
 
@@ -108,13 +110,20 @@ const AdminSolicitacoesPage = ({
                     const body = [
                         ['Data de Emissão', emissionDateStr],
                         ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
-                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}`],
+                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}${terceirizadoPdfMark(vehicle)}`],
+                    ];
+
+                    if (vehicle?.isOutsourced) {
+                        body.push(['Terceiro (Locador)', getVehicleTerceiroName(vehicle, partners) || 'Sem fornecedor vinculado']);
+                    }
+
+                    body.push(
                         ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
                         [leituraLabel, `${leituraValue}`],
-                        ['Posto Autorizado', partner?.razaoSocial || order.partnerName || 'N/A'],
+                        ['Posto Autorizado', resolveOrderPartnerName(partner, order.partnerName)],
                         ['Combustível Autorizado', order.fuelType || 'N/A'],
                         ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
-                    ];
+                    );
 
                     if (order.needsArla) {
                         body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
@@ -332,7 +341,7 @@ const AdminSolicitacoesPage = ({
 
     // --- HELPERS AUXILIARES ---
     const getFuncionarioNome = (id) => employees.find(e => String(e.id) === String(id))?.nome || 'Não informado';
-    const getPostoNome = (id) => partners.find(p => String(p.id) === String(id))?.razaoSocial || 'Posto não identificado';
+    const getPostoNome = (id) => getPartnerDisplayName(partners.find(p => String(p.id) === String(id))) || 'Posto não identificado';
     const getObraNome = (id) => formatObraNome(obras.find(o => String(o.id) === String(id))) || 'Obra não identificada';
 
     const getSafeDateObj = (dateInput) => {
@@ -386,7 +395,7 @@ const AdminSolicitacoesPage = ({
             }
         }
 
-        const postoName = last.partnerName || partners.find(p => String(p.id) === String(last.partnerId))?.razaoSocial || "Desconhecido";
+        const postoName = resolveOrderPartnerName(partners.find(p => String(p.id) === String(last.partnerId)), last.partnerName, "Desconhecido");
         const dateStr = getSafeDateObj(last.data || last.date).toLocaleDateString('pt-BR');
         const fuel = last.fuelType || 'Combustível';
         
@@ -671,6 +680,7 @@ const AdminSolicitacoesPage = ({
                             {isBaixa && (
                                 relatedOrder && relatedOrder.id ? (
                                     <BaixaForm
+                                        key={relatedOrder.id}
                                         user={user}
                                         order={relatedOrder}
                                         onClose={() => {}}

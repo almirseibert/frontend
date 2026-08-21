@@ -1,8 +1,7 @@
 ﻿import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../services/apiClient';
+import CurrencyInput from '../components/ui/CurrencyInput';
 import { getVehicleMainReading } from '../utils/vehicleRules';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import {
     PlusCircle, Edit, Trash2, FileText, XCircle, Loader, X,
     ChevronDown, UploadCloud, Paperclip, RefreshCw, Eye, ThumbsUp,
@@ -14,28 +13,19 @@ import ProtectedComponent from '../components/ProtectedComponent';
 import { PasswordConfirmationModal } from '../App';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
-
-// ===================================================================================
-// HELPERS DE PARSE E FORMATAÇÃO
-// ===================================================================================
-const getCreatorEmail = (order) => {
-    if (!order || !order.createdBy) return 'N/A';
-    if (typeof order.createdBy === 'object') return order.createdBy.userEmail || 'N/A';
-    try { const p = JSON.parse(order.createdBy); return p.userEmail || 'N/A'; } catch(e) { return order.createdBy; }
-};
-
-const getEditorEmail = (order) => {
-    if (!order || !order.editedBy) return 'N/A';
-    if (typeof order.editedBy === 'object') return order.editedBy.userEmail || 'N/A';
-    try { const p = JSON.parse(order.editedBy); return p.userEmail || 'N/A'; } catch(e) { return order.editedBy; }
-};
+import { getPartnerDisplayName, resolveOrderPartnerName } from '../utils/partners';
+// Geração do PDF e helpers de parse vivem em utils/orderPdf.js — a página de
+// Relatos de Ocorrência também precisa deles para baixar as ordens que gera.
+import {
+    getCreatorEmail, getEditorEmail, loadLogoDataUrl, buildOrderFileName, generateOrderPDF,
+} from '../utils/orderPdf';
 
 // ===================================================================================
 // COMPONENTE: SEÇÃO DE NOTIFICAÇÕES AO FORNECEDOR
 // ===================================================================================
 const SendNotificationSection = ({ formData, setFormData, partners = [] }) => {
     const selectedPartner = partners.find(p => p.id === formData.supplierId);
-    const hasWhatsapp = !!(selectedPartner?.whatsappNumber || selectedPartner?.telefone);
+    const hasWhatsapp = !!(selectedPartner?.whatsapp || selectedPartner?.telefone);
     const hasEmail    = !!(selectedPartner?.email);
 
     return (
@@ -80,7 +70,7 @@ const SendNotificationSection = ({ formData, setFormData, partners = [] }) => {
                 {formData.notifyWhatsapp && hasWhatsapp && (
                     <div className="bg-green-50 border border-green-200 rounded p-2">
                         <p className="text-xs text-green-800">
-                            <strong>WhatsApp:</strong> Será enviado para {selectedPartner?.razaoSocial} — {selectedPartner?.whatsappNumber || selectedPartner?.telefone}
+                            <strong>WhatsApp:</strong> Será enviado para {getPartnerDisplayName(selectedPartner)} — {selectedPartner?.whatsapp || selectedPartner?.telefone}
                         </p>
                     </div>
                 )}
@@ -233,7 +223,7 @@ const CreateItemQuickButton = ({ onItemCreated, categories = [] }) => {
             <div className="grid grid-cols-2 gap-2">
                 <input type="text" placeholder="SKU *" value={itemData.sku} onChange={e => setItemData({ ...itemData, sku: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
                 <input type="text" placeholder="Nome *" value={itemData.name} onChange={e => setItemData({ ...itemData, name: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
-                <input type="number" step="0.01" placeholder="Preço R$" value={itemData.unitPrice} onChange={e => setItemData({ ...itemData, unitPrice: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
+                <CurrencyInput placeholder="Preço R$" value={itemData.unitPrice} onChange={e => setItemData({ ...itemData, unitPrice: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
                 {categories.length > 0 && (
                     <select value={itemData.categoryId} onChange={e => setItemData({ ...itemData, categoryId: e.target.value })} className="p-2 border rounded text-xs outline-none focus:ring-1 focus:ring-purple-400">
                         <option value="">Categoria (opcional)</option>
@@ -283,7 +273,7 @@ const SearchableSupplierSelect = ({ partners = [], value, onChange }) => {
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <span className={`truncate ${selected ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
-                    {selected ? `${selected.razaoSocial} ${selected.cnpj ? `(${selected.cnpj})` : ''}` : 'Buscar e selecionar fornecedor...'}
+                    {selected ? `${getPartnerDisplayName(selected)} ${selected.cnpj ? `(${selected.cnpj})` : ''}` : 'Buscar e selecionar fornecedor...'}
                 </span>
                 <ChevronDown size={16} className="text-gray-500 shrink-0" />
             </div>
@@ -306,8 +296,8 @@ const SearchableSupplierSelect = ({ partners = [], value, onChange }) => {
                                 className="p-2 hover:bg-[#fdf8f0] cursor-pointer text-sm border-b last:border-b-0 transition-colors"
                                 onClick={() => { onChange(p.id, p.razaoSocial); setIsOpen(false); setSearch(''); }}
                             >
-                                <div className="font-semibold text-gray-800">{p.razaoSocial}</div>
-                                {p.cnpj && <div className="text-xs text-gray-500">{p.cnpj}</div>}
+                                <div className="font-semibold text-gray-800">{getPartnerDisplayName(p)}</div>
+                                {(p.nomeFantasia || p.cnpj) && <div className="text-xs text-gray-500">{[p.nomeFantasia ? p.razaoSocial : null, p.cnpj].filter(Boolean).join(' · ')}</div>}
                             </div>
                         ))}
                         {filtered.length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado.</div>}
@@ -318,136 +308,6 @@ const SearchableSupplierSelect = ({ partners = [], value, onChange }) => {
     );
 };
 
-// ===================================================================================
-// GERAÇÃO DE PDF PARA ORDEM DE COMPRA/SERVIÇO
-// ===================================================================================
-const generateOrderPDF = (order, vehicle, employee, operator, obra, logoDataUrl, returnBlob = false) => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const effectivePageHeight = 148.5;
-    const margin = 10;
-
-    if (logoDataUrl) {
-        try { doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875); } catch(e) {}
-    }
-
-    const orderNumberStr = order.orderNumber ? String(order.orderNumber).padStart(6, '0') : '000000';
-    const emissorEmail = getCreatorEmail(order);
-
-    doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-    doc.text('Ordem de Compra/Serviço', pageWidth - margin, 15, { align: 'right' });
-    doc.setFontSize(12); doc.setFont('helvetica', 'normal');
-    doc.text(`Nº: ${orderNumberStr}`, pageWidth - margin, 22, { align: 'right' });
-    doc.text(`Data: ${order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}`, pageWidth - margin, 29, { align: 'right' });
-
-    doc.setLineWidth(0.5); doc.line(margin, 38, pageWidth - margin, 38);
-
-    const infoStartY = 45;
-    const midX = (pageWidth / 2) + 5;
-    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-    doc.text('Fornecedor:', margin, infoStartY);
-    doc.text('Obra de Destino:', midX, infoStartY);
-    doc.setFont('helvetica', 'normal');
-    doc.text(order.supplier || 'N/A', margin + 25, infoStartY);
-    doc.text(formatObraNome(obra) || order.obraId || 'Não especificada', midX + 30, infoStartY);
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('Func. Autorizado:', margin, infoStartY + 7);
-    doc.setFont('helvetica', 'normal');
-    doc.text(employee?.nome || 'Não especificado', margin + 35, infoStartY + 7);
-
-    if (operator) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('Operador (Custo):', margin, infoStartY + 12);
-        doc.setFont('helvetica', 'normal');
-        doc.text(operator.nome || 'N/A', margin + 35, infoStartY + 12);
-    }
-
-    if (vehicle) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('Veículo Vinculado:', midX, infoStartY + 7);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`${vehicle.registroInterno || 'N/A'} - ${vehicle.placa || 'N/A'}`, midX + 35, infoStartY + 7);
-        if (order.kmHrAtual != null && order.kmHrAtual !== '') {
-            doc.setFont('helvetica', 'bold');
-            doc.text(`${order.kmHrUnit || 'Km/Hr'} Atual:`, midX, infoStartY + 12);
-            doc.setFont('helvetica', 'normal');
-            doc.text(`${Number(order.kmHrAtual).toLocaleString('pt-BR')} ${order.kmHrUnit || ''}`, midX + 35, infoStartY + 12);
-        }
-    }
-
-    const tableBody = (order.items || []).map(item => [
-        item.quantity || 0,
-        item.description || '',
-        order.status !== 'Pendente de Valor' ? `R$ ${(parseFloat(item.unitPrice) || 0).toFixed(2)}` : 'A cotar',
-        order.status !== 'Pendente de Valor' ? `R$ ${((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}` : 'A cotar'
-    ]);
-
-    let finalY = infoStartY + 18;
-
-    autoTable(doc, {
-        startY: finalY,
-        head: [['Qtd.', 'Descrição do Item/Serviço', 'Vlr. Unit.', 'Vlr. Total']],
-        body: tableBody,
-        theme: 'striped',
-        headStyles: { fillColor: [24, 49, 83], fontSize: 9 },
-        styles: { fontSize: 8 },
-        didDrawPage: (data) => {
-            finalY = data.cursor.y;
-            if (order.status !== 'Pendente de Valor') {
-                doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-                doc.text('Total Geral:', data.settings.margin.left, finalY + 8);
-                const displayTotal = order.totalValue != null ? order.totalValue : (order.items || []).reduce((sum, i) => sum + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0)), 0);
-                doc.text(`R$ ${(parseFloat(displayTotal) || 0).toFixed(2)}`, pageWidth - margin, finalY + 8, { align: 'right' });
-                finalY += 8;
-            }
-        }
-    });
-
-    if (doc.lastAutoTable && doc.lastAutoTable.finalY) {
-        finalY = doc.lastAutoTable.finalY > finalY ? doc.lastAutoTable.finalY : finalY;
-    }
-    finalY += 10;
-
-    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-    doc.text('Condição de Pagamento:', margin, finalY);
-    doc.setFont('helvetica', 'normal');
-    let paymentText = order.payment?.type || 'N/A';
-
-    if (order.payment?.type === 'A prazo') {
-        paymentText += ` - ${order.payment.method || ''}`;
-        doc.text(paymentText, margin + 40, finalY);
-        finalY += 6;
-        if (order.payment?.installments && order.payment.installments.length > 0) {
-            order.payment.installments.forEach((inst, idx) => {
-                const dataFormatada = inst.dueDate ? new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A';
-                const valorFormat = (parseFloat(inst.value) || 0).toFixed(2);
-                doc.text(`${idx + 1}ª Parcela: ${dataFormatada} - R$ ${valorFormat}`, margin + 40, finalY);
-                finalY += 4.5;
-            });
-        }
-    } else {
-        doc.text(paymentText, margin + 40, finalY);
-        finalY += 7;
-    }
-
-    const footerStartY = Math.max(finalY + 5, effectivePageHeight - 25);
-    doc.setLineWidth(0.2); doc.line(margin, footerStartY, pageWidth - margin, footerStartY);
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold');
-    doc.text('Esta ordem de compra deve gerar uma nota fiscal para faturamento.', margin, footerStartY + 5);
-    doc.text('Somente os itens acima descriminados estão liberados para compra, itens adicionais não serão pagos.', margin, footerStartY + 9);
-    doc.setFont('helvetica', 'italic');
-    doc.text(`Ordem emitida por: ${emissorEmail}`, margin, footerStartY + 15);
-
-    doc.setLineDashPattern([1, 1], 0); doc.setDrawColor(180, 180, 180);
-    doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
-
-    // ← MUDANÇA: retorna blob quando pedido, abre no navegador quando não
-    if (returnBlob) {
-        return doc.output('blob');
-    }
-    doc.output('dataurlnewwindow');
-};
 
 // ===================================================================================
 // COMPONENTE PRINCIPAL: PÁGINA
@@ -470,7 +330,7 @@ const OrdersPage = ({
     const [orderToClose, setOrderToClose] = useState(null);
     const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
 
-    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '' });
+    const [filters, setFilters] = useState({ obra: '', vehicle: '', emitter: '', date: '', number: '', status: '', supplier: '' });
     const [loadingAction, setLoadingAction] = useState(false);
 
     const fetchLocalOrders = async () => {
@@ -503,16 +363,43 @@ const OrdersPage = ({
     const sortedObras    = useMemo(() => [...(obras || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
     const sortedVehicles = useMemo(() => [...(vehicles || [])].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
 
+    // Fornecedores presentes nas ordens (inclui ordens antigas que só têm o nome
+    // digitado, sem supplierId — essas viram uma opção com id "name:<nome>").
+    const supplierOptions = useMemo(() => {
+        const map = new Map();
+        (activeOrders || []).forEach(order => {
+            const partner = (partners || []).find(p => String(p.id) === String(order.supplierId));
+            const nome = resolveOrderPartnerName(partner, order.supplier, '');
+            if (!nome) return;
+            const id = order.supplierId
+                ? String(order.supplierId)
+                : `name:${String(order.supplier || '').trim().toLowerCase()}`;
+            const found = map.get(id);
+            if (found) found.count += 1;
+            else map.set(id, { id, nome, cnpj: partner?.cnpj || '', count: 1 });
+        });
+        return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome));
+    }, [activeOrders, partners]);
+
     const filteredOrders = useMemo(() => {
         return (activeOrders || []).filter(order => {
             const dateMatch    = !filters.date   || (order.date && new Date(order.date).toISOString().split('T')[0] === filters.date);
-            const numberMatch  = !filters.number || String(order.orderNumber).padStart(6, '0').includes(filters.number);
+            // O filtro de número também casa com a OS do sistema MC, para
+            // achar de uma vez todas as ordens de um mesmo relato.
+            const numberMatch  = !filters.number
+                || String(order.orderNumber).padStart(6, '0').includes(filters.number)
+                || String(order.osMc || '').toLowerCase().includes(filters.number.toLowerCase());
             const obraMatch    = !filters.obra   || order.obraId === filters.obra;
             const vehicleMatch = !filters.vehicle || order.vehicleId === filters.vehicle;
             const emissorEmail = getCreatorEmail(order);
             const emitterMatch = !filters.emitter || emissorEmail.toLowerCase().includes(filters.emitter.toLowerCase());
             const statusMatch  = !filters.status || order.status === filters.status;
-            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch;
+            const supplierMatch = !filters.supplier || (
+                filters.supplier.startsWith('name:')
+                    ? !order.supplierId && `name:${String(order.supplier || '').trim().toLowerCase()}` === filters.supplier
+                    : String(order.supplierId || '') === filters.supplier
+            );
+            return dateMatch && numberMatch && obraMatch && vehicleMatch && emitterMatch && statusMatch && supplierMatch;
         }).sort((a, b) => (b.orderNumber || 0) - (a.orderNumber || 0));
     }, [activeOrders, filters]);
 
@@ -530,10 +417,10 @@ const OrdersPage = ({
                 const canvas = document.createElement('canvas');
                 canvas.width = logo.width; canvas.height = logo.height;
                 const ctx = canvas.getContext('2d'); ctx.drawImage(logo, 0, 0);
-                generateOrderPDF(order, vehicle, employee, operator, obra, canvas.toDataURL('image/png'));
-            } catch (e) { generateOrderPDF(order, vehicle, employee, operator, obra, null); }
+                generateOrderPDF(order, vehicle, employee, operator, obra, canvas.toDataURL('image/png'), false, null, partners);
+            } catch (e) { generateOrderPDF(order, vehicle, employee, operator, obra, null, false, null, partners); }
         };
-        logo.onerror = () => generateOrderPDF(order, vehicle, employee, operator, obra, null);
+        logo.onerror = () => generateOrderPDF(order, vehicle, employee, operator, obra, null, false, null, partners);
     };
 
     const openEditModal   = (order) => { setEditingOrder(order); setIsModalOpen(true); };
@@ -644,7 +531,7 @@ const OrdersPage = ({
                 </ProtectedComponent>
             </div>
 
-            <div className="bg-white p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-center text-sm" style={{ border: "1px solid #f0ebe3" }}>
+            <div className="bg-white p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-center text-sm" style={{ border: "1px solid #f0ebe3" }}>
                 <input type="text" placeholder="Nº Ordem" value={filters.number} onChange={e => setFilters({...filters, number: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm" style={{ border: "1px solid #e8e0d4" }}/>
                 <input type="date" value={filters.date} onChange={e => setFilters({...filters, date: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm" style={{ border: "1px solid #e8e0d4" }}/>
                 <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm outline-none" style={{ border: "1px solid #e8e0d4" }}>
@@ -672,6 +559,14 @@ const OrdersPage = ({
                     getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
                     getSubLabel={(v) => v.modelo || ''}
                     placeholder="Todos os Veículos"
+                />
+                <SearchableSelect
+                    items={supplierOptions}
+                    value={filters.supplier}
+                    onChange={(item) => setFilters({...filters, supplier: item?.id || ''})}
+                    getLabel={(p) => p.nome}
+                    getSubLabel={(p) => [p.cnpj, `${p.count} ${p.count === 1 ? 'ordem' : 'ordens'}`].filter(Boolean).join(' · ')}
+                    placeholder="Todos os Fornecedores"
                 />
                 <input type="text" placeholder="Emissor (email)" value={filters.emitter} onChange={e => setFilters({...filters, emitter: e.target.value})} className="p-2 rounded-lg w-full bg-[#faf9f7] text-sm" style={{ border: "1px solid #e8e0d4" }}/>
             </div>
@@ -716,10 +611,23 @@ const OrdersPage = ({
                                     <td className="p-3 font-bold text-gray-800 whitespace-nowrap">
                                         {String(order.orderNumber || '').padStart(6, '0')}
                                         {anexosList.length > 0 && <span title={`${anexosList.length} anexo(s)`} className="inline-block ml-2 text-gray-400"><Paperclip size={12}/></span>}
+                                        {/* Ordem nascida de um Relato de Ocorrência: mostra a OS do
+                                            sistema MC a que ela está vinculada. */}
+                                        {order.osMc && (
+                                            <span
+                                                className="block mt-0.5 text-[9px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded"
+                                                title={`Vinculada à OS ${order.osMc} do sistema MC`}
+                                            >
+                                                OS {order.osMc}
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="p-3">{formatObraNome(obra) || order.obraId || 'N/A'}</td>
                                     <td className="p-3">{vehicle ? <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-mono">{vehicle.registroInterno}</span> : 'N/A'}</td>
-                                    <td className="p-3 max-w-[150px] truncate" title={order.supplier}>{order.supplier}</td>
+                                    {(() => {
+                                        const supplierName = resolveOrderPartnerName(partners.find(p => p.id === order.supplierId), order.supplier);
+                                        return <td className="p-3 max-w-[150px] truncate" title={supplierName}>{supplierName}</td>;
+                                    })()}
                                     <td className="p-3 text-xs leading-tight">
                                         <div><strong>R:</strong> {employee?.nome || 'N/A'}</div>
                                         {operator && operator.id !== employee?.id && <div className="text-gray-500 mt-0.5"><strong>Op:</strong> {operator.nome}</div>}
@@ -788,7 +696,7 @@ const OrdersPage = ({
             {orderDetailsToView && <OrderDetailsModal
                 order={orderDetailsToView}
                 onClose={() => setOrderDetailsToView(null)}
-                vehicles={vehicles} employees={employees} obras={obras}
+                vehicles={vehicles} employees={employees} obras={obras} partners={partners}
             />}
 
             {isCloseModalOpen && orderToClose && <CloseOrderModal
@@ -824,7 +732,7 @@ const OrdersPage = ({
 // ===================================================================================
 // MODAL RAIO-X
 // ===================================================================================
-const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
+const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras, partners = [] }) => {
     const vehicle  = vehicles.find(v => v.id === order.vehicleId);
     const employee = employees.find(e => e.id === order.employeeId);
     const operator = employees.find(e => e.id === order.operatorId);
@@ -871,7 +779,7 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-gray-50 p-4 rounded-lg border">
                             <h3 className="text-xs font-black text-gray-400 uppercase mb-3">Vínculos de Fornecimento</h3>
-                            <p className="text-sm mb-2"><strong className="text-gray-700">Fornecedor:</strong> {order.supplier || 'N/A'}</p>
+                            <p className="text-sm mb-2"><strong className="text-gray-700">Fornecedor:</strong> {resolveOrderPartnerName(partners.find(p => p.id === order.supplierId), order.supplier)}</p>
                             <p className="text-sm mb-2"><strong className="text-gray-700">Obra/Local (Custo):</strong> {formatObraNome(obra) || order.obraId || 'N/A'}</p>
                             <p className="text-sm"><strong className="text-gray-700">Veículo:</strong> {vehicle ? `${vehicle.registroInterno} - ${vehicle.placa}` : 'Uso Geral'}</p>
                         </div>
@@ -902,6 +810,13 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras }) => {
                             </div>
                         )}
                     </div>
+
+                    {order.observacoes && String(order.observacoes).trim() !== '' && (
+                        <div className="bg-amber-50 border border-amber-100 p-4 rounded-lg">
+                            <h3 className="text-xs font-black text-amber-800 uppercase mb-2">Observações</h3>
+                            <p className="text-sm text-amber-900 whitespace-pre-wrap">{order.observacoes}</p>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2">
@@ -1004,7 +919,7 @@ const CloseOrderModal = ({ order, onClose, onSubmit }) => {
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-700 uppercase">Valor Total Cobrado (R$) *</label>
-                        <input type="number" step="0.01" value={finalValue} onChange={e=>setFinalValue(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
+                        <CurrencyInput value={finalValue} onChange={e=>setFinalValue(e.target.value)} className="w-full p-2 border rounded bg-white text-sm" required />
                     </div>
                 </div>
 
@@ -1054,13 +969,16 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             itemId:      item.itemId                  || null,
         })),
         payment:        orderToEdit?.payment || { type: 'À vista', method: '', days: '', installments: [] },
+        observacoes:    orderToEdit?.observacoes || '',
         anexos:         parsedAnexos,
         createdBy:      orderToEdit?.createdBy || undefined,
         notifyEmail:    false,
         notifyWhatsapp: false,
     });
 
-    const [isPricePending, setIsPricePending] = useState(orderToEdit ? orderToEdit.status === 'Pendente de Valor' : true);
+    // Ordem nova nasce SEMPRE com valor (checkbox "a cotar" desmarcado); na edição
+    // o checkbox reflete o status gravado.
+    const [isPricePending, setIsPricePending] = useState(orderToEdit ? orderToEdit.status === 'Pendente de Valor' : false);
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [inventoryCategories, setInventoryCategories] = useState([]);
@@ -1072,50 +990,77 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             .catch(() => {});
     }, []);
 
+    // Marca os canais de notificação por padrão conforme o contato do fornecedor
+    useEffect(() => {
+        const partner = partners.find(p => p.id === formData.supplierId);
+        if (!partner) return;
+        const hasWa = !!(partner.whatsapp || partner.telefone);
+        const hasEm = !!partner.email;
+        setFormData(prev => ({ ...prev, notifyEmail: hasEm, notifyWhatsapp: hasWa }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formData.supplierId]);
+
     const sortedVehicles  = useMemo(() => [...vehicles].sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
-    const sortedObras     = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
+    const sortedObras     = useMemo(() => [...obras].filter(o => ['ativa', 'mobilizacao'].includes(o.status)).sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
 
     // -------------------------------------------------------
     // AUTO-PREENCHIMENTO ao selecionar Veículo
+    // Obra de destino e operador são preenchidos com a alocação vigente do
+    // equipamento; se não houver, cai na última alocação registrada.
     // -------------------------------------------------------
-    const handleVehicleChange = useCallback(async (vehicleId) => {
-        setFormData(prev => ({ ...prev, vehicleId }));
-        if (!vehicleId) return;
-        try {
-            const res = await apiClient.get(`/vehicles/${vehicleId}`);
-            const vehicle = res?.data ?? res;
-            if (!vehicle) return;
-
-            let suggestedObraId    = formData.obraId;
-            let suggestedOperatorId = formData.operatorId;
-
-            // Somente sugerir se o campo ainda está vazio ou se veículo está disponível
-            if (vehicle.lastObraId && (!formData.obraId || vehicle.status === 'disponível')) {
-                suggestedObraId = vehicle.lastObraId;
-                // Buscar operador da última obra
-                try {
-                    const obraRes = await apiClient.get(`/obras/${vehicle.lastObraId}`);
-                    const obra = obraRes?.data ?? obraRes;
-                    if (obra?.operatorId && !formData.operatorId) {
-                        suggestedOperatorId = obra.operatorId;
-                    }
-                } catch (_) {}
-            }
-
-            const reading = getVehicleMainReading(vehicle);
-            setFormData(prev => ({
-                ...prev,
-                vehicleId,
-                obraId:     suggestedObraId,
-                operatorId: suggestedOperatorId,
-                kmHrAtual:  reading.raw || '',
-                kmHrUnit:   reading.unit || '',
-            }));
-        } catch (err) {
-            console.warn('[OrderModal] Erro ao buscar dados do veículo:', err?.message);
+    const handleVehicleChange = useCallback((vehicleId) => {
+        if (!vehicleId) {
+            setFormData(prev => ({ ...prev, vehicleId: '', kmHrAtual: '', kmHrUnit: '' }));
+            return;
         }
-    }, [formData.obraId, formData.operatorId]);
+
+        const vehicle = vehicles.find(v => String(v.id) === String(vehicleId));
+        if (!vehicle) { setFormData(prev => ({ ...prev, vehicleId })); return; }
+
+        let suggestedObraId     = '';
+        let suggestedOperatorId = '';
+
+        // 1) Alocação vigente (obra atual do equipamento)
+        if (vehicle.obraAtualId) {
+            const obra = obras.find(o => String(o.id) === String(vehicle.obraAtualId));
+            if (obra) {
+                suggestedObraId = vehicle.obraAtualId;
+                const aloc = (obra.historicoVeiculos || [])
+                    .find(h => String(h.veiculoId) === String(vehicle.id) && !h.dataSaida);
+                if (aloc?.employeeId) suggestedOperatorId = aloc.employeeId;
+            }
+        }
+
+        // 2) Fallback: última alocação registrada em qualquer obra
+        if (!suggestedObraId || !suggestedOperatorId) {
+            let ultima = null;
+            (obras || []).forEach(o => {
+                (o.historicoVeiculos || []).forEach(h => {
+                    if (String(h.veiculoId) !== String(vehicle.id)) return;
+                    const ref = h.dataSaida || h.dataEntrada;
+                    if (!ref) return;
+                    if (!ultima || new Date(ref) > new Date(ultima._ref)) {
+                        ultima = { ...h, _obraId: o.id, _ref: ref };
+                    }
+                });
+            });
+            if (ultima) {
+                if (!suggestedObraId) suggestedObraId = ultima._obraId;
+                if (!suggestedOperatorId && ultima.employeeId) suggestedOperatorId = ultima.employeeId;
+            }
+        }
+
+        const reading = getVehicleMainReading(vehicle);
+        setFormData(prev => ({
+            ...prev,
+            vehicleId,
+            obraId:     suggestedObraId     || prev.obraId,
+            operatorId: suggestedOperatorId || prev.operatorId,
+            kmHrAtual:  reading.raw || reading.value || '',
+            kmHrUnit:   reading.unit || '',
+        }));
+    }, [vehicles, obras]);
 
     // Gestão de Itens
     const handleItemChange = (index, field, value) => {
@@ -1175,6 +1120,58 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         return { ...p, payment: { ...p.payment, installments: newInst } };
     });
 
+    // ------------------------------------------------------------------
+    // GERADOR AUTOMÁTICO DE PARCELAS
+    // Calcula cada vencimento (1º venc. + intervalo em dias) e distribui o
+    // valor total igualmente, com o resto dos centavos na última parcela.
+    // "Acréscimo por parcela" soma um valor fixo em cada uma (ex.: taxa de boleto).
+    // ------------------------------------------------------------------
+    const [installmentGen, setInstallmentGen] = useState({
+        count: '', intervalDays: '30', firstDate: '', extraPerInstallment: ''
+    });
+
+    const installmentsTotal = useMemo(
+        () => (formData.payment.installments || []).reduce((s, i) => s + (parseFloat(i.value) || 0), 0),
+        [formData.payment.installments]
+    );
+
+    const generateInstallments = () => {
+        const count    = parseInt(installmentGen.count, 10);
+        const interval = parseInt(installmentGen.intervalDays, 10);
+        const extra    = parseFloat(String(installmentGen.extraPerInstallment || '0').replace(',', '.')) || 0;
+        const base     = installmentGen.firstDate || formData.date;
+
+        if (!count || count < 1)               { setAlertMessage('Informe quantas parcelas deseja gerar.'); return; }
+        if (isNaN(interval) || interval < 0)   { setAlertMessage('Informe o intervalo (em dias) entre as parcelas.'); return; }
+        if (!base)                             { setAlertMessage('Informe a data do 1º vencimento.'); return; }
+
+        const totalBase = isPricePending ? 0 : totalValue;
+        const share     = totalBase > 0 ? Math.floor((totalBase / count) * 100) / 100 : 0;
+
+        const [y, m, d] = base.split('-').map(Number);
+        const start = new Date(Date.UTC(y, m - 1, d));
+
+        let distributed = 0;
+        const installments = [];
+        for (let i = 0; i < count; i++) {
+            const due = new Date(start);
+            due.setUTCDate(due.getUTCDate() + interval * i);
+
+            let parcela = share;
+            if (i === count - 1 && totalBase > 0) {
+                parcela = Math.round((totalBase - distributed) * 100) / 100; // resto na última
+            }
+            distributed += parcela;
+
+            const valorFinal = parcela + extra;
+            installments.push({
+                dueDate: due.toISOString().split('T')[0],
+                value:   valorFinal > 0 ? valorFinal.toFixed(2) : '',
+            });
+        }
+        setFormData(p => ({ ...p, payment: { ...p.payment, installments } }));
+    };
+
     // Upload de Arquivo
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
@@ -1210,12 +1207,14 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         if (e) e.preventDefault();
 
         const itemsValid   = formData.items.length > 0 && formData.items.every(i => (parseFloat(i.quantity) || 0) > 0 && i.description.trim() !== '');
-        const pricesValid  = isPricePending || formData.items.every(i => (parseFloat(i.unitPrice) || 0) > 0);
+        // Itens podem ser só descrição (sem valor); o total soma apenas os que
+        // tiverem valor. Exige-se ao menos um item com valor quando não for "a cotar".
+        const pricesValid  = isPricePending || formData.items.some(i => (parseFloat(i.unitPrice) || 0) > 0);
         const paymentValid = formData.payment.type !== 'A prazo' || !!formData.payment.method;
 
         if (!formData.supplierId || !formData.date || !formData.employeeId || !formData.obraId || !itemsValid || !pricesValid || !paymentValid) {
             let errorMsg = "Preencha Fornecedor, Data, Func. Autorizado, Obra Destino, e Itens válidos.";
-            if (!isPricePending && !pricesValid) errorMsg += " Informe os valores Unitários.";
+            if (!isPricePending && !pricesValid) errorMsg += " Informe o valor de ao menos um item.";
             if (!paymentValid && formData.payment.type === 'A prazo') errorMsg += " Selecione o método de pagamento a prazo.";
             setAlertMessage(errorMsg);
             return;
@@ -1223,86 +1222,9 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
         setIsSaving(true);
 
-        // -----------------------------------------------------------------------
-        // NOVO: Se WhatsApp marcado, gera PDF como blob e faz upload ANTES de salvar
-        // -----------------------------------------------------------------------
-        let pdfAnexo = null;
-
-        if (formData.notifyWhatsapp) {
-            try {
-                // Monta os dados da ordem (sem orderNumber ainda) para gerar o PDF
-                const previewOrder = {
-                    ...formData,
-                    date:        new Date(formData.date + 'T12:00:00Z').toISOString(),
-                    totalValue:  isPricePending ? 0 : totalValue,
-                    status:      isPricePending ? 'Pendente de Valor' : 'Ativa',
-                    orderNumber: orderToEdit?.orderNumber || '??????',
-                    payment:     formData.payment,
-                    items:       formData.items.map(item => ({
-                        quantity:    parseFloat(item.quantity) || 0,
-                        description: item.description,
-                        unitPrice:   isPricePending ? 0 : (parseFloat(item.unitPrice) || 0),
-                    })),
-                    createdBy: orderToEdit ? formData.createdBy : { userEmail: user?.email },
-                };
-
-                const vehicle  = vehicles.find(v => v.id === formData.vehicleId);
-                const employee = employees.find(emp => emp.id === formData.employeeId);
-                const operator = employees.find(emp => emp.id === formData.operatorId);
-                const obra     = obras.find(o => o.id === formData.obraId);
-
-                // Carrega logo e gera blob do PDF
-                const pdfBlob = await new Promise((resolve) => {
-                    const logo = new Image();
-                    logo.crossOrigin = 'Anonymous';
-                    logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
-                    logo.onload = () => {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = logo.width; canvas.height = logo.height;
-                            const ctx = canvas.getContext('2d'); ctx.drawImage(logo, 0, 0);
-                            resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, canvas.toDataURL('image/png'), true));
-                        } catch (e) {
-                            resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, null, true));
-                        }
-                    };
-                    logo.onerror = () => {
-                        resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, null, true));
-                    };
-                    // Timeout de segurança: se a logo demorar >3s, gera sem ela
-                    setTimeout(() => {
-                        resolve(generateOrderPDF(previewOrder, vehicle, employee, operator, obra, null, true));
-                    }, 3000);
-                });
-
-                // Faz upload do PDF para o servidor
-                const numStr = String(orderToEdit?.orderNumber || 'nova').padStart(6, '0');
-                const pdfFile = new File([pdfBlob], `ordem-${numStr}.pdf`, { type: 'application/pdf' });
-                const uploadForm = new FormData();
-                uploadForm.append('file', pdfFile);
-
-                const uploadRes = await apiClient.post('/upload', uploadForm, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
-
-                const pdfUrl = uploadRes?.url || uploadRes?.fileUrl || uploadRes?.path || null;
-                if (pdfUrl) {
-                    pdfAnexo = { name: `Ordem-${numStr}.pdf`, url: pdfUrl };
-                    console.log('[WhatsApp] PDF gerado e enviado ao servidor:', pdfUrl);
-                }
-            } catch (uploadErr) {
-                // Não bloqueia o salvamento — apenas loga e segue sem o PDF
-                console.warn('[WhatsApp] Falha ao gerar/upload do PDF — WhatsApp será enviado sem anexo:', uploadErr.message);
-            }
-        }
-// -----------------------------------------------------------------------
-        // Monta os dados finais da ordem (injeta PDF nos anexos se existir)
-        // -----------------------------------------------------------------------
+        // O PDF é gerado DEPOIS de salvar (quando o número real da ordem existe):
+        // baixado localmente e — se houver canal marcado — anexado à notificação.
         const anexosList = [...(formData.anexos || [])];
-        if (pdfAnexo) {
-            // Coloca o PDF gerado como primeiro anexo para o backend priorizá-lo
-            anexosList.unshift(pdfAnexo);
-        }
 
         const finalOrderData = {
             supplier:       formData.supplier,
@@ -1321,6 +1243,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                 itemId:      item.itemId || null,
             })),
             payment:        formData.payment,
+            observacoes:    formData.observacoes?.trim() || null,
             anexos:         JSON.stringify(anexosList),   // ← inclui o PDF se houver
             totalValue:     isPricePending ? 0 : totalValue,
             status:         isPricePending ? 'Pendente de Valor' : 'Ativa',
@@ -1356,12 +1279,52 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
 
             if (reloadData) await reloadData();
 
-            // Abre o PDF no navegador com o número correto da ordem (agora que temos o ID)
-            if (savedOrderData) {
-                const pdfData = { ...finalOrderData, ...savedOrderData };
-                if (!pdfData.orderNumber && savedOrderData.orderNumber) pdfData.orderNumber = savedOrderData.orderNumber;
-                pdfData.createdBy = finalOrderData.createdBy;
-                generatePDF(pdfData); // handleOpenPDF — abre no navegador normalmente
+            // ----------------------------------------------------------------
+            // PDF com o número REAL da ordem: baixa localmente (sempre) e,
+            // se algum canal estiver marcado, anexa à notificação ao fornecedor.
+            // ----------------------------------------------------------------
+            const savedId     = savedOrderData?.id || orderToEdit?.id;
+            const realNumber  = savedOrderData?.orderNumber || orderToEdit?.orderNumber;
+            const pdfOrder    = { ...finalOrderData, orderNumber: realNumber, createdBy: finalOrderData.createdBy };
+
+            const vehicle  = vehicles.find(v => v.id === formData.vehicleId);
+            const employee = employees.find(emp => emp.id === formData.employeeId);
+            const operator = employees.find(emp => emp.id === formData.operatorId);
+            const obra     = obras.find(o => o.id === formData.obraId);
+
+            const logoDataUrl = await loadLogoDataUrl();
+            const fileName    = buildOrderFileName(pdfOrder, vehicle);
+
+            // (a) Download local automático — sempre que a ordem é emitida
+            try {
+                generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, false, fileName, partners);
+            } catch (e) {
+                console.warn('[Ordem] Falha ao baixar PDF localmente:', e.message);
+            }
+
+            // (b) Notificação ao fornecedor com o PDF anexado (canais marcados)
+            if ((formData.notifyEmail || formData.notifyWhatsapp) && savedId) {
+                try {
+                    const pdfBlob = generateOrderPDF(pdfOrder, vehicle, employee, operator, obra, logoDataUrl, true, null, partners);
+                    const numStr  = String(realNumber || 'nova').padStart(6, '0');
+                    const pdfFile = new File([pdfBlob], `ordem-${numStr}.pdf`, { type: 'application/pdf' });
+                    const uploadForm = new FormData();
+                    uploadForm.append('file', pdfFile);
+
+                    const uploadRes = await apiClient.post('/upload', uploadForm, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                    const pdfUrl = uploadRes?.url || uploadRes?.fileUrl || uploadRes?.path || null;
+
+                    await apiClient.notifyOrder(savedId, {
+                        pdfUrl,
+                        notifyEmail:    !!formData.notifyEmail,
+                        notifyWhatsapp: !!formData.notifyWhatsapp,
+                        isUpdate:       !!orderToEdit,
+                    });
+                } catch (notifyErr) {
+                    console.warn('[Ordem] Falha ao enviar notificação ao fornecedor:', notifyErr.message);
+                }
             }
 
             onClose();
@@ -1413,9 +1376,43 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                     <div className="flex-1 overflow-y-auto p-4 sm:p-6 text-sm">
 
                         {/* 1. Informações Base */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 bg-gray-50 p-4 rounded mb-6" style={{ border: "1px solid #f0ebe3" }}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2.5 bg-gray-50 p-3 rounded mb-4" style={{ border: "1px solid #f0ebe3" }}>
+                            {/* Veículo em 1º lugar: ao selecionar, preenche obra e operador automaticamente */}
                             <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Fornecedor *</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Vincular Veículo / Equipamento</label>
+                                <SearchableSelect
+                                    items={sortedVehicles}
+                                    value={formData.vehicleId}
+                                    onChange={(item) => handleVehicleChange(item?.id || '')}
+                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
+                                    getSubLabel={(v) => v.modelo || ''}
+                                    placeholder="Uso Geral / Sem Veículo Específico"
+                                    disabled={isReadOnly}
+                                />
+                                {formData.obraId && formData.vehicleId && (
+                                    <p className="text-[10px] text-green-700 mt-0.5">✔ Obra e operador preenchidos automaticamente com base na alocação do veículo.</p>
+                                )}
+                            </div>
+
+                            {formData.vehicleId && (
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">
+                                        {formData.kmHrUnit === 'Km' ? 'Odômetro Atual (Km)' : formData.kmHrUnit === 'Hr' ? 'Horímetro Atual (Hr)' : 'Km / Hr Atual'}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={formData.kmHrAtual}
+                                        onChange={e => setFormData(prev => ({ ...prev, kmHrAtual: e.target.value }))}
+                                        placeholder={`Leitura atual em ${formData.kmHrUnit || 'Km ou Hr'}`}
+                                        className="p-1.5 border rounded w-full bg-white outline-none focus:border-yellow-500 text-sm"
+                                        disabled={isReadOnly}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Fornecedor *</label>
                                 <SearchableSupplierSelect
                                     partners={partners.filter(p => p.tipo_parceiro === 'fornecedor')}
                                     value={formData.supplierId}
@@ -1424,12 +1421,12 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Data Emissão *</label>
-                                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="p-2 border rounded w-full bg-white outline-none focus:border-yellow-500" required disabled={isReadOnly} />
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Data Emissão *</label>
+                                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="p-1.5 border rounded w-full bg-white outline-none focus:border-yellow-500 text-sm" required disabled={isReadOnly} />
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Obra de Destino (Custo) *</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5">Obra de Destino (Custo) *</label>
                                 <SearchableSelect
                                     items={[
                                         { id: 'Administração', nome: 'Administração' },
@@ -1446,7 +1443,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1" title="Quem fará o serviço ou irá retirar as peças">Funcionário Autorizado (Retirada) *</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5" title="Quem fará o serviço ou irá retirar as peças">Funcionário Autorizado (Retirada) *</label>
                                 <SearchableSelect
                                     items={sortedEmployees}
                                     value={formData.employeeId}
@@ -1460,7 +1457,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1" title="Para cruzamento de custos de manutenção de equipamento">Operador do Equipamento (Custo)</label>
+                                <label className="block text-xs font-bold text-gray-700 uppercase mb-0.5" title="Para cruzamento de custos de manutenção de equipamento">Operador do Equipamento (Custo)</label>
                                 <SearchableSelect
                                     items={sortedEmployees}
                                     value={formData.operatorId}
@@ -1471,40 +1468,6 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     disabled={isReadOnly}
                                 />
                             </div>
-
-                            <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Vincular Veículo / Equipamento</label>
-                                <SearchableSelect
-                                    items={sortedVehicles}
-                                    value={formData.vehicleId}
-                                    onChange={(item) => handleVehicleChange(item?.id || '')}
-                                    getLabel={(v) => `${v.registroInterno} - ${v.placa}`}
-                                    getSubLabel={(v) => v.modelo || ''}
-                                    placeholder="Uso Geral / Sem Veículo Específico"
-                                    disabled={isReadOnly}
-                                />
-                                {formData.obraId && formData.vehicleId && (
-                                    <p className="text-[10px] text-green-700 mt-1">✔ Obra e operador preenchidos automaticamente com base no histórico do veículo.</p>
-                                )}
-                            </div>
-
-                            {formData.vehicleId && (
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                                        {formData.kmHrUnit === 'Km' ? 'Odômetro Atual (Km)' : formData.kmHrUnit === 'Hr' ? 'Horímetro Atual (Hr)' : 'Km / Hr Atual'}
-                                    </label>
-                                    <input
-                                        type="number"
-                                        step="0.1"
-                                        value={formData.kmHrAtual}
-                                        onChange={e => setFormData(prev => ({ ...prev, kmHrAtual: e.target.value }))}
-                                        placeholder={`Leitura atual em ${formData.kmHrUnit || 'Km ou Hr'}`}
-                                        className="p-2 border rounded w-full bg-white outline-none focus:border-yellow-500"
-                                        disabled={isReadOnly}
-                                    />
-                                    <p className="text-[10px] text-gray-400 mt-0.5">Preenchido automaticamente com a leitura atual do veículo. Corrija se necessário.</p>
-                                </div>
-                            )}
                         </div>
 
                         {/* Layout Dividido: Itens | Financeiro + Arquivos */}
@@ -1534,7 +1497,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     </div>
                                 )}
 
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                     {formData.items.map((item, index) => (
                                         <div key={index} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border">
                                             {item.itemId && (
@@ -1553,11 +1516,10 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                     {!isPricePending && <span className="absolute left-2 top-2 text-xs text-gray-500">R$</span>}
                                                     <input
                                                         type="text" inputMode="decimal" step="0.01"
-                                                        placeholder={isPricePending ? "Aguardando" : "Unitário"}
+                                                        placeholder={isPricePending ? "Aguardando" : "Unitário (opcional)"}
                                                         value={item.unitPrice}
                                                         onChange={e => handleItemChange(index, 'unitPrice', e.target.value)}
                                                         className={`p-1.5 border rounded w-full text-sm outline-none focus:border-yellow-500 ${isPricePending ? 'bg-gray-100 cursor-not-allowed text-center text-xs text-gray-400' : 'bg-white pl-7'}`}
-                                                        required={!isPricePending}
                                                         disabled={isPricePending || isReadOnly}
                                                     />
                                                 </div>
@@ -1571,10 +1533,13 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     ))}
                                 </div>
                                 {!isReadOnly && (
-                                    <button type="button" onClick={addItem} className="text-xs text-blue-600 font-bold hover:underline mt-2">+ Adicionar Linha Manual</button>
+                                    <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                                        <button type="button" onClick={addItem} className="text-xs text-blue-600 font-bold hover:underline">+ Adicionar Linha Manual</button>
+                                        {!isPricePending && <span className="text-[10px] text-gray-400 italic">Itens sem valor entram só como descrição — não somam no total.</span>}
+                                    </div>
                                 )}
 
-                                <div className="mt-6 border-t pt-4">
+                                <div className="mt-4 border-t pt-3">
                                     <p className={`text-right font-black text-2xl ${isPricePending ? 'text-gray-400' : 'text-green-700'}`}>
                                         <span className="text-sm font-bold text-gray-500 mr-2 uppercase">Total da Ordem:</span>
                                         {isPricePending ? 'A COTAR' : `R$ ${totalValue.toFixed(2)}`}
@@ -1588,16 +1553,19 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                 {/* Pagamento */}
                                 <div className="border rounded p-4 bg-white shadow-sm">
                                     <h3 className="font-bold text-gray-800 uppercase mb-3 text-xs">Condição de Pagamento *</h3>
-                                    <div className="flex gap-4 mb-3 border-b pb-3">
+                                    <div className="flex gap-4 flex-wrap mb-3 border-b pb-3">
                                         <label className="inline-flex items-center cursor-pointer font-medium">
                                             <input type="radio" name="paymentType" value="À vista" checked={formData.payment.type === 'À vista'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: '', installments:[]}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">À vista</span>
                                         </label>
                                         <label className="inline-flex items-center cursor-pointer font-medium">
                                             <input type="radio" name="paymentType" value="A prazo" checked={formData.payment.type === 'A prazo'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method: formData.payment.method || 'PIX', days: '', installments: formData.payment.installments || []}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A prazo</span>
                                         </label>
+                                        <label className="inline-flex items-center cursor-pointer font-medium">
+                                            <input type="radio" name="paymentType" value="A confirmar" checked={formData.payment.type === 'A confirmar'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: '', installments:[]}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A confirmar</span>
+                                        </label>
                                     </div>
                                     {formData.payment.type === 'A prazo' && (
-                                        <div className="space-y-4 animate-fade-in">
+                                        <div className="space-y-3 animate-fade-in">
                                             <div>
                                                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Método de Pagamento*</label>
                                                 <select value={formData.payment.method} onChange={e => setFormData({...formData, payment: {...formData.payment, method: e.target.value}})} className="p-2 border rounded bg-white text-sm w-full outline-none focus:border-yellow-500" required disabled={isReadOnly}>
@@ -1606,6 +1574,42 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                     <option value="Cartão Corporativo">Cartão de Crédito</option>
                                                 </select>
                                             </div>
+
+                                            {/* Gerador automático de parcelas */}
+                                            {!isReadOnly && (
+                                                <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                                                    <h4 className="text-xs font-bold text-blue-800 uppercase mb-2 flex items-center gap-1">
+                                                        <RefreshCw size={12}/> Calcular Parcelas
+                                                    </h4>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">Nº de parcelas</label>
+                                                            <input type="number" min="1" placeholder="Ex: 10" value={installmentGen.count} onChange={e => setInstallmentGen(g => ({...g, count: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">A cada (dias)</label>
+                                                            <input type="number" min="0" placeholder="Ex: 20" value={installmentGen.intervalDays} onChange={e => setInstallmentGen(g => ({...g, intervalDays: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">1º vencimento</label>
+                                                            <input type="date" value={installmentGen.firstDate || formData.date} onChange={e => setInstallmentGen(g => ({...g, firstDate: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5" title="Valor fixo somado em cada parcela, ex.: taxa de boleto">Acréscimo/parcela</label>
+                                                            <input type="text" inputMode="decimal" placeholder="R$ 0,00" value={installmentGen.extraPerInstallment} onChange={e => setInstallmentGen(g => ({...g, extraPerInstallment: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                        </div>
+                                                    </div>
+                                                    <button type="button" onClick={generateInstallments} className="w-full mt-2 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700">
+                                                        Gerar {installmentGen.count || ''} parcela{Number(installmentGen.count) === 1 ? '' : 's'} automaticamente
+                                                    </button>
+                                                    {!isPricePending && (
+                                                        <p className="text-[10px] text-blue-700 mt-1.5 text-center">
+                                                            Total da ordem R$ {totalValue.toFixed(2)} será dividido igualmente (resto na última parcela).
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="bg-gray-50 p-3 rounded border">
                                                 <div className="flex justify-between items-center mb-3">
                                                     <h4 className="text-xs font-bold text-gray-700 uppercase">Detalhamento de Parcelas</h4>
@@ -1616,17 +1620,43 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                         <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded border shadow-sm">
                                                             <span className="text-[10px] font-black text-gray-400">{idx + 1}ª</span>
                                                             <input type="date" value={inst.dueDate} onChange={e => handleInstallmentChange(idx, 'dueDate', e.target.value)} className="p-1 border rounded text-xs w-full text-gray-700 outline-none" title="Data de Vencimento" required disabled={isReadOnly}/>
-                                                            <input type="number" step="0.01" placeholder="R$" value={inst.value} onChange={e => handleInstallmentChange(idx, 'value', e.target.value)} className="p-1 border rounded text-xs w-24 outline-none" required disabled={isReadOnly}/>
+                                                            <CurrencyInput prefix={false} placeholder="R$" value={inst.value} onChange={e => handleInstallmentChange(idx, 'value', e.target.value)} className="p-1 border rounded text-xs w-24 outline-none" required disabled={isReadOnly}/>
                                                             {!isReadOnly && <button type="button" onClick={() => removeInstallment(idx)} className="text-red-400 hover:text-red-600"><X size={14}/></button>}
                                                         </div>
                                                     ))}
                                                     {(!formData.payment.installments || formData.payment.installments.length === 0) && (
-                                                        <p className="text-xs text-gray-400 italic text-center py-2">Defina as datas e valores acordados.</p>
+                                                        <p className="text-xs text-gray-400 italic text-center py-2">Use o cálculo automático acima ou adicione parcelas manualmente.</p>
                                                     )}
                                                 </div>
+                                                {formData.payment.installments?.length > 0 && (
+                                                    <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs">
+                                                        <span className="font-bold text-gray-600 uppercase">Soma das parcelas:</span>
+                                                        <span className={`font-black ${!isPricePending && Math.abs(installmentsTotal - totalValue) > 0.01 ? 'text-orange-600' : 'text-green-700'}`}>
+                                                            R$ {installmentsTotal.toFixed(2)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {!isPricePending && formData.payment.installments?.length > 0 && Math.abs(installmentsTotal - totalValue) > 0.01 && (
+                                                    <p className="text-[10px] text-orange-600 mt-1 text-right">
+                                                        Difere do total da ordem (R$ {totalValue.toFixed(2)}){installmentsTotal > totalValue ? ' — inclui acréscimos' : ''}.
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Observações */}
+                                <div className="border rounded p-4 bg-white shadow-sm">
+                                    <h3 className="font-bold text-gray-800 uppercase mb-3 text-xs flex items-center gap-2"><MessageCircle size={14}/> Observações</h3>
+                                    <textarea
+                                        value={formData.observacoes}
+                                        onChange={e => setFormData({...formData, observacoes: e.target.value})}
+                                        placeholder="Observações gerais da ordem (condições, prazos de entrega, detalhes acordados, etc.)"
+                                        rows={4}
+                                        className="w-full p-2 border rounded text-sm bg-white outline-none focus:border-yellow-500 resize-y"
+                                        disabled={isReadOnly}
+                                    />
                                 </div>
 
                                 {/* NOTIFICAÇÕES */}
