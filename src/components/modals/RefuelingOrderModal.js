@@ -798,7 +798,7 @@ const RefuelingOrderModal = ({
                                 <div className="flex items-center gap-1">
                                     <input type="checkbox" id="isHidden" name="isHidden" checked={formData.isHidden} onChange={handleChange} className="w-3 h-3 text-slate-700"/>
                                     <label htmlFor="isHidden" className="text-[10px] font-bold text-slate-700">
-                                        Emitir como ordem reservada (não visível para os demais usuários)
+                                        Emitir como ordem reservada
                                     </label>
                                 </div>
                                 {formData.isHidden && (

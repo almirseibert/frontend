@@ -432,122 +432,6 @@ const RefuelingPage = ({
                 </ProtectedComponent>
             </div>
 
-            {podeVerReservadas && (
-                <div className="bg-white rounded-xl" style={{ border: '1px solid #d8d3c8', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)' }}>
-                    <button
-                        onClick={() => setIsReservadasOpen(o => !o)}
-                        className="w-full flex items-center justify-between p-4 text-left"
-                    >
-                        <span className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 700, color: '#1e1a14' }}>
-                            {isReservadasOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
-                            <EyeOff size={16} style={{ color: '#5b6472' }}/> Ordens Reservadas
-                            <span style={{ background: '#eef1f5', color: '#5b6472', border: '1px solid #d5dbe4', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 9999 }}>
-                                {hiddenRefuelings.length}
-                            </span>
-                        </span>
-                        <span className="hidden md:block text-right" style={{ fontSize: 10, color: '#9a8a78', maxWidth: 460, lineHeight: 1.4 }}>
-                            Já geram despesa para a obra e já foram enviadas ao posto — apenas não aparecem
-                            para os demais usuários até você liberá-las.
-                        </span>
-                    </button>
-
-                    {isReservadasOpen && (
-                        <div className="px-4 pb-4 overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead style={{ background: '#faf9f7', borderBottom: '1px solid #f0ebe3' }}>
-                                    <tr>
-                                        {['Nº', 'Emissão', 'Veículo', 'Obra', 'Posto', 'Combustível', 'Status', 'Liberação'].map(h => (
-                                            <th key={h} className="p-3" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>{h}</th>
-                                        ))}
-                                        <th className="p-3 text-right" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
-                                    {hiddenRefuelings.map(order => {
-                                        const vehicle = vehicles.find(v => v.id === order.vehicleId);
-                                        const obra = obras.find(o => o.id === order.obraId);
-                                        const displayPartner = resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName);
-                                        const isBloqueada = order.status === 'BloqueadoLeitura' || order.status === 'BloqueadoOrcamento';
-                                        const agendada = formatDateTimeSafe(order.revealAt);
-                                        const busy = reservadaBusyId === order.id;
-                                        const litros = order.isFillUp ? 'Tanque cheio' : `${order.litrosLiberados || 0} L`;
-
-                                        return (
-                                            <React.Fragment key={order.id}>
-                                                <tr className="hover:bg-gray-50">
-                                                    <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
-                                                    <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
-                                                    <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
-                                                    <td className="p-3 truncate max-w-[150px]">{obra?.nome || order.obraId || '—'}</td>
-                                                    <td className="p-3 truncate max-w-[150px]">{displayPartner}</td>
-                                                    <td className="p-3 whitespace-nowrap">{order.fuelType || '—'} · {litros}</td>
-                                                    <td className="p-3">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${isBloqueada ? 'bg-red-100 text-red-800' : order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                                            {order.status}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-3 whitespace-nowrap" style={{ fontSize: 12, color: agendada ? '#2d5a8a' : '#9a8a78' }}>
-                                                        {agendada || 'manual'}
-                                                    </td>
-                                                    <td className="p-3 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            {isBloqueada && (
-                                                                <>
-                                                                    <button onClick={() => handleLiberarBloqueada(order.id)} disabled={busy} title="Liberar bloqueio e enviar ao posto" className="p-1.5 text-gray-400 hover:text-green-600 rounded hover:bg-green-50 disabled:opacity-40"><Unlock size={16}/></button>
-                                                                    <button onClick={() => handleNegarBloqueada(order.id)} disabled={busy} title="Negar (exclui a ordem)" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 disabled:opacity-40"><Ban size={16}/></button>
-                                                                </>
-                                                            )}
-                                                            <button
-                                                                onClick={() => { setSchedulingOrderId(schedulingOrderId === order.id ? null : order.id); setScheduleValue(''); }}
-                                                                disabled={busy}
-                                                                title="Agendar/alterar liberação automática"
-                                                                className="p-1.5 text-gray-400 hover:text-[#2d5a8a] rounded hover:bg-blue-50 disabled:opacity-40"
-                                                            ><Clock size={16}/></button>
-                                                            <button onClick={() => setOrderToReveal(order)} disabled={busy} title="Liberar agora (torna visível para todos)" className="p-1.5 text-gray-400 hover:text-[#9E7A42] rounded hover:bg-[#fdf8f0] disabled:opacity-40">
-                                                                {busy ? <Loader size={16} className="animate-spin"/> : <Eye size={16}/>}
-                                                            </button>
-                                                            <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
-                                                                {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
-                                                            </button>
-                                                            <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-[#9E7A42] rounded hover:bg-[#fdf8f0]"><Edit size={16}/></button>
-                                                            <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                {schedulingOrderId === order.id && (
-                                                    <tr style={{ background: '#faf9f7' }}>
-                                                        <td colSpan="9" className="p-3">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <span style={{ fontSize: 12, fontWeight: 600, color: '#6a5e4e' }}>Liberar automaticamente em:</span>
-                                                                <input
-                                                                    type="datetime-local"
-                                                                    value={scheduleValue}
-                                                                    onChange={e => setScheduleValue(e.target.value)}
-                                                                    className="p-1.5 border rounded text-xs"
-                                                                />
-                                                                <button onClick={() => handleAgendarLiberacao(order.id)} disabled={busy} className="px-3 py-1.5 text-xs font-bold rounded mak-btn mak-btn-primary disabled:opacity-50">
-                                                                    {busy ? 'Salvando...' : 'Agendar'}
-                                                                </button>
-                                                                <button onClick={() => { setSchedulingOrderId(null); setScheduleValue(''); }} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded">
-                                                                    Cancelar
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                    {hiddenRefuelings.length === 0 && (
-                                        <tr><td colSpan="9" className="p-4 text-center text-gray-400 italic">Nenhuma ordem reservada.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            )}
-
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 <div className="xl:col-span-4 space-y-4">
                     <div className="bg-white p-5 rounded-xl h-full flex flex-col" style={{ border: '1px solid #f0ebe3', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)' }}>
@@ -753,6 +637,121 @@ const RefuelingPage = ({
                     </div>
                 </div>
             </div>
+
+            {podeVerReservadas && (
+                <div className="bg-white rounded-xl" style={{ border: '1px solid #d8d3c8', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)' }}>
+                    <button
+                        onClick={() => setIsReservadasOpen(o => !o)}
+                        className="w-full flex items-center justify-between p-4 text-left"
+                    >
+                        <span className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 700, color: '#1e1a14' }}>
+                            {isReservadasOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+                            <EyeOff size={16} style={{ color: '#5b6472' }}/> Ordens Reservadas
+                            <span style={{ background: '#eef1f5', color: '#5b6472', border: '1px solid #d5dbe4', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 9999 }}>
+                                {hiddenRefuelings.length}
+                            </span>
+                        </span>
+                        <span className="hidden md:block text-right" style={{ fontSize: 10, color: '#9a8a78', maxWidth: 460, lineHeight: 1.4 }}>
+                            Já geram despesa para a obra e já foram enviadas ao posto.
+                        </span>
+                    </button>
+
+                    {isReservadasOpen && (
+                        <div className="px-4 pb-4 overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead style={{ background: '#faf9f7', borderBottom: '1px solid #f0ebe3' }}>
+                                    <tr>
+                                        {['Nº', 'Emissão', 'Veículo', 'Obra', 'Posto', 'Combustível', 'Status', 'Liberação'].map(h => (
+                                            <th key={h} className="p-3" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>{h}</th>
+                                        ))}
+                                        <th className="p-3 text-right" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a8a78' }}>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {hiddenRefuelings.map(order => {
+                                        const vehicle = vehicles.find(v => v.id === order.vehicleId);
+                                        const obra = obras.find(o => o.id === order.obraId);
+                                        const displayPartner = resolveOrderPartnerName(partners.find(p => p.id === order.partnerId), order.partnerName);
+                                        const isBloqueada = order.status === 'BloqueadoLeitura' || order.status === 'BloqueadoOrcamento';
+                                        const agendada = formatDateTimeSafe(order.revealAt);
+                                        const busy = reservadaBusyId === order.id;
+                                        const litros = order.isFillUp ? 'Tanque cheio' : `${order.litrosLiberados || 0} L`;
+
+                                        return (
+                                            <React.Fragment key={order.id}>
+                                                <tr className="hover:bg-gray-50">
+                                                    <td className="p-3 font-bold">#{String(order.authNumber).padStart(6,'0')}</td>
+                                                    <td className="p-3">{formatDateSafe(order.data || order.date)}</td>
+                                                    <td className="p-3">{vehicle?.registroInterno} - {vehicle?.placa}</td>
+                                                    <td className="p-3 truncate max-w-[150px]">{obra?.nome || order.obraId || '—'}</td>
+                                                    <td className="p-3 truncate max-w-[150px]">{displayPartner}</td>
+                                                    <td className="p-3 whitespace-nowrap">{order.fuelType || '—'} · {litros}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${isBloqueada ? 'bg-red-100 text-red-800' : order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                                            {order.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 whitespace-nowrap" style={{ fontSize: 12, color: agendada ? '#2d5a8a' : '#9a8a78' }}>
+                                                        {agendada || 'manual'}
+                                                    </td>
+                                                    <td className="p-3 text-right">
+                                                        <div className="flex justify-end gap-1">
+                                                            {isBloqueada && (
+                                                                <>
+                                                                    <button onClick={() => handleLiberarBloqueada(order.id)} disabled={busy} title="Liberar bloqueio e enviar ao posto" className="p-1.5 text-gray-400 hover:text-green-600 rounded hover:bg-green-50 disabled:opacity-40"><Unlock size={16}/></button>
+                                                                    <button onClick={() => handleNegarBloqueada(order.id)} disabled={busy} title="Negar (exclui a ordem)" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 disabled:opacity-40"><Ban size={16}/></button>
+                                                                </>
+                                                            )}
+                                                            <button
+                                                                onClick={() => { setSchedulingOrderId(schedulingOrderId === order.id ? null : order.id); setScheduleValue(''); }}
+                                                                disabled={busy}
+                                                                title="Agendar/alterar liberação automática"
+                                                                className="p-1.5 text-gray-400 hover:text-[#2d5a8a] rounded hover:bg-blue-50 disabled:opacity-40"
+                                                            ><Clock size={16}/></button>
+                                                            <button onClick={() => setOrderToReveal(order)} disabled={busy} title="Liberar agora (torna visível para todos)" className="p-1.5 text-gray-400 hover:text-[#9E7A42] rounded hover:bg-[#fdf8f0] disabled:opacity-40">
+                                                                {busy ? <Loader size={16} className="animate-spin"/> : <Eye size={16}/>}
+                                                            </button>
+                                                            <button onClick={() => generateAuthorizationPDF(order)} disabled={isGeneratingPdf} title="PDF" className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
+                                                                {isGeneratingPdf ? <Loader size={16} className="animate-spin"/> : <Printer size={16}/>}
+                                                            </button>
+                                                            <button onClick={() => { setEditingOrder(order); setIsOrderModalOpen(true); }} title="Editar" className="p-1.5 text-gray-400 hover:text-[#9E7A42] rounded hover:bg-[#fdf8f0]"><Edit size={16}/></button>
+                                                            <button onClick={() => { setItemToDelete(order.id); setIsDeleteModalOpen(true); }} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 size={16}/></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {schedulingOrderId === order.id && (
+                                                    <tr style={{ background: '#faf9f7' }}>
+                                                        <td colSpan="9" className="p-3">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span style={{ fontSize: 12, fontWeight: 600, color: '#6a5e4e' }}>Liberar automaticamente em:</span>
+                                                                <input
+                                                                    type="datetime-local"
+                                                                    value={scheduleValue}
+                                                                    onChange={e => setScheduleValue(e.target.value)}
+                                                                    className="p-1.5 border rounded text-xs"
+                                                                />
+                                                                <button onClick={() => handleAgendarLiberacao(order.id)} disabled={busy} className="px-3 py-1.5 text-xs font-bold rounded mak-btn mak-btn-primary disabled:opacity-50">
+                                                                    {busy ? 'Salvando...' : 'Agendar'}
+                                                                </button>
+                                                                <button onClick={() => { setSchedulingOrderId(null); setScheduleValue(''); }} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded">
+                                                                    Cancelar
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                    {hiddenRefuelings.length === 0 && (
+                                        <tr><td colSpan="9" className="p-4 text-center text-gray-400 italic">Nenhuma ordem reservada.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {isOrderModalOpen && (
                 <RefuelingOrderModal 
