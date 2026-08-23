@@ -696,6 +696,20 @@ const apiClient = {
     reprocessConfronto: async (body) =>
         apiFetch('/confronto/reprocessar', { method: 'POST', body: JSON.stringify(body) }),
 
+    // --- Aceite automático de abastecimento (IA) ---
+    // Ver backend/docs/aceite-automatico-ia.md
+    getAbastecimentoAutoConfig: async () => apiFetch('/abastecimento-auto/config'),
+    updateAbastecimentoAutoConfig: async (data) =>
+        apiFetch('/abastecimento-auto/config', { method: 'PUT', body: JSON.stringify(data) }),
+    getAbastecimentoAutoMetricas: async (dias = 30) =>
+        apiFetch(`/abastecimento-auto/metricas?dias=${dias}`),
+    getAbastecimentoAutoAnalises: async (solicitacaoId) =>
+        apiFetch(`/abastecimento-auto/analises/${solicitacaoId}`),
+    reprocessarAnaliseIa: async (solicitacaoId, etapa = 'painel') =>
+        apiFetch(`/abastecimento-auto/reprocessar/${solicitacaoId}`, {
+            method: 'POST', body: JSON.stringify({ etapa }),
+        }),
+
     // --- Defaults & Auxiliares ---
     defaults: { baseURL: API_URL },
     get: (url, config) => apiFetch(url, { method: 'GET', ...config }),

@@ -3,6 +3,7 @@ import CurrencyInput from '../ui/CurrencyInput';
 import { Loader, TrendingDown, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
 import { getPartnerDisplayName } from '../../utils/partners';
+import SugestaoCupomIa, { parseSugestaoIa } from './SugestaoCupomIa';
 
 /**
  * Formulário de confirmação de baixa (dados do cupom fiscal).
@@ -55,6 +56,17 @@ const BaixaForm = ({
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [showPriceUpdateDialog, setShowPriceUpdateDialog] = useState(false);
     const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+
+    // Sugestão da IA lida do cupom (refuelings.baixa_sugerida_ia).
+    // O painel e as regras de exibição vivem em SugestaoCupomIa, compartilhado
+    // com o ConfirmRefuelingModal.
+    const sugestaoIa = useMemo(() => parseSugestaoIa(order.baixa_sugerida_ia), [order.baixa_sugerida_ia]);
+
+    const aplicarSugestaoIa = ({ litros: l, precoLitro, numeroNf }) => {
+        if (l != null) setLitros(String(l));
+        if (precoLitro != null) setPrecoUnitario(String(precoLitro));
+        if (numeroNf) setInvoiceNumber(String(numeroNf));
+    };
 
     const blockReason = readingBlock || litrosBlock || priceBlock;
 
@@ -407,6 +419,8 @@ const BaixaForm = ({
                     <TrendingDown size={12} /> {averageAlert}
                 </div>
             )}
+
+            <SugestaoCupomIa sugestao={sugestaoIa} onAplicar={aplicarSugestaoIa} />
 
             {/* Litros Abastecidos */}
             <div>

@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Shield, Users, Layers, MessageSquare, Settings, Server, Truck, Fuel, AlertTriangle, Bell } from 'lucide-react';
+import { Shield, Users, Layers, MessageSquare, Settings, Server, Truck, Fuel, AlertTriangle, Bell, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import apiClient from '../services/apiClient';
 
@@ -10,6 +10,7 @@ import ConfiguracoesTab from '../components/admin/ConfiguracoesTab';
 import SystemTab from '../components/admin/SystemTab';
 import VehicleAdminTab from '../components/admin/VehicleAdminTab';
 import AbastecimentoAdminTab from '../components/admin/AbastecimentoAdminTab';
+import AbastecimentoIaTab from '../components/admin/AbastecimentoIaTab';
 import SolicitacaoErrosTab from '../components/admin/SolicitacaoErrosTab';
 import NotificacoesAdminTab from '../components/admin/NotificacoesAdminTab';
 import ContatosInternosTab from '../components/admin/ContatosInternosTab';
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'grupos',        label: 'Grupos de Acesso',  icon: <Layers size={15} /> },
   { id: 'veiculos',      label: 'Veículos',          icon: <Truck size={15} /> },
   { id: 'abastecimento', label: 'Abastecimento',     icon: <Fuel size={15} /> },
+  { id: 'abastecimento_ia', label: 'Aceite Automático', icon: <Sparkles size={15} /> },
   { id: 'erros_app',     label: 'Erros App',         icon: <AlertTriangle size={15} /> },
   { id: 'comunicacao',   label: 'Comunicação',       icon: <MessageSquare size={15} /> },
   { id: 'notificacoes',  label: 'Notificações',      icon: <Bell size={15} /> },
@@ -120,6 +122,9 @@ const AdminPage = ({ socket, initialTab }) => {
         )}
         {activeTab === 'abastecimento' && (
           <AbastecimentoAdminTab />
+        )}
+        {activeTab === 'abastecimento_ia' && (
+          <AbastecimentoIaTab />
         )}
         {activeTab === 'erros_app' && (
           <SolicitacaoErrosTab />

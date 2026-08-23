@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Shield, Truck, Fuel, Bell, Satellite, Inbox } from 'lucide-react';
+import { Shield, Truck, Fuel, Bell, Satellite, Inbox, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 import VehicleAdminTab    from '../components/admin/VehicleAdminTab';
 import AbastecimentoAdminTab from '../components/admin/AbastecimentoAdminTab';
+import AbastecimentoIaTab from '../components/admin/AbastecimentoIaTab';
 import AlertasAdminTab    from '../components/admin/AlertasAdminTab';
 import GpsAdminTab        from '../components/admin/GpsAdminTab';
 import RequisicoesAdminTab from '../components/admin/RequisicoesAdminTab';
@@ -12,6 +13,7 @@ const TABS = [
   { id: 'veiculos',      label: 'Veículos',      icon: <Truck     size={15} /> },
   { id: 'requisicoes',   label: 'Requisições',    icon: <Inbox     size={15} /> },
   { id: 'abastecimento', label: 'Abastecimento',  icon: <Fuel      size={15} /> },
+  { id: 'abastecimento_ia', label: 'Aceite Automático', icon: <Sparkles  size={15} /> },
   { id: 'alertas',       label: 'Alertas',        icon: <Bell      size={15} /> },
   { id: 'gps',           label: 'GPS',            icon: <Satellite size={15} /> },
 ];
@@ -63,6 +65,7 @@ const AdminFrotaPage = () => {
         {activeTab === 'veiculos'      && <VehicleAdminTab />}
         {activeTab === 'requisicoes'   && <RequisicoesAdminTab />}
         {activeTab === 'abastecimento' && <AbastecimentoAdminTab />}
+        {activeTab === 'abastecimento_ia' && <AbastecimentoIaTab />}
         {activeTab === 'alertas'       && <AlertasAdminTab />}
         {activeTab === 'gps'           && <GpsAdminTab />}
       </div>

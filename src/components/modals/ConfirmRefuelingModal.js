@@ -3,6 +3,7 @@ import CurrencyInput from '../ui/CurrencyInput';
 import { X, Loader, TrendingDown, TrendingUp, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
 import { getPartnerDisplayName } from '../../utils/partners';
+import SugestaoCupomIa, { parseSugestaoIa } from '../refueling/SugestaoCupomIa';
 
 const ConfirmRefuelingModal = ({
     user,
@@ -41,6 +42,16 @@ const ConfirmRefuelingModal = ({
     const [obraStatus, setObraStatus] = useState(null);
 
     const [readingBlock, setReadingBlock] = useState(null);
+    // Sugestão da IA lida do cupom (refuelings.baixa_sugerida_ia). Mesmo painel
+    // do BaixaForm — as duas telas de baixa compartilham o componente.
+    const sugestaoIa = useMemo(() => parseSugestaoIa(order.baixa_sugerida_ia), [order.baixa_sugerida_ia]);
+
+    const aplicarSugestaoIa = ({ litros: l, precoLitro, numeroNf }) => {
+        if (l != null) setLitros(String(l));
+        if (precoLitro != null) setPrecoUnitario(String(precoLitro));
+        if (numeroNf) setInvoiceNumber(String(numeroNf));
+    };
+
     const [litrosBlock, setLitrosBlock] = useState(null);
     const [priceBlock, setPriceBlock] = useState(null);
     const [priceWarning, setPriceWarning] = useState(null);
@@ -369,6 +380,8 @@ const ConfirmRefuelingModal = ({
                             <TrendingDown size={12} /> {averageAlert}
                         </div>
                     )}
+
+                    <SugestaoCupomIa sugestao={sugestaoIa} onAplicar={aplicarSugestaoIa} />
 
                     {/* CAMPOS — UM ABAIXO DO OUTRO */}
 

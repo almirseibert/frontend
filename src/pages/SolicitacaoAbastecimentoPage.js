@@ -11,6 +11,7 @@ import ChangePasswordModal from '../components/ChangePasswordModal';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome as formatObraNomeUtil } from '../utils/obraFormat';
 import { getPartnerDisplayName } from '../utils/partners';
+import { IaFaixaOperador, resumoIa, ESTADO_IA } from '../components/refueling/IaParecer';
 
 // --- INÍCIO DA LÓGICA DE REGRAS ---
 const vehicleGroups = {
@@ -1252,7 +1253,11 @@ const SolicitacaoAbastecimentoPage = ({
                                     
                                     return (
                                         <div key={req.id} onClick={() => setSelectedRequest(req)} className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer relative overflow-hidden" style={{ border: "1px solid #f0ebe3" }}>
-                                            <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${req.status === 'LIBERADO' ? 'bg-green-500' : req.status === 'NEGADO' ? 'bg-red-500' : 'bg-gray-300'}`}></div>
+                                            <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+                                                req.status === 'LIBERADO' ? 'bg-green-500'
+                                                : req.status === 'NEGADO' ? 'bg-red-500'
+                                                : resumoIa(req).estado === ESTADO_IA.REVISAO ? 'bg-amber-400'
+                                                : 'bg-gray-300'}`}></div>
                                             <div className="pl-2">
                                                 <div className="flex justify-between items-start mb-2">
                                                     <span className={`text-[10px] px-2 py-1 rounded-md border font-bold ${req.status === 'PENDENTE' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'}`}>
@@ -1282,6 +1287,9 @@ const SolicitacaoAbastecimentoPage = ({
                                                         <Camera size={12}/> Enviar Cupom Agora
                                                     </div>
                                                 )}
+                                                {/* Desfecho da IA — sem motivo, e invisível em modo sombra.
+                                                    Ver components/refueling/IaParecer.js */}
+                                                <IaFaixaOperador solicitacao={req} />
                                             </div>
                                         </div>
                                     );
@@ -1350,6 +1358,8 @@ const SolicitacaoAbastecimentoPage = ({
                                             <p className="font-bold text-gray-900">{selectedRequest.status}</p>
                                             {selectedRequest.motivo_negativa && <p className="text-red-600 mt-1 text-xs">{selectedRequest.motivo_negativa}</p>}
                                         </div>
+                                        {/* Mesmo desfecho do card, com mais espaço. Sem motivo. */}
+                                        <IaFaixaOperador solicitacao={selectedRequest} />
                                     </div>
                                 )}
                             </div>

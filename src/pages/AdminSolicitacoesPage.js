@@ -3,7 +3,7 @@ import {
     Check, X, AlertTriangle, MapPin, Eye, Fuel,
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
     ExternalLink, BarChart3, Clock, TrendingUp,
-    RotateCw, RotateCcw, ZoomIn, ZoomOut, Maximize, AlertCircle, Unlock
+    RotateCw, RotateCcw, ZoomIn, ZoomOut, Maximize, AlertCircle, Unlock, Sparkles
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -13,6 +13,7 @@ import { resolveOrderPartnerName, getVehicleTerceiroName, getPartnerDisplayName 
 import { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import BaixaForm from '../components/refueling/BaixaForm';
+import { IaBadge, IaPainel, resumoIa, ESTADO_IA } from '../components/refueling/IaParecer';
 
 const AdminSolicitacoesPage = ({ 
     apiClient, 
@@ -44,6 +45,7 @@ const AdminSolicitacoesPage = ({
 
     const [imgTransform, setImgTransform] = useState({ rotate: 0, scale: 1 });
 
+    const [reprocessandoIa, setReprocessandoIa] = useState(false);
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [solicitacaoToApprove, setSolicitacaoToApprove] = useState(null);
 
@@ -241,6 +243,11 @@ const AdminSolicitacoesPage = ({
                 list = list.filter(s => s.status === 'PENDENTE');
             } else if (filterStatus === 'AGUARDANDO_BAIXA') {
                 list = list.filter(s => s.status === 'AGUARDANDO_BAIXA');
+            } else if (filterStatus === 'IA_LIBERARIA') {
+                // Pendentes que a IA liberaria — em modo sombra é a fila de
+                // "provavelmente é só conferir e aprovar"; em modo ativo, o
+                // registro do que ela já liberou sozinha.
+                list = list.filter(s => resumoIa(s).estado === ESTADO_IA.LIBERARIA);
             } else {
                 list = list.filter(s => s.status === filterStatus);
             }
@@ -442,6 +449,26 @@ const AdminSolicitacoesPage = ({
         }
 
         return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
+    };
+
+    // Reprocessa a análise da IA. Útil depois de ajustar um limiar na tela de
+    // parâmetros, ou quando a leitura falhou por indisponibilidade da API.
+    const handleReprocessarIa = async () => {
+        if (!modalData?.id) return;
+        setReprocessandoIa(true);
+        try {
+            const etapa = modalData.status === 'AGUARDANDO_BAIXA' ? 'cupom' : 'painel';
+            await apiClient.reprocessarAnaliseIa(modalData.id, etapa);
+            const atualizadas = await apiClient.get('/solicitacoes');
+            const lista = Array.isArray(atualizadas) ? atualizadas : (atualizadas?.data || []);
+            setSolicitacoes(lista);
+            const atual = lista.find(x => String(x.id) === String(modalData.id));
+            if (atual) setModalData(atual);
+        } catch (error) {
+            setAlertMessage('Não foi possível reprocessar: ' + (error.message || 'erro desconhecido'));
+        } finally {
+            setReprocessandoIa(false);
+        }
     };
 
     const handleOpenApprovalModal = (s) => {
@@ -650,6 +677,13 @@ const AdminSolicitacoesPage = ({
                                 </div>
                             )}
 
+                            {/* --- ANÁLISE DA IA (parecer + portões) --- */}
+                            <IaPainel
+                                solicitacao={s}
+                                onReprocessar={handleReprocessarIa}
+                                reprocessando={reprocessandoIa}
+                            />
+
                             {/* --- SEÇÃO READ ONLY: DADOS DA CONFIRMAÇÃO SE EXISTIR (Para Histórico) --- */}
                             {isReadOnly && (
                                 <div className="bg-gray-100 p-3 rounded-lg border border-gray-200 shadow-inner">
@@ -803,6 +837,12 @@ const AdminSolicitacoesPage = ({
                             <span className="bg-blue-800 text-white text-[10px] px-1.5 py-0.5 rounded-full">{solicitacoes.filter(s => s.status === 'AGUARDANDO_BAIXA').length}</span>
                         )}
                     </button>
+                    <button onClick={() => setFilterStatus('IA_LIBERARIA')} className={`px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 ${filterStatus === 'IA_LIBERARIA' ? 'bg-green-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        <Sparkles size={15}/> IA liberaria
+                        {solicitacoes.filter(s => resumoIa(s).estado === ESTADO_IA.LIBERARIA).length > 0 && (
+                            <span className="bg-green-800 text-white text-[10px] px-1.5 py-0.5 rounded-full">{solicitacoes.filter(s => resumoIa(s).estado === ESTADO_IA.LIBERARIA).length}</span>
+                        )}
+                    </button>
                     <button onClick={() => setFilterStatus('TODOS')} className={`px-4 py-2 rounded-lg font-bold text-sm transition ${filterStatus === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         Histórico
                     </button>
@@ -857,11 +897,14 @@ const AdminSolicitacoesPage = ({
                     return (
                         // NOVO: Div inteira transformou-se em clicável para acionar a modal independente do status
                         <div key={s.id} onClick={() => setModalData(s)} className={`bg-white rounded-xl shadow-sm border-2 hover:shadow-md hover:border-blue-300 cursor-pointer transition p-4 relative overflow-hidden group flex flex-col ${borderColor}`}>
-                            <div className="flex justify-between items-start mb-2">
+                            <div className="flex justify-between items-start mb-2 gap-1">
                                 <span className="text-xs font-bold text-gray-400">#{s.id}</span>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${statusColor}`}>
-                                    {statusLabel}
-                                </span>
+                                <div className="flex items-center gap-1 flex-wrap justify-end">
+                                    <IaBadge solicitacao={s} />
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${statusColor}`}>
+                                        {statusLabel}
+                                    </span>
+                                </div>
                             </div>
                             <div className="flex-1">
                                 <h3 className="font-bold text-gray-800 text-lg truncate" title={s.veiculo_nome}>{s.veiculo_nome}</h3>
