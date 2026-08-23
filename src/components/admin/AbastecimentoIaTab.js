@@ -118,7 +118,15 @@ const AbastecimentoIaTab = () => {
             setConfig(salvo);
             setMensagem({ tipo: 'ok', texto: 'Parâmetros salvos.' });
         } catch (e) {
-            setMensagem({ tipo: 'erro', texto: 'Falha ao salvar: ' + e.message });
+            // O backend devolve `code` no corpo do erro justamente para não
+            // obrigar a reproduzir o 500 às cegas. Mostrar aqui evita ter de
+            // abrir a aba Network para descobrir a causa — e a ausência do
+            // codigo na resposta indica build antigo do backend em producao.
+            const code = e?.data?.code || e?.response?.data?.code;
+            setMensagem({
+                tipo: 'erro',
+                texto: 'Falha ao salvar: ' + e.message + (code ? ` [${code}]` : ' [sem codigo no corpo da resposta]'),
+            });
         } finally {
             setSalvando(false);
         }
