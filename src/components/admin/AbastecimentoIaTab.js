@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Sparkles, Loader, Save, AlertTriangle, ShieldCheck, ShieldAlert,
-    RefreshCw, Info, Power,
+    RefreshCw, Info, Power, Truck, Search,
 } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 import { formatObraNome } from '../../utils/obraFormat';
@@ -27,6 +27,14 @@ const ROTULO_PORTAO = {
     G3_necessidade: 'Necessidade de abastecer',
     G4_visao: 'Leitura da foto',
     G5_teto: 'Teto de valor',
+};
+
+// As listas de escopo chegam ora como array (o que acabamos de salvar), ora
+// como string JSON (dependendo do driver e da coluna). Normaliza os dois.
+const parseLista = (bruto) => {
+    if (!bruto) return [];
+    if (Array.isArray(bruto)) return bruto;
+    try { const v = JSON.parse(bruto); return Array.isArray(v) ? v : []; } catch { return []; }
 };
 
 const Campo = ({ label, ajuda, children }) => (
@@ -65,6 +73,8 @@ const AbastecimentoIaTab = () => {
     const [config, setConfig] = useState(null);
     const [metricas, setMetricas] = useState(null);
     const [obras, setObras] = useState([]);
+    const [veiculos, setVeiculos] = useState([]);
+    const [buscaVeiculo, setBuscaVeiculo] = useState('');
     const [carregando, setCarregando] = useState(true);
     const [salvando, setSalvando] = useState(false);
     const [mensagem, setMensagem] = useState(null);
@@ -73,14 +83,16 @@ const AbastecimentoIaTab = () => {
     const carregar = useCallback(async () => {
         setCarregando(true);
         try {
-            const [cfg, met, obrasLista] = await Promise.all([
+            const [cfg, met, obrasLista, veiculosLista] = await Promise.all([
                 apiClient.getAbastecimentoAutoConfig(),
                 apiClient.getAbastecimentoAutoMetricas(dias),
                 apiClient.getObras().catch(() => []),
+                apiClient.getVehicles().catch(() => []),
             ]);
             setConfig(cfg);
             setMetricas(met);
             setObras(Array.isArray(obrasLista) ? obrasLista : []);
+            setVeiculos(Array.isArray(veiculosLista) ? veiculosLista : []);
         } catch (e) {
             setMensagem({ tipo: 'erro', texto: 'Falha ao carregar: ' + e.message });
         } finally {
@@ -90,12 +102,44 @@ const AbastecimentoIaTab = () => {
 
     useEffect(() => { carregar(); }, [carregar]);
 
-    const obrasHabilitadas = useMemo(() => {
-        const bruto = config?.obras_habilitadas;
-        if (!bruto) return [];
-        if (Array.isArray(bruto)) return bruto;
-        try { const v = JSON.parse(bruto); return Array.isArray(v) ? v : []; } catch { return []; }
-    }, [config]);
+    const obrasHabilitadas = useMemo(() => parseLista(config?.obras_habilitadas), [config]);
+    const veiculosHabilitados = useMemo(() => parseLista(config?.veiculos_habilitados), [config]);
+
+    // Só obras ATIVAS entram na escolha — oferecer obra encerrada é convidar a
+    // marcar escopo que nunca vai receber solicitação. A exceção é a obra que já
+    // está marcada e encerrou depois: ela continua visível (rotulada) para poder
+    // ser desmarcada, em vez de virar escopo invisível.
+    const obrasVisiveis = useMemo(() => {
+        const marcadas = obrasHabilitadas.map(String);
+        return obras.filter((o) => o.status === 'ativa' || marcadas.includes(String(o.id)));
+    }, [obras, obrasHabilitadas]);
+
+    // Terceirizado, fictício e comboio são recusados pelo portão G0 de qualquer
+    // forma; listá-los deixaria marcar um veículo que nunca seria liberado.
+    const veiculosElegiveis = useMemo(() => veiculos.filter((v) => (
+        !ehVerdadeiro(v.isOutsourced)
+        && !ehVerdadeiro(v.permiteMultiplosAbastecimentos)
+        && !ehVerdadeiro(v.isComboioVehicle)
+    )), [veiculos]);
+
+    const rotuloVeiculo = (v) => [
+        v.registroInterno || v.placa || v.id,
+        v.placa && v.registroInterno ? `· ${v.placa}` : '',
+        v.tipo ? `· ${v.tipo}` : '',
+    ].filter(Boolean).join(' ');
+
+    // Os marcados sempre aparecem, mesmo fora da busca: escopo que some da tela
+    // ao digitar é escopo que ninguém consegue auditar.
+    const veiculosVisiveis = useMemo(() => {
+        const marcados = veiculosHabilitados.map(String);
+        const termo = buscaVeiculo.trim().toLowerCase();
+        const casa = (v) => !termo || rotuloVeiculo(v).toLowerCase().includes(termo);
+        const selecionados = veiculosElegiveis.filter((v) => marcados.includes(String(v.id)));
+        const resto = veiculosElegiveis
+            .filter((v) => !marcados.includes(String(v.id)) && casa(v))
+            .slice(0, 60);
+        return [...selecionados, ...resto];
+    }, [veiculosElegiveis, veiculosHabilitados, buscaVeiculo]);
 
     const alterar = (campo, valor) => setConfig((c) => ({ ...c, [campo]: valor }));
 
@@ -107,6 +151,14 @@ const AbastecimentoIaTab = () => {
         alterar('obras_habilitadas', novo);
     };
 
+    const alternarVeiculo = (veiculoId) => {
+        const atual = veiculosHabilitados.map(String);
+        const novo = atual.includes(String(veiculoId))
+            ? atual.filter((v) => v !== String(veiculoId))
+            : [...atual, String(veiculoId)];
+        alterar('veiculos_habilitados', novo);
+    };
+
     const salvar = async () => {
         setSalvando(true);
         setMensagem(null);
@@ -114,6 +166,7 @@ const AbastecimentoIaTab = () => {
             const salvo = await apiClient.updateAbastecimentoAutoConfig({
                 ...config,
                 obras_habilitadas: obrasHabilitadas,
+                veiculos_habilitados: veiculosHabilitados,
             });
             setConfig(salvo);
             setMensagem({ tipo: 'ok', texto: 'Parâmetros salvos.' });
@@ -260,29 +313,91 @@ const AbastecimentoIaTab = () => {
 
             {/* ─── Escopo do piloto ─── */}
             <section className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="text-sm font-bold text-gray-800 mb-1">Obras participantes</h3>
+                <h3 className="text-sm font-bold text-gray-800 mb-1">Escopo do piloto</h3>
                 <p className="text-[11px] text-gray-500 mb-3">
-                    Sem nenhuma obra marcada, o motor não analisa nada. Comece por uma.
+                    O motor analisa a solicitação se a <b>obra</b> estiver marcada <b>ou</b> se o
+                    <b> veículo</b> estiver marcado. Sem nada marcado, nada é analisado.
                 </p>
-                <div className="max-h-56 overflow-y-auto border rounded-lg divide-y">
-                    {obras.length === 0 && (
-                        <p className="p-3 text-xs text-gray-400">Nenhuma obra carregada.</p>
-                    )}
-                    {obras.map((o) => (
-                        <label key={o.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer">
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Obras */}
+                    <div>
+                        <p className="text-xs font-bold text-gray-700 mb-1">Obras participantes</p>
+                        <p className="text-[11px] text-gray-500 mb-2">
+                            Todos os veículos da obra entram enquanto estiverem nela.
+                        </p>
+                        <div className="max-h-56 overflow-y-auto border rounded-lg divide-y">
+                            {obrasVisiveis.length === 0 && (
+                                <p className="p-3 text-xs text-gray-400">Nenhuma obra ativa carregada.</p>
+                            )}
+                            {obrasVisiveis.map((o) => (
+                                <label key={o.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={obrasHabilitadas.map(String).includes(String(o.id))}
+                                        onChange={() => alternarObra(o.id)}
+                                        className="w-4 h-4 accent-yellow-500"
+                                    />
+                                    <span className="text-xs text-gray-700">
+                                        {formatObraNome(o) || o.nome}
+                                        {o.status !== 'ativa' && (
+                                            <span className="ml-1 text-[10px] font-bold text-gray-400">[encerrada]</span>
+                                        )}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                        <p className="text-[11px] text-gray-600 mt-2">
+                            {obrasHabilitadas.length} obra(s) no piloto.
+                        </p>
+                    </div>
+
+                    {/* Veículos — independem da obra */}
+                    <div>
+                        <p className="text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                            <Truck size={13} className="text-gray-500" /> Veículos participantes
+                        </p>
+                        <p className="text-[11px] text-gray-500 mb-2">
+                            Seguem no piloto <b>em qualquer obra</b>. Use para não perder o veículo
+                            a cada remanejamento.
+                        </p>
+                        <div className="relative mb-2">
+                            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input
-                                type="checkbox"
-                                checked={obrasHabilitadas.map(String).includes(String(o.id))}
-                                onChange={() => alternarObra(o.id)}
-                                className="w-4 h-4 accent-yellow-500"
+                                type="text"
+                                value={buscaVeiculo}
+                                onChange={(e) => setBuscaVeiculo(e.target.value)}
+                                placeholder="Buscar por RE, placa ou tipo…"
+                                className="w-full pl-7 p-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-yellow-400 outline-none"
                             />
-                            <span className="text-xs text-gray-700">{formatObraNome(o) || o.nome}</span>
-                        </label>
-                    ))}
+                        </div>
+                        <div className="max-h-56 overflow-y-auto border rounded-lg divide-y">
+                            {veiculosVisiveis.length === 0 && (
+                                <p className="p-3 text-xs text-gray-400">
+                                    {buscaVeiculo ? 'Nenhum veículo encontrado.' : 'Nenhum veículo carregado.'}
+                                </p>
+                            )}
+                            {veiculosVisiveis.map((v) => (
+                                <label key={v.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={veiculosHabilitados.map(String).includes(String(v.id))}
+                                        onChange={() => alternarVeiculo(v.id)}
+                                        className="w-4 h-4 accent-yellow-500"
+                                    />
+                                    <span className="text-xs text-gray-700">{rotuloVeiculo(v)}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <p className="text-[11px] text-gray-600 mt-2">
+                            {veiculosHabilitados.length} veículo(s) no piloto
+                            {!buscaVeiculo && veiculosElegiveis.length > veiculosVisiveis.length && (
+                                <span className="text-gray-400"> · busque para ver os demais</span>
+                            )}
+                            .
+                        </p>
+                    </div>
                 </div>
-                <p className="text-[11px] text-gray-600 mt-2">
-                    {obrasHabilitadas.length} obra(s) no piloto.
-                </p>
             </section>
 
             {/* ─── Limiares ─── */}
