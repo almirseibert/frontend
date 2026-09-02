@@ -13,7 +13,6 @@ const ConfirmRefuelingModal = ({
     apiClient,
     reloadData,
     onAfterConfirm,
-    refuelings = [],
     obras = [],
     expenses = [],
     vehicles = [],
@@ -21,6 +20,20 @@ const ConfirmRefuelingModal = ({
     employees = [],
     PasswordConfirmationModal
 }) => {
+    // Histórico do veículo desta ordem, para a estimativa de consumo. Vem de
+    // GET /refuelings/vehicle/:id — antes era filtrado do array completo, que
+    // obrigava a tela a carregar a tabela inteira.
+    const [vehicleHistory, setVehicleHistory] = useState([]);
+    useEffect(() => {
+        if (!order.vehicleId) { setVehicleHistory([]); return; }
+        let cancelado = false;
+        apiClient
+            .getRefuelingsByVehicle(order.vehicleId)
+            .then(rs => { if (!cancelado) setVehicleHistory(Array.isArray(rs) ? rs : []); })
+            .catch(() => { if (!cancelado) setVehicleHistory([]); });
+        return () => { cancelado = true; };
+    }, [order.vehicleId, apiClient]);
+
     const [litros, setLitros] = useState(order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
 
@@ -216,10 +229,10 @@ const ConfirmRefuelingModal = ({
 
     // --- 6. Médias (últimos 3 abastecimentos + atual) ---
     const mediaStats = useMemo(() => {
-        if (!order.vehicleId || refuelings.length === 0) return null;
+        if (!order.vehicleId || vehicleHistory.length === 0) return null;
 
-        const history = refuelings
-            .filter(r => r.vehicleId === order.vehicleId && r.status === 'Concluída')
+        const history = vehicleHistory
+            .filter(r => r.status === 'Concluída')
             .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
 
         if (history.length < 2) return null;
@@ -252,7 +265,7 @@ const ConfirmRefuelingModal = ({
         }
 
         return { items, combinedAvg, currentAvg };
-    }, [refuelings, order.vehicleId, kmOuHrConfirmado, litros]);
+    }, [vehicleHistory, order.vehicleId, kmOuHrConfirmado, litros]);
 
     // --- 7. Alerta de Média ---
     useEffect(() => {
@@ -267,20 +280,6 @@ const ConfirmRefuelingModal = ({
     // --- HANDLERS ---
     const handleConfirmClick = (e) => {
         if (e) e.preventDefault();
-
-        if (invoiceNumber && order.partnerId) {
-            const nfStr = invoiceNumber.toString().trim();
-            const isDuplicate = refuelings.some(r =>
-                r.partnerId === order.partnerId &&
-                r.invoiceNumber === nfStr &&
-                r.id !== order.id
-            );
-
-            if (isDuplicate) {
-                setAlertMessage(`A Nota Fiscal ${nfStr} já consta lançada para este posto.`);
-                return;
-            }
-        }
 
         if (blockReason) {
             setShowPasswordModal(true);

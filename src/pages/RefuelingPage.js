@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone, EyeOff, Eye, Clock, Ban, Unlock, ChevronDown, ChevronRight } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
 import { jsPDF } from 'jspdf'; 
@@ -18,7 +18,6 @@ const RefuelingPage = ({
     vehicles = [],
     obras = [],
     partners = [], 
-    refuelings = [], 
     employees = [],
     expenses = [], 
     setAlertMessage,
@@ -86,47 +85,47 @@ const RefuelingPage = ({
         } catch { return null; }
     };
 
-    const STATUSES_PENDENTES = ['Aberta', 'BloqueadoLeitura', 'BloqueadoOrcamento'];
+    // ─── Listas da tela ────────────────────────────────────────────────────
+    // Cada lista é buscada por escopo em vez de derivada do array completo de
+    // refuelings. A tela exibia no máximo 20 linhas de histórico, mas obrigava
+    // o DataContext a baixar os ~23 mil registros da tabela só para filtrá-los
+    // no cliente. A busca do histórico roda no servidor, então continua
+    // alcançando todo o período — e não apenas as linhas já carregadas.
+    const [openRefuelings, setOpenRefuelings] = useState([]);
+    const [hiddenRefuelings, setHiddenRefuelings] = useState([]);
+    const [latestRefuelings, setLatestRefuelings] = useState([]);
+    const [listsRefreshKey, setListsRefreshKey] = useState(0);
 
-    // As ordens reservadas só chegam do backend para o próprio emissor. Aqui elas
-    // saem das listas normais para não duplicarem com o painel "Ordens Reservadas".
-    const openRefuelings = useMemo(() => {
-        return refuelings
-            .filter(r => !r.isHidden && STATUSES_PENDENTES.includes(r.status))
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
-    }, [refuelings]);
+    const recarregarListas = useCallback(() => setListsRefreshKey(k => k + 1), []);
 
-    const hiddenRefuelings = useMemo(() => {
-        return refuelings
-            .filter(r => r.isHidden)
-            .sort((a,b) => (b.authNumber || 0) - (a.authNumber || 0));
-    }, [refuelings]);
+    useEffect(() => {
+        let cancelado = false;
+        Promise.all([
+            apiClient.getRefuelingsByScope('pendentes').catch(() => []),
+            apiClient.getRefuelingsByScope('ocultas').catch(() => []),
+        ]).then(([pend, ocultas]) => {
+            if (cancelado) return;
+            const porAuth = (a, b) => (b.authNumber || 0) - (a.authNumber || 0);
+            setOpenRefuelings((Array.isArray(pend) ? pend : []).sort(porAuth));
+            setHiddenRefuelings((Array.isArray(ocultas) ? ocultas : []).sort(porAuth));
+        });
+        return () => { cancelado = true; };
+    }, [listsRefreshKey]);
 
-    const latestRefuelings = useMemo(() => {
-        let list = [...refuelings].filter(r => !r.isHidden && (r.status === 'Concluída' || r.status === 'Cancelada'));
-        
-        if (latestOrdersSearchTerm) {
-            const term = latestOrdersSearchTerm.toLowerCase();
-            list = list.filter(o => {
-                const vehicle = vehicles.find(v => v.id === o.vehicleId);
-                const orderNum = String(o.authNumber || '');
-                const re = vehicle?.registroInterno?.toLowerCase() || '';
-                const placa = vehicle?.placa?.toLowerCase() || '';
-                
-                return orderNum.includes(term) || re.includes(term) || placa.includes(term);
-            });
-        }
-
-        return list
-            .sort((a,b) => {
-                const dateA = new Date(a.data || a.date || 0).getTime();
-                const dateB = new Date(b.data || b.date || 0).getTime();
-                const diffDate = dateB - dateA;
-                if (diffDate !== 0) return diffDate;
-                return (b.authNumber || 0) - (a.authNumber || 0);
+    // Histórico: 20 linhas, já ordenadas e filtradas pelo servidor.
+    useEffect(() => {
+        let cancelado = false;
+        const params = { page: 1, limit: 20 };
+        if (latestOrdersSearchTerm) params.search = latestOrdersSearchTerm;
+        apiClient
+            .getRefuelingsByScope('historico', params)
+            .then(res => {
+                if (cancelado) return;
+                setLatestRefuelings(Array.isArray(res?.data) ? res.data : []);
             })
-            .slice(0, 20); 
-    }, [refuelings, latestOrdersSearchTerm, vehicles]);
+            .catch(() => { if (!cancelado) setLatestRefuelings([]); });
+        return () => { cancelado = true; };
+    }, [latestOrdersSearchTerm, listsRefreshKey]);
 
     // ─── Status de entrega das ordens (chegou ao posto?) ────────────────────
     // Antes disso, uma ordem que falhou no WhatsApp era visualmente idêntica a
@@ -627,7 +626,6 @@ const RefuelingPage = ({
                         </div>
                         <RefuelingHistory 
                             vehicleId={selectedVehicleId}
-                            refuelings={refuelings}
                             vehicles={vehicles}
                             partners={partners}
                             employees={employees}
@@ -761,7 +759,6 @@ const RefuelingPage = ({
                     obras={obras}
                     partners={partners}
                     employees={employees}
-                    refuelings={refuelings}
                     expenses={expenses}
                     vehicleGroups={vehicleGroups}
                     extraObraOptions={extraObraOptions}
@@ -787,7 +784,6 @@ const RefuelingPage = ({
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
                     reloadData={reloadData}
-                    refuelings={refuelings}
                     partners={partners}
                     employees={employees}
                     PasswordConfirmationModal={PasswordConfirmationModal}

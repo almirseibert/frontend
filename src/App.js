@@ -563,7 +563,10 @@ const AppContent = () => {
         vehicles:             ['revisions', 'fines'],
         revisions:            ['revisions'],
         relatos:              ['relatos', 'holidays', 'orders'],
-        refueling:            ['refuelings', 'revisions'],
+        // A tela de Abastecimento busca suas listas por escopo
+        // (pendentes/ocultas/historico) e o histórico por veículo, em vez de
+        // carregar os ~23 mil registros da tabela inteira.
+        refueling:            ['revisions'],
         saldo_postos:         ['partnerFuelCredits'],
         admin_solicitacoes:   ['refuelings'],
         comboio:              ['comboioTransactions', 'refuelings'],

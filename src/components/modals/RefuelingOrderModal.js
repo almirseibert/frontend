@@ -16,7 +16,6 @@ const RefuelingOrderModal = ({
     obras = [],
     partners = [],
     employees = [],
-    refuelings = [], 
     expenses = [], 
     onClose,
     setAlertMessage,
@@ -202,17 +201,37 @@ const RefuelingOrderModal = ({
         [formData.date, holidaySet]
     );
 
-    // Ordem aberta = qualquer status que NÃO seja terminal. Inverter a lista
-    // (em vez de listar "abertos") protege contra status novos do backend.
-    const openOrderForVehicle = useMemo(() => {
-        if (!formData.vehicleId) return null;
-        const closedStatuses = ['Concluída', 'Concluida', 'Cancelada', 'Negada', 'Baixada'];
-        return refuelings.find(r =>
-            r.vehicleId === formData.vehicleId &&
-            !closedStatuses.includes(r.status) &&
-            (!isEditing || r.id !== orderToEdit.id)
-        );
-    }, [formData.vehicleId, refuelings, isEditing, orderToEdit]);
+    // Ordem aberta = qualquer status que NÃO seja terminal. A regra roda no
+    // servidor (GET /refuelings/open): antes ela varria o array inteiro de
+    // refuelings no cliente, o que obrigava a tela a baixar os ~23 mil
+    // registros e, pior, deixava de enxergar qualquer ordem que não estivesse
+    // no array carregado.
+    // Histórico do veículo selecionado, usado para o preenchimento automático e
+    // para a média. Vem de GET /refuelings/vehicle/:id — antes era um filtro
+    // sobre o array completo de refuelings, que só existia porque a tela inteira
+    // baixava a tabela.
+    const [vehicleHistory, setVehicleHistory] = useState([]);
+
+    const [openOrderForVehicle, setOpenOrderForVehicle] = useState(null);
+    useEffect(() => {
+        if (!formData.vehicleId) { setOpenOrderForVehicle(null); return; }
+        let cancelado = false;
+        apiClient
+            .getOpenRefueling(formData.vehicleId, isEditing ? orderToEdit?.id : undefined)
+            .then(r => { if (!cancelado) setOpenOrderForVehicle(r || null); })
+            .catch(() => { if (!cancelado) setOpenOrderForVehicle(null); });
+        return () => { cancelado = true; };
+    }, [formData.vehicleId, isEditing, orderToEdit, apiClient]);
+
+    useEffect(() => {
+        if (!formData.vehicleId) { setVehicleHistory([]); return; }
+        let cancelado = false;
+        apiClient
+            .getRefuelingsByVehicle(formData.vehicleId)
+            .then(rs => { if (!cancelado) setVehicleHistory(Array.isArray(rs) ? rs : []); })
+            .catch(() => { if (!cancelado) setVehicleHistory([]); });
+        return () => { cancelado = true; };
+    }, [formData.vehicleId, apiClient]);
 
     // Veículos fictícios (gerador, lava-jato, ajuda de custo etc.) marcados em
     // Admin > Abastecimento ignoram a regra de duplicidade.
@@ -233,44 +252,23 @@ const RefuelingOrderModal = ({
                 return;
             }
 
-            // Gasto com combustível: a base real são os abastecimentos concluídos
-            // (litros × preço + ARLA + outros). A tabela de `expenses` não possui
-            // categoria 'Combustível', então sozinha o cálculo resultava sempre em
-            // R$ 0,00. Usamos o maior valor entre expenses e refuelings — mesma regra
-            // do backend (updateMonthlyExpense) e da tela de Solicitações.
-            const totalFromExpenses = (expenses || [])
-                .filter(e => String(e.obraId) === String(formData.obraId) && (e.category === 'Combustível' || e.fuelType))
-                .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-
-            const totalFromRefuelings = (refuelings || [])
-                .filter(r => String(r.obraId) === String(formData.obraId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
-                .reduce((sum, r) => {
-                    const litros = parseFloat(r.litrosAbastecidos || 0);
-                    const preco = parseFloat(r.pricePerLiter || 0);
-                    const litrosArla = parseFloat(r.litrosAbastecidosArla || 0);
-                    const precoArla = parseFloat(r.pricePerLiterArla || 0);
-                    const outros = parseFloat(r.outrosValor || 0);
-                    return sum + (litros * preco) + (litrosArla * precoArla) + outros;
-                }, 0);
-
-            const totalFuelExpenses = Math.max(totalFromExpenses, totalFromRefuelings);
-
-            const valorTotalObra = parseFloat(obra.valorTotalContrato || obra.valorContrato || 0);
-
-            if (valorTotalObra > 0) {
-                const percentual = (totalFuelExpenses / valorTotalObra) * 100;
-                setObraStatus({
-                    totalGasto: totalFuelExpenses,
-                    valorContrato: valorTotalObra,
-                    percentual: percentual
-                });
-            } else {
-                setObraStatus(null);
-            }
+            // Gasto de combustível da obra vem do servidor (GET
+            // /refuelings/obra-status/:obraId), que aplica a mesma regra de antes
+            // (o MAIOR entre o somatório de `expenses` de combustível e o dos
+            // abastecimentos concluídos). Antes isso somava o array completo de
+            // refuelings no cliente — com array parcial o gasto seria
+            // subestimado e o portão de orçamento liberaria ordens que deveria
+            // barrar.
+            let cancelado = false;
+            apiClient
+                .getObraFuelStatus(formData.obraId)
+                .then(st => { if (!cancelado) setObraStatus(st || null); })
+                .catch(() => { if (!cancelado) setObraStatus(null); });
+            return () => { cancelado = true; };
         } else {
             setObraStatus(null);
         }
-    }, [formData.obraId, obras, expenses, refuelings, extraObraOptions]);
+    }, [formData.obraId, obras, extraObraOptions, apiClient]);
 
 
     const sortedVehicles = useMemo(() =>
@@ -301,8 +299,8 @@ const RefuelingOrderModal = ({
             return;
         }
 
-        const history = refuelings
-            .filter(r => r.vehicleId === selectedVehicle.id && r.status === 'Concluída')
+        const history = vehicleHistory
+            .filter(r => r.status === 'Concluída')
             .sort((a,b) => {
                 const dateA = a.data || a.date;
                 const dateB = b.data || b.date;
@@ -383,7 +381,7 @@ const RefuelingOrderModal = ({
         } else {
             setLastAverage(null);
         }
-    }, [selectedVehicle, obras, refuelings, isEditing, isSolicitacao, formData.employeeId, formData.obraId, formData.partnerId, formData.fuelType, formData.litrosLiberados]);
+    }, [selectedVehicle, obras, vehicleHistory, isEditing, isSolicitacao, formData.employeeId, formData.obraId, formData.partnerId, formData.fuelType, formData.litrosLiberados]);
 
     useEffect(() => {
         setBlockReason(null);

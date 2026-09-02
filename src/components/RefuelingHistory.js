@@ -1,13 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Download, Printer, Droplet, Loader, Filter, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getGroupUnit, getReadingSourceForUnit, computeConsumption } from '../utils/vehicleRules';
 import { resolveOrderPartnerName } from '../utils/partners';
+import apiClient from '../services/apiClient';
 
+// O histórico é buscado por veículo (GET /refuelings/vehicle/:id). Antes vinha
+// como prop a partir do array completo de refuelings, que a tela só carregava
+// para depois filtrar por vehicleId aqui dentro.
 const RefuelingHistory = ({ 
     vehicleId, 
-    refuelings = [], 
     vehicles = [], 
     vehicleGroups = {}, 
     partners = [],
@@ -16,6 +19,17 @@ const RefuelingHistory = ({
 }) => {
     
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+    const [refuelings, setRefuelings] = useState([]);
+
+    useEffect(() => {
+        if (!vehicleId) { setRefuelings([]); return; }
+        let cancelado = false;
+        apiClient
+            .getRefuelingsByVehicle(vehicleId)
+            .then(rs => { if (!cancelado) setRefuelings(Array.isArray(rs) ? rs : []); })
+            .catch(() => { if (!cancelado) setRefuelings([]); });
+        return () => { cancelado = true; };
+    }, [vehicleId]);
     
     // Estados para Filtro de Período
     const [startDate, setStartDate] = useState('');

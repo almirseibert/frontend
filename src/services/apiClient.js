@@ -447,6 +447,20 @@ const apiClient = {
     // --- Abastecimentos (Legado/Admin) ---
     getRefuelings: async () => apiFetch('/refuelings'),
     getRefuelingsByVehicle: async (vehicleId) => apiFetch(`/refuelings/vehicle/${vehicleId}`),
+    // Fatias da tela de Abastecimento — evitam baixar a tabela inteira só para
+    // montar as três listas exibidas. `historico` aceita page/limit/startDate/endDate.
+    getRefuelingsByScope: async (scope, params = {}) => {
+        const qs = new URLSearchParams({ scope, ...params }).toString();
+        return apiFetch(`/refuelings?${qs}`);
+    },
+    // Ordem em aberto de um veículo (trava de ordem-aberta, antes feita no cliente)
+    getOpenRefueling: async (vehicleId, excludeId) => {
+        const qs = new URLSearchParams({ vehicleId });
+        if (excludeId) qs.set('excludeId', excludeId);
+        return apiFetch(`/refuelings/open?${qs.toString()}`);
+    },
+    // Gasto de combustível da obra vs. valor de contrato
+    getObraFuelStatus: async (obraId) => apiFetch(`/refuelings/obra-status/${obraId}`),
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
