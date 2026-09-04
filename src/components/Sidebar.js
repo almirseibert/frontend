@@ -3,7 +3,7 @@ import {
     Building, HardHat, ClipboardCheck, FileText,
     Fuel, Wrench, User, Shield, LogOut, Settings,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-    Radio, Search
+    Search
 } from 'lucide-react';
 import { getEffectivePages, canAccessAnaliseGerencial } from '../utils/permissions';
 import { getStatusMeta } from '../utils/chatStatus';
@@ -103,15 +103,6 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onOpenSettings, my
                 { id: 'partners',  label: 'Fornecedores',    hidden: !canAccess('partners') },
                 { id: 'inventory', label: 'Estoque / Peças', hidden: !canAccess('inventory') },
                 { id: 'fines',     label: 'Multas',          hidden: !canAccess('fines') },
-            ],
-        },
-        {
-            id: 'rastreamento',
-            label: 'Rastreamento',
-            icon: <Radio size={14} />,
-            hidden: !canAccess('sigasul'),
-            items: [
-                { id: 'sigasul', label: 'SigaSul GPS' },
             ],
         },
         {

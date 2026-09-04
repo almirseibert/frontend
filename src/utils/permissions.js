@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 export const ROLE_PAGE_ACCESS = {
   admin:         ['*'],
-  gerencia:      ['dashboard','obras','planejamento','expenses','operacional','billing','terceirizados','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','revisions','relatos','tires','vehicles','employees','partners','inventory','fines','sigasul','supervisor_dashboard','analise_gerencial'],
+  gerencia:      ['dashboard','obras','planejamento','expenses','operacional','billing','terceirizados','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','revisions','relatos','tires','vehicles','employees','partners','inventory','fines','supervisor_dashboard','analise_gerencial'],
   rh:            ['dashboard','obras','billing','reports','vehicles','employees','fines'],
   faturamento:   ['dashboard','obras','operacional','billing','terceirizados','reports','vehicles'],
   abastecimento: ['dashboard','obras','expenses','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','vehicles','partners','inventory'],
@@ -75,7 +75,6 @@ export const PAGE_SECTIONS = [
       { id: 'inventory', label: 'Estoque / Peças' },
       { id: 'fines',     label: 'Multas' },
   ] },
-  { section: 'Rastreamento',      pages: [{ id: 'sigasul', label: 'SigaSul GPS' }] },
   { section: 'Administração',     note: 'Chave única: libera a seção inteira (Usuários & Acesso, Frota, Comunicação, Sistema).', pages: [{ id: 'admin', label: 'Administração (acesso total)' }] },
 ];
 
