@@ -1,41 +1,49 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ExcavatorLoader from '../components/ui/ExcavatorLoader';
 import {
-    LayoutDashboard, RefreshCw, Loader, AlertCircle, Truck,
-    Activity, Search, X, Clock, CheckCircle2,
-    AlertTriangle, ArrowUpDown,
-    FileDown, Users
+    LayoutDashboard, RefreshCw, AlertCircle, Truck,
+    Search, X, FileDown,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
-import ContractConfigModal from '../components/supervisor/ContractConfigModal';
 import AllocationForecastPage from './AllocationForecastPage';
 
 const REFRESH_INTERVAL_MS = 300000;
 
-const fmtBRL = (v) => `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-const fmtBRLCompact = (v) => {
-    const n = Number(v) || 0;
-    if (Math.abs(n) >= 1_000_000) return `R$ ${(n / 1_000_000).toFixed(1).replace('.', ',')}M`;
-    if (Math.abs(n) >= 1_000) return `R$ ${(n / 1_000).toFixed(0)}k`;
-    return `R$ ${n.toFixed(0)}`;
-};
+// Toda exibição de dinheiro passa por aqui: formato brasileiro, sempre com
+// centavos — inclusive nos agregados da carteira e no PDF exportado.
+const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
 const STATUS_LABELS = {
     red: { label: 'Crítica', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500' },
     violet: { label: 'Atenção', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200', dot: 'bg-purple-500' },
     yellow: { label: 'Em andamento', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-400' },
     green: { label: 'Saudável', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', dot: 'bg-emerald-500' },
 };
+// Opções do filtro de status. 'atencao' agrega red+violet e é o mesmo número
+// que a faixa da carteira anuncia como "exigem atenção".
+const STATUS_FILTER_OPTIONS = [
+    { id: 'todos',   label: 'Todas' },
+    { id: 'atencao', label: 'Críticas e atenção' },
+    { id: 'red',     label: 'Críticas' },
+    { id: 'violet',  label: 'Atenção' },
+    { id: 'yellow',  label: 'Em andamento' },
+    { id: 'green',   label: 'Saudáveis' },
+];
+
 const SORT_OPTIONS = [
     { id: 'criticidade', label: 'Criticidade' },
     { id: 'conclusao_desc', label: 'Maior % conclusão' },
     { id: 'conclusao_asc', label: 'Menor % conclusão' },
     { id: 'prazo_asc', label: 'Menor prazo' },
-    { id: 'margem_asc', label: 'Pior margem' },
-    { id: 'margem_desc', label: 'Melhor margem' },
-    { id: 'receita_desc', label: 'Maior receita' },
+    { id: 'receita_desc', label: 'Maior valor de contrato' },
+    { id: 'terceiros_desc', label: 'Maior % terceirizado' },
     { id: 'nome', label: 'Nome (A-Z)' },
 ];
 
@@ -58,13 +66,12 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(new Date());
     const [viewMode, setViewMode] = useState('dashboard');
-    const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-    const [selectedObraForConfig, setSelectedObraForConfig] = useState(null);
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('todos');
     const [sortBy, setSortBy] = useState('criticidade');
-    const [groupMode, setGroupMode] = useState('status'); // 'status' | 'responsavel' | 'none'
+    const [soComTerceiros, setSoComTerceiros] = useState(false);
+    const [orgaoFilter, setOrgaoFilter] = useState('todos');
 
     const fetchDashboardData = async () => {
         try {
@@ -93,6 +100,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             total: 0, capacidadeTotal: 0, conclusaoPonderada: 0, criticas: 0,
             receitaTotal: 0, custoTotal: 0, valorProduzido: 0, margemMediaPct: 0,
             aditivoEstourado: 0, aditivoRisco: 0,
+            terceirosTotal: 0, obrasComTerceiros: 0, terceirosPct: 0,
         };
         if (!obras.length) return empty;
 
@@ -104,6 +112,8 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
         let valorProduzido = 0;
         let aditivoEstourado = 0;
         let aditivoRisco = 0;
+        let terceirosTotal = 0;
+        let obrasComTerceiros = 0;
 
         obras.forEach(o => {
             const horasContr = Number(o.kpi?.horas_contratadas) || 0;
@@ -118,6 +128,9 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             receitaTotal += fin.valorTotal;
             custoTotal += fin.gasto;
             valorProduzido += fin.valorProduzido;
+
+            const vTerc = Number(o.kpi?.valor_terceiros) || 0;
+            if (vTerc > 0) { terceirosTotal += vTerc; obrasComTerceiros++; }
 
             // Exposição a aditivo:
             // - estourado: obras com perc > 100% → R$ adicional implícito (perc-100)/100 × valorTotal
@@ -147,97 +160,85 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             margemMediaPct,
             aditivoEstourado,
             aditivoRisco,
+            terceirosTotal,
+            obrasComTerceiros,
+            terceirosPct: receitaTotal > 0 ? (terceirosTotal / receitaTotal) * 100 : 0,
         };
     }, [obras]);
 
+    // Órgãos contratantes presentes na carteira, com quantas obras cada um tem.
+    // Derivado dos dados — não há cadastro fechado de órgãos.
+    const orgaos = useMemo(() => {
+        const map = new Map();
+        obras.forEach(o => {
+            const nome = (o.orgao_contratante || '').trim();
+            if (!nome) return;
+            map.set(nome, (map.get(nome) || 0) + 1);
+        });
+        return Array.from(map.entries())
+            .map(([nome, count]) => ({ nome, count }))
+            .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    }, [obras]);
+
+    const semOrgaoCount = useMemo(
+        () => obras.filter(o => !(o.orgao_contratante || '').trim()).length,
+        [obras]
+    );
+
+    // Contagens por status. `atencao` = críticas + atenção (red + violet): é o
+    // número que a faixa da carteira mostra, e agora existe como opção de filtro
+    // — antes a faixa dizia 16 e o chip "Crítica" filtrava 9, contagens
+    // diferentes da mesma ideia lado a lado.
     const statusCounts = useMemo(() => {
         const counts = { red: 0, violet: 0, yellow: 0, green: 0 };
         obras.forEach(o => {
             const s = o.kpi?.status_cor || 'green';
             if (counts[s] !== undefined) counts[s]++;
         });
-        return counts;
-    }, [obras]);
-
-    // Obra com o prazo estimado mais próximo (para o resumo operacional do topo)
-    const proximoPrazo = useMemo(() => {
-        const comPrazo = obras.filter(o => (o.kpi?.dias_restantes_estimados || 0) > 0 && !o.kpi?.is_hidden);
-        if (!comPrazo.length) return null;
-        return comPrazo.reduce((min, o) =>
-            o.kpi.dias_restantes_estimados < min.kpi.dias_restantes_estimados ? o : min
-        );
+        return { ...counts, atencao: counts.red + counts.violet };
     }, [obras]);
 
     const filteredAndSorted = useMemo(() => {
         const normalize = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
         const q = normalize(search);
         let list = obras.filter(o => {
-            if (statusFilter !== 'todos' && (o.kpi?.status_cor || 'green') !== statusFilter) return false;
+            if (soComTerceiros && !(Number(o.kpi?.valor_terceiros) > 0)) return false;
+
+            const orgaoObra = (o.orgao_contratante || '').trim();
+            if (orgaoFilter === '__sem__') {
+                if (orgaoObra) return false;
+            } else if (orgaoFilter !== 'todos' && orgaoObra !== orgaoFilter) {
+                return false;
+            }
+
+            const cor = o.kpi?.status_cor || 'green';
+            if (statusFilter === 'atencao') {
+                if (cor !== 'red' && cor !== 'violet') return false;
+            } else if (statusFilter !== 'todos' && cor !== statusFilter) {
+                return false;
+            }
             if (!q) return true;
             return normalize(o.nome).includes(q)
+                || normalize(o.orgao_contratante).includes(q)
                 || normalize(o.responsavel).includes(q)
                 || normalize(o.fiscal_nome).includes(q);
         });
 
-        const margemOf = (o) => {
-            const f = computeObraFinance(o);
-            return f.margemPct === null ? -Infinity : f.margemPct;
-        };
         const cmp = {
             criticidade: (a, b) => (STATUS_ORDER[a.kpi?.status_cor] ?? 9) - (STATUS_ORDER[b.kpi?.status_cor] ?? 9)
                 || (b.kpi?.percentual_conclusao || 0) - (a.kpi?.percentual_conclusao || 0),
             conclusao_desc: (a, b) => (b.kpi?.percentual_conclusao || 0) - (a.kpi?.percentual_conclusao || 0),
             conclusao_asc: (a, b) => (a.kpi?.percentual_conclusao || 0) - (b.kpi?.percentual_conclusao || 0),
             prazo_asc: (a, b) => (a.kpi?.dias_restantes_estimados ?? 99999) - (b.kpi?.dias_restantes_estimados ?? 99999),
-            margem_asc: (a, b) => margemOf(a) - margemOf(b),
-            margem_desc: (a, b) => margemOf(b) - margemOf(a),
             receita_desc: (a, b) => (Number(b.kpi?.valor_total_contrato) || 0) - (Number(a.kpi?.valor_total_contrato) || 0),
+            terceiros_desc: (a, b) => (Number(b.kpi?.percentual_terceirizado) || 0) - (Number(a.kpi?.percentual_terceirizado) || 0)
+                || (Number(b.kpi?.valor_terceiros) || 0) - (Number(a.kpi?.valor_terceiros) || 0),
             nome: (a, b) => (a.nome || '').localeCompare(b.nome || ''),
         }[sortBy];
 
         return [...list].sort(cmp);
-    }, [obras, search, statusFilter, sortBy]);
+    }, [obras, search, statusFilter, sortBy, soComTerceiros, orgaoFilter]);
 
-    const groups = useMemo(() => {
-        if (groupMode !== 'status') return null;
-        const buckets = { criticas: [], andamento: [], saudaveis: [] };
-        filteredAndSorted.forEach(o => {
-            const s = o.kpi?.status_cor || 'green';
-            if (s === 'red' || s === 'violet') buckets.criticas.push(o);
-            else if (s === 'yellow') buckets.andamento.push(o);
-            else buckets.saudaveis.push(o);
-        });
-        return buckets;
-    }, [filteredAndSorted, groupMode]);
-
-    // Agregação por responsável (substitui agrupamento por status quando ativo)
-    const groupsByResponsavel = useMemo(() => {
-        if (groupMode !== 'responsavel') return null;
-        const map = new Map();
-        filteredAndSorted.forEach(o => {
-            const key = (o.responsavel || 'Sem responsável').trim();
-            if (!map.has(key)) map.set(key, { responsavel: key, obras: [], receita: 0, gasto: 0, valorProduzido: 0, criticas: 0 });
-            const g = map.get(key);
-            const fin = computeObraFinance(o);
-            g.obras.push(o);
-            g.receita += fin.valorTotal;
-            g.gasto += fin.gasto;
-            g.valorProduzido += fin.valorProduzido;
-            if (o.kpi?.status_cor === 'red' || o.kpi?.status_cor === 'violet') g.criticas++;
-        });
-        return Array.from(map.values())
-            .map(g => ({
-                ...g,
-                margemPct: g.valorProduzido > 0 ? ((g.valorProduzido - g.gasto) / g.valorProduzido) * 100 : null,
-            }))
-            .sort((a, b) => b.receita - a.receita);
-    }, [filteredAndSorted, groupMode]);
-
-    const handleConfigClick = (e, obra) => {
-        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
-        setSelectedObraForConfig(obra);
-        setIsConfigModalOpen(true);
-    };
 
     // Porta de entrada da Ficha da Obra: o card de criticidade abre a Visão geral
     // consolidada (que substitui o antigo detalhe por-obra). Mantém fallback ao
@@ -259,7 +260,8 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
 
         // KPIs em texto
         const kpiLine = [
-            `Receita contratada: ${fmtBRL(aggregateKpis.receitaTotal)}`,
+            `Valor contratado: ${fmtBRL(aggregateKpis.receitaTotal)}`,
+            `Comprometido com terceiros: ${fmtBRL(aggregateKpis.terceirosTotal)} (${aggregateKpis.terceirosPct.toFixed(1)}%)`,
             `Custo realizado: ${fmtBRL(aggregateKpis.custoTotal)}`,
             `Valor produzido: ${fmtBRL(aggregateKpis.valorProduzido)}`,
             `Margem média: ${aggregateKpis.margemMediaPct.toFixed(1)}%`,
@@ -278,12 +280,15 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             const status = STATUS_LABELS[o.kpi?.status_cor || 'green']?.label || '—';
             return [
                 o.nome || '—',
-                o.responsavel || '—',
+                o.orgao_contratante || '—',
                 status,
                 `${(o.kpi?.percentual_conclusao || 0).toFixed(1)}%`,
                 `${Math.round(o.kpi?.horas_executadas || 0)} / ${Math.round(o.kpi?.horas_contratadas || 0)}`,
-                fmtBRLCompact(f.valorTotal),
-                fmtBRLCompact(f.gasto),
+                fmtBRL(f.valorTotal),
+                Number(o.kpi?.valor_terceiros) > 0
+                    ? `${fmtBRL(o.kpi.valor_terceiros)} (${(Number(o.kpi.percentual_terceirizado) || 0).toFixed(0)}%)`
+                    : '—',
+                fmtBRL(f.gasto),
                 f.margemPct === null ? '—' : `${f.margemPct.toFixed(0)}%`,
                 o.kpi?.dias_restantes_estimados ? `${o.kpi.dias_restantes_estimados} d` : '—',
             ];
@@ -291,7 +296,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
 
         autoTable(doc, {
             startY: 100,
-            head: [['Obra', 'Responsável', 'Status', '% Conc.', 'Horas (exec/contr)', 'Contrato', 'Gasto', 'Margem', 'Prazo']],
+            head: [['Obra', 'Órgão', 'Status', '% Conc.', 'Horas (exec/contr)', 'Contrato', 'Terceiros', 'Gasto', 'Margem', 'Prazo']],
             body: rows,
             styles: { fontSize: 8, cellPadding: 4 },
             headStyles: { fillColor: [30, 41, 59], textColor: 255 },
@@ -303,6 +308,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
                 6: { halign: 'right' },
                 7: { halign: 'right' },
                 8: { halign: 'right' },
+                9: { halign: 'right' },
             },
         });
 
@@ -318,21 +324,12 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
                     <ObraCard
                         obra={obra}
                         onClick={() => handleCardClick(obra.id)}
-                        onConfig={(e) => handleConfigClick(e, obra)}
                     />
                 </div>
             ))}
         </div>
     );
 
-    const GroupHeader = ({ icon: Icon, color, title, count }) => (
-        <div className="flex items-center gap-3 mb-3 mt-2">
-            <div className={`w-1.5 h-7 rounded-full ${color}`}></div>
-            <Icon size={18} className="text-slate-700" />
-            <h2 className="text-base font-bold text-slate-800 tracking-tight">{title}</h2>
-            <span className="text-xs font-bold text-slate-500 bg-slate-200 rounded-full px-2 py-0.5">{count}</span>
-        </div>
-    );
 
     return (
         <div className="bg-slate-100 min-h-screen p-6 animate-fade-in">
@@ -372,51 +369,45 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
                 </div>
             </div>
 
-            {/* Resumo operacional — visão rápida antes de entrar em qualquer obra.
-                Números financeiros (receita, custo, margem) vivem em "Desempenho do negócio". */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
-                <div className="grid grid-cols-2 lg:grid-cols-4 divide-y divide-x-0 lg:divide-y-0 lg:divide-x divide-slate-100">
-                    <div className="pb-3 lg:pb-0 lg:pr-4">
-                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-                            <LayoutDashboard size={14} /> Obras ativas
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800 mt-1">{aggregateKpis.total}</p>
-                        <p className="text-[11px] text-slate-500 mt-1">{statusCounts.green} saudáveis • {statusCounts.yellow} em andamento</p>
-                    </div>
-                    <div className="pb-3 lg:pb-0 lg:px-4">
-                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-                            <AlertTriangle size={14} /> Obras críticas
-                        </div>
-                        <p className={`text-2xl font-bold mt-1 ${aggregateKpis.criticas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{aggregateKpis.criticas}</p>
-                        <p className="text-[11px] text-slate-500 mt-1">{aggregateKpis.criticas > 0 ? 'Exigem atenção imediata' : 'Nenhuma pendência'}</p>
-                    </div>
-                    <div className="pt-3 lg:pt-0 lg:px-4">
-                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-                            <Activity size={14} /> Conclusão ponderada
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800 mt-1">{aggregateKpis.conclusaoPonderada}%</p>
-                        <p className="text-[11px] text-slate-500 mt-1">{aggregateKpis.capacidadeTotal.toLocaleString('pt-BR')}h contratadas no total</p>
-                    </div>
-                    <div className="pt-3 lg:pt-0 lg:pl-4">
-                        <div className="flex items-center gap-2 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-                            <Clock size={14} /> Próximo prazo
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800 mt-1">{proximoPrazo ? `${proximoPrazo.kpi.dias_restantes_estimados}d` : '—'}</p>
-                        <p className="text-[11px] text-slate-500 mt-1 truncate">{proximoPrazo ? proximoPrazo.nome : 'Nenhuma previsão de término'}</p>
-                    </div>
+            {/* ── Carteira (leitura) ───────────────────────────────────────────
+                Estado do negócio: uma linha, tabular, sem ícone e sem cor.
+                Nada aqui é controle — os controles vivem na faixa de baixo. */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-4 py-3 mb-3">
+                <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 tabular-nums">
+                    <span className="text-sm text-slate-600">
+                        <b className="text-slate-900">{aggregateKpis.total}</b> obras ativas
+                        {aggregateKpis.criticas > 0 && (
+                            <span className="text-slate-400"> · {aggregateKpis.criticas} exigem atenção</span>
+                        )}
+                    </span>
+                    <span className="text-sm text-slate-600">
+                        <b className="text-slate-900">{fmtBRL(aggregateKpis.receitaTotal)}</b> em contratos
+                    </span>
+                    <span className="text-sm text-slate-600">
+                        <b className="text-orange-700">{fmtBRL(aggregateKpis.terceirosTotal)}</b> com terceiros
+                        <span className="text-slate-400"> · {aggregateKpis.terceirosPct.toFixed(0)}% da carteira</span>
+                    </span>
+                    <span className="text-sm text-slate-600">
+                        <b className="text-slate-900">{aggregateKpis.capacidadeTotal.toLocaleString('pt-BR')} h</b> contratadas
+                        <span className="text-slate-400"> · {aggregateKpis.conclusaoPonderada}% concluído</span>
+                    </span>
                 </div>
             </div>
 
-            {/* Barra de busca + filtros */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-6 flex flex-wrap items-center gap-3">
-                <div className="relative flex-1 min-w-[200px]">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            {/* ── Controles (ferramenta) ───────────────────────────────────────
+                Busca + dois seletores de forma idêntica + contador de resultado.
+                Os chips de status viraram dropdown, e o agrupamento saiu junto
+                com a quebra da página em seções — a ordenação só faz sentido
+                sobre uma lista inteira. */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-2 mb-6 flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-[200px] max-w-md">
+                    <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                         type="text"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Buscar por obra, responsável ou fiscal..."
-                        className="w-full pl-9 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:border-blue-500 focus:bg-white outline-none"
+                        placeholder="Buscar obra, órgão, responsável…"
+                        className="w-full pl-8 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:border-blue-500 focus:bg-white outline-none"
                     />
                     {search && (
                         <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
@@ -425,59 +416,76 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
                     )}
                 </div>
 
-                <div className="flex items-center gap-1">
-                    {[
-                        { id: 'todos', label: 'Todas', count: obras.length, dot: 'bg-slate-400' },
-                        { id: 'red', label: 'Crítica', count: statusCounts.red, dot: STATUS_LABELS.red.dot },
-                        { id: 'violet', label: 'Atenção', count: statusCounts.violet, dot: STATUS_LABELS.violet.dot },
-                        { id: 'yellow', label: 'Em and.', count: statusCounts.yellow, dot: STATUS_LABELS.yellow.dot },
-                        { id: 'green', label: 'Saudável', count: statusCounts.green, dot: STATUS_LABELS.green.dot },
-                    ].map(opt => (
-                        <button
-                            key={opt.id}
-                            onClick={() => setStatusFilter(opt.id)}
-                            className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-md transition-colors ${
-                                statusFilter === opt.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-                            }`}
-                        >
-                            <span className={`w-2 h-2 rounded-full ${opt.dot}`}></span>
-                            {opt.label}
-                            <span className={`text-[10px] ${statusFilter === opt.id ? 'text-slate-300' : 'text-slate-400'}`}>{opt.count}</span>
-                        </button>
-                    ))}
-                </div>
+                <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                    Órgão
+                    <select
+                        value={orgaoFilter}
+                        onChange={(e) => setOrgaoFilter(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 px-2 py-1.5 outline-none focus:border-blue-500 max-w-[200px]"
+                    >
+                        <option value="todos">Todos ({obras.length})</option>
+                        {orgaos.map(o => (
+                            <option key={o.nome} value={o.nome}>{o.nome} ({o.count})</option>
+                        ))}
+                        {semOrgaoCount > 0 && (
+                            <option value="__sem__">Sem órgão ({semOrgaoCount})</option>
+                        )}
+                    </select>
+                </label>
 
-                <div className="flex items-center gap-2 ml-auto">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500 font-bold">
-                        <ArrowUpDown size={13} /> Ordenar
-                    </div>
+                <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                    Status
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 px-2 py-1.5 outline-none focus:border-blue-500"
+                    >
+                        {STATUS_FILTER_OPTIONS.map(o => (
+                            <option key={o.id} value={o.id}>
+                                {o.label} ({o.id === 'todos' ? obras.length : statusCounts[o.id] || 0})
+                            </option>
+                        ))}
+                    </select>
+                </label>
+
+                <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                    Ordenar
                     <select
                         value={sortBy}
                         onChange={(e) => setSortBy(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium px-2 py-1.5 outline-none focus:border-blue-500"
+                        className="bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 px-2 py-1.5 outline-none focus:border-blue-500"
                     >
                         {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                     </select>
+                </label>
 
-                    <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
-                        {[
-                            { id: 'status', label: 'Status', icon: AlertTriangle },
-                            { id: 'responsavel', label: 'Responsável', icon: Users },
-                            { id: 'none', label: 'Lista', icon: ArrowUpDown },
-                        ].map(g => (
-                            <button
-                                key={g.id}
-                                onClick={() => setGroupMode(g.id)}
-                                title={`Agrupar por ${g.label}`}
-                                className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-md transition-colors ${
-                                    groupMode === g.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                                }`}
-                            >
-                                <g.icon size={12} /> {g.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+                {/* Recorte da carteira terceirizada: filtro de uma pergunta só,
+                    por isso alternador e não mais uma opção enterrada num select. */}
+                <label
+                    className={`flex items-center gap-2 text-xs font-medium cursor-pointer select-none px-2.5 py-1.5 rounded-lg border transition-colors ${
+                        soComTerceiros
+                            ? 'bg-orange-50 border-orange-200 text-orange-800'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                    title="Mostrar apenas obras com contrato de terceiro ativo"
+                >
+                    <input
+                        type="checkbox"
+                        checked={soComTerceiros}
+                        onChange={(e) => setSoComTerceiros(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                    />
+                    Possui terceiro
+                    <span className={soComTerceiros ? 'text-orange-600' : 'text-slate-400'}>
+                        ({aggregateKpis.obrasComTerceiros})
+                    </span>
+                </label>
+
+                <span className="ml-auto text-xs text-slate-500 tabular-nums pr-1">
+                    {filteredAndSorted.length === obras.length
+                        ? `${obras.length} obras`
+                        : `${filteredAndSorted.length} de ${obras.length} obras`}
+                </span>
             </div>
 
             {/* Conteúdo */}
@@ -490,79 +498,15 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
                     <AlertCircle size={64} className="mx-auto mb-4 opacity-20" />
                     <p className="text-lg">{obras.length === 0 ? 'Nenhuma obra ativa encontrada.' : 'Nenhuma obra corresponde aos filtros.'}</p>
                     {obras.length > 0 && (
-                        <button onClick={() => { setSearch(''); setStatusFilter('todos'); }} className="mt-3 text-blue-600 hover:underline text-sm font-bold">
+                        <button onClick={() => { setSearch(''); setStatusFilter('todos'); setSoComTerceiros(false); setOrgaoFilter('todos'); }} className="mt-3 text-blue-600 hover:underline text-sm font-bold">
                             Limpar filtros
                         </button>
                     )}
-                </div>
-            ) : groupMode === 'status' && groups ? (
-                <div className="space-y-6">
-                    {groups.criticas.length > 0 && (
-                        <section>
-                            <GroupHeader icon={AlertTriangle} color="bg-red-500" title="Críticas / Atenção" count={groups.criticas.length} />
-                            {renderGrid(groups.criticas)}
-                        </section>
-                    )}
-                    {groups.andamento.length > 0 && (
-                        <section>
-                            <GroupHeader icon={Clock} color="bg-yellow-400" title="Em andamento" count={groups.andamento.length} />
-                            {renderGrid(groups.andamento)}
-                        </section>
-                    )}
-                    {groups.saudaveis.length > 0 && (
-                        <section>
-                            <GroupHeader icon={CheckCircle2} color="bg-emerald-500" title="Saudáveis" count={groups.saudaveis.length} />
-                            {renderGrid(groups.saudaveis)}
-                        </section>
-                    )}
-                </div>
-            ) : groupMode === 'responsavel' && groupsByResponsavel ? (
-                <div className="space-y-8">
-                    {groupsByResponsavel.map(g => {
-                        const margemColor = g.margemPct === null ? 'text-slate-500'
-                            : g.margemPct >= 20 ? 'text-emerald-700'
-                            : g.margemPct >= 5 ? 'text-yellow-700'
-                            : 'text-red-700';
-                        return (
-                            <section key={g.responsavel}>
-                                <div className="flex items-center gap-3 mb-3 mt-2 flex-wrap">
-                                    <div className="w-1.5 h-7 rounded-full bg-blue-500"></div>
-                                    <Users size={18} className="text-slate-700" />
-                                    <h2 className="text-base font-bold text-slate-800 tracking-tight">{g.responsavel}</h2>
-                                    <span className="text-xs font-bold text-slate-500 bg-slate-200 rounded-full px-2 py-0.5">{g.obras.length} obras</span>
-                                    <div className="flex items-center gap-3 text-xs text-slate-600 ml-2">
-                                        <span><b>Receita:</b> {fmtBRLCompact(g.receita)}</span>
-                                        <span className="text-slate-300">•</span>
-                                        <span><b>Gasto:</b> {fmtBRLCompact(g.gasto)}</span>
-                                        <span className="text-slate-300">•</span>
-                                        <span className={`font-bold ${margemColor}`}>
-                                            Margem: {g.margemPct === null ? '—' : `${g.margemPct.toFixed(1)}%`}
-                                        </span>
-                                        {g.criticas > 0 && (
-                                            <>
-                                                <span className="text-slate-300">•</span>
-                                                <span className="text-red-700 font-bold flex items-center gap-1">
-                                                    <AlertTriangle size={11} /> {g.criticas} crítica{g.criticas > 1 ? 's' : ''}
-                                                </span>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                                {renderGrid(g.obras)}
-                            </section>
-                        );
-                    })}
                 </div>
             ) : (
                 renderGrid(filteredAndSorted)
             )}
 
-            <ContractConfigModal
-                isOpen={isConfigModalOpen}
-                onClose={() => setIsConfigModalOpen(false)}
-                obra={selectedObraForConfig}
-                onSuccess={fetchDashboardData}
-            />
         </div>
     );
 };
