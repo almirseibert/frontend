@@ -7,6 +7,7 @@ import { useData, useEnsureResources } from '../contexts/DataContext';
 import ProtectedComponent from '../components/ProtectedComponent';
 import TerceirizadoPagamentoModal from '../components/modals/TerceirizadoPagamentoModal';
 import ContratoTerceiroModal from '../components/modals/ContratoTerceiroModal';
+import AditivoModal from '../components/modals/AditivoModal';
 import ContratoDetalhe from '../components/terceirizados/ContratoDetalhe';
 import { computeContrato, computeContratosPorTerceiro } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
@@ -65,6 +66,8 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const [extratoLoading, setExtratoLoading] = useState(false);
     const [docsAssinados, setDocsAssinados] = useState([]);
     const [assinadoLoading, setAssinadoLoading] = useState(false);
+    const [aditivoModal, setAditivoModal] = useState(null);     // { contrato, aditivo? }
+    const [aditivoLoadingId, setAditivoLoadingId] = useState(null);
 
     const reload = () => { refresh?.('terceiroContratos'); refresh?.('terceirizadoPagamentos'); };
 
@@ -196,6 +199,69 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     // Baixa uma versão específica do histórico (ex.: a versão só com a assinatura do cliente).
     const handleBaixarDocAssinado = (doc) => {
         if (doc?.url) window.open(`${FILE_ORIGIN}${doc.url}?v=${Date.now()}`, '_blank', 'noopener');
+    };
+
+    // ── Termos aditivos ───────────────────────────────────────────────────────
+    // Só a assinatura do aditivo muda os números do contrato; por isso todo handler
+    // que mexe no estado do aditivo recarrega terceiroContratos (o backend devolve
+    // o bloco `vigente` recalculado junto de cada contrato).
+    const handleGerarAditivoPdf = async (aditivo) => {
+        if (!detalheId) return;
+        setAditivoLoadingId(aditivo.id);
+        try {
+            const { url } = await apiClient.gerarAditivoPdf(detalheId, aditivo.id);
+            window.open(`${FILE_ORIGIN}${url}?v=${Date.now()}`, '_blank', 'noopener');
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao gerar PDF do aditivo.');
+        } finally {
+            setAditivoLoadingId(null);
+        }
+    };
+
+    const handleEnviarAditivoAssinado = async (aditivoId, file) => {
+        if (!detalheId || !file) return;
+        setAditivoLoadingId(aditivoId);
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            await apiClient.enviarAditivoAssinado(detalheId, aditivoId, fd);
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao enviar aditivo assinado.');
+        } finally {
+            setAditivoLoadingId(null);
+        }
+    };
+
+    const handleRemoverAditivoAssinado = async (aditivoId) => {
+        if (!detalheId) return;
+        setAditivoLoadingId(aditivoId);
+        try {
+            await apiClient.removerAditivoAssinado(detalheId, aditivoId);
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao remover aditivo assinado.');
+        } finally {
+            setAditivoLoadingId(null);
+        }
+    };
+
+    const handleDeleteAditivo = async (aditivoId) => {
+        if (!detalheId) return;
+        setAditivoLoadingId(aditivoId);
+        try {
+            await apiClient.deleteAditivo(detalheId, aditivoId);
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao excluir aditivo.');
+        } finally {
+            setAditivoLoadingId(null);
+        }
+    };
+
+    const handleBaixarAditivoAssinado = (aditivo) => {
+        if (aditivo?.assinadoUrl) window.open(`${FILE_ORIGIN}${aditivo.assinadoUrl}?v=${Date.now()}`, '_blank', 'noopener');
     };
 
     const handleExtrato = () => {
@@ -434,6 +500,14 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     onNovoAdiantamento={() => setPagamentoModal({ contrato: contratoDetalhe.r.contrato, locador: contratoDetalhe.terceiro })}
                     onEditAdiantamento={(p) => setPagamentoModal({ contrato: contratoDetalhe.r.contrato, locador: contratoDetalhe.terceiro, pagamento: p })}
                     onDeleteAdiantamento={(p) => setConfirmDeletePag(p)}
+                    aditivoLoadingId={aditivoLoadingId}
+                    onNovoAditivo={() => setAditivoModal({ contrato: contratoDetalhe.r.contrato })}
+                    onEditAditivo={(a) => setAditivoModal({ contrato: contratoDetalhe.r.contrato, aditivo: a })}
+                    onDeleteAditivo={handleDeleteAditivo}
+                    onGerarAditivoPdf={handleGerarAditivoPdf}
+                    onEnviarAditivoAssinado={handleEnviarAditivoAssinado}
+                    onBaixarAditivoAssinado={handleBaixarAditivoAssinado}
+                    onRemoverAditivoAssinado={handleRemoverAditivoAssinado}
                 />
             )}
 
@@ -452,6 +526,17 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     setAlertMessage={setAlertMessage}
                     onClose={() => setContratoModal(null)}
                     onSaved={reload}
+                />
+            )}
+
+            {aditivoModal && (
+                <AditivoModal
+                    contrato={aditivoModal.contrato}
+                    aditivo={aditivoModal.aditivo}
+                    apiClient={apiClient}
+                    setAlertMessage={setAlertMessage}
+                    onClose={() => setAditivoModal(null)}
+                    onSaved={() => refresh?.('terceiroContratos')}
                 />
             )}
 

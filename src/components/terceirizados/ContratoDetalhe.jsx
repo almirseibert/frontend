@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
     FileText, FileDown, Pencil, Trash2, Loader, Clock, Wallet, Droplet, ArrowLeft,
     PlusCircle, AlertTriangle, Building2, ShieldCheck, UploadCloud, Download, History, Lock,
-    Truck, CalendarRange, Gavel, Info, ClipboardList,
+    Truck, CalendarRange, Gavel, Info, ClipboardList, FilePlus2,
 } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 import { getContratoAbastecimentos, getContratoApontamentos, agruparApontamentosPorMes } from '../../utils/terceirizados';
@@ -80,7 +80,8 @@ const toDay = (v) => {
  */
 const calcRitmo = (contrato, r, apontamentos) => {
     const ini = toDay(contrato?.vigenciaInicio);
-    const fim = toDay(contrato?.vigenciaFim);
+    // Aditivo de prazo estende o prazo real do contrato — o ritmo é medido contra ele.
+    const fim = toDay(r?.vigenciaFim ?? contrato?.vigenciaFim);
     const hoje = toDay(new Date());
     const contratadas = r.horasContratadas || 0;
     const ultimo = apontamentos.find((a) => !a.justificativaTipo && a.date)?.date || null;
@@ -130,7 +131,7 @@ const montarMatrizMaquinaMes = (apontamentos, porMes) => {
     return { meses, labels: porMes.map((m) => m.label), linhas: [...linhas.values()].sort((a, b) => b.total - a.total) };
 };
 
-const KpiCard = ({ label, value, tone = 'gray' }) => {
+const KpiCard = ({ label, value, tone = 'gray', hint }) => {
     const tones = {
         gray:  { bg: '#f8fafc', text: '#334155' },
         blue:  { bg: '#eff6ff', text: '#1e40af' },
@@ -142,6 +143,163 @@ const KpiCard = ({ label, value, tone = 'gray' }) => {
         <div className="rounded-xl border border-gray-100 p-4" style={{ background: t.bg }}>
             <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: t.text }}>{label}</div>
             <div className="text-lg font-extrabold mt-1" style={{ color: t.text }}>{value}</div>
+            {hint && <div className="text-[10px] mt-0.5 opacity-70" style={{ color: t.text }}>{hint}</div>}
+        </div>
+    );
+};
+
+const ADITIVO_TIPO = {
+    acrescimo: 'Acréscimo de horas',
+    supressao: 'Supressão de horas',
+    escopo: 'Inclusão de equipamento',
+    reajuste: 'Reajuste de preço',
+    prazo: 'Prorrogação de prazo',
+};
+
+/**
+ * Linha do tempo dos termos aditivos. Só aparece com contrato assinado — aditivo
+ * pressupõe contrato vigente (a mesma regra vale no backend).
+ *
+ * Cada aditivo tem o mesmo ciclo do contrato: minuta → PDF → assinado. Enquanto é
+ * minuta, não move nenhum número do contrato; ao virar assinado, entra no consolidado.
+ */
+const AditivosPanel = ({
+    contrato, aditivos = [], loadingId,
+    onNovo, onEditar, onExcluir, onGerarPdf, onEnviarAssinado, onBaixarAssinado, onRemoverAssinado,
+}) => {
+    const inputRef = useRef(null);
+    const [alvoUpload, setAlvoUpload] = useState(null);
+    const [confirmando, setConfirmando] = useState(null);
+    const assinado = !!contrato.contratoAssinadoUrl;
+    const bloqueado = ['cancelado', 'concluido'].includes(contrato.status);
+    const temMinuta = aditivos.some((a) => a.status === 'minuta');
+
+    const pick = (id) => { setAlvoUpload(id); inputRef.current?.click(); };
+    const onFile = (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (file && alvoUpload) onEnviarAssinado(alvoUpload, file);
+    };
+
+    return (
+        <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-4">
+            <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={onFile} />
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-gray-400">
+                    <FilePlus2 size={12} /> Termos aditivos {aditivos.length > 0 && `(${aditivos.length})`}
+                </div>
+                <ProtectedComponent requiredPermission="editor">
+                    <button onClick={onNovo} disabled={!assinado || bloqueado || temMinuta}
+                        title={!assinado ? 'Aditivo exige contrato assinado'
+                            : bloqueado ? `Contrato ${contrato.status} não aceita aditivo`
+                            : temMinuta ? 'Finalize ou exclua a minuta pendente' : 'Criar termo aditivo'}
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40">
+                        <PlusCircle size={13} /> Novo aditivo
+                    </button>
+                </ProtectedComponent>
+            </div>
+
+            {!assinado && (
+                <p className="text-xs text-gray-500">
+                    Aditivo só existe sobre contrato assinado. Envie o contrato assinado para poder aditá-lo.
+                </p>
+            )}
+
+            {assinado && aditivos.length === 0 && (
+                <p className="text-xs text-gray-500">Nenhum aditivo. O contrato vigora nos termos originais.</p>
+            )}
+
+            {aditivos.length > 0 && (
+                <ul className="space-y-2 mt-1">
+                    {aditivos.map((a) => {
+                        const aAssinado = a.status === 'assinado';
+                        const carregando = loadingId === a.id;
+                        return (
+                            <li key={a.id} className={`rounded-lg border p-2.5 ${aAssinado ? 'border-purple-200 bg-purple-50/40' : 'border-dashed border-gray-200 bg-gray-50/60'}`}>
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-bold text-gray-800 truncate">{a.numero}</span>
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${aAssinado
+                                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                        {aAssinado ? 'Assinado' : 'Minuta'}
+                                    </span>
+                                </div>
+                                <div className="text-[11px] text-gray-500 mt-0.5">{ADITIVO_TIPO[a.tipo] || a.tipo}</div>
+                                <div className="text-[11px] text-gray-600 mt-1 flex flex-wrap gap-x-3">
+                                    {Number(a.horasDelta) !== 0 && (
+                                        <span className={Number(a.horasDelta) < 0 ? 'text-red-600 font-semibold' : 'text-green-700 font-semibold'}>
+                                            {Number(a.horasDelta) > 0 ? '+' : ''}{fmtHInt(a.horasDelta)}
+                                        </span>
+                                    )}
+                                    {Number(a.valorDelta) !== 0 && (
+                                        <span className={Number(a.valorDelta) < 0 ? 'text-red-600 font-semibold' : 'text-green-700 font-semibold'}>
+                                            {Number(a.valorDelta) > 0 ? '+' : ''}{fmtBRL(a.valorDelta)}
+                                        </span>
+                                    )}
+                                    {a.novaVigenciaFim && <span className="text-gray-500">vigência até {fmtDate(a.novaVigenciaFim)}</span>}
+                                </div>
+                                {aAssinado && (
+                                    <div className="text-[10px] text-gray-400 mt-0.5">
+                                        Assinado em {fmtDateTime(a.assinadoEm)}{a.assinadoPor ? ` · ${a.assinadoPor}` : ''}
+                                    </div>
+                                )}
+
+                                {confirmando === a.id ? (
+                                    <div className="flex flex-col gap-1.5 mt-2 text-xs">
+                                        <span className="text-gray-600 font-medium">
+                                            {aAssinado
+                                                ? 'Remover o aditivo assinado? Ele volta a ser minuta e sai dos valores do contrato.'
+                                                : 'Excluir esta minuta de aditivo?'}
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={() => { setConfirmando(null); (aAssinado ? onRemoverAssinado : onExcluir)(a.id); }}
+                                                className="px-2 py-1 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700">
+                                                {aAssinado ? 'Remover' : 'Excluir'}
+                                            </button>
+                                            <button onClick={() => setConfirmando(null)}
+                                                className="px-2 py-1 bg-gray-200 rounded-lg font-medium hover:bg-gray-300">Cancelar</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-1 mt-2 flex-wrap">
+                                        {aAssinado ? (
+                                            <>
+                                                <button onClick={() => onBaixarAssinado(a)}
+                                                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                                                    <Download size={12} /> Baixar
+                                                </button>
+                                                <ProtectedComponent requiredPermission="editor">
+                                                    <button onClick={() => setConfirmando(a.id)}
+                                                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-600 rounded-lg hover:bg-red-50">
+                                                        <Trash2 size={12} /> Remover
+                                                    </button>
+                                                </ProtectedComponent>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button onClick={() => onGerarPdf(a)} disabled={carregando}
+                                                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-60">
+                                                    {carregando ? <Loader size={12} className="animate-spin" /> : <FileDown size={12} />} Minuta
+                                                </button>
+                                                <ProtectedComponent requiredPermission="editor">
+                                                    <button onClick={() => pick(a.id)} disabled={carregando}
+                                                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-60">
+                                                        <UploadCloud size={12} /> Enviar assinado
+                                                    </button>
+                                                    <button onClick={() => onEditar(a)}
+                                                        className="p-1 text-gray-500 rounded-lg hover:bg-gray-100"><Pencil size={13} /></button>
+                                                    <button onClick={() => setConfirmando(a.id)}
+                                                        className="p-1 text-red-500 rounded-lg hover:bg-red-50"><Trash2 size={13} /></button>
+                                                </ProtectedComponent>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
         </div>
     );
 };
@@ -285,6 +443,8 @@ const ContratoDetalhe = ({
     docsAssinados = [], assinadoLoading, onEnviarAssinado, onBaixarAssinado, onBaixarDocAssinado, onRemoverAssinado,
     onVoltar, onGerarPdf, onEditContrato, onDeleteContrato,
     onNovoAdiantamento, onEditAdiantamento, onDeleteAdiantamento,
+    aditivoLoadingId, onNovoAditivo, onEditAditivo, onDeleteAditivo,
+    onGerarAditivoPdf, onEnviarAditivoAssinado, onBaixarAditivoAssinado, onRemoverAditivoAssinado,
 }) => {
     const c = r.contrato;
     const assinado = !!c.contratoAssinadoUrl;
@@ -350,7 +510,8 @@ const ContratoDetalhe = ({
 
             {/* ===================== NÚMEROS ===================== */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <KpiCard label="Valor contrato" value={fmtBRL(r.valorTotal)} tone="gray" />
+                <KpiCard label="Valor contrato" value={fmtBRL(r.valorTotal)} tone="gray"
+                    hint={r.temAditivos ? `original ${fmtBRL(r.valorOriginal)} · ${r.aditivosAssinados.length} aditivo(s)` : null} />
                 <KpiCard label="Diesel abatido" value={fmtBRL(r.diesel)} tone="blue" />
                 <KpiCard label="Pagamentos" value={fmtBRL(r.adiantamentos)} tone="gray" />
                 <KpiCard label="Saldo a pagar" value={fmtBRL(r.saldo)} tone={r.saldo > 0 ? 'red' : r.saldo < 0 ? 'blue' : 'green'} />
@@ -756,9 +917,27 @@ const ContratoDetalhe = ({
                         onRemover={onRemoverAssinado}
                     />
 
+                    <AditivosPanel
+                        contrato={c}
+                        aditivos={r.aditivos}
+                        loadingId={aditivoLoadingId}
+                        onNovo={onNovoAditivo}
+                        onEditar={onEditAditivo}
+                        onExcluir={onDeleteAditivo}
+                        onGerarPdf={onGerarAditivoPdf}
+                        onEnviarAssinado={onEnviarAditivoAssinado}
+                        onBaixarAssinado={onBaixarAditivoAssinado}
+                        onRemoverAssinado={onRemoverAditivoAssinado}
+                    />
+
                     <Card title="Vigência e escopo" icon={<CalendarRange size={12} />}>
                         <Campo label="Início">{fmtDate(c.vigenciaInicio)}</Campo>
-                        <Campo label="Término">{fmtDate(c.vigenciaFim)}</Campo>
+                        <Campo label="Término">
+                            {fmtDate(r.vigenciaFim)}
+                            {r.temAditivos && r.vigenciaFim !== c.vigenciaFim && (
+                                <span className="block text-[10px] font-normal text-gray-400">original {fmtDate(c.vigenciaFim)}</span>
+                            )}
+                        </Campo>
                         {c.prazoVigenciaMeses != null && <Campo label="Prazo">{c.prazoVigenciaMeses} meses</Campo>}
                         <Campo label="Modalidade">{c.contractType === 'fechado' ? 'Valor fechado' : 'Por horas'}</Campo>
                         <Campo label="Horas contratadas">{fmtH(r.horasContratadas)}</Campo>

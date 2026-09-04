@@ -126,8 +126,15 @@ export const computeContrato = (contrato, ctx = {}) => {
         comboioTransactions = [], partners = [], pagamentos = [],
     } = ctx;
 
+    // Valores VIGENTES = contrato original + termos aditivos ASSINADOS. O backend
+    // manda esse bloco pronto (utils/contratoAditivos.js); a linha do contrato segue
+    // sendo o original (usado para exibir "original R$ X" e gerar a minuta).
+    // Contrato sem aditivo: `vigente` espelha a base, então o cálculo não muda.
+    const vig = contrato?.vigente || contrato || {};
+
     const obra = obras.find((o) => o.id === contrato?.obraId) || null;
-    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: contrato?.vigenciaFim });
+    // Aditivo de prazo estende a janela de apuração de horas e diesel.
+    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: vig.vigenciaFim ?? contrato?.vigenciaFim });
 
     const machines = getContratoMachines(contrato, obras, vehicles);
     const machineIds = new Set(machines.map((v) => v.id));
@@ -181,9 +188,10 @@ export const computeContrato = (contrato, ctx = {}) => {
     const adiantamentos = pagamentos.reduce(
         (acc, p) => (p?.contratoId === contrato?.id ? acc + num(p.valor) : acc), 0);
 
-    const valorTotal = num(contrato?.valorTotal);
+    const valorTotal = num(vig.valorTotal);
+    const valorOriginal = num(contrato?.valorTotal);
     const saldo = valorTotal - diesel - adiantamentos;
-    const horasContratadas = num(contrato?.horasContratadas);
+    const horasContratadas = num(vig.horasContratadas);
     const progresso = horasContratadas > 0 ? horasExecutadas / horasContratadas : 0;
 
     const equipamentos = machines.map((v) => {
@@ -191,18 +199,27 @@ export const computeContrato = (contrato, ctx = {}) => {
         return { vehicle: v, litros: m.litros, diesel: m.valor, horas: horasPorMaquina.get(v.id) || 0 };
     });
 
-    // Plano contratado por subgrupo (itensContratados), normalizado.
-    let itens = contrato?.itensContratados;
+    // Plano contratado por subgrupo (itensContratados), normalizado — já consolidado
+    // com os aditivos assinados quando o backend manda o bloco `vigente`.
+    let itens = vig.itensContratados;
     if (typeof itens === 'string') { try { itens = JSON.parse(itens); } catch { itens = []; } }
     const itensContratados = Array.isArray(itens)
         ? itens.filter((i) => i && i.type).map((i) => ({ type: i.type, horas: num(i.hours), valorHora: num(i.price), subtotal: num(i.hours) * num(i.price) }))
         : [];
+
+    // Aditivos assinados do contrato (linha do tempo e rótulo "original R$ X").
+    const aditivos = Array.isArray(contrato?.aditivos) ? contrato.aditivos : [];
+    const aditivosAssinados = aditivos.filter((a) => a?.status === 'assinado');
 
     return {
         contrato, obra, machines, equipamentos, itensContratados,
         numMaquinas: machines.length,
         horasExecutadas, horasContratadas, progresso,
         valorTotal, litros, diesel, adiantamentos, saldo,
+        // Aditivos: valorOriginal ≠ valorTotal quando há aditivo assinado.
+        valorOriginal, aditivos, aditivosAssinados,
+        temAditivos: aditivosAssinados.length > 0,
+        vigenciaFim: vig.vigenciaFim ?? contrato?.vigenciaFim,
     };
 };
 
