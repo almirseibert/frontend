@@ -133,12 +133,14 @@ export const computeContrato = (contrato, ctx = {}) => {
     const machineIds = new Set(machines.map((v) => v.id));
 
     // Horas executadas — apenas acompanhamento físico.
-    // Atribuição pela MÁQUINA vinculada ao contrato (não por obra), evitando
-    // dupla contagem quando o terceiro tem vários contratos na mesma obra.
+    // Exige MÁQUINA vinculada ao contrato E a OBRA do contrato: o contrato é firmado
+    // para uma obra específica, então hora apontada em outra obra não o executa.
+    // A máquina evita dupla contagem quando o terceiro tem vários contratos na mesma obra.
     let horasExecutadas = 0;
     const horasPorMaquina = new Map();
     dailyWorkLogs.forEach((log) => {
         if (!machineIds.has(log?.vehicleId)) return;
+        if (contrato?.obraId && log?.obraId !== contrato.obraId) return;
         if (log?.justificativaTipo) return;
         if (!inPeriod(recordDate(log), inicio, fim)) return;
         const h = num(log.totalHours);
@@ -243,15 +245,69 @@ export const getContratoAbastecimentos = (contrato, ctx = {}) => {
     return out.sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
 };
 
+/**
+ * Apontamentos (daily_work_logs) que compõem as horas de UM contrato: os logs das
+ * máquinas vinculadas, na obra do contrato e dentro da vigência. Inclui os dias com justificativa
+ * (`horas: 0`) — eles NÃO somam no progresso, mas explicam os dias parados.
+ * Retorna [{ date, vehicle, horas, justificativaTipo, employeeName, observation, obraId }]
+ * do mais recente para o mais antigo.
+ */
+export const getContratoApontamentos = (contrato, ctx = {}) => {
+    const { vehicles = [], dailyWorkLogs = [] } = ctx;
+    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: contrato?.vigenciaFim });
+    const machineIds = new Set(contratoMaquinaIds(contrato));
+    if (machineIds.size === 0) return [];
+    const vById = new Map(vehicles.map((v) => [v.id, v]));
+
+    return dailyWorkLogs
+        .filter((log) => machineIds.has(log?.vehicleId)
+            && (!contrato?.obraId || log?.obraId === contrato.obraId)
+            && inPeriod(recordDate(log), inicio, fim))
+        .map((log) => ({
+            date: recordDate(log),
+            vehicle: vById.get(log.vehicleId) || null,
+            horas: log.justificativaTipo ? 0 : num(log.totalHours),
+            justificativaTipo: log.justificativaTipo || null,
+            employeeName: log.employeeName || null,
+            observation: log.observation || null,
+            obraId: log.obraId,
+        }))
+        .sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
+};
+
+/**
+ * Agrega apontamentos por mês (AAAA-MM), do mais antigo para o mais recente.
+ * @returns [{ mes: '2026-03', label: 'mar/26', horas, dias, diasParados }]
+ */
+export const agruparApontamentosPorMes = (apontamentos = []) => {
+    const acc = new Map();
+    apontamentos.forEach((a) => {
+        if (!a.date) return;
+        const mes = `${a.date.getFullYear()}-${String(a.date.getMonth() + 1).padStart(2, '0')}`;
+        const cur = acc.get(mes) || { mes, label: a.date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }), horas: 0, dias: 0, diasParados: 0 };
+        if (a.justificativaTipo) cur.diasParados += 1;
+        else { cur.horas += a.horas; cur.dias += 1; }
+        acc.set(mes, cur);
+    });
+    return [...acc.values()].sort((a, b) => a.mes.localeCompare(b.mes));
+};
+
 /** Agrega todos os contratos de um terceiro (locador). */
 export const computeContratosPorTerceiro = (locadorId, contratos = [], ctx = {}) => {
     const list = contratos
         .filter((c) => c.locadorId === locadorId)
         .map((c) => computeContrato(c, ctx));
 
-    const obraIds = new Set(list.map((r) => r.contrato.obraId));
+    const obraIds = [...new Set(list.map((r) => r.contrato.obraId).filter(Boolean))];
     const machineIds = new Set();
     list.forEach((r) => r.machines.forEach((m) => machineIds.add(m.id)));
+
+    // Contratos vigentes (não cancelados/concluídos) sem o PDF assinado anexado.
+    const semAssinatura = list.filter((r) => {
+        const st = r.contrato?.status || 'ativo';
+        if (st === 'cancelado' || st === 'concluido') return false;
+        return !r.contrato?.contratoAssinadoUrl;
+    }).length;
 
     const totais = list.reduce((a, r) => ({
         valorTotal: a.valorTotal + r.valorTotal,
@@ -261,7 +317,10 @@ export const computeContratosPorTerceiro = (locadorId, contratos = [], ctx = {})
         litros: a.litros + r.litros,
     }), { valorTotal: 0, diesel: 0, adiantamentos: 0, saldo: 0, litros: 0 });
 
-    return { contratos: list, numObras: obraIds.size, numMaquinas: machineIds.size, ...totais };
+    return {
+        contratos: list, obraIds, numObras: obraIds.length,
+        numMaquinas: machineIds.size, semAssinatura, ...totais,
+    };
 };
 
 /**

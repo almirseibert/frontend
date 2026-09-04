@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
     Truck, Building2, PlusCircle, ChevronRight, ArrowLeft, Search, Clock,
-    FileDown, Loader, AlertTriangle,
+    FileDown, Loader, AlertTriangle, MapPin, FileWarning,
 } from 'lucide-react';
 import { useData, useEnsureResources } from '../contexts/DataContext';
 import ProtectedComponent from '../components/ProtectedComponent';
 import TerceirizadoPagamentoModal from '../components/modals/TerceirizadoPagamentoModal';
 import ContratoTerceiroModal from '../components/modals/ContratoTerceiroModal';
-import ContratoDetalheModal from '../components/modals/ContratoDetalheModal';
+import ContratoDetalhe from '../components/terceirizados/ContratoDetalhe';
 import { computeContrato, computeContratosPorTerceiro } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
 
@@ -77,6 +77,12 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const obraNome = useMemo(() => {
         const m = new Map(obras.map((o) => [o.id, o.nome]));
         return (id) => m.get(id) || '—';
+    }, [obras]);
+
+    // Local (cidade/endereço) de cada obra, para exibir na listagem de terceiros.
+    const obraLocal = useMemo(() => {
+        const m = new Map(obras.map((o) => [o.id, o.localizacao]));
+        return (id) => m.get(id) || '';
     }, [obras]);
 
     // Lista completa de locadores para o modal de contrato (inclui os sem contrato).
@@ -234,7 +240,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8 animate-fade-in">
             {/* ===================== NÍVEL 1 — TERCEIROS ===================== */}
-            {!grupoSel && (
+            {!grupoSel && !contratoDetalhe && (
                 <>
                     <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
                         <div>
@@ -267,30 +273,51 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                         </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow divide-y divide-gray-100">
-                            {gruposFiltrados.map((g) => (
+                            {gruposFiltrados.map((g) => {
+                                const locais = [...new Set(g.obraIds.map((id) => obraLocal(id)).filter(Boolean))];
+                                const obrasLabel = g.obraIds.map((id) => obraNome(id)).join(' · ');
+                                return (
                                 <button key={g.terceiro.id} onClick={() => setSelectedTerceiroId(g.terceiro.id)}
                                     className="w-full flex items-center gap-4 p-4 hover:bg-gray-50 text-left">
                                     <Truck size={20} className="text-purple-400 shrink-0" />
                                     <div className="min-w-0">
-                                        <div className="font-bold text-gray-800 truncate">{g.terceiro.nomeFantasia || g.terceiro.razaoSocial}</div>
+                                        <div className="font-bold text-gray-800 truncate flex items-center gap-2">
+                                            {g.terceiro.nomeFantasia || g.terceiro.razaoSocial}
+                                            {g.semAssinatura > 0 && (
+                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1 shrink-0"
+                                                    title={`${g.semAssinatura} contrato(s) sem contrato assinado anexado`}>
+                                                    <FileWarning size={10} />
+                                                    {g.semAssinatura > 1 ? `${g.semAssinatura} sem assinatura` : 'sem assinatura'}
+                                                </span>
+                                            )}
+                                        </div>
                                         <div className="text-xs text-gray-400">
                                             {g.contratos.length} contrato(s) · {g.numObras} obra(s) · {g.numMaquinas} máquina(s)
                                         </div>
+                                        <div className="text-xs text-gray-500 truncate flex items-center gap-1 mt-0.5" title={obrasLabel}>
+                                            <MapPin size={11} className="shrink-0 text-gray-400" />
+                                            {locais.length > 0 ? locais.join(' · ') : (obrasLabel || 'Local não definido')}
+                                        </div>
                                     </div>
-                                    <div className="ml-auto text-right">
+                                    <div className="ml-auto text-right shrink-0">
+                                        <div className="text-[11px] text-gray-400 uppercase font-bold">Contratado</div>
+                                        <div className="text-sm font-bold text-gray-700">{fmtBRL(g.valorTotal)}</div>
+                                    </div>
+                                    <div className="text-right shrink-0 md:w-40">
                                         <div className="text-[11px] text-gray-400 uppercase font-bold">Devemos</div>
                                         <div className={`text-lg font-extrabold ${saldoClass(g.saldo)}`}>{fmtBRL(g.saldo)}</div>
                                     </div>
                                     <ChevronRight size={18} className="text-gray-300 shrink-0" />
                                 </button>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </>
             )}
 
             {/* ===================== NÍVEL 2 — DOSSIÊ DO TERCEIRO ===================== */}
-            {grupoSel && (
+            {grupoSel && !contratoDetalhe && (
                 <>
                     <button onClick={() => { setSelectedTerceiroId(null); setBusca(''); }}
                         className="flex items-center gap-1 text-sm text-purple-600 hover:text-purple-800 mb-3 font-medium">
@@ -385,12 +412,12 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                 </>
             )}
 
-            {/* ===================== MODAIS ===================== */}
+            {/* ===================== NÍVEL 3 — CONTRATO ===================== */}
             {contratoDetalhe && (
-                <ContratoDetalheModal
+                <ContratoDetalhe
                     r={contratoDetalhe.r}
                     terceiro={contratoDetalhe.terceiro}
-                    obraNome={obraNome}
+                    obra={obras.find((o) => o.id === contratoDetalhe.r.contrato.obraId)}
                     ctx={ctx}
                     adiantamentos={adiantamentosDetalhe}
                     pdfLoading={pdfLoadingId === detalheId}
@@ -400,7 +427,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     onBaixarAssinado={handleBaixarAssinado}
                     onBaixarDocAssinado={handleBaixarDocAssinado}
                     onRemoverAssinado={handleRemoverAssinado}
-                    onClose={() => setDetalheId(null)}
+                    onVoltar={() => setDetalheId(null)}
                     onGerarPdf={handleGerarPdf}
                     onEditContrato={() => setContratoModal({ contrato: contratoDetalhe.r.contrato })}
                     onDeleteContrato={() => setConfirmDelete(contratoDetalhe.r.contrato)}
@@ -409,6 +436,8 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     onDeleteAdiantamento={(p) => setConfirmDeletePag(p)}
                 />
             )}
+
+            {/* ===================== MODAIS ===================== */}
 
             {contratoModal && (
                 <ContratoTerceiroModal

@@ -375,6 +375,19 @@ const apiClient = {
     getContratoDocs: async (id) => apiFetch(`/terceiroContratos/${id}/docs`),
     enviarContratoAssinado: async (id, formData) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'POST', body: formData }),
     removerContratoAssinado: async (id, data) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'DELETE', body: JSON.stringify(data || {}) }),
+    // Máquinas: vínculo operacional, editável mesmo com contrato assinado.
+    updateMaquinasContrato: async (id, maquinas) => apiFetch(`/terceiroContratos/${id}/maquinas`, { method: 'PUT', body: JSON.stringify({ maquinas }) }),
+
+    // --- Termos aditivos (só sobre contrato assinado) ---
+    // O contrato traz `vigente` (base + aditivos assinados) e a lista `aditivos`
+    // no próprio getTerceiroContratos; estes endpoints são para o CRUD do aditivo.
+    getAditivos: async (id) => apiFetch(`/terceiroContratos/${id}/aditivos`),
+    createAditivo: async (id, data) => apiFetch(`/terceiroContratos/${id}/aditivos`, { method: 'POST', body: JSON.stringify(data) }),
+    updateAditivo: async (id, aditivoId, data) => apiFetch(`/terceiroContratos/${id}/aditivos/${aditivoId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteAditivo: async (id, aditivoId) => apiFetch(`/terceiroContratos/${id}/aditivos/${aditivoId}`, { method: 'DELETE' }),
+    gerarAditivoPdf: async (id, aditivoId) => apiFetch(`/terceiroContratos/${id}/aditivos/${aditivoId}/pdf`, { method: 'POST' }),
+    enviarAditivoAssinado: async (id, aditivoId, formData) => apiFetch(`/terceiroContratos/${id}/aditivos/${aditivoId}/assinado`, { method: 'POST', body: formData }),
+    removerAditivoAssinado: async (id, aditivoId) => apiFetch(`/terceiroContratos/${id}/aditivos/${aditivoId}/assinado`, { method: 'DELETE' }),
 
     // --- Parceiros (Postos) ---
     getPartners: async () => apiFetch('/partners'),
