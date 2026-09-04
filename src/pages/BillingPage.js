@@ -1,16 +1,19 @@
-﻿import React, { useState, useMemo, useEffect, useRef } from 'react';
+﻿import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
-    Calendar, CheckCircle, Clock, FileText, Filter, AlertTriangle,
-    Download, Search, Save, Lock, ArrowRight, User, Printer, X,
+    Calendar, Clock, FileText, Filter, AlertTriangle,
+    Download, Save, ArrowRight, Printer,
     Trash2, Copy, ChevronLeft, ChevronRight, Building2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
-import SearchableObraSelect from '../components/SearchableObraSelect';
 import { formatObraNome } from '../utils/obraFormat';
-import TerceirizadoBadge, { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
+import { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
+import ContextFinder from '../components/billing/ContextFinder';
+import ObraStartList from '../components/billing/ObraStartList';
+import EquipmentRail from '../components/billing/EquipmentRail';
+import MonthMatrix from '../components/billing/MonthMatrix';
 
 const RECENT_OBRAS_KEY = 'mak_billing_recent_obras';
 
@@ -28,7 +31,6 @@ const BillingPage = ({
     employees = [], 
     vehicleGroups = {}, 
     setAlertMessage,
-    PasswordConfirmationModal,
     initialFilter = null,
 }) => {
     // Pega a permissão de visualizador do contexto
@@ -59,10 +61,15 @@ const BillingPage = ({
     const [reportStartDate, setReportStartDate] = useState('');
     const [reportEndDate, setReportEndDate] = useState('');
     const [reportVehicleId, setReportVehicleId] = useState('');
+    // 'all' | 'own' | 'outsourced' — separa frota propria de equipamento locado
+    const [reportOwnership, setReportOwnership] = useState('all');
     const [reportData, setReportData] = useState([]);
-    const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [pendingDateChange, setPendingDateChange] = useState(null);
     const [periodPreset, setPeriodPreset] = useState('custom');
+
+    // --- ESTADO INICIAL (nenhuma obra escolhida) ---
+    // Horas já lançadas no mês por obra, para a lista de entrada não ser cega.
+    const [obraMonthTotals, setObraMonthTotals] = useState({});
+    const [loadingObraTotals, setLoadingObraTotals] = useState(false);
 
     // --- HISTÓRICO DE OBRAS RECENTES ---
     const [recentObraIds, setRecentObraIds] = useState(() => {
@@ -79,10 +86,10 @@ const BillingPage = ({
     const [reportPickerYear, setReportPickerYear] = useState(new Date().getFullYear());
     const monthPickerReportRef = useRef(null);
 
-    // --- ESTADOS SELETOR DE MÊS (CONTROLE) ---
-    const [showMonthPickerControl, setShowMonthPickerControl] = useState(false);
-    const [controlPickerYear, setControlPickerYear] = useState(new Date().getFullYear());
-    const monthPickerControlRef = useRef(null);
+    // --- ESTADOS SELETOR DE MÊS (BARRA DE CONTEXTO) ---
+    const [showMonthPicker, setShowMonthPicker] = useState(false);
+    const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+    const monthPickerRef = useRef(null);
 
     // --- REFS ---
     const todayRowRef = useRef(null);
@@ -100,8 +107,8 @@ const BillingPage = ({
             if (monthPickerReportRef.current && !monthPickerReportRef.current.contains(e.target)) {
                 setShowMonthPickerReport(false);
             }
-            if (monthPickerControlRef.current && !monthPickerControlRef.current.contains(e.target)) {
-                setShowMonthPickerControl(false);
+            if (monthPickerRef.current && !monthPickerRef.current.contains(e.target)) {
+                setShowMonthPicker(false);
             }
         };
         document.addEventListener('mousedown', handleMouseDown);
@@ -194,18 +201,83 @@ const BillingPage = ({
 
     // --- EFEITOS ---
     useEffect(() => {
-        if (selectedObraId && activeTab === 'controle' && controlVehicleId && controlMonth) {
+        // Carrega o mês da OBRA inteira (não só do equipamento selecionado):
+        // a mesma carga alimenta a tabela de dias, os totais da lista lateral
+        // e a matriz de conferência, sem refetch ao trocar de equipamento.
+        if (selectedObraId && controlMonth) {
             fetchDailyLogsForControl();
-        } else if (activeTab === 'controle') {
-            setDailyLogs([]); 
+        } else {
+            setDailyLogs([]);
         }
-    }, [selectedObraId, controlMonth, controlVehicleId, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedObraId, controlMonth]);
 
     useEffect(() => {
         if (selectedObraId && activeTab === 'relatorio' && reportStartDate && reportEndDate) {
             fetchReportData();
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedObraId, reportStartDate, reportEndDate, reportVehicleId, activeTab]);
+
+    // Contexto compartilhado: ao abrir a aba de conferência sem período definido,
+    // herda o mês que está aberto no Controle Diário em vez de perguntar de novo.
+    useEffect(() => {
+        if (activeTab !== 'relatorio' || !selectedObraId) return;
+        // Só sincroniza enquanto o período for "o mês em contexto". Se o usuário
+        // escolheu um intervalo próprio nos filtros, a escolha dele manda.
+        const periodoLivre = reportStartDate && reportEndDate && periodPreset !== 'specificMonth';
+        if (periodoLivre) return;
+        const [year, month] = controlMonth.split('-').map(Number);
+        const lastDay = new Date(year, month, 0).getDate();
+        setReportStartDate(`${controlMonth}-01`);
+        setReportEndDate(`${controlMonth}-${String(lastDay).padStart(2, '0')}`);
+        setPeriodPreset('specificMonth');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, selectedObraId, controlMonth]);
+
+    // Totais do mês por obra para a tela de entrada.
+    useEffect(() => {
+        if (selectedObraId) return;
+        let cancelado = false;
+        const carregar = async () => {
+            setLoadingObraTotals(true);
+            const [year, month] = controlMonth.split('-');
+            const lastDay = new Date(Number(year), Number(month), 0).getDate();
+            const periodo = {
+                startDate: `${controlMonth}-01`,
+                endDate: `${controlMonth}-${String(lastDay).padStart(2, '0')}`,
+            };
+            try {
+                // Uma linha por obra, somada no banco.
+                const agregado = await apiClient.getBillingTotalsByObra(periodo);
+                if (cancelado) return;
+                const totais = {};
+                Object.entries(agregado || {}).forEach(([obraId, v]) => {
+                    totais[obraId] = v.totalHours || 0;
+                });
+                setObraMonthTotals(totais);
+            } catch (error) {
+                // Fallback para o backend anterior ao endpoint agregado: soma no
+                // cliente. Permite subir o frontend sem esperar o deploy da API.
+                try {
+                    const logs = await apiClient.getDailyLogs('all', periodo);
+                    if (cancelado) return;
+                    const totais = {};
+                    (logs || []).forEach(l => {
+                        if (l.justificativaTipo) return;
+                        totais[l.obraId] = (totais[l.obraId] || 0) + parseFloat(l.totalHours || 0);
+                    });
+                    setObraMonthTotals(totais);
+                } catch (err) {
+                    console.error('Erro ao carregar totais por obra:', err);
+                }
+            } finally {
+                if (!cancelado) setLoadingObraTotals(false);
+            }
+        };
+        carregar();
+        return () => { cancelado = true; };
+    }, [selectedObraId, controlMonth]);
 
     // --- FUNÇÕES AUXILIARES ---
 
@@ -283,6 +355,32 @@ const BillingPage = ({
     }, [obras]);
 
 
+    // Quantidade de equipamentos presentes por obra (para a tela de entrada).
+    const equipCountByObra = useMemo(() => {
+        const out = {};
+        obras
+            .filter(o => (o.tipo_registro || 'obra') !== 'centro_custo')
+            .forEach(obra => {
+                const porVeiculo = new Map();
+                (obra.historicoVeiculos || []).forEach(h => {
+                    const atual = porVeiculo.get(h.veiculoId);
+                    if (!atual || new Date(h.dataEntrada) > new Date(atual.dataEntrada)) {
+                        porVeiculo.set(h.veiculoId, h);
+                    }
+                });
+                let n = 0;
+                porVeiculo.forEach((h, veiculoId) => {
+                    if (h.dataSaida) return;
+                    const v = vehicles.find(x => x.id === veiculoId);
+                    if (!v) return;
+                    if (vehicleGroups['Veículos Leves']?.includes(v.tipo || '')) return;
+                    n++;
+                });
+                out[obra.id] = n;
+            });
+        return out;
+    }, [obras, vehicles, vehicleGroups]);
+
     // Obra selecionada e status
     const selectedObra = useMemo(() => obras.find(o => o.id === selectedObraId), [selectedObraId, obras]);
     const obraIsActive = useMemo(() => {
@@ -296,15 +394,63 @@ const BillingPage = ({
         return true;
     }, [selectedObra]);
 
+    // dailyLogs traz o mês da obra inteira; a tabela de dias trabalha só com o
+    // equipamento selecionado.
+    const vehicleLogs = useMemo(
+        () => dailyLogs.filter(l => l.vehicleId === controlVehicleId),
+        [dailyLogs, controlVehicleId]
+    );
+
     // Índice O(1) de daily logs por dia (substitui .find() dentro de loops)
     const dailyLogsByDate = useMemo(() => {
         const map = new Map();
-        dailyLogs.forEach(l => {
+        vehicleLogs.forEach(l => {
             const key = (l.date || '').split('T')[0];
             if (key) map.set(key, l);
         });
         return map;
-    }, [dailyLogs]);
+    }, [vehicleLogs]);
+
+    // Dias do período do relatório (colunas da matriz de conferência).
+    const reportDays = useMemo(() => {
+        if (!reportStartDate || !reportEndDate) return [];
+        const out = [];
+        const cur = new Date(`${reportStartDate}T12:00:00`);
+        const fim = new Date(`${reportEndDate}T12:00:00`);
+        // trava de segurança: períodos muito longos não viram matriz legível
+        let guard = 0;
+        while (cur <= fim && guard < 400) {
+            out.push(
+                `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+            );
+            cur.setDate(cur.getDate() + 1);
+            guard++;
+        }
+        return out;
+    }, [reportStartDate, reportEndDate]);
+
+    // Índice `${vehicleId}|${date}` da matriz de conferência.
+    const reportLogIndex = useMemo(() => {
+        const map = new Map();
+        reportData.forEach(l => {
+            const key = (l.date || '').split('T')[0];
+            if (key) map.set(`${l.vehicleId}|${key}`, l);
+        });
+        return map;
+    }, [reportData]);
+
+    // Índice de alocação: o equipamento estava nesta obra nesta data?
+    const isVehicleInObraOnDate = useCallback((vehicle, dateStr) => {
+        const obra = obras.find(o => o.id === selectedObraId);
+        if (!obra || !vehicle) return true;
+        const alocacoes = (obra.historicoVeiculos || []).filter(h => h.veiculoId === vehicle.id);
+        if (!alocacoes.length) return true;
+        return alocacoes.some(h => {
+            const entrada = (h.dataEntrada || '').split('T')[0];
+            const saida = h.dataSaida ? h.dataSaida.split('T')[0] : null;
+            return (!entrada || dateStr >= entrada) && (!saida || dateStr <= saida);
+        });
+    }, [obras, selectedObraId]);
 
     // Total decimal do mês — derivado uma vez, consumido pelo tfoot
     const monthTotalDecimal = useMemo(() => {
@@ -323,32 +469,19 @@ const BillingPage = ({
         }, 0);
     }, [controlMonth, controlVehicleId, dailyLogsByDate, localChanges]);
 
-    // Progresso de preenchimento do mês
-    const monthProgress = useMemo(() => {
-        if (!controlVehicleId) return null;
-        const days = getDaysInMonth(controlMonth);
-        const workdays = days.filter(d => !isWeekend(d));
-        const filled = workdays.filter(d => {
-            const log = dailyLogsByDate.get(d) || {};
-            const changes = localChanges[d] || {};
-            if (changes._clear) return false;
-            const justTipo = changes.justificativaTipo !== undefined ? changes.justificativaTipo : (log.justificativaTipo || null);
-            if (justTipo) return true;
-            const mS = changes.morningStart !== undefined ? changes.morningStart : (log.morningStart || '');
-            const mE = changes.morningEnd !== undefined ? changes.morningEnd : (log.morningEnd || '');
-            const aS = changes.afternoonStart !== undefined ? changes.afternoonStart : (log.afternoonStart || '');
-            const aE = changes.afternoonEnd !== undefined ? changes.afternoonEnd : (log.afternoonEnd || '');
-            return !!(mS || mE || aS || aE);
+    // Total de horas do mês por equipamento — alimenta a lista lateral.
+    // Para o equipamento aberto usa o total derivado de localChanges, para o
+    // número não “atrasar” enquanto se digita.
+    const monthTotalsByVehicle = useMemo(() => {
+        const out = {};
+        dailyLogs.forEach(l => {
+            if (l.justificativaTipo) return;
+            out[l.vehicleId] = (out[l.vehicleId] || 0) + parseFloat(l.totalHours || 0);
         });
-        return { filled: filled.length, total: workdays.length };
-    }, [controlMonth, dailyLogsByDate, localChanges, controlVehicleId]);
+        if (controlVehicleId) out[controlVehicleId] = monthTotalDecimal;
+        return out;
+    }, [dailyLogs, controlVehicleId, monthTotalDecimal]);
 
-    // Obras recentes resolvidas (filtra IDs que não existem mais)
-    const recentObras = useMemo(() => {
-        return recentObraIds
-            .map(id => obras.find(o => o.id === id))
-            .filter(Boolean);
-    }, [recentObraIds, obras]);
 
     // Equipamentos que possuem horas no período selecionado
     const vehiclesWithDataInPeriod = useMemo(() => {
@@ -358,6 +491,27 @@ const BillingPage = ({
         );
         return getObraVehicles.filter(v => idsWithData.has(v.id));
     }, [reportData, getObraVehicles, reportStartDate, reportEndDate]);
+
+    // Equipamentos do relatorio ja com o recorte de propriedade aplicado.
+    // O select por equipamento continua sendo o recorte mais especifico.
+    const matchesOwnership = (v) => (
+        reportOwnership === 'all' ||
+        (reportOwnership === 'outsourced' ? !!v?.isOutsourced : !v?.isOutsourced)
+    );
+
+    const reportVehicles = useMemo(() => {
+        const base = reportVehicleId
+            ? getObraVehicles.filter(v => v.id === reportVehicleId)
+            : getObraVehicles;
+        return base.filter(matchesOwnership);
+    }, [getObraVehicles, reportVehicleId, reportOwnership]);
+
+    // Os PDFs imprimem o que a tela mostra: mesmo recorte de propriedade.
+    const reportDataScoped = useMemo(() => {
+        if (reportOwnership === 'all') return reportData;
+        const ids = new Set(reportVehicles.map(v => v.id));
+        return reportData.filter(l => ids.has(l.vehicleId));
+    }, [reportData, reportVehicles, reportOwnership]);
 
     // Retorna o funcionário que tinha a máquina na data informada,
     // consultando o histórico de alocações da obra (dataEntrada/dataSaida).
@@ -396,12 +550,35 @@ const BillingPage = ({
         return `${months[month - 1]} ${year}`;
     };
 
+    // Mesmo cuidado da troca de equipamento: mudar de mes dispara o refetch,
+    // que limpa localChanges. Sem salvar antes, a digitacao pendente some sem aviso.
+    const changeMonth = async (newMonth) => {
+        if (newMonth === controlMonth) return;
+        if (controlVehicleId && Object.keys(localChanges).length > 0) {
+            await handleSaveDailyLogs();
+        }
+        setLocalChanges({});
+        setControlMonth(newMonth);
+    };
+
     const navigateMonth = (direction) => {
         const [year, month] = controlMonth.split('-').map(Number);
         const date = new Date(year, month - 1 + direction, 1);
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
-        setControlMonth(`${y}-${m}`);
+        changeMonth(`${y}-${m}`);
+    };
+
+    // Mês da barra de contexto: além das setas, o rótulo abre o seletor de
+    // mês/ano — pular de agosto para março não deveria custar cinco cliques.
+    const openMonthPicker = () => {
+        setPickerYear(Number(controlMonth.split('-')[0]));
+        setShowMonthPicker(v => !v);
+    };
+
+    const applyMonth = (year, monthIndex) => {
+        changeMonth(`${year}-${String(monthIndex + 1).padStart(2, '0')}`);
+        setShowMonthPicker(false);
     };
 
     const scrollToToday = () => {
@@ -410,7 +587,7 @@ const BillingPage = ({
         const m = String(now.getMonth() + 1).padStart(2, '0');
         const todayMonth = `${y}-${m}`;
         if (controlMonth !== todayMonth) {
-            setControlMonth(todayMonth);
+            changeMonth(todayMonth);
             setTimeout(() => {
                 if (todayRowRef.current) todayRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 200);
@@ -452,11 +629,6 @@ const BillingPage = ({
         setShowMonthPickerReport(false);
     };
 
-    const applyMonthToControl = (year, monthIndex) => {
-        const m = String(monthIndex + 1).padStart(2, '0');
-        setControlMonth(`${year}-${m}`);
-        setShowMonthPickerControl(false);
-    };
 
     const saveRecentObra = (obraId) => {
         const updated = [obraId, ...recentObraIds.filter(id => id !== obraId)].slice(0, 10);
@@ -465,12 +637,59 @@ const BillingPage = ({
     };
 
     const handleObraSelect = (obra) => {
+        if (obra.id === selectedObraId) return;
         setSelectedObraId(obra.id);
         saveRecentObra(obra.id);
+        // O equipamento nao acompanha a troca de obra: manter o id anterior
+        // deixaria a tabela editavel apontando para uma maquina de outra obra.
+        setControlVehicleId('');
+        setLocalChanges({});
     };
 
     const handleObraClear = () => {
         setSelectedObraId('');
+        setControlVehicleId('');
+    };
+
+    // Entrada única: o ContextFinder devolve obra e, quando a busca foi por
+    // RE/placa, também o equipamento — que já entra selecionado.
+    const handleContextPick = ({ obraId, vehicleId }) => {
+        if (!obraId) return;
+        if (obraId !== selectedObraId) {
+            setSelectedObraId(obraId);
+            saveRecentObra(obraId);
+            setLocalChanges({});
+        }
+        setControlVehicleId(vehicleId || '');
+        // So leva para o lancamento quem ainda nao escolheu um contexto; quem ja
+        // estava conferindo continua na conferencia.
+        if (!isViewer && !selectedObraId) setActiveTab('controle');
+    };
+
+    // Trocar de equipamento não pode descartar digitação: salva o que estiver
+    // pendente antes de mudar (localChanges é indexado só por data).
+    const handleSelectVehicle = async (vehicleId) => {
+        if (vehicleId === controlVehicleId) return;
+        if (Object.keys(localChanges).length > 0) {
+            await handleSaveDailyLogs();
+        }
+        setLocalChanges({});
+        setControlVehicleId(vehicleId);
+    };
+
+    // Ida e volta: clicar num dia da matriz de conferência abre o Controle
+    // Diário naquele equipamento e rola até aquele dia.
+    const handleMatrixCellClick = async (vehicleId, dateStr) => {
+        await handleSelectVehicle(vehicleId);
+        setActiveTab('controle');
+        setActiveRowDate(dateStr);
+        setTimeout(() => {
+            const el = document.querySelector(`[data-tk="${dateStr}-morningStart"]`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (!el.disabled) el.focus();
+            }
+        }, 120);
     };
 
     const appliedInitialFilterRef = useRef(null);
@@ -504,11 +723,7 @@ const BillingPage = ({
             const lastDay = new Date(year, month, 0).getDate();
             const endDate = `${year}-${month}-${lastDay}`;
 
-            const logs = await apiClient.getDailyLogs(selectedObraId, { 
-                startDate, 
-                endDate,
-                vehicleId: controlVehicleId 
-            });
+            const logs = await apiClient.getDailyLogs(selectedObraId, { startDate, endDate });
             setDailyLogs(logs || []);
             setLocalChanges({});
         } catch (error) {
@@ -542,12 +757,18 @@ const BillingPage = ({
     };
 
     const handleSaveDailyLogs = async () => {
+        // Trava de integridade: o payload carrega obraId e vehicleId separados,
+        // entao um vehicleId orfao gravaria horas na obra errada.
+        if (!controlVehicleId || !getObraVehicles.some(v => v.id === controlVehicleId)) {
+            setAlertMessage("Selecione um equipamento desta obra antes de salvar.");
+            return;
+        }
         setIsSaving(true);
         const promises = [];
 
         Object.keys(localChanges).forEach(dateKey => {
             const changes = localChanges[dateKey];
-            const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey));
+            const existingLog = vehicleLogs.find(l => l.date.startsWith(dateKey));
 
             if (changes._clear) {
                 if (existingLog?.id) promises.push(apiClient.deleteDailyLog(existingLog.id));
@@ -587,7 +808,7 @@ const BillingPage = ({
         try {
             await Promise.all(promises);
             setAlertMessage("Registros salvos com sucesso!");
-            fetchDailyLogsForControl();
+            await fetchDailyLogsForControl();
         } catch (error) {
             setAlertMessage("Erro ao salvar alguns registros. Verifique a conexão.");
         } finally {
@@ -610,7 +831,7 @@ const BillingPage = ({
     // o que disparava o alerta prematuramente (ex: ao tentar digitar "12" a partir de "1").
     const handleTimeBlur = (dateKey, field) => {
         setLocalChanges(prev => {
-            const existingLog = dailyLogs.find(l => l.date.startsWith(dateKey)) || {};
+            const existingLog = vehicleLogs.find(l => l.date.startsWith(dateKey)) || {};
             const current = { ...existingLog, ...(prev[dateKey] || {}) };
             const value = current[field];
             const idx = TIME_FIELD_ORDER.indexOf(field);
@@ -657,12 +878,6 @@ const BillingPage = ({
         setJustificativaOpenDate(null);
     };
 
-    const handleRemoveJustificativa = (dateKey) => {
-        setLocalChanges(prev => ({
-            ...prev,
-            [dateKey]: { ...prev[dateKey], justificativaTipo: null }
-        }));
-    };
 
     const handleClearDay = (dateKey) => {
         setLocalChanges(prev => ({
@@ -686,7 +901,7 @@ const BillingPage = ({
 
         for (let i = currentIndex - 1; i >= 0; i--) {
             const d = allDays[i];
-            const existingLog = dailyLogs.find(l => l.date.startsWith(d));
+            const existingLog = vehicleLogs.find(l => l.date.startsWith(d));
             const changes = localChanges[d];
 
             const localHasHours = changes && !changes._clear &&
@@ -792,32 +1007,9 @@ const BillingPage = ({
     };
 
     const handleDateRangeChange = (field, value) => {
-        const obra = obras.find(o => o.id === selectedObraId);
-        if (obra) {
-            const startLimit = new Date(obra.dataInicio || obra.dataInicioPrevisto || 0);
-            const endLimit = obra.dataFim ? new Date(obra.dataFim) : new Date();
-            const checkDate = new Date(value);
-            checkDate.setHours(12,0,0,0);
-            startLimit.setHours(0,0,0,0);
-            endLimit.setHours(23,59,59,999);
-
-            if (!isNaN(checkDate.getTime()) && (checkDate < startLimit || checkDate > endLimit)) {
-                setPendingDateChange({ field, value });
-                setShowPasswordModal(true);
-                return;
-            }
-        }
         if (field === 'start') setReportStartDate(value);
         else setReportEndDate(value);
         setPeriodPreset('custom');
-    };
-
-    const confirmDateChange = () => {
-        if (pendingDateChange) {
-            if (pendingDateChange.field === 'start') setReportStartDate(pendingDateChange.value);
-            else setReportEndDate(pendingDateChange.value);
-            setPendingDateChange(null);
-        }
     };
 
     // ===================================================================================
@@ -837,7 +1029,7 @@ const BillingPage = ({
             if (v) {
                 vehicleLabel = `${v.tipo} ${v.marca} ${v.modelo}${terceirizadoPdfMark(v)}`;
                 frotaLabel = `${v.registroInterno}${terceirizadoPdfMark(v)}`;
-                const operators = reportData.map(d => d.employeeName).filter(Boolean);
+                const operators = reportDataScoped.map(d => d.employeeName).filter(Boolean);
                 if (operators.length > 0) {
                     const mode = operators.sort((a,b) =>
                         operators.filter(v => v===a).length - operators.filter(v => v===b).length
@@ -894,7 +1086,7 @@ const BillingPage = ({
         doc.setFont('helvetica', 'normal');
         doc.text(operatorLabel, 40, 52);
 
-        const sortedReportData = [...reportData]
+        const sortedReportData = [...reportDataScoped]
             .filter(log => !log.justificativaTipo)
             .sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -955,7 +1147,7 @@ const BillingPage = ({
             alternateRowStyles: { fillColor: [255, 255, 255] }
         });
 
-        const totalDecimal = reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
+        const totalDecimal = reportDataScoped.filter(l => !l.justificativaTipo).reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
         const finalY = doc.lastAutoTable.finalY + 5;
 
         doc.setFontSize(10);
@@ -976,7 +1168,7 @@ const BillingPage = ({
         const typeSummary = {};
         const vehicleSummary = {};
 
-        reportData.filter(log => !log.justificativaTipo).forEach(log => {
+        reportDataScoped.filter(log => !log.justificativaTipo).forEach(log => {
             const type = log.tipo || 'Outros';
             const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
 
@@ -1030,56 +1222,97 @@ const BillingPage = ({
                 <FileText className="text-yellow-500" /> Faturamento & Controle
             </h1>
 
-            {/* Seleção de Obra */}
-            <div className="bg-white p-4 rounded-lg shadow mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Selecione a Obra</label>
-                <SearchableObraSelect
-                    obras={obras.filter(o => (o.tipo_registro || 'obra') !== 'centro_custo')}
-                    value={selectedObraId}
-                    onChange={(obra) => obra ? handleObraSelect(obra) : handleObraClear()}
-                    placeholder="Buscar obra pelo nome..."
-                    includeInactive={true}
-                    storageKey={RECENT_OBRAS_KEY}
-                />
+            {/* Entrada única: obra, RE ou placa. Fica sempre visível — trocar de
+                obra ou de equipamento não passa mais por uma sequência de seletores. */}
+            <div className="bg-white p-4 rounded-lg shadow mb-6 flex flex-col md:flex-row md:items-center gap-3">
+                <div className="w-full md:w-96">
+                    <ContextFinder
+                        obras={obras}
+                        vehicles={vehicles}
+                        vehicleGroups={vehicleGroups}
+                        onPick={handleContextPick}
+                        autoFocus={!selectedObraId}
+                    />
+                </div>
+                {selectedObraId && (
+                    <button
+                        onClick={handleObraClear}
+                        className="text-xs text-gray-500 hover:text-gray-700 underline self-start md:self-auto"
+                    >
+                        ver todas as obras
+                    </button>
+                )}
+                <div className="md:ml-auto flex items-center gap-1">
+                    <button onClick={() => navigateMonth(-1)} title="Mês anterior"
+                        className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
+                        <ChevronLeft size={16} />
+                    </button>
+                    <div className="relative" ref={monthPickerRef}>
+                        <button
+                            onClick={openMonthPicker}
+                            title="Selecionar mês/ano"
+                            className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-[#fdf8f0] hover:border-[#9E7A42] transition flex items-center gap-1.5"
+                        >
+                            <Calendar size={14} className="text-gray-400" />
+                            {formatMonthLabel(controlMonth)}
+                        </button>
+                        {showMonthPicker && (
+                            <div className="absolute z-50 top-full mt-1 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-2xl p-3 w-64" style={{ border: '1px solid #f0ebe3' }}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <button onClick={() => setPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100" aria-label="Ano anterior">
+                                        <ChevronLeft size={16} />
+                                    </button>
+                                    <span className="font-bold text-sm text-gray-700">{pickerYear}</span>
+                                    <button onClick={() => setPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100" aria-label="Próximo ano">
+                                        <ChevronRight size={16} />
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1">
+                                    {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
+                                        const isSelected = controlMonth === `${pickerYear}-${String(i + 1).padStart(2, '0')}`;
+                                        return (
+                                            <button
+                                                key={m}
+                                                onClick={() => applyMonth(pickerYear, i)}
+                                                className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-[#9E7A42] text-white' : 'hover:bg-[#fdf8f0] text-gray-700'}`}
+                                            >
+                                                {m}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const now = new Date();
+                                        applyMonth(now.getFullYear(), now.getMonth());
+                                    }}
+                                    className="w-full mt-2 py-1.5 rounded text-xs font-semibold text-[#9E7A42] hover:bg-[#fdf8f0] transition"
+                                >
+                                    Mês atual
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    <button onClick={() => navigateMonth(1)} title="Próximo mês"
+                        className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
+                        <ChevronRight size={16} />
+                    </button>
+                </div>
             </div>
 
-            {/* Estado vazio orientado */}
+            {/* Estado inicial: a lista das obras já com equipamentos e horas do mês,
+                em vez de uma tela vazia pedindo que o usuário lembre o nome da obra. */}
             {!selectedObraId && (
-                <div className="bg-white rounded-lg shadow p-12 flex flex-col items-center text-center">
-                    <Building2 size={48} className="text-gray-200 mb-4" />
-                    <p className="text-gray-500 font-medium mb-1">Nenhuma obra selecionada</p>
-                    <p className="text-gray-400 text-sm mb-6">Selecione uma obra acima para acessar o controle de horas ou gerar relatórios.</p>
-
-                    {recentObras.length > 0 ? (
-                        <div className="flex flex-wrap justify-center gap-2">
-                            <span className="text-xs text-gray-400 w-full mb-1">Acessadas recentemente:</span>
-                            {recentObras.slice(0, 5).map(obra => {
-                                const isActive = activeObras.some(a => a.id === obra.id);
-                                return (
-                                    <button key={obra.id} onClick={() => handleObraSelect(obra)}
-                                        className={`px-3 py-1.5 text-xs rounded-full border transition font-medium ${
-                                            isActive
-                                                ? 'bg-yellow-50 border-yellow-200 text-yellow-800 hover:bg-yellow-100'
-                                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                                        }`}>
-                                        {formatObraNome(obra)}
-                                        {!isActive && <span className="ml-1 opacity-50 text-[10px]">(finalizada)</span>}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    ) : activeObras.length > 0 && (
-                        <div className="flex flex-wrap justify-center gap-2">
-                            <span className="text-xs text-gray-400 w-full mb-1">Acesso rápido:</span>
-                            {activeObras.slice(0, 4).map(obra => (
-                                <button key={obra.id} onClick={() => handleObraSelect(obra)}
-                                    className="px-3 py-1.5 text-xs bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-full hover:bg-yellow-100 transition font-medium">
-                                    {formatObraNome(obra)}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                <ObraStartList
+                    obras={activeObras}
+                    inactiveObras={inactiveObras}
+                    equipCountByObra={equipCountByObra}
+                    totalsByObra={obraMonthTotals}
+                    monthLabel={formatMonthLabel(controlMonth)}
+                    loading={loadingObraTotals}
+                    formatHours={formatDecimalToTime}
+                    onPick={handleObraSelect}
+                />
             )}
 
             {selectedObraId && (
@@ -1143,118 +1376,39 @@ const BillingPage = ({
 
                     {/* CONTEÚDO DA ABA: CONTROLE DIÁRIO */}
                     {activeTab === 'controle' && !isViewer && (
-                        <div className="space-y-6">
-                            <div className="flex flex-col md:flex-row items-end gap-4 bg-gray-50 p-4 rounded-md border">
-                                <div className="flex-1 w-full">
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Equipamento</label>
-                                    <select
-                                        value={controlVehicleId}
-                                        onChange={(e) => setControlVehicleId(e.target.value)}
-                                        className="w-full p-2 border rounded text-sm bg-white"
-                                    >
-                                        <option value="">-- Selecione o Equipamento --</option>
-                                        {getObraVehicles.filter(v => v.statusNaObra === 'presente').length > 0 && (
-                                            <optgroup label="Presentes na obra">
-                                                {getObraVehicles.filter(v => v.statusNaObra === 'presente').map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}{terceirizadoPdfMark(v)}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        )}
-                                        {getObraVehicles.filter(v => v.statusNaObra === 'historico').length > 0 && (
-                                            <optgroup label="Saíram da obra (histórico)">
-                                                {getObraVehicles.filter(v => v.statusNaObra === 'historico').map(v => (
-                                                    <option key={v.id} value={v.id}>
-                                                        {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}{terceirizadoPdfMark(v)}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        )}
-                                    </select>
-                                </div>
-                                <div className="w-full md:w-auto">
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Mês de Referência</label>
-                                    <div className="flex items-center gap-1">
-                                        <button onClick={() => navigateMonth(-1)} title="Mês anterior"
-                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
-                                            <ChevronLeft size={16} />
-                                        </button>
-                                        <div className="relative" ref={monthPickerControlRef}>
-                                            <button
-                                                onClick={() => { setControlPickerYear(parseInt(controlMonth.split('-')[0])); setShowMonthPickerControl(v => !v); }}
-                                                className="px-3 py-2 text-sm font-semibold text-gray-700 whitespace-nowrap border rounded bg-white hover:bg-[#fdf8f0] hover:border-[#9E7A42] transition"
-                                                title="Selecionar mês/ano"
-                                            >
-                                                {formatMonthLabel(controlMonth)}
-                                            </button>
-                                            {showMonthPickerControl && (
-                                                <div className="absolute z-40 top-full mt-1 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-2xl p-3 w-64" style={{ border: "1px solid #f0ebe3" }}>
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <button onClick={() => setControlPickerYear(y => y - 1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft size={16}/></button>
-                                                        <span className="font-bold text-sm text-gray-700">{controlPickerYear}</span>
-                                                        <button onClick={() => setControlPickerYear(y => y + 1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight size={16}/></button>
-                                                    </div>
-                                                    <div className="grid grid-cols-3 gap-1">
-                                                        {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => {
-                                                            const isSelected = controlMonth === `${controlPickerYear}-${String(i+1).padStart(2,'0')}`;
-                                                            return (
-                                                                <button key={i} onClick={() => applyMonthToControl(controlPickerYear, i)}
-                                                                    className={`py-1.5 rounded text-xs font-semibold transition ${isSelected ? 'bg-[#9E7A42] text-white' : 'hover:bg-[#fdf8f0] text-gray-700'}`}>
-                                                                    {m}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <button onClick={() => navigateMonth(1)} title="Próximo mês"
-                                            className="p-2 rounded border bg-white hover:bg-gray-100 transition text-gray-600">
-                                            <ChevronRight size={16} />
-                                        </button>
-                                        <button onClick={scrollToToday} title="Ir para hoje"
-                                            className="px-2 py-2 rounded border bg-white hover:bg-[#fdf8f0] hover:border-[#9E7A42] transition text-xs font-bold text-yellow-600 whitespace-nowrap">
-                                            Hoje
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="w-full md:w-auto">
-                                    <button
-                                        onClick={handleSaveDailyLogs}
-                                        disabled={isSaving || Object.keys(localChanges).length === 0}
-                                        className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm font-semibold"
-                                    >
-                                        {isSaving ? 'Salvando...' : (
-                                            <>
-                                                Salvar Mês
-                                                {Object.keys(localChanges).length > 0 && (
-                                                    <span className="bg-white text-green-700 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                                                        {Object.keys(localChanges).length}
-                                                    </span>
-                                                )}
-                                            </>
-                                        )}
-                                        <Save size={16} />
-                                    </button>
-                                </div>
-                            </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-4 items-start">
+                            {/* Lista de equipamentos sempre visível — substitui o <select> */}
+                            <EquipmentRail
+                                vehicles={getObraVehicles}
+                                selectedVehicleId={controlVehicleId}
+                                onSelect={handleSelectVehicle}
+                                totalsByVehicle={monthTotalsByVehicle}
+                                formatHours={formatDecimalToTime}
+                            />
 
-                            {/* Indicador de progresso do mês */}
-                            {monthProgress && (
-                                <div className="bg-white rounded-lg shadow px-4 py-3">
-                                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1.5">
-                                        <span>{monthProgress.filled} de {monthProgress.total} dias úteis preenchidos</span>
-                                        <span className="font-bold">{monthProgress.total > 0 ? Math.round((monthProgress.filled / monthProgress.total) * 100) : 0}%</span>
-                                    </div>
-                                    <div className="w-full bg-gray-100 rounded-full h-2">
-                                        <div
-                                            className={`h-2 rounded-full transition-all duration-300 ${monthProgress.total > 0 && (monthProgress.filled / monthProgress.total) >= 0.8 ? 'bg-green-500' : 'bg-yellow-400'}`}
-                                            style={{ width: `${monthProgress.total > 0 ? (monthProgress.filled / monthProgress.total) * 100 : 0}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            )}
+                            <div className="space-y-4">
+                            <div className="flex flex-wrap items-center gap-3 bg-gray-50 p-3 rounded-md border">
+                                <p className="text-sm text-gray-700 font-semibold">
+                                    {(() => {
+                                        const v = getObraVehicles.find(x => x.id === controlVehicleId);
+                                        return v
+                                            ? `${v.registroInterno} — ${v.tipo} ${v.marca || ''} ${v.modelo || ''}`.trim()
+                                            : 'Selecione um equipamento ao lado';
+                                    })()}
+                                </p>
+                                <button onClick={scrollToToday} title="Ir para hoje"
+                                    className="px-2 py-1.5 rounded border bg-white hover:bg-[#fdf8f0] hover:border-[#9E7A42] transition text-xs font-bold text-yellow-600">
+                                    Hoje
+                                </button>
+                                <button
+                                    onClick={handleSaveDailyLogs}
+                                    disabled={isSaving || Object.keys(localChanges).length === 0}
+                                    className="ml-auto flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition text-sm font-semibold"
+                                >
+                                    {isSaving ? 'Salvando...' : 'Salvar Mês'}
+                                    <Save size={16} />
+                                </button>
+                            </div>
 
                             {/* Painel Quick Fill — aplica horários a dias úteis vazios */}
                             {controlVehicleId && (
@@ -1480,6 +1634,7 @@ const BillingPage = ({
                                     </div>
                                 )}
                             </div>
+                            </div>
                         </div>
                     )}
 
@@ -1536,7 +1691,7 @@ const BillingPage = ({
                                 </div>
 
 
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700">Data Inicial</label>
                                         <input
@@ -1556,6 +1711,33 @@ const BillingPage = ({
                                         />
                                     </div>
                                     <div>
+                                        <label className="block text-xs font-medium text-gray-700">Propriedade</label>
+                                        <div className="flex mt-1 border rounded overflow-hidden">
+                                            {[
+                                                { key: 'all', label: 'Todos' },
+                                                { key: 'own', label: 'Próprios' },
+                                                { key: 'outsourced', label: 'Terceiros' },
+                                            ].map(opt => (
+                                                <button
+                                                    key={opt.key}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setReportOwnership(opt.key);
+                                                        // o equipamento selecionado pode nao pertencer ao novo recorte
+                                                        setReportVehicleId('');
+                                                    }}
+                                                    className={`flex-1 py-2 text-xs font-semibold transition ${
+                                                        reportOwnership === opt.key
+                                                            ? 'bg-[#9E7A42] text-white'
+                                                            : 'bg-white text-gray-600 hover:bg-[#fdf8f0]'
+                                                    }`}
+                                                >
+                                                    {opt.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
                                         <label className="block text-xs font-medium text-gray-700">Filtrar Equipamento</label>
                                         <select
                                             value={reportVehicleId}
@@ -1565,18 +1747,18 @@ const BillingPage = ({
                                             <option value="">Todos os equipamentos</option>
                                             {(reportStartDate && reportEndDate) ? (
                                                 <>
-                                                    {vehiclesWithDataInPeriod.length > 0 && (
-                                                        <optgroup label={`Com registros no período (${vehiclesWithDataInPeriod.length})`}>
-                                                            {vehiclesWithDataInPeriod.map(v => (
+                                                    {vehiclesWithDataInPeriod.filter(matchesOwnership).length > 0 && (
+                                                        <optgroup label={`Com registros no período (${vehiclesWithDataInPeriod.filter(matchesOwnership).length})`}>
+                                                            {vehiclesWithDataInPeriod.filter(matchesOwnership).map(v => (
                                                                 <option key={v.id} value={v.id}>
                                                                     {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}{terceirizadoPdfMark(v)}
                                                                 </option>
                                                             ))}
                                                         </optgroup>
                                                     )}
-                                                    {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).length > 0 && (
-                                                        <optgroup label={`Sem registros no período (${getObraVehicles.length - vehiclesWithDataInPeriod.length})`}>
-                                                            {getObraVehicles.filter(v => !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).map(v => (
+                                                    {getObraVehicles.filter(v => matchesOwnership(v) && !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).length > 0 && (
+                                                        <optgroup label={`Sem registros no período (${getObraVehicles.filter(v => matchesOwnership(v) && !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).length})`}>
+                                                            {getObraVehicles.filter(v => matchesOwnership(v) && !vehiclesWithDataInPeriod.find(vd => vd.id === v.id)).map(v => (
                                                                 <option key={v.id} value={v.id}>
                                                                     {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}{terceirizadoPdfMark(v)}
                                                                 </option>
@@ -1585,7 +1767,7 @@ const BillingPage = ({
                                                     )}
                                                 </>
                                             ) : (
-                                                getObraVehicles.map(v => (
+                                                getObraVehicles.filter(matchesOwnership).map(v => (
                                                     <option key={v.id} value={v.id}>
                                                         {v.registroInterno} - {v.tipo} - {v.marca} - {v.modelo}{terceirizadoPdfMark(v)}
                                                     </option>
@@ -1594,106 +1776,48 @@ const BillingPage = ({
                                         </select>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={generateDetailedPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
+                                        <button onClick={generateDetailedPDF} disabled={!reportDataScoped.length} className="flex-1 py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
                                             <Printer size={16}/> Detalhado
                                         </button>
-                                        <button onClick={generateSummaryPDF} disabled={!reportData.length} className="flex-1 py-2 px-3 bg-[#9E7A42] text-white rounded hover:bg-yellow-600 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
+                                        <button onClick={generateSummaryPDF} disabled={!reportDataScoped.length} className="flex-1 py-2 px-3 bg-[#9E7A42] text-white rounded hover:bg-yellow-600 disabled:bg-gray-300 flex items-center justify-center gap-2 text-xs font-bold">
                                             <Printer size={16}/> Resumo
                                         </button>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Resumo por GRUPOS */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {Object.entries(reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => {
-                                    const type = curr.tipo || 'Outros';
-                                    const group = Object.keys(vehicleGroups).find(g => vehicleGroups[g].includes(type)) || 'Outros';
-                                    acc[group] = (acc[group] || 0) + parseFloat(curr.totalHours);
-                                    return acc;
-                                }, {})).map(([group, hours]) => (
-                                    <div key={group} className="bg-gray-800 text-white p-4 rounded shadow">
-                                        <h3 className="text-xs font-bold uppercase opacity-80">{group}</h3>
-                                        <p className="text-2xl font-bold">{formatDecimalToTime(hours)} h</p>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Resumo por TIPOS */}
-                            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                                {Object.entries(reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => {
-                                    const type = curr.tipo || 'Outros';
-                                    acc[type] = (acc[type] || 0) + parseFloat(curr.totalHours);
-                                    return acc;
-                                }, {})).map(([tipo, hours]) => (
-                                    <div key={tipo} className="bg-white p-3 rounded shadow border-l-4 border-yellow-400">
-                                        <h3 className="text-[10px] font-bold text-gray-500 uppercase">{tipo}</h3>
-                                        <p className="text-lg font-bold text-gray-800">{formatDecimalToTime(hours)} h</p>
-                                    </div>
-                                ))}
-                                <div className="bg-blue-600 p-3 rounded shadow text-white md:col-span-1">
-                                    <h3 className="text-[10px] font-bold uppercase opacity-80">Total Geral</h3>
-                                    <p className="text-lg font-bold">
-                                        {formatDecimalToTime(reportData.filter(l => !l.justificativaTipo).reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0))} h
-                                    </p>
+                            {/* Conferência da obra: equipamentos nas linhas, dias nas colunas.
+                                É a mesma leitura que o PDF Resumo imprime — o botão passa a
+                                imprimir o que está na tela, não a revelar o que ela não mostra. */}
+                            {loadingLogs ? (
+                                <div className="bg-white rounded-lg shadow p-10 text-center text-sm text-gray-400">
+                                    Carregando registros...
                                 </div>
-                            </div>
+                            ) : (
+                                <MonthMatrix
+                                    days={reportDays}
+                                    vehicles={reportVehicles}
+                                    logIndex={reportLogIndex}
+                                    allocationRange={isVehicleInObraOnDate}
+                                    onCellClick={handleMatrixCellClick}
+                                    formatHours={formatDecimalToTime}
+                                    isWeekend={isWeekend}
+                                    dayLabel={getDayOfWeek}
+                                />
+                            )}
 
-                            {/* Tabela de Visualização Rápida */}
-                            <div className="bg-white shadow rounded-lg overflow-hidden mt-4">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="bg-gray-100 uppercase text-xs font-bold">
-                                            <tr>
-                                                <th className="px-4 py-2">Data</th>
-                                                <th className="px-4 py-2">Equipamento</th>
-                                                <th className="px-4 py-2">Operador</th>
-                                                <th className="px-4 py-2">Total Horas</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {reportData.slice(0, 50).map(log => (
-                                                <tr key={log.id} className="border-b hover:bg-gray-50">
-                                                    {/* DATA CORRIGIDA NA VISUALIZAÇÃO DE TELA */}
-                                                    <td className="px-4 py-2">{formatDateToBR(log.date)}</td>
-                                                    <td className="px-4 py-2 font-medium">
-                                                        <span className="inline-flex items-center gap-1.5">
-                                                            {log.registroInterno} <span className="text-gray-500 font-normal text-xs">({log.tipo})</span>
-                                                            <TerceirizadoBadge vehicle={vehicles.find(v => v.id === log.vehicleId)} />
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-2">{log.employeeName}</td>
-                                                    <td className="px-4 py-2 font-bold text-blue-600">{formatDecimalToTime(log.totalHours)}</td>
-                                                </tr>
-                                            ))}
-                                            {reportData.length > 50 && (
-                                                <tr>
-                                                    <td colSpan="4" className="text-center py-2 text-gray-500 italic">...e mais {reportData.length - 50} registros. Baixe o PDF para ver tudo.</td>
-                                                </tr>
-                                            )}
-                                            {reportData.length === 0 && (
-                                                 <tr>
-                                                    <td colSpan="4" className="text-center py-8 text-gray-500 italic">Nenhum registro encontrado para o período/filtro selecionado.</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
+                            <p className="flex flex-wrap gap-5 text-[11px] text-gray-500 px-1">
+                                <span>Célula vazia — dia ainda não lançado</span>
+                                <span>— dia lançado sem operação</span>
+                                <span>· equipamento não estava na obra</span>
+                                <span>3º — equipamento de terceiro</span>
+                                <span>Clique em qualquer dia para abrir no Controle Diário</span>
+                            </p>
                         </div>
                     )}
                 </>
             )}
 
-            {/* Modal de Senha */}
-            {showPasswordModal && (
-                <PasswordConfirmationModal 
-                    onConfirm={confirmDateChange} 
-                    onClose={() => { setShowPasswordModal(false); setPendingDateChange(null); }}
-                    apiClient={apiClient}
-                    message="A data selecionada está fora do período de vigência da obra. Insira sua senha para liberar."
-                />
-            )}
         </div>
     );
 };

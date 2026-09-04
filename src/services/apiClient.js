@@ -299,6 +299,11 @@ const apiClient = {
         const queryParams = new URLSearchParams(filters).toString();
         return apiFetch(`/billing?obraId=${obraId}&${queryParams}`);
     },
+    // Totais agregados do periodo por obra (tela inicial do Faturamento).
+    getBillingTotalsByObra: async (filters = {}) => {
+        const queryParams = new URLSearchParams(filters).toString();
+        return apiFetch(`/billing/totais-por-obra?${queryParams}`);
+    },
     upsertDailyLog: async (data) => apiFetch('/billing', { method: 'POST', body: JSON.stringify(data) }),
     deleteDailyLog: async (id) => apiFetch(`/billing/${id}`, { method: 'DELETE' }),
 
