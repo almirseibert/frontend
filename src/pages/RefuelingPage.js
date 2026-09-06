@@ -156,6 +156,26 @@ const RefuelingPage = ({
         };
     }, [socket]);
 
+    // Recarrega as três listas quando o backend sinaliza mudança em abastecimentos.
+    // As listas são estado local (fetch por scope), então NÃO reagem ao refresh
+    // do DataContext — sem este listener, uma baixa/emissão de OUTRO gestor (e a
+    // própria, via broadcast) só apareceria após recarregar a página. Coalesce
+    // a rajada num pequeno atraso para não refetchar a cada evento.
+    useEffect(() => {
+        if (!socket) return;
+        let timer = null;
+        const onSync = ({ targets } = {}) => {
+            if (Array.isArray(targets) && !targets.some(t => t === 'refuelings' || t === 'solicitacoes')) return;
+            if (timer) return;
+            timer = setTimeout(() => { timer = null; recarregarListas(); }, 400);
+        };
+        socket.on('server:sync', onSync);
+        return () => {
+            socket.off('server:sync', onSync);
+            if (timer) clearTimeout(timer);
+        };
+    }, [socket, recarregarListas]);
+
     // Uma ordem recém-emitida leva alguns segundos para ter o envio concluído.
     // Uma releitura curta evita que o badge fique preso em "Enviando...".
     useEffect(() => {
@@ -342,7 +362,7 @@ const RefuelingPage = ({
         try {
             const res = await apiClient.revelarOrdemOculta(order.id);
             setAlertMessage(res?.message || 'Ordem liberada.');
-            reloadData();
+            recarregarListas();
         } catch (e) {
             setAlertMessage(`Erro ao liberar ordem: ${e.message}`);
         } finally {
@@ -361,7 +381,7 @@ const RefuelingPage = ({
             setAlertMessage(res?.message || 'Liberação agendada.');
             setSchedulingOrderId(null);
             setScheduleValue('');
-            reloadData();
+            recarregarListas();
         } catch (e) {
             setAlertMessage(`Erro ao agendar liberação: ${e.message}`);
         } finally {
@@ -374,7 +394,7 @@ const RefuelingPage = ({
         try {
             await apiClient.liberarOrdemBloqueada(orderId, { liberadoPor: user });
             setAlertMessage('Ordem liberada do bloqueio e enviada ao posto.');
-            reloadData();
+            recarregarListas();
         } catch (e) {
             setAlertMessage(`Erro ao liberar: ${e.message}`);
         } finally {
@@ -387,7 +407,7 @@ const RefuelingPage = ({
         try {
             await apiClient.negarOrdemBloqueada(orderId);
             setAlertMessage('Ordem negada e excluída.');
-            reloadData();
+            recarregarListas();
         } catch (e) {
             setAlertMessage(`Erro ao negar: ${e.message}`);
         } finally {
@@ -400,7 +420,7 @@ const RefuelingPage = ({
         try {
             await apiClient.deleteRefuelingOrder(itemToDelete);
             setAlertMessage("Ordem excluída com sucesso.");
-            reloadData();
+            recarregarListas();
         } catch (e) {
             setAlertMessage(`Erro ao excluir: ${e.message}`);
         } finally {
@@ -765,7 +785,7 @@ const RefuelingPage = ({
                     onClose={() => setIsOrderModalOpen(false)}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
-                    reloadData={reloadData}
+                    reloadData={recarregarListas}
                     onGeneratePDF={generateAuthorizationPDF}
                     PasswordConfirmationModal={PasswordConfirmationModal}
                     ConfirmationModal={ConfirmationModal}
@@ -783,7 +803,7 @@ const RefuelingPage = ({
                     onClose={() => setIsConfirmModalOpen(false)}
                     setAlertMessage={setAlertMessage}
                     apiClient={apiClient}
-                    reloadData={reloadData}
+                    reloadData={recarregarListas}
                     partners={partners}
                     employees={employees}
                     PasswordConfirmationModal={PasswordConfirmationModal}
