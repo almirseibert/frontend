@@ -225,6 +225,13 @@ export const DataProvider = ({ children }) => {
     // Promessas em voo (para deduplicar fetches concorrentes)
     const inFlightRef = useRef(new Map());
 
+    // Coalescência de server:sync: uma rajada de eventos (ex.: várias ordens em
+    // segundos, ou o broadcast de uma emissão para muitos clientes) acumula os
+    // recursos a recarregar num Set e dispara UM refresh por recurso após a
+    // janela, em vez de uma rodada completa de refetch por evento.
+    const pendingSyncRef = useRef(new Set());
+    const syncTimerRef = useRef(null);
+
     // Socket.io
     const [socket, setSocket] = useState(null);
 
@@ -430,25 +437,46 @@ export const DataProvider = ({ children }) => {
 
         // Sincronização: só refaz fetch de recursos QUE JÁ ESTÃO no cache.
         // Isso elimina o "tempo gasto buscando coisas que ninguém abriu ainda".
-        s.on('server:sync', async ({ targets } = {}) => {
-            if (!Array.isArray(targets)) return;
-
-            const resourcesToRefresh = targets
-                .map(t => TARGET_TO_RESOURCE[t])
-                .filter(Boolean)
-                .filter(r => loadedRef.current.has(r)); // só refresca o que já carregamos
-
-            if (resourcesToRefresh.length === 0) return;
+        //
+        // Debounce/coalescência: acumula os alvos numa janela de 1,5s e faz um
+        // único refresh por recurso. Sem isso, uma rajada de eventos (ou o
+        // broadcast de uma emissão para vários clientes) disparava uma rodada
+        // completa de refetch por evento — o efeito de tempestade do pico.
+        const SYNC_DEBOUNCE_MS = 1500;
+        const flushSync = async () => {
+            syncTimerRef.current = null;
+            const resources = Array.from(pendingSyncRef.current)
+                .filter(r => loadedRef.current.has(r)); // só o que já carregamos
+            pendingSyncRef.current.clear();
+            if (resources.length === 0) return;
 
             setSyncing(true);
             try {
-                await Promise.all(resourcesToRefresh.map(r => refresh(r)));
+                await Promise.all(resources.map(r => refresh(r)));
             } finally {
                 setSyncing(false);
             }
+        };
+
+        s.on('server:sync', ({ targets } = {}) => {
+            if (!Array.isArray(targets)) return;
+
+            targets
+                .map(t => TARGET_TO_RESOURCE[t])
+                .filter(Boolean)
+                .forEach(r => pendingSyncRef.current.add(r));
+
+            if (pendingSyncRef.current.size === 0) return;
+            if (syncTimerRef.current) return; // janela já aberta — só acumula
+            syncTimerRef.current = setTimeout(flushSync, SYNC_DEBOUNCE_MS);
         });
 
         return () => {
+            if (syncTimerRef.current) {
+                clearTimeout(syncTimerRef.current);
+                syncTimerRef.current = null;
+            }
+            pendingSyncRef.current.clear();
             s.disconnect();
             setSocket(null);
         };

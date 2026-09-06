@@ -169,8 +169,7 @@ const SolicitacaoAbastecimentoPage = ({
     // --- DADOS ---
     const [myRequests, setMyRequests] = useState([]);
     const [selectedRequest, setSelectedRequest] = useState(null);
-    const [syncTrigger, setSyncTrigger] = useState(0); 
-    
+
     // --- FORMULÁRIO ---
     const [formData, setFormData] = useState({
         veiculoId: '',
@@ -229,6 +228,11 @@ const SolicitacaoAbastecimentoPage = ({
     };
 
     // --- ESTRATÉGIA TRIPLA DE ATUALIZAÇÃO: SOCKET + POLLING + VISIBILITY ---
+    // IMPORTANTE: este efeito NÃO depende mais de syncTrigger. Antes, cada evento
+    // de socket recriava o setInterval inteiro (derrubando e recriando o polling
+    // de 15s). Com ~200 operadores no pico, uma única emissão de ordem disparava
+    // essa reconstrução em todos ao mesmo tempo. Agora o socket só chama o
+    // refetch direto (abaixo), sem mexer no ciclo de polling.
     useEffect(() => {
         if (!user) return;
 
@@ -257,23 +261,43 @@ const SolicitacaoAbastecimentoPage = ({
             clearInterval(intervalId);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [user, syncTrigger]); 
+    }, [user]);
 
     // --- LÓGICA DE SOCKET.IO ---
+    // Só reage a eventos que de fato mexem nas solicitações do operador, e
+    // coalesce a rajada com um atraso ALEATÓRIO (jitter) de 0,5–3s. Antes o
+    // handler reagia a QUALQUER server:sync e usava um setTimeout fixo de 500ms —
+    // os ~200 clientes refaziam a mesma consulta no mesmo instante, martelando o
+    // backend a cada evento alheio. (No backend, operadores agora só recebem o
+    // target 'solicitacoes' via salas de socket — este filtro é a 2ª barreira.)
     useEffect(() => {
         if (!socket) return;
 
+        let timer = null;
+        const RELEVANTES = ['solicitacoes', 'refuelings'];
+
         const handleSync = (data) => {
-            console.log("⚡ [Motorista App] Sinal Socket recebido!", data);
-            setTimeout(() => setSyncTrigger(prev => prev + 1), 500);
+            const targets = data?.targets;
+            // admin:notificacao não carrega targets — sempre relevante para o app.
+            const relevante = !Array.isArray(targets) || targets.some(t => RELEVANTES.includes(t));
+            if (!relevante) return;
+            if (timer) return; // já há um refetch agendado nesta janela — coalesce
+
+            const jitter = 500 + Math.random() * 2500; // 0,5–3s: desmancha a manada
+            timer = setTimeout(() => {
+                timer = null;
+                fetchMyRequests();
+                checkUserStatus();
+            }, jitter);
         };
 
         socket.on('server:sync', handleSync);
-        socket.on('admin:notificacao', handleSync); 
+        socket.on('admin:notificacao', handleSync);
 
         return () => {
             socket.off('server:sync', handleSync);
             socket.off('admin:notificacao', handleSync);
+            if (timer) clearTimeout(timer);
         };
     }, [socket]);
 
