@@ -3,13 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" type="image/png" href="%PUBLIC_URL%/favicon.png" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#1c1a17" />
     <meta name="description" content="Sistema de Gerenciamento de Frotas MAK Serviços" />
-    
-    <!-- REMOVIDO: Link para apple-touch-icon (provavelmente também não existe) -->
-    
-    <!-- REMOVIDO: Link para manifest.json (para corrigir o erro 404) -->
+
+    <!-- PWA — Evidências de Campo, Fase 1 (§3.4). Arquivos agora existem em public/. -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Frotas MAK" />
 
     <title>Frotas MAK</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />

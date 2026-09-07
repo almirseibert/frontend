@@ -12,6 +12,7 @@ import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome as formatObraNomeUtil } from '../utils/obraFormat';
 import { getPartnerDisplayName } from '../utils/partners';
 import { IaFaixaOperador, resumoIa, ESTADO_IA } from '../components/refueling/IaParecer';
+import { enfileirarSolic, iniciarAutoFlushSolic, assinarSolic, reenviarSolic, descartarSolic } from '../services/solicitacaoOutbox';
 
 // --- INÍCIO DA LÓGICA DE REGRAS ---
 const vehicleGroups = {
@@ -158,6 +159,7 @@ const SolicitacaoAbastecimentoPage = ({
     const [loading, setLoading] = useState(false);
     const [userStatus, setUserStatus] = useState({ blocked: false, attempts: 0 });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [filaSolic, setFilaSolic] = useState([]); // solicitações offline (Fase 8)
     const [gpsError, setGpsError] = useState(false);
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     
@@ -439,6 +441,21 @@ const SolicitacaoAbastecimentoPage = ({
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
+    }, []);
+
+    // Fila offline de solicitações (Fase 8): liga o auto-flush e acompanha a fila.
+    useEffect(() => {
+        const off = assinarSolic(({ itens }) => setFilaSolic(itens || []));
+        const parar = iniciarAutoFlushSolic();
+        return () => { off(); parar(); };
+    }, []);
+
+    // Quando uma solicitação da fila é enviada, atualiza a lista do servidor.
+    useEffect(() => {
+        const onFila = () => { if (navigator.onLine) fetchMyRequests(); };
+        window.addEventListener('solic:fila-mudou', onFila);
+        return () => window.removeEventListener('solic:fila-mudou', onFila);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -756,6 +773,30 @@ const SolicitacaoAbastecimentoPage = ({
 
         } catch (error) {
             console.error("Erro no envio:", error);
+
+            // Fase 8 (§12): sem rede, a solicitação é ENFILEIRADA (não perdida). Erro
+            // HTTP real tem .status/.response; falha de rede (TypeError) não tem.
+            const semRede = (typeof navigator !== 'undefined' && navigator.onLine === false)
+                || (!error.status && !error.response);
+            if (semRede) {
+                try {
+                    const rotulo = `${veiculoSelecionado?.registroInterno || veiculoSelecionado?.placa || 'Veículo'} · abastecimento`;
+                    await enfileirarSolic('/solicitacoes', payload, { label: rotulo });
+                    setAlertMessage("Sem sinal — solicitação salva localmente. Será enviada sozinha quando a conexão voltar. Mantenha o app aberto.");
+                    setView('list');
+                    setFormData(prev => ({
+                        ...prev, veiculoId: '', tipoCombustivel: '', litragem: '', flagTanqueCheio: false,
+                        flagOutros: false, descricaoOutros: '', needsArla: false, litragemArla: '',
+                        flagTanqueCheioArla: false, horimetro: '', odometro: '', observacao: '', dataAbastecimento: ''
+                    }));
+                    setPreviewImage(null); setRawImageFile(null);
+                    return; // não cai no fluxo de erro
+                } catch (e) {
+                    console.error('Falha ao enfileirar offline:', e);
+                    // se nem enfileirar funcionou, segue para o erro normal abaixo
+                }
+            }
+
             // O backend agora retorna { error, campo, tipo, valor_informado, valor_anterior }
             // quando a falha é em um campo específico — destacamos esse campo na UI.
             const data = error.response?.data || error.data || {};
@@ -1260,6 +1301,33 @@ const SolicitacaoAbastecimentoPage = ({
                             <span className="text-lg">NOVO ABASTECIMENTO</span>
                         </button>
                     </div>
+
+                    {filaSolic.length > 0 && (
+                        <div className="px-4 mt-3">
+                            <div className="bg-white rounded-2xl border border-amber-200 p-3">
+                                <div className="text-sm font-bold text-amber-700 flex items-center gap-2 mb-2">
+                                    <WifiOff size={14} /> Na fila de envio ({filaSolic.filter(i => i.status !== 'recusado').length})
+                                </div>
+                                <div className="space-y-2">
+                                    {filaSolic.map(it => (
+                                        <div key={it.clientId} className="flex items-center gap-2 text-sm">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-gray-700 truncate">{it.label}</div>
+                                                <div className="text-xs" style={{ color: it.status === 'recusado' ? '#b91c1c' : '#6b7280' }}>
+                                                    {it.status === 'recusado' ? `recusado: ${it.erroMsg || ''}`
+                                                        : it.status === 'enviando' ? 'enviando…'
+                                                        : it.status === 'erro' ? `erro (${it.tentativas}) — tentando de novo`
+                                                        : 'aguardando conexão'}
+                                                </div>
+                                            </div>
+                                            <button onClick={() => reenviarSolic(it.clientId)} className="p-1.5 rounded-lg bg-yellow-50 text-yellow-700" title="Enviar agora"><RefreshCw size={14} /></button>
+                                            <button onClick={() => { if (window.confirm('Descartar esta solicitação?')) descartarSolic(it.clientId); }} className="p-1.5 rounded-lg bg-red-50 text-red-600" title="Descartar"><Trash2 size={14} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="px-4 mt-2">
                         <h2 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">

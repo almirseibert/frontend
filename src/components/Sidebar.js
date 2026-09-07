@@ -72,12 +72,13 @@ const Sidebar = ({ currentPage, setCurrentPage, user, logout, onOpenSettings, my
             id: 'operacoes',
             label: 'Operações',
             icon: <Fuel size={14} />,
-            hidden: !canAccessAny(['refueling', 'comboio', 'admin_solicitacoes']),
+            hidden: !canAccessAny(['refueling', 'comboio', 'admin_solicitacoes', 'admin_evidencias']),
             items: [
                 { id: 'refueling',          label: 'Abastecimento',     hidden: !canAccess('refueling') },
                 { id: 'saldo_postos',       label: 'Saldo em Postos',   hidden: !canAccess('refueling') },
                 { id: 'comboio',            label: 'Comboio',           hidden: !canAccess('comboio') },
                 { id: 'admin_solicitacoes', label: 'Solicitações (App)', hidden: !canAccess('admin_solicitacoes'), badge: pendingSolicitacoesCount },
+                { id: 'admin_evidencias',   label: 'Evidências de Campo', hidden: !canAccess('admin_evidencias') },
             ],
         },
         {

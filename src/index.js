@@ -5,6 +5,7 @@ import './index.css';
 // Importa o componente principal da aplicação (deve exportar AppContainer por padrão)
 import AppContainer from './App'; // Renomeado para AppContainer se App.js exporta AppContainer
 import reportWebVitals from './reportWebVitals';
+import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 
 // Guard global: impede que a rodinha do mouse altere o valor de inputs
 // numéricos focados. Ao invés de bloquear o scroll (o que travaria a rolagem
@@ -38,3 +39,8 @@ if (rootElement) {
 // Função opcional para medir performance
 // Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();
+
+// Service Worker — habilita uso offline (Evidências de Campo, Fase 1 §3.2).
+// Só age em build de produção. A ativação de nova versão é controlada pelo
+// usuário (evento 'sw:update-available' → banner "Nova versão"), nunca automática.
+serviceWorkerRegistration.register();

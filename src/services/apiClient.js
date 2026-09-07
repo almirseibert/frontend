@@ -11,7 +11,11 @@ const getRefreshToken = () => localStorage.getItem('refreshToken');
 let refreshPromise = null;
 
 // Limpa a sessão e avisa o AuthContext para redirecionar ao login.
+// No-op quando o navegador se sabe offline (Evidências de Campo, Fase 1 §3.1):
+// sem rede não há como distinguir "token revogado" de "torre caiu", e destruir a
+// sessão do operador em campo é justamente o que estamos consertando.
 const forceLogout = () => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     localStorage.removeItem('authToken');
     localStorage.removeItem('refreshToken');
     window.dispatchEvent(new Event('auth:logout'));
@@ -759,6 +763,76 @@ const apiClient = {
         apiFetch(`/abastecimento-auto/reprocessar/${solicitacaoId}`, {
             method: 'POST', body: JSON.stringify({ etapa }),
         }),
+
+    // --- Evidências de Campo ---
+    getEvidenciaEscopo: async () => apiFetch('/evidencias/meu-escopo'),
+    getMinhasEvidencias: async () => apiFetch('/evidencias/minhas'),
+    getMotivosDispensa: async () => apiFetch('/evidencias/motivos-dispensa'),
+    registrarDispensa: async (data) => apiFetch('/evidencias/dispensa', { method: 'POST', body: JSON.stringify(data) }),
+    // Envio da evidência: FormData com a foto (campo 'foto') + metadados.
+    enviarEvidencia: async (formData) => apiFetch('/evidencias', { method: 'POST', body: formData }),
+    // Gestor
+    listarEvidencias: async (params = {}) => {
+        const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
+        return apiFetch(`/evidencias${qs ? `?${qs}` : ''}`);
+    },
+    getEvidencia: async (id) => apiFetch(`/evidencias/${id}`),
+    // URL absoluta de uma imagem assinada (o path vem como /api/public/evidencias/...).
+    evidenciaImgUrl: (signedPath) => `${API_URL.replace(/\/api\/?$/, '')}${signedPath}`,
+    // Dossiê PDF — retorna um Blob (binário), não JSON.
+    baixarDossie: async (payload) => {
+        const res = await fetch(`${API_URL}/evidencias/dossie`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Falha ao gerar dossiê.'); }
+        return await res.blob();
+    },
+    // Aderência / consolidação
+    getAderencia: async (params = {}) => {
+        const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
+        return apiFetch(`/evidencias/aderencia${qs ? `?${qs}` : ''}`);
+    },
+    consolidarEvidencias: async (data) => apiFetch('/evidencias/consolidar', { method: 'POST', body: JSON.stringify({ data }) }),
+    // Corte do WhatsApp (Fase 9)
+    getCorteConfig: async () => apiFetch('/evidencias/corte/config'),
+    putCorteConfig: async (data) => apiFetch('/evidencias/corte/config', { method: 'PUT', body: JSON.stringify(data) }),
+    getCorteStatus: async (obraId) => apiFetch(`/evidencias/corte/status${obraId ? `?obra_id=${obraId}` : ''}`),
+    gerarResumoObra: async (payload) => apiFetch('/evidencias/resumo-obra', { method: 'POST', body: JSON.stringify(payload) }),
+    // Cobrança (aprovação manual)
+    getCobrancas: async (params = {}) => {
+        const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
+        return apiFetch(`/evidencias/cobrancas${qs ? `?${qs}` : ''}`);
+    },
+    aprovarCobranca: async (id) => apiFetch(`/evidencias/cobrancas/${id}/aprovar`, { method: 'POST' }),
+    aprovarCobrancasLote: async (ids) => apiFetch('/evidencias/cobrancas/aprovar-lote', { method: 'POST', body: JSON.stringify({ ids }) }),
+    ignorarCobranca: async (id) => apiFetch(`/evidencias/cobrancas/${id}/ignorar`, { method: 'PUT' }),
+    // Editor de carimbo
+    editarCarimbo: async (id, data) => apiFetch(`/evidencias/${id}/carimbo`, { method: 'PUT', body: JSON.stringify(data) }),
+    removerCarimbo: async (id, motivo) => apiFetch(`/evidencias/${id}/carimbo`, { method: 'DELETE', body: JSON.stringify({ motivo }) }),
+    restaurarCarimbo: async (id) => apiFetch(`/evidencias/${id}/carimbo/restaurar`, { method: 'POST' }),
+    // Config da obra
+    getConfigEvidencia: async (obraId) => apiFetch(`/evidencias/config/${obraId}`),
+    putConfigEvidencia: async (obraId, data) => apiFetch(`/evidencias/config/${obraId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    // Offload / arquivamento
+    getLotesOffload: async (obraId) => apiFetch(`/evidencias/offload${obraId ? `?obra_id=${obraId}` : ''}`),
+    gerarOffload: async (payload) => apiFetch('/evidencias/offload', { method: 'POST', body: JSON.stringify(payload) }),
+    confirmarOffload: async (id) => apiFetch(`/evidencias/offload/${id}/confirmar`, { method: 'POST' }),
+    baixarOffloadZip: async (id, nome) => {
+        const res = await fetch(`${API_URL}/evidencias/offload/${id}/zip`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Falha ao baixar o ZIP.'); }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = nome || `lote-${id}.zip`;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+    },
+    // Restauração (multipart de arquivos de imagem). preflight=true não grava.
+    restaurarEvidencias: async (files, preflight = false) => {
+        const fd = new FormData();
+        for (const f of files) fd.append('arquivos', f);
+        return apiFetch(`/evidencias/restaurar${preflight ? '/preflight' : ''}`, { method: 'POST', body: fd });
+    },
 
     // --- Defaults & Auxiliares ---
     defaults: { baseURL: API_URL },

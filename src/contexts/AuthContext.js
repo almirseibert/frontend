@@ -4,6 +4,42 @@ import apiClient from '../services/apiClient';
 
 const AuthContext = createContext(null);
 
+// -----------------------------------------------------------------------------
+// Snapshot de sessão — sobrevivência offline (Evidências de Campo, Fase 1 §3.1)
+// -----------------------------------------------------------------------------
+// Sem isto, qualquer falha de rede no boot (TypeError: Failed to fetch, típico do
+// operador no mato) apagava o authToken e destruía a sessão. Guardamos o último
+// getMe bem-sucedido e, quando o boot falha por REDE (não por 401/403), ressus-
+// citamos a sessão do operador em modo degradado. Erro de auth de verdade
+// continua deslogando.
+const AUTH_SNAPSHOT_KEY = 'authUserSnapshot';
+const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias — cobre uma viagem de campo
+
+const salvarSnapshot = (userData) => {
+    try {
+        localStorage.setItem(AUTH_SNAPSHOT_KEY, JSON.stringify({ user: userData, savedAt: Date.now() }));
+    } catch { /* cota/modo privado: seguimos sem snapshot */ }
+};
+
+const lerSnapshot = () => {
+    try {
+        const raw = localStorage.getItem(AUTH_SNAPSHOT_KEY);
+        if (!raw) return null;
+        const snap = JSON.parse(raw);
+        if (!snap || !snap.user || !snap.savedAt) return null;
+        return snap;
+    } catch { return null; }
+};
+
+const limparSnapshot = () => {
+    try { localStorage.removeItem(AUTH_SNAPSHOT_KEY); } catch { /* ignore */ }
+};
+
+const ehOperador = (u) => {
+    const r = (u?.user_type || u?.role || '').toLowerCase();
+    return r === 'operador';
+};
+
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [permissions, setPermissions] = useState({
@@ -19,6 +55,10 @@ export const AuthProvider = ({ children }) => {
         canAccessRefueling: false,
     });
     const [loading, setLoading] = useState(true);
+    // Sessão degradada: rodando a partir do snapshot local porque o servidor está
+    // inacessível. Exposto no contexto para a UI mostrar a barra "Modo offline".
+    const [degraded, setDegraded] = useState(false);
+    const [degradedSince, setDegradedSince] = useState(null);
 
     const setUserAndPermissions = (userData) => {
         if (userData) {
@@ -74,12 +114,39 @@ export const AuthProvider = ({ children }) => {
             const token = localStorage.getItem('authToken');
             if (token) {
                 try {
-                    const userData = await apiClient.getMe(); 
+                    const userData = await apiClient.getMe();
                     setUserAndPermissions(userData);
+                    salvarSnapshot(userData);
+                    setDegraded(false);
+                    setDegradedSince(null);
                 } catch (error) {
-                    console.error("Falha ao buscar dados do usuário com token existente:", error);
-                    localStorage.removeItem('authToken');
-                    setUserAndPermissions(null);
+                    // Discriminador: erro HTTP carrega .status (apiClient.js:90);
+                    // falha de rede propaga TypeError SEM .status.
+                    const isAuthError = error?.status === 401 || error?.status === 403;
+                    if (isAuthError) {
+                        // Token realmente inválido/revogado — desloga de fato.
+                        console.error("Token rejeitado pelo servidor (401/403). Deslogando.", error);
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('refreshToken');
+                        limparSnapshot();
+                        setUserAndPermissions(null);
+                    } else {
+                        // Falha de REDE — NUNCA destruir a sessão nem apagar o token.
+                        console.warn("Servidor inacessível no boot (falha de rede). Preservando sessão.", error);
+                        const snap = lerSnapshot();
+                        const fresco = !!snap && (Date.now() - snap.savedAt) < SNAPSHOT_MAX_AGE_MS;
+                        // Fase 1: só o operador entra no caminho degradado — telas de
+                        // gestor chamam dezenas de endpoints e degradariam mal.
+                        if (fresco && ehOperador(snap.user)) {
+                            setUserAndPermissions(snap.user);
+                            setDegraded(true);
+                            setDegradedSince(snap.savedAt);
+                        } else {
+                            // Gestor ou snapshot velho: cai na tela de login, mas o
+                            // authToken PERMANECE — um reload já com rede recupera tudo.
+                            setUserAndPermissions(null);
+                        }
+                    }
                 }
             } else {
                 setUserAndPermissions(null);
@@ -102,6 +169,9 @@ export const AuthProvider = ({ children }) => {
                 }
                 const userData = await apiClient.getMe();
                 setUserAndPermissions(userData);
+                salvarSnapshot(userData);
+                setDegraded(false);
+                setDegradedSince(null);
                 return { success: true, user: userData };
             } else {
                 throw new Error("Token não recebido do servidor.");
@@ -122,6 +192,9 @@ export const AuthProvider = ({ children }) => {
         apiClient.logout?.();
         localStorage.removeItem('authToken');
         localStorage.removeItem('refreshToken');
+        limparSnapshot();
+        setDegraded(false);
+        setDegradedSince(null);
         setUserAndPermissions(null);
     }, []);
 
@@ -134,13 +207,15 @@ export const AuthProvider = ({ children }) => {
         return () => window.removeEventListener('auth:logout', handleForcedLogout);
     }, []);
 
-    const value = useMemo(() => ({ 
-        user, 
-        ...permissions, 
-        loading, 
-        login, 
-        logout 
-    }), [user, permissions, loading, login, logout]);
+    const value = useMemo(() => ({
+        user,
+        ...permissions,
+        loading,
+        degraded,        // true = rodando do snapshot local, servidor inacessível
+        degradedSince,   // timestamp (ms) do snapshot em uso — para a barra "dados de <data>"
+        login,
+        logout
+    }), [user, permissions, loading, degraded, degradedSince, login, logout]);
 
     return (
         <AuthContext.Provider value={value}>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#1c1a17"/>
+  <rect x="86" y="146" width="340" height="220" rx="36" fill="#9E7A42"/>
+  <text x="256" y="300" font-family="DejaVu Sans, Arial, sans-serif" font-size="132" font-weight="bold" fill="#f5f3ef" text-anchor="middle">MAK</text>
+</svg>

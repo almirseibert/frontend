@@ -496,3 +496,12 @@ body:has(.mak-modal-backdrop) .msn-widget { display: none; }
 .neon-red-pulse {
   animation: neonRedPulse 1s ease-in-out infinite;
 }
+
+/* ─── Evidências de Campo — classes de UI da página de administração ───────── */
+@layer components {
+  .input { @apply border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white outline-none focus:border-yellow-500; }
+  .btn-amber { @apply bg-yellow-600 text-white rounded-lg px-3 py-2 text-sm font-semibold hover:bg-yellow-700 transition; }
+  .btn-ghost { @apply border border-gray-300 text-slate-600 rounded-lg px-3 py-2 text-sm font-semibold hover:bg-gray-50 transition; }
+  .btn-dark { @apply bg-slate-900 text-white rounded-lg px-3 py-2 text-sm font-semibold hover:bg-slate-800 transition; }
+  .btn-danger { @apply bg-red-50 text-red-600 rounded-lg px-3 py-2 text-sm font-semibold hover:bg-red-100 transition; }
+}

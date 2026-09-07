@@ -5,6 +5,7 @@ import { useData, useEnsureResources } from '../contexts/DataContext';
 import { formatObraNome } from '../utils/obraFormat';
 import FichaAproveitamento from './FichaAproveitamento';
 import FichaFaturamento from './FichaFaturamento';
+import FichaEvidencias from './FichaEvidencias';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ficha da Obra — aba "Visão geral" (Fase 1)
@@ -292,8 +293,12 @@ const FichaObraPage = ({ obraId, onBack, obras = [], vehicles = [], setAlertMess
                             dataInicio={d?.inicio || proj?.obra?.dataInicio || null}
                             setAlertMessage={setAlertMessage}
                         />
-                    ) : (
+                    ) : aba === 'faturamento' ? (
                         <FichaFaturamento obra={obra} vehicles={vehicles} obraId={obraId} />
+                    ) : (
+                        <FichaEvidencias obraId={obraId} obra={obra}
+                            dataInicio={d?.inicio || proj?.obra?.dataInicio || null}
+                            setAlertMessage={setAlertMessage} />
                     )}
             </div>
         </div>
@@ -328,6 +333,7 @@ function Abas({ aba, setAba }) {
         { id: 'visao', label: 'Visão geral' },
         { id: 'aproveitamento', label: 'Aproveitamento' },
         { id: 'faturamento', label: 'Faturamento' },
+        { id: 'evidencias', label: 'Evidências' },
     ];
     return (
         <div className="flex items-center gap-1" style={{ borderBottom: `1px solid ${C.border}` }}>

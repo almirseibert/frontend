@@ -1,0 +1,16 @@
+{
+  "short_name": "Frotas MAK",
+  "name": "Frotas MAK — Serviços",
+  "description": "Sistema de gestão de frotas MAK Serviços",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#1c1a17",
+  "background_color": "#f5f3ef",
+  "icons": [
+    { "src": "/logo192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/favicon.png", "sizes": "any", "type": "image/png" }
+  ]
+}

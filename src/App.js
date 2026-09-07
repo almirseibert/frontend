@@ -46,6 +46,10 @@ import Messenger from './components/chat/Messenger';
 
 // LoginScreen carrega de forma síncrona (necessário antes do login)
 import LoginScreen from './components/LoginScreen';
+import OfflineBanner from './components/OfflineBanner';
+import SWUpdateBanner from './components/SWUpdateBanner';
+import OperadorTabBar from './components/evidencias/OperadorTabBar';
+import { iniciarAutoFlush } from './services/evidenciaQueue';
 
 import apiClient from './services/apiClient';
 import { canUserAccessPage, canAccessAnaliseGerencial } from './utils/permissions';
@@ -90,6 +94,9 @@ const SupervisorObraDetail         = lazy(() => import('./pages/SupervisorObraDe
 const SolicitacaoAbastecimentoPage = lazy(() => import('./pages/SolicitacaoAbastecimentoPage'));
 const ComboioMobilePage            = lazy(() => import('./pages/ComboioMobilePage'));
 const OperadorDocumentosPage       = lazy(() => import('./pages/OperadorDocumentosPage'));
+const EvidenciasCapturaScreen      = lazy(() => import('./pages/EvidenciasCapturaScreen'));
+const EvidenciasFilaPage           = lazy(() => import('./pages/EvidenciasFilaPage'));
+const EvidenciasAdminPage          = lazy(() => import('./pages/EvidenciasAdminPage'));
 const AdminSolicitacoesPage        = lazy(() => import('./pages/AdminSolicitacoesPage'));
 const AnaliseGerencialPage         = lazy(() => import('./pages/AnaliseGerencialPage'));
 const FaturamentoHistoricoPage     = lazy(() => import('./pages/FaturamentoHistoricoPage'));
@@ -361,9 +368,22 @@ const AppContent = () => {
     const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
     const [pendingSolicitacoesCount, setPendingSolicitacoesCount] = useState(0);
     const [operadorTelaAtual, setOperadorTelaAtual] = useState(null); // null | 'comboio' | 'normal'
+    // Shell de abas do operador (Evidências de Campo, Fase 3 §10.1).
+    const [operadorAba, setOperadorAba] = useState('abastecimento'); // 'abastecimento' | 'evidencias' | 'fila'
+    const [evidPendencias, setEvidPendencias] = useState(0);
 
     const [agendaAlerts, setAgendaAlerts] = useState([]);
     const [adminPopups, setAdminPopups] = useState([]); // pop-ups de notificação (somente admin)
+
+    // Fila offline de evidências: liga o auto-flush enquanto o operador está logado
+    // e acompanha o nº de pendências para o badge da barra de abas (§3.7/§3.8).
+    useEffect(() => {
+        if (!user || user.user_type !== 'operador') return undefined;
+        const parar = iniciarAutoFlush();
+        const onFila = (e) => setEvidPendencias(e.detail?.pendentes || 0);
+        window.addEventListener('evidencias:fila-mudou', onFila);
+        return () => { parar(); window.removeEventListener('evidencias:fila-mudou', onFila); };
+    }, [user]);
 
     // Status inicial do chat (carrega o último status salvo do usuário).
     useEffect(() => {
@@ -692,6 +712,25 @@ const AppContent = () => {
             );
         }
 
+        // Abas Evidências / Fila (Fase 3 §10.1) — interceptam antes da detecção de
+        // veículo e trazem a barra de abas para voltar ao abastecimento.
+        if (operadorAba === 'evidencias' || operadorAba === 'fila') {
+            return (
+                <>
+                    <div className="pb-16">
+                        <Suspense fallback={<PageFallback />}>
+                            {operadorAba === 'evidencias'
+                                ? <EvidenciasCapturaScreen apiClient={apiClient} user={user} setAlertMessage={setAlertMessage} />
+                                : <EvidenciasFilaPage />}
+                        </Suspense>
+                    </div>
+                    <OperadorTabBar aba={operadorAba} onAba={(a) => { setOperadorTelaAtual(null); setOperadorAba(a); }} pendencias={evidPendencias} />
+                </>
+            );
+        }
+
+        // Fluxo de abastecimento (existente) encapsulado para anexar a barra de abas.
+        const telaAbastecimento = (() => {
         // --- Detecta veículos vinculados ao operador ---
         // Identificação robusta do funcionário (mesma estratégia da SolicitacaoAbastecimentoPage):
         // employeeId/employee_id direto e, na falta, casamento NORMALIZADO por e-mail/nome.
@@ -865,6 +904,14 @@ const AppContent = () => {
                 />
             </Suspense>
         );
+        })();
+
+        return (
+            <>
+                <div className="pb-16">{telaAbastecimento}</div>
+                <OperadorTabBar aba="abastecimento" onAba={(a) => { setOperadorTelaAtual(null); setOperadorAba(a); }} pendencias={evidPendencias} />
+            </>
+        );
     }
 
     // ---------- Renderização de página ----------
@@ -909,6 +956,9 @@ const AppContent = () => {
             case 'guia_pecas':
                 return canUserAccessPage(user, 'guia_pecas')
                     ? <GuiaPecasPage {...commonProps} initialFilter={pageFilter} /> : <Denied />;
+            case 'admin_evidencias':
+                return canUserAccessPage(user, 'admin_evidencias')
+                    ? <EvidenciasAdminPage {...commonProps} /> : <Denied />;
             case 'partners':
                 return <PartnersPage {...commonProps} />;
             case 'terceirizados':
@@ -1095,6 +1145,8 @@ const AppRouter = () => {
 export default function AppContainer() {
     return (
         <AuthProvider>
+            <OfflineBanner />
+            <SWUpdateBanner />
             <AppRouter />
         </AuthProvider>
     );
