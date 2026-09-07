@@ -420,12 +420,24 @@ export const DataProvider = ({ children }) => {
 
         const SOCKET_URL = (process.env.REACT_APP_API_URL || 'http://localhost:3001').replace('/api', '');
         // Passa o JWT no handshake para o backend associar o socket ao usuário
-        // (salas `user:<id>`, presença e mensageiro interno).
+        // (salas `user:<id>`/`gestores`/`operadores`, presença e mensageiro).
+        //
+        // `auth` como FUNÇÃO (e não objeto literal) é essencial: o socket.io reusa
+        // o mesmo valor em toda reconexão, e o access token vale 4h. Com o objeto
+        // literal, o token lido no login expirava durante o expediente e toda
+        // reconexão (troca de rede, tela bloqueada, sleep do celular) refazia o
+        // handshake com o token velho — o backend não autenticava, o socket ficava
+        // fora das salas e o cliente parava de receber server:sync. No app do
+        // operador isso aparecia como "a baixa/aprovação da ordem não chega mais".
         const s = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
-            auth: { token: localStorage.getItem('authToken') },
+            auth: (cb) => cb({ token: localStorage.getItem('authToken') }),
         });
         setSocket(s);
+
+        s.on('connect_error', (err) => {
+            console.warn('⚠️ Socket connect_error:', err?.message);
+        });
 
         s.on('connect', () => {
             console.log('🟢 Conectado ao Socket.io');
