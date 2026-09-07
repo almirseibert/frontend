@@ -7,13 +7,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 export const ROLE_PAGE_ACCESS = {
   admin:         ['*'],
-  gerencia:      ['dashboard','obras','planejamento','expenses','operacional','billing','terceirizados','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','revisions','relatos','tires','vehicles','employees','partners','inventory','fines','supervisor_dashboard','analise_gerencial'],
+  gerencia:      ['dashboard','obras','planejamento','expenses','operacional','billing','terceirizados','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','revisions','relatos','tires','guia_pecas','vehicles','employees','partners','inventory','fines','supervisor_dashboard','analise_gerencial'],
   rh:            ['dashboard','obras','billing','reports','vehicles','employees','fines'],
   faturamento:   ['dashboard','obras','operacional','billing','terceirizados','reports','vehicles'],
   abastecimento: ['dashboard','obras','expenses','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','vehicles','partners','inventory'],
-  oficina:       ['dashboard','obras','reports','revisions','relatos','tires','orders','vehicles','inventory','employees'],
-  editor:        ['dashboard','obras','expenses','operacional','billing','terceirizados','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','revisions','relatos','tires','vehicles','employees','partners','inventory','fines'],
-  supervisor:    ['dashboard','obras','supervisor_dashboard','expenses','operacional','billing','reports','revisions','relatos','tires','orders','vehicles'],
+  oficina:       ['dashboard','obras','reports','revisions','relatos','tires','guia_pecas','orders','vehicles','inventory','employees'],
+  editor:        ['dashboard','obras','expenses','operacional','billing','terceirizados','reports','refueling','saldo_postos','comboio','admin_solicitacoes','orders','revisions','relatos','tires','guia_pecas','vehicles','employees','partners','inventory','fines'],
+  supervisor:    ['dashboard','obras','supervisor_dashboard','expenses','operacional','billing','reports','revisions','relatos','tires','guia_pecas','orders','vehicles'],
   operador:      ['admin_solicitacoes_app'],
   viewer:        ['dashboard','reports'],
   visualizador:  ['dashboard','reports'],
@@ -63,10 +63,11 @@ export const PAGE_SECTIONS = [
       { id: 'admin_solicitacoes', label: 'Solicitações (App)' },
   ] },
   { section: 'Oficina',           pages: [
-      { id: 'revisions', label: 'Revisões & Manutenções' },
-      { id: 'relatos',   label: 'Relatos de Ocorrência' },
-      { id: 'tires',     label: 'Gestão de Pneus' },
-      { id: 'orders',    label: 'Ordens (C/S)' },
+      { id: 'revisions',  label: 'Revisões & Manutenções' },
+      { id: 'relatos',    label: 'Relatos de Ocorrência' },
+      { id: 'tires',      label: 'Gestão de Pneus' },
+      { id: 'guia_pecas', label: 'Guia de Peças' },
+      { id: 'orders',     label: 'Ordens (C/S)' },
   ] },
   { section: 'Cadastros',         pages: [
       { id: 'vehicles',  label: 'Veículos' },

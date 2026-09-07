@@ -1,11 +1,15 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { ImageOff, X, MapPin, FileText, ExternalLink } from 'lucide-react';
+import { ImageOff, X, MapPin, FileText, ExternalLink, Package, ChevronRight } from 'lucide-react';
 import { getGroupUnit, getReadingSourceForUnit } from '../utils/vehicleRules';
+import { canUserAccessPage } from '../utils/permissions';
+import { STATUS_META, categoriaLabel } from './modals/PartCatalogItemModal';
 import apiClient from '../services/apiClient';
 
 // --- Modal de Detalhes do Veículo (V2.7 - Rastreador Label) ---
-const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) => {
+const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {}, user, navigate }) => {
     const [documents, setDocuments] = useState([]);
+    const [parts, setParts] = useState(null);
+    const [partsLoading, setPartsLoading] = useState(false);
 
     useEffect(() => {
         if (!vehicle?.id) return;
@@ -13,6 +17,27 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
             .then(setDocuments)
             .catch(() => {});
     }, [vehicle?.id]);
+
+    useEffect(() => {
+        if (!vehicle?.id) return;
+        setPartsLoading(true);
+        apiClient.partCatalog.getPartsForVehicle(vehicle.id)
+            .then(setParts)
+            .catch(() => setParts(null))
+            .finally(() => setPartsLoading(false));
+    }, [vehicle?.id]);
+
+    // Achata itens resolvidos (matches por modelo + overrides por chassi).
+    const resolvedItems = [
+        ...((parts?.modelMatches || []).flatMap(mm => (mm.items || []).map(it => ({ ...it, _origem: `${mm.model.marca} ${mm.model.modelo}` })))),
+        ...((parts?.overrides || []).map(it => ({ ...it, _origem: 'Específico deste veículo' }))),
+    ];
+    const canOpenGuide = canUserAccessPage(user, 'guia_pecas') && typeof navigate === 'function';
+    const formatIntervalo = (it) => [
+        it.intervalo_km ? `${Number(it.intervalo_km).toLocaleString('pt-BR')} km` : null,
+        it.intervalo_horas ? `${Number(it.intervalo_horas).toLocaleString('pt-BR')} h` : null,
+        it.intervalo_meses ? `${it.intervalo_meses} m` : null,
+    ].filter(Boolean).join(' / ');
 
     if (!vehicle) return null;
 
@@ -195,6 +220,51 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {} }) 
                         </ul>
                     </div>
                 )}
+
+                {/* Peças & Reposição */}
+                <div className="px-4 pb-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1.5">
+                            <Package size={13}/> Peças &amp; Reposição
+                        </p>
+                        {canOpenGuide && (
+                            <button
+                                onClick={() => { navigate('guia_pecas', { vehicleId: vehicle.id }); onClose(); }}
+                                className="text-xs text-yellow-700 hover:text-yellow-800 font-semibold flex items-center gap-0.5"
+                            >
+                                Abrir guia completo <ChevronRight size={13}/>
+                            </button>
+                        )}
+                    </div>
+                    {partsLoading ? (
+                        <p className="text-xs text-gray-400">Carregando…</p>
+                    ) : resolvedItems.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic">
+                            Nenhuma peça de referência para {vehicle.marca} {vehicle.modelo}
+                            {canOpenGuide ? ' — cadastre no guia.' : '.'}
+                        </p>
+                    ) : (
+                        <ul className="space-y-1.5">
+                            {resolvedItems.map(it => {
+                                const meta = STATUS_META[it.status_validacao] || STATUS_META.referencia;
+                                return (
+                                    <li key={it.id} className="text-sm border border-gray-100 rounded p-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-semibold text-gray-800">{it.descricao}</span>
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${meta.badge}`}>{meta.label}</span>
+                                            <span className="text-[10px] text-gray-400">{categoriaLabel(it.categoria)}</span>
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3">
+                                            {it.especificacao && <span>{it.especificacao}</span>}
+                                            {it.codigo_oem && <span>OEM: {it.codigo_oem}</span>}
+                                            {formatIntervalo(it) && <span>Troca: {formatIntervalo(it)}</span>}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </div>
 
                  {/* Rodapé Fixo */}
                 <div className="p-4 bg-gray-50 border-t flex justify-end sticky bottom-0 z-10">

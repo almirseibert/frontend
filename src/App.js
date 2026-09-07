@@ -76,6 +76,7 @@ const FinesPage                    = lazy(() => import('./pages/FinesPage'));
 const VehiclePage                  = lazy(() => import('./pages/VehiclePage'));
 const RevisionsPage                = lazy(() => import('./pages/RevisionsPage'));
 const RelatosPage                  = lazy(() => import('./pages/RelatosPage'));
+const GuiaPecasPage                = lazy(() => import('./pages/GuiaPecasPage'));
 const DiarioDeBordoPage            = lazy(() => import('./pages/DiarioDeBordoPage'));
 const AdminPage                    = lazy(() => import('./pages/AdminPage'));
 const ControleDiarioPage           = lazy(() => import('./pages/ControleDiarioPage'));
@@ -905,6 +906,9 @@ const AppContent = () => {
             case 'relatos':
                 return canUserAccessPage(user, 'relatos')
                     ? <RelatosPage {...commonProps} /> : <Denied />;
+            case 'guia_pecas':
+                return canUserAccessPage(user, 'guia_pecas')
+                    ? <GuiaPecasPage {...commonProps} initialFilter={pageFilter} /> : <Denied />;
             case 'partners':
                 return <PartnersPage {...commonProps} />;
             case 'terceirizados':

@@ -118,7 +118,7 @@ const ActionMenu = ({ items }) => {
 const VehiclePage = ({
     user, vehicles = [], obras = [], revisions = [], employees = [], fines = [], partners = [],
     setAlertMessage, initialFilter, PasswordConfirmationModal,
-    vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData
+    vehicleGroups = {}, operationalSubGroups = [], apiClient, reloadData, navigate
 }) => {
 
     const vehicleTypes = useMemo(() => {
@@ -878,7 +878,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
             {isOperationalModalOpen && <OperationalAssignmentModal user={user} vehicle={selectedVehicle} employees={employees} revisions={revisions} onClose={() => setIsOperationalModalOpen(false)} setAlertMessage={setAlertMessage} apiClient={apiClient} reloadData={reloadData} operationalSubGroups={operationalSubGroups} PasswordConfirmationModal={PasswordConfirmationModal}/>}
             {isHistoryModalOpen && <HistoryModal vehicle={selectedVehicle} onClose={() => setIsHistoryModalOpen(false)} obras={obras} apiClient={apiClient} employees={employees}/>}
             {isChecklistModalOpen && <ChecklistModal vehicle={selectedVehicle} onClose={() => setIsChecklistModalOpen(false)} apiClient={apiClient}/>}
-            {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups}/>}
+            {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} user={user} navigate={navigate}/>}
             {isFinesModalOpen && <VehicleFinesModal vehicle={selectedVehicle} fines={fines} onClose={() => setIsFinesModalOpen(false)}/>}
             {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={selectedVehicle} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData}/>}
             {isDocModalOpen && <VehicleDocumentsModal vehicle={selectedVehicle} onClose={() => setIsDocModalOpen(false)} apiClient={apiClient}/>}

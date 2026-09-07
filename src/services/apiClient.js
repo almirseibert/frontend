@@ -354,6 +354,24 @@ const apiClient = {
     getRelatoSlaConfig: async () => apiFetch('/relatos/config/sla'),
     updateRelatoSlaConfig: async (data) => apiFetch('/relatos/config/sla', { method: 'PUT', body: JSON.stringify(data) }),
 
+    // --- Guia de Peças e Reposição ---
+    partCatalog: {
+        getModels: async (params) => {
+            const q = params ? new URLSearchParams(
+                Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== ''))
+            ).toString() : '';
+            return apiFetch(`/part-catalog/models${q ? `?${q}` : ''}`);
+        },
+        getModel: async (id) => apiFetch(`/part-catalog/models/${id}`),
+        createModel: async (data) => apiFetch('/part-catalog/models', { method: 'POST', body: JSON.stringify(data) }),
+        updateModel: async (id, data) => apiFetch(`/part-catalog/models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        deleteModel: async (id) => apiFetch(`/part-catalog/models/${id}`, { method: 'DELETE' }),
+        createItem: async (data) => apiFetch('/part-catalog/items', { method: 'POST', body: JSON.stringify(data) }),
+        updateItem: async (id, data) => apiFetch(`/part-catalog/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        deleteItem: async (id) => apiFetch(`/part-catalog/items/${id}`, { method: 'DELETE' }),
+        getPartsForVehicle: async (vehicleId) => apiFetch(`/part-catalog/for-vehicle/${vehicleId}`),
+    },
+
     // --- Despesas ---
     getExpenses: async () => apiFetch('/expenses'),
     createExpense: async (data) => apiFetch('/expenses', { method: 'POST', body: JSON.stringify(data) }),
