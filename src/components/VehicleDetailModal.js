@@ -1,8 +1,9 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { ImageOff, X, MapPin, FileText, ExternalLink, Package, ChevronRight } from 'lucide-react';
+import { ImageOff, X, MapPin, FileText, ExternalLink, Package, ChevronRight, FileDown } from 'lucide-react';
 import { getGroupUnit, getReadingSourceForUnit } from '../utils/vehicleRules';
 import { canUserAccessPage } from '../utils/permissions';
 import { STATUS_META, categoriaLabel } from './modals/PartCatalogItemModal';
+import { generatePartsPickListPdf } from '../utils/partsPickListPdf';
 import apiClient from '../services/apiClient';
 
 // --- Modal de Detalhes do Veículo (V2.7 - Rastreador Label) ---
@@ -227,14 +228,29 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {}, us
                         <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1.5">
                             <Package size={13}/> Peças &amp; Reposição
                         </p>
-                        {canOpenGuide && (
-                            <button
-                                onClick={() => { navigate('guia_pecas', { vehicleId: vehicle.id }); onClose(); }}
-                                className="text-xs text-yellow-700 hover:text-yellow-800 font-semibold flex items-center gap-0.5"
-                            >
-                                Abrir guia completo <ChevronRight size={13}/>
-                            </button>
-                        )}
+                        <div className="flex items-center gap-3">
+                            {resolvedItems.length > 0 && (
+                                <button
+                                    onClick={() => generatePartsPickListPdf({
+                                        titulo: `${vehicle.registroInterno ? `${vehicle.registroInterno} · ` : ''}${vehicle.marca || ''} ${vehicle.modelo || ''}`.trim(),
+                                        subtitulo: [vehicle.placa, anoFab ? `Ano ${anoFab}` : null].filter(Boolean).join(' · '),
+                                        items: resolvedItems,
+                                    }).catch(() => {})}
+                                    className="text-xs text-gray-600 hover:text-gray-800 font-semibold flex items-center gap-0.5"
+                                    title="Gerar lista de separação (PDF)"
+                                >
+                                    <FileDown size={13}/> Lista (PDF)
+                                </button>
+                            )}
+                            {canOpenGuide && (
+                                <button
+                                    onClick={() => { navigate('guia_pecas', { vehicleId: vehicle.id }); onClose(); }}
+                                    className="text-xs text-yellow-700 hover:text-yellow-800 font-semibold flex items-center gap-0.5"
+                                >
+                                    Abrir guia completo <ChevronRight size={13}/>
+                                </button>
+                            )}
+                        </div>
                     </div>
                     {partsLoading ? (
                         <p className="text-xs text-gray-400">Carregando…</p>

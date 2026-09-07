@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, Package, Loader, Filter, Droplet, Wrench, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Package, Loader, Filter, Droplet, Wrench, ChevronRight, FileDown } from 'lucide-react';
 import { canUserAccessPage } from '../utils/permissions';
+import { generatePartsPickListPdf } from '../utils/partsPickListPdf';
 import PartCatalogModelModal from '../components/modals/PartCatalogModelModal';
 import PartCatalogItemModal, { CATEGORIAS, categoriaLabel, STATUS_META } from '../components/modals/PartCatalogItemModal';
 
@@ -205,16 +206,27 @@ const GuiaPecasPage = ({ apiClient, socket, setAlertMessage, user, vehicles = []
                                     </p>
                                     {detail.observacoes && <p className="text-xs text-gray-400 mt-1 italic">{detail.observacoes}</p>}
                                 </div>
-                                {canManage && (
-                                    <div className="flex gap-1.5 shrink-0">
+                                <div className="flex gap-1.5 shrink-0">
+                                    <button
+                                        onClick={() => generatePartsPickListPdf({
+                                            titulo: `${detail.marca} ${detail.modelo}${detail.variante ? ` — ${detail.variante}` : ''}`,
+                                            subtitulo: [detail.categoria_veiculo, detail.ano_inicio ? `${detail.ano_inicio}${detail.ano_fim ? `–${detail.ano_fim}` : '+'}` : null].filter(Boolean).join(' · '),
+                                            items: detail.items || [],
+                                        }).catch(e => setAlertMessage?.(e.message || 'Erro ao gerar o PDF.'))}
+                                        disabled={!(detail.items || []).length}
+                                        className="flex items-center gap-1 border border-gray-300 text-gray-700 hover:bg-gray-50 px-2.5 py-1.5 rounded text-xs font-bold disabled:opacity-40"
+                                        title="Gerar lista de separação (PDF) para o almoxarifado">
+                                        <FileDown size={14} /> Lista (PDF)
+                                    </button>
+                                    {canManage && (<>
                                         <button onClick={() => setItemModal({ item: null, modelId: detail.id })}
                                             className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2.5 py-1.5 rounded text-xs font-bold">
                                             <Plus size={14} /> Item
                                         </button>
                                         <button onClick={() => setModelModal({ model: detail })} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"><Edit2 size={15} /></button>
                                         <button onClick={() => handleDeleteModel(detail)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={15} /></button>
-                                    </div>
-                                )}
+                                    </>)}
+                                </div>
                             </div>
 
                             {(detail.items || []).length === 0 ? (
