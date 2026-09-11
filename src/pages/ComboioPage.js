@@ -211,7 +211,6 @@ const ComboioPage = ({
     employees = [],
     comboioTransactions = [],
     expenses = [],
-    refuelings = [], 
     setAlertMessage,
     apiClient,
     extraObraOptions = [],
@@ -574,9 +573,7 @@ const ComboioPage = ({
                     obras={obras}
                     employees={employees}
                     expenses={expenses}
-                    comboioTransactions={comboioTransactions}
-                    refuelings={refuelings}
-                    user={user}
+                    comboioTransactions={comboioTransactions}                    user={user}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
                     generateAuthorizationPDF={generateAuthorizationPDF}
@@ -591,9 +588,7 @@ const ComboioPage = ({
                 <ComboioDrenagemModal
                     onClose={closeModal}
                     user={user}
-                    vehicles={vehicles}
-                    refuelings={refuelings}
-                    employees={employees}
+                    vehicles={vehicles}                    employees={employees}
                     obras={obras}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}

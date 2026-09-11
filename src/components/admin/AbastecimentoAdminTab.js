@@ -26,7 +26,9 @@ const AbastecimentoAdminTab = () => {
         setLoading(true);
         try {
             const [r, o, v, e] = await Promise.all([
-                apiClient.getRefuelings(),
+                // Só precisamos das ordens bloqueadas/pendentes — escopo enxuto em
+                // vez da tabela inteira (~34 MB).
+                apiClient.getRefuelingsByScope('pendentes'),
                 apiClient.getObras(),
                 apiClient.getVehicles(),
                 apiClient.getEmployees(),

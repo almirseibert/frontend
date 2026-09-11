@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AlertTriangle, Download } from 'lucide-react';
@@ -6,11 +6,28 @@ import { SectionHeader, FilterSection } from './ReportComponents';
 import { checkVehicleRestrictions, getGroupForType, getVehicleMainReading, vehicleGroups } from '../../utils/vehicleRules';
 import { formatObraNome } from '../../utils/obraFormat';
 import { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
+import apiClient from '../../services/apiClient';
 
-const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], refuelings = [], revisions = [] }) => {
+const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], revisions = [] }) => {
     const [filterType, setFilterType] = useState('Todos');
     // Sub-filtro exclusivo da aba "Documentação": vencidos, a vencer ou ambos.
     const [docStatus, setDocStatus] = useState('todos');
+
+    // Último abastecimento por veículo+obra agregado no banco (em vez da tabela
+    // inteira). Chave `${vehicleId}|${obraId}` → data do último abastecimento.
+    const [lastRefuelMap, setLastRefuelMap] = useState(null);
+    useEffect(() => {
+        let cancel = false;
+        apiClient.getLastRefuelByVehicleObra()
+            .then(rows => {
+                if (cancel) return;
+                const m = {};
+                (rows || []).forEach(r => { m[`${r.vehicleId}|${r.obraId}`] = r.lastDate; });
+                setLastRefuelMap(m);
+            })
+            .catch(() => { if (!cancel) setLastRefuelMap({}); });
+        return () => { cancel = true; };
+    }, []);
 
     const alerts = useMemo(() => {
         const list = [];
@@ -156,23 +173,15 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
             if (v.status !== 'Em Obra') return;
             if (!v.obraAtualId) return;
 
-            const vehRefuels = refuelings
-                .filter(r => String(r.vehicleId) === String(v.id) && String(r.obraId) === String(v.obraAtualId) && r.status === 'Concluída')
-                .sort((a,b) => {
-                    const dA = new Date(a.data || a.date || a.created_at || 0);
-                    const dB = new Date(b.data || b.date || b.created_at || 0);
-                    return dB - dA; 
-                });
+            const lastRefuelRaw = lastRefuelMap ? lastRefuelMap[`${v.id}|${v.obraAtualId}`] : null;
 
             let lastRefuelDate = null;
             let daysInactive = null;
             let isBasedOnAllocation = false;
 
-            if (vehRefuels.length > 0) {
-                const latest = vehRefuels[0];
-                const dRaw = latest.data || latest.date || latest.created_at;
-                const dObj = new Date(dRaw);
-                
+            if (lastRefuelRaw) {
+                const dObj = new Date(lastRefuelRaw);
+
                 if (!isNaN(dObj.getTime())) {
                     lastRefuelDate = dObj;
                     const diffTime = Math.abs(now - dObj);
@@ -232,7 +241,7 @@ const AlertsReport = ({ vehicles = [], employees = [], inactivityAlerts = [], ob
             return true;
         });
         return deduped.sort((a, b) => (a.isCritical === b.isCritical) ? 0 : a.isCritical ? -1 : 1);
-    }, [vehicles, employees, inactivityAlerts, obras, refuelings, revisions]);
+    }, [vehicles, employees, inactivityAlerts, obras, lastRefuelMap, revisions]);
 
     // Linhas específicas do filtro "Manutenção" — uma linha por veículo, com
     // colunas separadas para vencimento por DATA e por LEITURA (Km/Hr). Se o

@@ -47,7 +47,10 @@ const ReportsPage = ({
                     const alertsData = await apiClient.getInactivityAlerts();
                     setInactivityAlerts(alertsData || []);
                 }
-                if (refuelings.length === 0 && apiClient && apiClient.getRefuelings) {
+                // Só o relatório de Ordens de Abastecimento precisa da tabela
+                // inteira; Alertas/Médias/Consumo já buscam dados agregados por
+                // conta própria. Evita baixar ~34 MB ao abrir a página de Relatórios.
+                if (reportType === 'supply' && refuelings.length === 0 && apiClient && apiClient.getRefuelings) {
                     const refuelsData = await apiClient.getRefuelings();
                     setFetchedRefuelings(refuelsData || []);
                 }
@@ -64,7 +67,7 @@ const ReportsPage = ({
             }
         };
         fetchData();
-    }, [refuelings, revisions]); 
+    }, [refuelings, revisions, reportType]);
 
     const activeRefuelings = refuelings.length > 0 ? refuelings : fetchedRefuelings;
     const activeRevisions = revisions.length > 0 ? revisions : fetchedRevisions; 

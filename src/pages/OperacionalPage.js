@@ -102,7 +102,6 @@ const OperacionalPage = ({
     employees = [],
     vehicleGroups = {},
     dailyWorkLogs = [],
-    refuelings = [],
     setAlertMessage,
     navigate,
     apiClient = apiClientModule,
@@ -596,6 +595,17 @@ const OperacionalPage = ({
     const [showWithoutObra, setShowWithoutObra] = useState(false);
     const [maqSort, setMaqSort] = useState('dias');
     const [selectedMachineId, setSelectedMachineId] = useState(null);
+    // Abastecimentos da máquina selecionada — buscados sob demanda (escopados),
+    // em vez de depender da tabela inteira de refuelings (~34 MB).
+    const [machineRefuelings, setMachineRefuelings] = useState([]);
+    useEffect(() => {
+        let cancel = false;
+        if (!selectedMachineId) { setMachineRefuelings([]); return undefined; }
+        apiClient.getRefuelingsByVehicle(selectedMachineId)
+            .then(rows => { if (!cancel) setMachineRefuelings(Array.isArray(rows) ? rows : []); })
+            .catch(() => { if (!cancel) setMachineRefuelings([]); });
+        return () => { cancel = true; };
+    }, [selectedMachineId, apiClient]);
     const [requestForm, setRequestForm] = useState(null); // null | 'obra' | 'operador'
     const [requestValue, setRequestValue] = useState(null); // obra ou employee sugerido
     const [requestObs, setRequestObs] = useState('');
@@ -782,8 +792,7 @@ const OperacionalPage = ({
         const usaKm = getAllowedReadingTypes(base.vehicle.tipo).includes('odometro');
         const leituraLabel = usaKm ? 'Odômetro' : 'Horímetro';
         const leituraUnidade = usaKm ? 'Km' : 'h';
-        const vehicleRefuelings = (refuelings || [])
-            .filter(r => String(r.vehicleId) === String(selectedMachineId))
+        const vehicleRefuelings = (machineRefuelings || [])
             .map(r => ({ ...r, leitura: usaKm ? parseFloat(r.odometro || 0) : parseFloat(r.horimetro || 0) }))
             .filter(r => r.leitura > 0)
             .sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -798,7 +807,7 @@ const OperacionalPage = ({
             ultimaLeitura: ultimoAbastecimento ? ultimoAbastecimento.leitura : null,
             ultimaLeituraData: ultimoAbastecimento ? ultimoAbastecimento.data : null,
         };
-    }, [selectedMachineId, machineData, dailyWorkLogs, refuelings]);
+    }, [selectedMachineId, machineData, dailyWorkLogs, machineRefuelings]);
 
     const activeObras = useMemo(() =>
         obras.filter(o => {
