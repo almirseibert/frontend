@@ -17,6 +17,20 @@ const norm = (s) =>
 
 const onlyAlnum = (s) => norm(s).replace(/[^a-z0-9]/g, '');
 
+// Mesma regra usada em BillingPage/SearchableObraSelect: status explícito ou
+// data de fim já vencida marcam a obra como inativa.
+const STATUS_INATIVOS = ['finalizada', 'finalizado', 'concluida', 'concluída', 'inativa', 'inativo'];
+const isObraInativa = (obra) => {
+    const st = norm(obra?.status);
+    if (STATUS_INATIVOS.includes(st)) return true;
+    if (obra?.dataFim) {
+        const fim = new Date(obra.dataFim);
+        fim.setHours(23, 59, 59, 999);
+        if (fim < new Date()) return true;
+    }
+    return false;
+};
+
 const ContextFinder = ({
     obras = [],
     vehicles = [],
@@ -74,9 +88,12 @@ const ContextFinder = ({
         if (!q) return { obras: [], equipamentos: [] };
         const qa = onlyAlnum(query);
 
+        // Ativas primeiro: obra encerrada quase nunca é o alvo da busca.
         const obrasHit = obras
             .filter((o) => (o.tipo_registro || 'obra') !== 'centro_custo')
             .filter((o) => norm(formatObraNome(o)).includes(q))
+            .map((o) => ({ obra: o, inativa: isObraInativa(o) }))
+            .sort((a, b) => Number(a.inativa) - Number(b.inativa))
             .slice(0, 6);
 
         const equipHit = equipIndex
@@ -95,7 +112,7 @@ const ContextFinder = ({
 
     const flat = useMemo(
         () => [
-            ...results.obras.map((o) => ({ kind: 'obra', obra: o })),
+            ...results.obras.map((o) => ({ kind: 'obra', obra: o.obra, inativa: o.inativa })),
             ...results.equipamentos.map((e) => ({ kind: 'equip', ...e })),
         ],
         [results]
@@ -168,16 +185,24 @@ const ContextFinder = ({
                             Obras
                         </p>
                     )}
-                    {results.obras.map((o, i) => (
+                    {results.obras.map(({ obra: o, inativa }, i) => (
                         <button
                             key={`o-${o.id}`}
                             onMouseEnter={() => setCursor(i)}
                             onClick={() => pick({ kind: 'obra', obra: o })}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${
                                 cursor === i ? 'bg-[#fdf8f0]' : 'hover:bg-gray-50'
-                            }`}
+                            } ${inativa ? 'text-gray-400' : 'text-gray-800'}`}
                         >
-                            {formatObraNome(o)}
+                            <span
+                                className={`w-2 h-2 rounded-full flex-shrink-0 ${inativa ? 'bg-gray-300' : 'bg-green-400'}`}
+                            />
+                            <span className="truncate">{formatObraNome(o)}</span>
+                            {inativa && (
+                                <span className="ml-auto flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                    Inativa
+                                </span>
+                            )}
                         </button>
                     ))}
 
