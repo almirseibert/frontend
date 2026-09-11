@@ -797,6 +797,7 @@ const apiClient = {
     // --- Evidências de Campo ---
     getEvidenciaEscopo: async () => apiFetch('/evidencias/meu-escopo'),
     getMinhasEvidencias: async () => apiFetch('/evidencias/minhas'),
+    getEvidenciaCalendario: async (vehicleId) => apiFetch(`/evidencias/veiculo/${vehicleId}/calendario`),
     getMotivosDispensa: async () => apiFetch('/evidencias/motivos-dispensa'),
     registrarDispensa: async (data) => apiFetch('/evidencias/dispensa', { method: 'POST', body: JSON.stringify(data) }),
     // Envio da evidência: FormData com a foto (campo 'foto') + metadados.

@@ -569,8 +569,10 @@ const AdminSolicitacoesPage = ({
             <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-2 animate-fadeIn">
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[95vh] flex flex-col md:flex-row overflow-hidden">
                     
-                    {/* COLUNA ESQUERDA: EVIDÊNCIAS COM CONTROLES */}
-                    <div className="md:w-1/2 bg-gray-900 flex flex-col relative overflow-hidden">
+                    {/* COLUNA ESQUERDA: EVIDÊNCIAS COM CONTROLES
+                        No mobile ganha altura fixa (40vh) e não encolhe, para
+                        sobrar espaço à coluna de ações abaixo. */}
+                    <div className="md:w-1/2 bg-gray-900 flex flex-col relative overflow-hidden h-[40vh] md:h-auto shrink-0">
                         
                         {/* ABAS DE IMAGEM */}
                         <div className="absolute top-0 left-0 right-0 p-2 bg-gradient-to-b from-black/80 to-transparent z-10 flex justify-between items-center text-white">
@@ -640,8 +642,11 @@ const AdminSolicitacoesPage = ({
                         </div>
                     </div>
 
-                    {/* COLUNA DIREITA: DADOS E AÇÃO */}
-                    <div className="md:w-1/2 flex flex-col bg-gray-50">
+                    {/* COLUNA DIREITA: DADOS E AÇÃO
+                        flex-1 + min-h-0 garante que o corpo role internamente e o
+                        rodapé de ações (botões de aprovar/liberar) fique sempre
+                        visível no mobile, em vez de ser cortado pelo card. */}
+                    <div className="md:w-1/2 flex flex-col bg-gray-50 flex-1 min-h-0">
                         <div className="p-3 border-b bg-white">
                             <div className="flex justify-between items-start mb-1">
                                 <div>

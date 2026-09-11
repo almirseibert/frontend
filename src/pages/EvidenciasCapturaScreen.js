@@ -101,8 +101,8 @@ const EvidenciasCapturaScreen = ({ apiClient, user, setAlertMessage }) => {
                 {(!escopo.equipamentos || escopo.equipamentos.length === 0) && (
                     <div className="bg-white rounded-xl p-6 text-center text-slate-500 shadow-sm">Nenhum equipamento no seu escopo hoje.</div>
                 )}
-                <div className="space-y-2">
-                    {escopo.equipamentos?.map(e => {
+                {(() => {
+                    const renderCard = (e) => {
                         const enviados = (escopo.hojeEnviado?.[e.id] || []).length;
                         return (
                             <button key={e.id} onClick={() => setVeiculoSel(e.id)}
@@ -110,14 +110,32 @@ const EvidenciasCapturaScreen = ({ apiClient, user, setAlertMessage }) => {
                                 <div className="text-left">
                                     <div className="font-bold text-slate-800">{e.registroInterno || e.placa || e.modelo}</div>
                                     <div className="text-xs text-slate-500">{[e.modelo, e.obra_nome].filter(Boolean).join(' · ')}</div>
+                                    {e.saiuDaObra && (
+                                        <div className="text-[11px] font-bold mt-0.5" style={{ color: '#b45309' }}>
+                                            Saiu da obra{e.saiuEm ? ` em ${e.saiuEm.split('-').reverse().join('/')}` : ''} · inclusão retroativa
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: enviados >= 4 ? '#dcfce7' : '#fef9c3', color: enviados >= 4 ? '#15803d' : '#854d0e' }}>
                                     {enviados}/4
                                 </div>
                             </button>
                         );
-                    })}
-                </div>
+                    };
+                    const ativos = (escopo.equipamentos || []).filter(e => !e.saiuDaObra);
+                    const saiu = (escopo.equipamentos || []).filter(e => e.saiuDaObra);
+                    return (
+                        <>
+                            <div className="space-y-2">{ativos.map(renderCard)}</div>
+                            {saiu.length > 0 && (
+                                <div className="mt-5">
+                                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Saíram da obra (inclusão retroativa)</p>
+                                    <div className="space-y-2">{saiu.map(renderCard)}</div>
+                                </div>
+                            )}
+                        </>
+                    );
+                })()}
             </div>
         );
     }
@@ -130,6 +148,11 @@ const EvidenciasCapturaScreen = ({ apiClient, user, setAlertMessage }) => {
             </button>
             <h1 className="text-xl font-bold text-slate-800">{equip.registroInterno || equip.placa}</h1>
             <p className="text-sm text-slate-500 mb-1">{[equip.modelo, obra?.nome].filter(Boolean).join(' · ')}</p>
+            {equip.saiuDaObra && (
+                <div className="mb-2 text-[12px] font-semibold rounded-lg px-3 py-2 flex items-center gap-2" style={{ background: '#fef3c7', color: '#92400e' }}>
+                    <AlertTriangle size={14} /> Equipamento saiu da obra{equip.saiuEm ? ` em ${equip.saiuEm.split('-').reverse().join('/')}` : ''}. Registro retroativo desse dia.
+                </div>
+            )}
             {degradado && <BannerCache />}
 
             <div className="grid grid-cols-1 gap-3 mt-3">
@@ -142,6 +165,8 @@ const EvidenciasCapturaScreen = ({ apiClient, user, setAlertMessage }) => {
                 className="w-full mt-4 py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 font-bold flex items-center justify-center gap-2 active:bg-slate-100">
                 <Ban size={18} /> Dispensar hoje (chuva, parado…)
             </button>
+
+            <CalendarioEquip apiClient={apiClient} vehicleId={equip.id} />
 
             {sheet && (
                 <CaptureSheet
@@ -191,6 +216,51 @@ const CardMomento = ({ momento, status, onClick }) => {
     );
 };
 
+// ===== Quadro por equipamento (B4): status por dia na obra =====
+const STATUS_CAL = {
+    completo:   { bg: '#dcfce7', cor: '#15803d', label: 'Completo' },
+    parcial:    { bg: '#fef9c3', cor: '#854d0e', label: 'Parcial' },
+    faltando:   { bg: '#fee2e2', cor: '#b91c1c', label: 'Faltando' },
+    dispensado: { bg: '#e2e8f0', cor: '#475569', label: 'Dispensado' },
+};
+const CalendarioEquip = ({ apiClient, vehicleId }) => {
+    const [dias, setDias] = useState(null);
+    useEffect(() => {
+        let cancel = false;
+        apiClient.getEvidenciaCalendario(vehicleId)
+            .then(r => { if (!cancel) setDias(r.dias || []); })
+            .catch(() => { if (!cancel) setDias([]); });
+        return () => { cancel = true; };
+    }, [apiClient, vehicleId]);
+
+    if (!dias || dias.length === 0) return null;
+    return (
+        <div className="mt-4 bg-white rounded-xl p-3 shadow-sm">
+            <p className="text-xs font-bold uppercase text-slate-400 mb-2">Histórico na obra (30 dias)</p>
+            <div className="flex flex-wrap gap-1.5">
+                {dias.map(d => {
+                    const st = STATUS_CAL[d.status] || STATUS_CAL.faltando;
+                    const [, mm, dd] = d.data.split('-');
+                    return (
+                        <span key={d.data} title={`${dd}/${mm} · ${st.label} (${d.enviados}/${d.exigidas})`}
+                            className="text-[10px] font-bold rounded px-1.5 py-1 leading-none"
+                            style={{ background: st.bg, color: st.cor }}>
+                            {dd}/{mm}
+                        </span>
+                    );
+                })}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                {Object.values(STATUS_CAL).map(s => (
+                    <span key={s.label} className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                        <span className="w-2.5 h-2.5 rounded" style={{ background: s.bg, border: `1px solid ${s.cor}` }} /> {s.label}
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 // ===== Bottom-sheet de captura =====
 const CaptureSheet = ({ momento, equip, obra, escopo, user, onClose, setAlertMessage }) => {
     const [foto, setFoto] = useState(null);
@@ -230,7 +300,9 @@ const CaptureSheet = ({ momento, equip, obra, escopo, user, onClose, setAlertMes
                 obra_id: equip.obra_id,
                 veiculo_id: equip.id,
                 tipo: momento.tipo,
-                data_ref: escopo.data,
+                // Equipamento que saiu da obra: registra na data de saída (dia da
+                // inclusão retroativa), não hoje.
+                data_ref: equip.saiuEm || escopo.data,
                 turno: momento.tipo === 'foto_manha' ? 'manha' : momento.tipo === 'foto_tarde' ? 'tarde' : 'indefinido',
                 dev_latitude: gps.lat, dev_longitude: gps.lng, dev_precisao_m: gps.prec,
                 dev_local_texto: gps.local || null,
@@ -305,7 +377,7 @@ const DispensaSheet = ({ apiClient, equip, obra, escopo, onClose, setAlertMessag
             await apiClient.registrarDispensa({
                 obra_id: equip.obra_id,
                 veiculo_id: abrangencia === 'obra' ? null : equip.id,
-                data_ref: escopo.data, periodo,
+                data_ref: equip.saiuEm || escopo.data, periodo,
                 motivo_codigo: motivo || null, motivo_texto: texto.trim() || null,
             });
             setAlertMessage?.({ type: 'success', message: 'Dispensa registrada.' });
