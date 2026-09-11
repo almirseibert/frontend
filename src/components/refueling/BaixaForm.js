@@ -242,20 +242,24 @@ const BaixaForm = ({
     }, [mediaStats]);
 
     // --- HANDLERS ---
-    const handleConfirmClick = (e) => {
+    const handleConfirmClick = async (e) => {
         if (e) e.preventDefault();
 
         if (invoiceNumber && order.partnerId) {
             const nfStr = invoiceNumber.toString().trim();
-            const isDuplicate = refuelings.some(r =>
-                r.partnerId === order.partnerId &&
-                r.invoiceNumber === nfStr &&
-                r.id !== order.id
-            );
-
-            if (isDuplicate) {
-                setAlertMessage(`A Nota Fiscal ${nfStr} já consta lançada para este posto.`);
-                return;
+            // Checagem CROSS-veículo feita no banco (índice partner+invoice), em vez
+            // de varrer o array inteiro de refuelings no cliente.
+            try {
+                const { duplicate } = await apiClient.checkRefuelingInvoiceDuplicate(
+                    order.partnerId, nfStr, order.id
+                );
+                if (duplicate) {
+                    setAlertMessage(`A Nota Fiscal ${nfStr} já consta lançada para este posto.`);
+                    return;
+                }
+            } catch (err) {
+                console.warn('Falha ao verificar NF duplicada:', err.message);
+                // Não bloqueia a baixa por falha de rede na verificação.
             }
         }
 

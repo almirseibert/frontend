@@ -499,8 +499,38 @@ const apiClient = {
         if (excludeId) qs.set('excludeId', excludeId);
         return apiFetch(`/refuelings/open?${qs.toString()}`);
     },
-    // Gasto de combustível da obra vs. valor de contrato
-    getObraFuelStatus: async (obraId) => apiFetch(`/refuelings/obra-status/${obraId}`),
+    // Gasto de combustível da obra vs. valor de contrato.
+    // includeNoContract=true retorna o gasto mesmo sem contrato definido.
+    getObraFuelStatus: async (obraId, { includeNoContract = false } = {}) =>
+        apiFetch(`/refuelings/obra-status/${obraId}${includeNoContract ? '?includeNoContract=1' : ''}`),
+    // Consumo agregado por obra/combustível (soma feita no banco — evita baixar
+    // a tabela inteira só para o relatório somar). Filtros: obraId, fuelType,
+    // startDate, endDate ('YYYY-MM-DD').
+    getRefuelingAggregatesByObra: async (params = {}) => {
+        const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v));
+        const qs = new URLSearchParams(clean).toString();
+        return apiFetch(`/refuelings/aggregates/by-obra${qs ? `?${qs}` : ''}`);
+    },
+    // Agregações do dashboard (feitas no banco).
+    getLastRefuelByVehicleObra: async () => apiFetch('/refuelings/aggregates/last-by-vehicle-obra'),
+    getRefuelingEfficiencyByVehicle: async () => apiFetch('/refuelings/aggregates/efficiency-by-vehicle'),
+    getRefuelingAveragesByVehicle: async (params = {}) => {
+        const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== ''));
+        const qs = new URLSearchParams(clean).toString();
+        return apiFetch(`/refuelings/aggregates/averages-by-vehicle${qs ? `?${qs}` : ''}`);
+    },
+    // Abastecimentos de um conjunto de veículos (módulo terceirizados).
+    getRefuelingsByVehicles: async (vehicleIds = []) => {
+        const ids = (Array.isArray(vehicleIds) ? vehicleIds : []).filter(Boolean);
+        if (ids.length === 0) return [];
+        return apiFetch(`/refuelings/by-vehicles?vehicleIds=${encodeURIComponent(ids.join(','))}`);
+    },
+    // Checagem de NF duplicada (posto + número) — feita no banco (cross-veículo).
+    checkRefuelingInvoiceDuplicate: async (partnerId, invoiceNumber, excludeId) => {
+        const qs = new URLSearchParams({ partnerId, invoiceNumber });
+        if (excludeId) qs.set('excludeId', excludeId);
+        return apiFetch(`/refuelings/check-invoice?${qs.toString()}`);
+    },
     getRefuelingById: async (id) => apiFetch(`/refuelings/${id}`),
     createRefuelingOrder: async (data) => apiFetch('/refuelings', { method: 'POST', body: JSON.stringify(data) }),
     updateRefuelingOrder: async (id, data) => apiFetch(`/refuelings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

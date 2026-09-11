@@ -9,7 +9,7 @@ import TerceirizadoPagamentoModal from '../components/modals/TerceirizadoPagamen
 import ContratoTerceiroModal from '../components/modals/ContratoTerceiroModal';
 import AditivoModal from '../components/modals/AditivoModal';
 import ContratoDetalhe from '../components/terceirizados/ContratoDetalhe';
-import { computeContrato, computeContratosPorTerceiro } from '../utils/terceirizados';
+import { computeContrato, computeContratosPorTerceiro, getContratoMachines } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
 
 const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -48,12 +48,35 @@ const KpiCard = ({ label, value, tone = 'gray' }) => {
 };
 
 const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
-    useEnsureResources(['dailyWorkLogs', 'refuelings', 'comboioTransactions', 'terceirizadoPagamentos', 'terceiroContratos']);
+    // refuelings NÃO entra mais no ensure: em vez da tabela inteira (~34 MB),
+    // buscamos só os abastecimentos das máquinas dos contratos (ver abaixo).
+    useEnsureResources(['dailyWorkLogs', 'comboioTransactions', 'terceirizadoPagamentos', 'terceiroContratos']);
     const {
         vehicles = [], obras = [], partners = [],
-        dailyWorkLogs = [], refuelings = [], comboioTransactions = [],
+        dailyWorkLogs = [], comboioTransactions = [],
         terceirizadoPagamentos = [], terceiroContratos = [], refresh,
     } = useData();
+
+    // Abastecimentos ESCOPADOS às máquinas dos contratos terceirizados. O cálculo
+    // do contrato (período, preço por parceiro) segue idêntico — só a origem dos
+    // dados mudou (subconjunto em vez da tabela inteira).
+    const scopedVehicleIds = useMemo(() => {
+        const ids = new Set();
+        (terceiroContratos || []).forEach((c) =>
+            getContratoMachines(c, obras, vehicles).forEach((v) => ids.add(v.id))
+        );
+        return [...ids];
+    }, [terceiroContratos, obras, vehicles]);
+
+    const [refuelings, setRefuelings] = useState([]);
+    useEffect(() => {
+        let cancelled = false;
+        if (scopedVehicleIds.length === 0) { setRefuelings([]); return; }
+        apiClient.getRefuelingsByVehicles(scopedVehicleIds)
+            .then((rows) => { if (!cancelled) setRefuelings(Array.isArray(rows) ? rows : []); })
+            .catch(() => { if (!cancelled) setRefuelings([]); });
+        return () => { cancelled = true; };
+    }, [scopedVehicleIds, apiClient]);
 
     const [selectedTerceiroId, setSelectedTerceiroId] = useState(null);
     const [busca, setBusca] = useState('');

@@ -579,7 +579,10 @@ const AppContent = () => {
     // Define quais recursos extras cada página precisa para funcionar.
     // O DataContext só busca o que ainda não está em cache.
     const PAGE_RESOURCE_REQUIREMENTS = useMemo(() => ({
-        dashboard:            ['revisions', 'fines', 'refuelings'],
+        // O Dashboard consome apenas o resumo agregado do servidor
+        // (getDashboardHomeSummary) — não usa os arrays globais. Prefetchá-los aqui
+        // (em especial refuelings, ~34 MB) só travava o login à toa.
+        dashboard:            [],
         vehicles:             ['revisions', 'fines'],
         revisions:            ['revisions'],
         relatos:              ['relatos', 'holidays', 'orders'],
@@ -588,7 +591,7 @@ const AppContent = () => {
         // carregar os ~23 mil registros da tabela inteira.
         refueling:            ['revisions'],
         saldo_postos:         ['partnerFuelCredits'],
-        admin_solicitacoes:   ['refuelings'],
+        admin_solicitacoes:   [],
         comboio:              ['comboioTransactions', 'refuelings'],
         expenses:             ['expenses'],
         fines:                ['fines'],
@@ -599,7 +602,7 @@ const AppContent = () => {
         orders:               ['orders'],
         obras:                ['revisions'],
         operacional:          ['dailyWorkLogs', 'refuelings'],
-        terceirizados:        ['dailyWorkLogs', 'refuelings', 'comboioTransactions', 'terceirizadoPagamentos', 'terceiroContratos'],
+        terceirizados:        ['dailyWorkLogs', 'comboioTransactions', 'terceirizadoPagamentos', 'terceiroContratos'],
         supervisor_dashboard: ['revisions', 'fines'],
         supervisor_detail:    ['revisions', 'fines', 'refuelings', 'expenses'],
     }), []);

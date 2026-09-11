@@ -1,11 +1,29 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Bell, AlertTriangle, ShieldAlert, Wrench, FileText, Badge, Timer, CheckCircle } from 'lucide-react';
 // Importa a lógica unificada de restrições
 import { checkVehicleRestrictions } from '../../utils/vehicleRules';
 import { formatObraNome } from '../../utils/obraFormat';
+import apiClient from '../../services/apiClient';
 
-const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [], refuelings = [] }) => {
+const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obras = [], navigate, setSelectedInactivityAlert, revisions = [] }) => {
     const [activeTab, setActiveTab] = useState('todos');
+
+    // Data do último abastecimento por veículo+obra, agregada no banco (em vez de
+    // baixar a tabela inteira só para achar o mais recente de cada veículo).
+    // Chave: `${vehicleId}|${obraId}` → Date do último abastecimento concluído.
+    const [lastRefuelMap, setLastRefuelMap] = useState(null);
+    useEffect(() => {
+        let cancelled = false;
+        apiClient.getLastRefuelByVehicleObra()
+            .then(rows => {
+                if (cancelled) return;
+                const m = {};
+                (rows || []).forEach(r => { m[`${r.vehicleId}|${r.obraId}`] = r.lastDate; });
+                setLastRefuelMap(m);
+            })
+            .catch(() => { if (!cancelled) setLastRefuelMap({}); });
+        return () => { cancelled = true; };
+    }, []);
 
     // Processamento centralizado de alertas (Unificado e em Tempo Real)
     const alerts = useMemo(() => {
@@ -50,25 +68,17 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             // Regra 2: O registro de inatividade deve ser referente à obra atual
             if (!v.obraAtualId) return;
 
-            // Regra 4: Analisar juntamente com a obra atual quando foi o último abastecimento
-            const vehRefuels = refuelings
-                .filter(r => String(r.vehicleId) === String(v.id) && String(r.obraId) === String(v.obraAtualId) && r.status === 'Concluída')
-                .sort((a,b) => {
-                    const dA = new Date(a.data || a.date || a.created_at || 0);
-                    const dB = new Date(b.data || b.date || b.created_at || 0);
-                    return dB - dA; // O mais recente primeiro
-                });
+            // Regra 4: último abastecimento do veículo NA SUA obra atual — vem do
+            // mapa agregado no banco (MAX(data) por veículo+obra, status Concluída).
+            const lastRefuelRaw = lastRefuelMap ? lastRefuelMap[`${v.id}|${v.obraAtualId}`] : null;
 
             let lastRefuelDate = null;
             let daysInactive = null;
             let isBasedOnAllocation = false;
 
-            if (vehRefuels.length > 0) {
-                // Pegamos a data do abastecimento mais recente NESSA obra
-                const latest = vehRefuels[0];
-                const dRaw = latest.data || latest.date || latest.created_at;
-                const dObj = new Date(dRaw);
-                
+            if (lastRefuelRaw) {
+                const dObj = new Date(lastRefuelRaw);
+
                 if (!isNaN(dObj.getTime())) {
                     lastRefuelDate = dObj;
                     const diffTime = Math.abs(now - dObj);
@@ -244,7 +254,7 @@ const AlertsPanel = ({ vehicles = [], employees = [], inactivityAlerts = [], obr
             if (a.type !== 'danger' && b.type === 'danger') return 1;
             return 0;
         });
-    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert, obras, refuelings]);
+    }, [vehicles, employees, inactivityAlerts, revisions, navigate, setSelectedInactivityAlert, obras, lastRefuelMap]);
 
     const filteredAlerts = activeTab === 'todos' ? alerts : alerts.filter(a => a.category === activeTab);
 

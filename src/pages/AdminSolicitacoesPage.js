@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Check, X, AlertTriangle, MapPin, Eye, Fuel,
     Calendar, Loader, Search, RefreshCw, Smartphone, DollarSign, Image as ImageIcon,
@@ -23,7 +23,6 @@ const AdminSolicitacoesPage = ({
     employees = [],
     obras = [],
     vehicleGroups = {},
-    refuelings = [], 
     expenses = [],
     user,
     PasswordConfirmationModal,
@@ -49,8 +48,19 @@ const AdminSolicitacoesPage = ({
     const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
     const [solicitacaoToApprove, setSolicitacaoToApprove] = useState(null);
 
-    const [filterStatus, setFilterStatus] = useState('PENDENTE'); 
+    const [filterStatus, setFilterStatus] = useState('PENDENTE');
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Dados de abastecimento carregados SOB DEMANDA por veículo/obra (em vez de
+    // baixar a tabela inteira de ~23 mil linhas / 34 MB). Cada card só precisa do
+    // histórico do seu veículo e do gasto da sua obra.
+    //   refuelingsByVehicle[veiculoId] : array de abastecimentos do veículo
+    //                                    (undefined = não pedido, null = carregando)
+    //   financialByObra[obraId]        : string pronta do financeiro da obra
+    const [refuelingsByVehicle, setRefuelingsByVehicle] = useState({});
+    const [financialByObra, setFinancialByObra] = useState({});
+    const requestedVehiclesRef = useRef(new Set());
+    const requestedObrasRef = useRef(new Set());
 
     const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, returnBlob = false) => {
         return new Promise((resolve, reject) => {
@@ -283,7 +293,10 @@ const AdminSolicitacoesPage = ({
 
         if (modalData.status !== 'AGUARDANDO_BAIXA') return;
 
-        let order = refuelings.find(r => {
+        // Busca a ordem criada a partir desta solicitação dentro do histórico do
+        // próprio veículo (carregado sob demanda), em vez do array global.
+        const vehicleList = refuelingsByVehicle[modalData.veiculo_id] || [];
+        let order = vehicleList.find(r => {
             if (r.createdFromSolicitacaoId && String(r.createdFromSolicitacaoId) === String(modalData.id)) return true;
             if (r.createdBy) {
                 let creator = r.createdBy;
@@ -312,7 +325,7 @@ const AdminSolicitacoesPage = ({
 
         setRelatedOrder(order);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [modalData?.id, modalData?.status]);
+    }, [modalData?.id, modalData?.status, refuelingsByVehicle]);
 
     const handleAfterBaixaConfirm = async () => {
         const idToProcess = modalData?.id;
@@ -362,12 +375,13 @@ const AdminSolicitacoesPage = ({
     };
 
     const getLastFuelingInfo = (veiculoId) => {
-        if (!refuelings || refuelings.length === 0) return "Histórico indisponível (Lista vazia).";
+        const list = refuelingsByVehicle[veiculoId];
+        if (!list) return "Carregando…"; // undefined (não pedido) ou null (carregando)
 
         const vehicle = vehicles.find(v => String(v.id) === String(veiculoId));
         if (!vehicle) return "Veículo não encontrado.";
 
-        const history = refuelings
+        const history = list
             .filter(r => String(r.vehicleId) === String(veiculoId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
             .sort((a, b) => getSafeDateObj(b.data || b.date).getTime() - getSafeDateObj(a.data || a.date).getTime());
 
@@ -414,42 +428,55 @@ const AdminSolicitacoesPage = ({
         return `Último: ${dateStr} / Posto: ${postoName} / ${litrosVal} L (${fuel}) / Leitura: ${readVal} / Média: ${mediaTexto}`;
     };
 
+    // O gasto por obra (MAIOR entre somatório de expenses de combustível e dos
+    // abastecimentos concluídos/confirmados) agora vem do backend — mesma regra de
+    // antes, feita no banco (GET /refuelings/obra-status). A string pronta fica no
+    // mapa financialByObra, preenchido pelo prefetch abaixo.
     const getFinancialProgress = (obraId) => {
         if (!obras || obras.length === 0) return "Dados de obras não carregados.";
-
         const obra = obras.find(o => String(o.id) === String(obraId));
         if (!obra) return "Obra não vinculada.";
-
-        const totalFromExpenses = (expenses || [])
-            .filter(e => String(e.obraId) === String(obraId) && (e.category === 'Combustível' || e.fuelType))
-            .reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
-
-        // Fallback: se a tabela de expenses ainda não foi sincronizada (lazy load) ou
-        // estiver desatualizada para esta obra, calcula direto a partir dos refuelings
-        // concluídos — mesma base de cálculo que o backend usa em updateMonthlyExpense.
-        const totalFromRefuelings = (refuelings || [])
-            .filter(r => String(r.obraId) === String(obraId) && (r.status === 'Concluída' || r.status === 'Confirmada'))
-            .reduce((acc, r) => {
-                const litros = parseFloat(r.litrosAbastecidos || 0);
-                const preco = parseFloat(r.pricePerLiter || 0);
-                const litrosArla = parseFloat(r.litrosAbastecidosArla || 0);
-                const precoArla = parseFloat(r.pricePerLiterArla || 0);
-                const outros = parseFloat(r.outrosValor || 0);
-                return acc + (litros * preco) + (litrosArla * precoArla) + outros;
-            }, 0);
-
-        const totalGasto = Math.max(totalFromExpenses, totalFromRefuelings);
-
-        const totalContrato = parseFloat(obra.valorContrato || obra.valorTotalContrato || 0);
-        const formatMoney = (val) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
-        if (totalContrato > 0) {
-            const pct = ((totalGasto / totalContrato) * 100).toFixed(1);
-            return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: ${formatMoney(totalContrato)} / ${pct}% utilizado`;
-        }
-
-        return `Gasto Combustível: ${formatMoney(totalGasto)} / Contrato Total: Não definido`;
+        return financialByObra[obraId] ?? "Carregando…";
     };
+
+    // ------------------------------------------------------------------------
+    // Prefetch escopado: para os cards visíveis, busca só o histórico de cada
+    // veículo e o gasto de cada obra — nunca a tabela inteira.
+    // ------------------------------------------------------------------------
+    useEffect(() => {
+        const formatMoney = (val) => Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        const veiculoIds = [...new Set((filteredSolicitacoes || []).map(s => s.veiculo_id).filter(Boolean))];
+        const obraIds = [...new Set((filteredSolicitacoes || []).map(s => s.obra_id).filter(Boolean))];
+
+        veiculoIds.forEach(vid => {
+            if (requestedVehiclesRef.current.has(vid)) return;
+            requestedVehiclesRef.current.add(vid);
+            setRefuelingsByVehicle(prev => ({ ...prev, [vid]: null })); // carregando
+            apiClient.getRefuelingsByVehicle(vid)
+                .then(list => setRefuelingsByVehicle(prev => ({ ...prev, [vid]: Array.isArray(list) ? list : [] })))
+                .catch(() => setRefuelingsByVehicle(prev => ({ ...prev, [vid]: [] })));
+        });
+
+        obraIds.forEach(oid => {
+            if (requestedObrasRef.current.has(oid)) return;
+            requestedObrasRef.current.add(oid);
+            apiClient.getObraFuelStatus(oid, { includeNoContract: true })
+                .then(st => {
+                    let texto;
+                    if (!st) {
+                        texto = `Gasto Combustível: ${formatMoney(0)} / Contrato Total: Não definido`;
+                    } else if (st.valorContrato > 0) {
+                        const pct = ((st.totalGasto / st.valorContrato) * 100).toFixed(1);
+                        texto = `Gasto Combustível: ${formatMoney(st.totalGasto)} / Contrato Total: ${formatMoney(st.valorContrato)} / ${pct}% utilizado`;
+                    } else {
+                        texto = `Gasto Combustível: ${formatMoney(st.totalGasto)} / Contrato Total: Não definido`;
+                    }
+                    setFinancialByObra(prev => ({ ...prev, [oid]: texto }));
+                })
+                .catch(() => setFinancialByObra(prev => ({ ...prev, [oid]: 'Financeiro indisponível.' })));
+        });
+    }, [filteredSolicitacoes, apiClient]);
 
     // Reprocessa a análise da IA. Útil depois de ajustar um limiar na tela de
     // parâmetros, ou quando a leitura falhou por indisponibilidade da API.
@@ -722,7 +749,7 @@ const AdminSolicitacoesPage = ({
                                         apiClient={apiClient}
                                         reloadData={reloadData}
                                         onAfterConfirm={handleAfterBaixaConfirm}
-                                        refuelings={refuelings}
+                                        refuelings={refuelingsByVehicle[relatedOrder?.vehicleId] || []}
                                         vehicles={vehicles}
                                         partners={partners}
                                         employees={employees}
@@ -947,7 +974,7 @@ const AdminSolicitacoesPage = ({
                     obras={obras}
                     partners={partners}
                     employees={employees}
-                    refuelings={refuelings}
+                    refuelings={[]}
                     expenses={expenses}
                     onClose={() => {
                         setIsOrderModalOpen(false);
