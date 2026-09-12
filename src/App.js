@@ -152,21 +152,31 @@ const BtnDanger = ({ onClick, children, disabled }) => {
 // Modais Globais
 // ==========================================
 
-const CustomAlert = React.memo(({ message, onClose }) => (
-    <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
-        <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f0ebe3' }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: '#1e1a14' }}>Aviso</span>
-            </div>
-            <div style={{ padding: '16px 18px' }}>
-                <pre style={{ fontSize: 13, color: '#6a5e4e', lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{message}</pre>
-            </div>
-            <div style={{ padding: '12px 18px', borderTop: '1px solid #f0ebe3', display: 'flex', justifyContent: 'flex-end' }}>
-                <BtnPrimary onClick={onClose}>OK</BtnPrimary>
+// `message` chega como string na maior parte do app, mas o módulo de Evidências
+// passa { type, message }. Renderizar esse objeto direto estourava o React (erro
+// #31: "Objects are not valid as a React child") e derrubava a tela inteira em
+// QUALQUER aviso daquele módulo — inclusive nos de sucesso. Normalizamos aqui, no
+// consumidor, e de quebra o `type` passa a valer para o título.
+const CustomAlert = React.memo(({ message, onClose }) => {
+    const obj = message && typeof message === 'object' ? message : null;
+    const texto = obj ? (obj.message ?? '') : message;
+    const erro = obj?.type === 'error';
+    return (
+        <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+            <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+                <div style={{ padding: '16px 18px 12px', borderBottom: `1px solid ${erro ? '#fdf0ec' : '#f0ebe3'}` }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: erro ? '#b03828' : '#1e1a14' }}>{erro ? 'Erro' : 'Aviso'}</span>
+                </div>
+                <div style={{ padding: '16px 18px' }}>
+                    <pre style={{ fontSize: 13, color: '#6a5e4e', lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{texto}</pre>
+                </div>
+                <div style={{ padding: '12px 18px', borderTop: '1px solid #f0ebe3', display: 'flex', justifyContent: 'flex-end' }}>
+                    <BtnPrimary onClick={onClose}>OK</BtnPrimary>
+                </div>
             </div>
         </div>
-    </div>
-));
+    );
+});
 
 const ConfirmationModal = React.memo(({
     title, message, onConfirm, onClose,
@@ -727,6 +737,12 @@ const AppContent = () => {
                                 : <EvidenciasFilaPage />}
                         </Suspense>
                     </div>
+                    {/* O fluxo do operador retorna ANTES do CustomAlert do layout de
+                        gestor, então sem isto todo aviso destas telas era engolido em
+                        silêncio — inclusive "Evidência salva na fila" e os erros. */}
+                    {alertMessage && (
+                        <CustomAlert message={alertMessage} onClose={() => setAlertMessage('')} />
+                    )}
                     <OperadorTabBar aba={operadorAba} onAba={(a) => { setOperadorTelaAtual(null); setOperadorAba(a); }} pendencias={evidPendencias} />
                 </>
             );
