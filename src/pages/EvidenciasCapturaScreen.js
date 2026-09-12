@@ -373,10 +373,13 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
                 <ImagePlus size={18} /> Adicionar imagem extra{extras > 0 ? ` (${extras})` : ''}
             </button>
 
-            {!retro && (
+            {/* Dispensa vale para qualquer dia da faixa, não só hoje: se ninguém
+                informou a chuva no dia, o operador precisa poder regularizar depois
+                — senão o dia fica cobrado para sempre. */}
+            {podeRetro && (
                 <button onClick={() => setDispensaSheet(true)}
                     className="w-full mt-2 py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 font-bold flex items-center justify-center gap-2 active:bg-slate-100">
-                    <Ban size={18} /> Dispensar hoje (chuva, parado…)
+                    <Ban size={18} /> {retro ? `Dispensar ${brCompleto(dataAtiva)} (chuva, parado…)` : 'Dispensar hoje (chuva, parado…)'}
                 </button>
             )}
 
@@ -389,7 +392,8 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
             )}
             {dispensaSheet && (
                 <DispensaSheet
-                    apiClient={apiClient} equip={equip} obra={obra} escopo={escopo}
+                    apiClient={apiClient} equip={equip} obra={obra}
+                    dataRef={dataAtiva} retro={retro}
                     onClose={() => setDispensaSheet(false)} setAlertMessage={setAlertMessage}
                 />
             )}
@@ -467,6 +471,56 @@ const CardMomento = ({ label, sub, leitura, Icon, status, onClick, pulsa, atenua
     );
 };
 
+// ===== Exigências da foto, por momento =====
+// Aparecem NO momento da captura, não num treinamento que ninguém relê. É o que
+// separa uma foto que comprova de uma que vai ser recusada depois — e o gestor
+// só descobre o problema dias depois, quando a evidência já não pode ser refeita.
+const EXIGENCIAS = {
+    foto_manha: {
+        titulo: 'A foto precisa mostrar',
+        itens: [
+            'A máquina INTEIRA, de fora',
+            'A placa ou o RE do equipamento visível',
+            'A máquina no local de trabalho',
+        ],
+        alerta: 'Foto de dentro da cabine, sem o equipamento aparecendo, não serve como comprovação.',
+    },
+    horimetro_inicio: {
+        titulo: 'Qual horímetro fotografar',
+        itens: [
+            'Sempre o horímetro do PAINEL (digital)',
+            'O analógico só serve se o equipamento não tiver painel digital',
+        ],
+        alerta: null,
+    },
+};
+EXIGENCIAS.foto_tarde = EXIGENCIAS.foto_manha;
+EXIGENCIAS.horimetro_fim = EXIGENCIAS.horimetro_inicio;
+
+const ExigenciasFoto = ({ tipo }) => {
+    const e = EXIGENCIAS[tipo];
+    if (!e) return null;
+    return (
+        <div className="mt-3 rounded-xl px-3 py-2.5" style={{ background: '#f5f2ed', border: '1px solid #e8e0d4' }}>
+            <p className="text-[11px] font-bold uppercase mb-1.5" style={{ color: '#6a5e4e' }}>{e.titulo}</p>
+            <ul className="space-y-1">
+                {e.itens.map(t => (
+                    <li key={t} className="text-[12px] flex items-start gap-1.5" style={{ color: '#3d3528' }}>
+                        <CheckCircle size={13} className="mt-0.5 shrink-0" style={{ color: '#3d5a44' }} />
+                        <span>{t}</span>
+                    </li>
+                ))}
+            </ul>
+            {e.alerta && (
+                <p className="text-[12px] mt-2 flex items-start gap-1.5 font-semibold" style={{ color: '#b03828' }}>
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                    <span>{e.alerta}</span>
+                </p>
+            )}
+        </div>
+    );
+};
+
 // ===== Bottom-sheet de captura =====
 const CaptureSheet = ({ momento, equip, obra, user, dataRef, retro, historico, onClose, setAlertMessage }) => {
     const [foto, setFoto] = useState(null);
@@ -488,7 +542,15 @@ const CaptureSheet = ({ momento, equip, obra, user, dataRef, retro, historico, o
                 if (!mountedRef.current) return;
                 const { latitude, longitude, accuracy } = pos.coords;
                 let local = null;
-                try { const geo = await carregarGeo(); if (geo) local = cidadeDoPonto(latitude, longitude, geo); } catch { /* */ }
+                // cidadeDoPonto devolve a FEATURE do GeoJSON, não o nome. Usar o
+                // retorno direto imprimia "[object Object]" na tela e, pior,
+                // gravava essa string em dev_local_texto — o campo que vai para o
+                // carimbo e para o dossiê.
+                try {
+                    const geo = await carregarGeo();
+                    const f = geo ? cidadeDoPonto(latitude, longitude, geo) : null;
+                    local = typeof f === 'string' ? f : (f?.properties?.nome || null);
+                } catch { /* */ }
                 setGps({ estado: 'ok', lat: latitude, lng: longitude, prec: accuracy ? Math.round(accuracy) : null, local });
             },
             () => { if (mountedRef.current) setGps(g => ({ ...g, estado: 'erro' })); },
@@ -597,6 +659,8 @@ const CaptureSheet = ({ momento, equip, obra, user, dataRef, retro, historico, o
                         )}
                     </div>
                 )}
+
+                <ExigenciasFoto tipo={momento.tipo} />
 
                 <PhotoCapture
                     label="Foto"
@@ -729,7 +793,7 @@ const DivergenciaSheet = ({ apiClient, escopo, onClose, setAlertMessage }) => {
 };
 
 // ===== Bottom-sheet de dispensa (§8) =====
-const DispensaSheet = ({ apiClient, equip, obra, escopo, onClose, setAlertMessage }) => {
+const DispensaSheet = ({ apiClient, equip, obra, dataRef, retro, onClose, setAlertMessage }) => {
     const [motivos, setMotivos] = useState([]);
     const [motivo, setMotivo] = useState('');
     const [texto, setTexto] = useState('');
@@ -748,7 +812,7 @@ const DispensaSheet = ({ apiClient, equip, obra, escopo, onClose, setAlertMessag
             await apiClient.registrarDispensa({
                 obra_id: equip.obra_id,
                 veiculo_id: abrangencia === 'obra' ? null : equip.id,
-                data_ref: equip.saiuEm || escopo.data, periodo,
+                data_ref: dataRef, periodo,
                 motivo_codigo: motivo || null, motivo_texto: texto.trim() || null,
             });
             setAlertMessage?.({ type: 'success', message: 'Dispensa registrada.' });
@@ -763,7 +827,11 @@ const DispensaSheet = ({ apiClient, equip, obra, escopo, onClose, setAlertMessag
         <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose}>
             <div className="w-full bg-white rounded-t-2xl p-4 pb-6 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-3" />
-                <h2 className="text-lg font-bold text-slate-800 mb-3">Dispensar evidências de hoje</h2>
+                <h2 className="text-lg font-bold text-slate-800 mb-1">Dispensar evidências</h2>
+                <p className="text-xs text-slate-500 mb-3">
+                    {equip.registroInterno || equip.placa} · <b>{brCompleto(dataRef)}</b>
+                    {retro && ' · registro retroativo'}
+                </p>
 
                 <label className="text-xs font-bold text-gray-600 uppercase">Motivo</label>
                 <div className="grid grid-cols-2 gap-2 mt-1 mb-3">
@@ -793,7 +861,7 @@ const DispensaSheet = ({ apiClient, equip, obra, escopo, onClose, setAlertMessag
                 <div className="flex gap-2">
                     <button onClick={onClose} className="flex-1 py-3 rounded-xl border-2 border-gray-200 font-bold text-slate-600">Cancelar</button>
                     <button onClick={confirmar} disabled={enviando} className="flex-1 py-3 rounded-xl font-bold text-white disabled:opacity-40" style={{ background: '#1c1a17' }}>
-                        {enviando ? 'Salvando…' : 'Dispensar'}
+                        {enviando ? 'Salvando…' : (retro ? `Dispensar ${brCompleto(dataRef)}` : 'Dispensar hoje')}
                     </button>
                 </div>
             </div>

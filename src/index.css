@@ -288,15 +288,26 @@ body {
   color: #b0a090;
 }
 
-/* Evita o "zoom" automático ao focar um campo em telas pequenas (iOS amplia a
-   página sempre que um controle tem fonte < 16px, escondendo campos do layout).
-   Subimos a fonte dos controles para 16px no mobile — sem desabilitar o
-   pinch-zoom manual do usuário. Seletores de elemento (especificidade > :where)
-   garantem a sobrescrita da base de 13px. */
-@media (max-width: 767px) {
+/* Evita o "zoom" automático ao focar um campo (iOS e Android ampliam a página
+   sempre que um controle tem fonte < 16px, jogando metade do layout para fora da
+   tela — o usuário perde de vista campos que nem sabia que existiam).
+   Subimos a fonte dos controles para 16px — sem desabilitar o pinch-zoom manual,
+   que é acessibilidade. Seletores de elemento (especificidade > :where e > as
+   utilidades do Tailwind) garantem a sobrescrita da base de 13px.
+
+   `pointer: coarse` além da largura: o gatilho do zoom é o APARELHO DE TOQUE, não
+   a tela estreita. Só com max-width um tablet em paisagem (>767px) continuava
+   ampliando, e era por isso que o problema persistia depois da primeira correção. */
+@media (max-width: 767px), (pointer: coarse) {
+  /* Os `:not()` NÃO são só filtro de tipo — são o que dá especificidade (0,1,1)
+     para vencer as classes do Tailwind e o .input-field. `select` e `textarea`
+     sozinhos valem (0,0,1) e PERDIAM para qualquer utilitário de fonte: medido
+     em 375px, input ficava 16px mas select ficava 13px e textarea 14px, e os dois
+     seguiam disparando o zoom. As exclusões são reais: campo desabilitado e
+     select múltiplo não recebem foco de digitação. */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
-  select,
-  textarea {
+  select:not([multiple]),
+  textarea:not([disabled]) {
     font-size: 16px;
   }
 }
