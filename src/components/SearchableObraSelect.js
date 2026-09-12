@@ -210,8 +210,8 @@ const SearchableObraSelect = ({
                 <Search size={15} className="ml-3 flex-shrink-0" style={{ color: '#b0a090' }} />
                 <input
                     type="text"
-                    className="mak-bare-input flex-1 outline-none bg-transparent min-w-0"
-                    style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '7px 8px', fontSize: 13, color: '#3d3528', width: '100%' }}
+                    className="mak-bare-input flex-1 outline-none bg-transparent min-w-0 text-[13px]"
+                    style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '7px 8px', color: '#3d3528', width: '100%' }}
                     placeholder={placeholder}
                     value={(open && !overlay) ? search : (selectedObra ? formatObraNome(selectedObra) : '')}
                     onFocus={() => { setSearch(''); setOpen(true); }}
@@ -251,8 +251,8 @@ const SearchableObraSelect = ({
                             <input
                                 type="text"
                                 autoFocus
-                                className="mak-bare-input flex-1 outline-none bg-transparent min-w-0"
-                                style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '4px 4px', fontSize: 14, color: '#3d3528' }}
+                                className="mak-bare-input flex-1 outline-none bg-transparent min-w-0 text-sm"
+                                style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '4px 4px', color: '#3d3528' }}
                                 placeholder={overlayTitle}
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}

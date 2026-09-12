@@ -486,6 +486,10 @@ const apiClient = {
 
     // --- Abastecimentos (Legado/Admin) ---
     getRefuelings: async () => apiFetch('/refuelings'),
+    // Só o último abastecimento concluído (posto + combustível) — alimenta a
+    // sugestão do formulário sem baixar o histórico inteiro no celular.
+    getUltimoAbastecimentoVeiculo: async (vehicleId) =>
+        apiFetch(`/refuelings/vehicle/${encodeURIComponent(vehicleId)}/ultimo`),
     getRefuelingsByVehicle: async (vehicleId) => apiFetch(`/refuelings/vehicle/${vehicleId}`),
     // Fatias da tela de Abastecimento — evitam baixar a tabela inteira só para
     // montar as três listas exibidas. `historico` aceita page/limit/startDate/endDate.

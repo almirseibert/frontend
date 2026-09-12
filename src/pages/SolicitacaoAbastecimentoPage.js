@@ -140,6 +140,19 @@ const checkVehicleRestrictions = (vehicle) => {
 };
 // --- FIM DA LÓGICA DE REGRAS ---
 
+// A tabela `refuelings` grava o combustivel em camelCase (dieselS10) e o select
+// desta tela usa o rotulo em caixa alta (DIESEL S10) — sao dois vocabularios
+// diferentes no mesmo dominio. Sem traduzir, a sugestao do ultimo abastecimento
+// chegaria com um valor que nao existe entre as <option> e o campo ficaria vazio.
+const combustivelDaSolicitacao = (fuelType) => {
+    const f = String(fuelType || '').toLowerCase();
+    if (!f) return '';
+    if (f.includes('s500') || f.includes('s-500')) return 'DIESEL S500';
+    if (f.includes('s10') || f.includes('s-10') || f.includes('diesel')) return 'DIESEL S10';
+    if (f.includes('gasolina')) return 'GASOLINA COMUM';
+    return '';
+};
+
 const SolicitacaoAbastecimentoPage = ({
     apiClient,
     vehicles = [],
@@ -526,19 +539,32 @@ const SolicitacaoAbastecimentoPage = ({
                     dataAbastecimento: defaultDate 
                 }));
                 
-                let lastPartnerId = null;
-                const lastReq = myRequests.find(r => 
-                    String(r.veiculo_id) === String(veiculoSelecionado.id) && 
-                    (r.status === 'CONCLUIDO' || r.status === 'LIBERADO')
-                );
-                if (lastReq && lastReq.posto_id) {
-                    lastPartnerId = lastReq.posto_id;
-                } else {
-                    lastPartnerId = veiculoSelecionado.lastPartnerId;
+                // CONDUTOR: sempre quem está alocado ao VEÍCULO na obra, não o que
+                // sobrou da seleção anterior. Sem isto, trocar de veículo mantinha o
+                // condutor do veículo antigo — o "último utilizado".
+                const obraSel = obras.find(o => String(o.id) === String(formData.obraId));
+                const alocacao = obraSel?.historicoVeiculos?.find(h =>
+                    String(h.veiculoId) === String(veiculoSelecionado.id) && !h.dataSaida);
+                const condutorDoVeiculo = alocacao?.employeeId || myEmployeeId || '';
+                if (condutorDoVeiculo) {
+                    setFormData(prev => ({ ...prev, funcionarioId: String(condutorDoVeiculo) }));
                 }
-                if (lastPartnerId) {
-                    setFormData(prev => ({ ...prev, postoId: lastPartnerId }));
-                }
+
+                // POSTO e COMBUSTÍVEL: do último ABASTECIMENTO concluído do veículo.
+                // Antes vinha da última SOLICITAÇÃO (que pode nem ter virado
+                // abastecimento) e caía num veiculoSelecionado.lastPartnerId que o
+                // backend nunca preencheu — ou seja, o fallback era sempre nulo.
+                apiClient.getUltimoAbastecimentoVeiculo(veiculoSelecionado.id)
+                    .then(ultimo => {
+                        if (initializedVehicleRef.current !== veiculoSelecionado.id) return; // trocou de veículo no meio
+                        if (!ultimo) return;
+                        setFormData(prev => ({
+                            ...prev,
+                            postoId: ultimo.partnerId || prev.postoId,
+                            tipoCombustivel: combustivelDaSolicitacao(ultimo.fuelType) || prev.tipoCombustivel,
+                        }));
+                    })
+                    .catch(() => { /* sem sugestão: o operador escolhe */ });
             }
         } else {
             initializedVehicleRef.current = null;

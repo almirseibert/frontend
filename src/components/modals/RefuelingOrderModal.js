@@ -211,6 +211,14 @@ const RefuelingOrderModal = ({
     // sobre o array completo de refuelings, que só existia porque a tela inteira
     // baixava a tabela.
     const [vehicleHistory, setVehicleHistory] = useState([]);
+    // De QUAL veículo o histórico acima já é. O preenchimento automático dispara
+    // uma vez só por veículo; antes da migração para busca no servidor o array de
+    // refuelings já estava em memória e o `last` existia no primeiro render. Agora
+    // ele chega depois, e sem este marcador o autofill gastava seu único disparo
+    // com o histórico ainda vazio — era por isso que posto e combustível pararam
+    // de ser sugeridos, enquanto motorista e obra (que vêm do veículo, síncronos)
+    // continuavam funcionando.
+    const [historyVehicleId, setHistoryVehicleId] = useState(null);
 
     const [openOrderForVehicle, setOpenOrderForVehicle] = useState(null);
     useEffect(() => {
@@ -224,12 +232,16 @@ const RefuelingOrderModal = ({
     }, [formData.vehicleId, isEditing, orderToEdit, apiClient]);
 
     useEffect(() => {
-        if (!formData.vehicleId) { setVehicleHistory([]); return; }
+        if (!formData.vehicleId) { setVehicleHistory([]); setHistoryVehicleId(null); return; }
         let cancelado = false;
+        const alvo = formData.vehicleId;
         apiClient
-            .getRefuelingsByVehicle(formData.vehicleId)
-            .then(rs => { if (!cancelado) setVehicleHistory(Array.isArray(rs) ? rs : []); })
-            .catch(() => { if (!cancelado) setVehicleHistory([]); });
+            .getRefuelingsByVehicle(alvo)
+            .then(rs => { if (!cancelado) { setVehicleHistory(Array.isArray(rs) ? rs : []); setHistoryVehicleId(alvo); } })
+            // Mesmo na falha marcamos o veículo: senão o autofill fica travado
+            // para sempre esperando um histórico que não vem, e o usuário perde
+            // também a sugestão de motorista e obra.
+            .catch(() => { if (!cancelado) { setVehicleHistory([]); setHistoryVehicleId(alvo); } });
         return () => { cancelado = true; };
     }, [formData.vehicleId, apiClient]);
 
@@ -310,9 +322,12 @@ const RefuelingOrderModal = ({
         const last = history[0];
         setLastRefuelData(last);
 
-        // Preenchimento Automático APENAS quando o veículo mudar de fato, 
+        // Preenchimento Automático APENAS quando o veículo mudar de fato,
         // para não sobrescrever a digitação do usuário se refuelings atualizar em background.
-        if (prevVehicleIdRef.current !== selectedVehicle.id) {
+        // Só depois que o histórico DESTE veículo chegou: o disparo é único e, se
+        // for gasto com a lista ainda vazia, posto e combustível nunca são sugeridos.
+        const historicoPronto = historyVehicleId === selectedVehicle.id;
+        if (historicoPronto && prevVehicleIdRef.current !== selectedVehicle.id) {
             prevVehicleIdRef.current = selectedVehicle.id;
 
             if (!isEditing && !isSolicitacao) {
@@ -381,7 +396,7 @@ const RefuelingOrderModal = ({
         } else {
             setLastAverage(null);
         }
-    }, [selectedVehicle, obras, vehicleHistory, isEditing, isSolicitacao, formData.employeeId, formData.obraId, formData.partnerId, formData.fuelType, formData.litrosLiberados]);
+    }, [selectedVehicle, obras, vehicleHistory, historyVehicleId, isEditing, isSolicitacao, formData.employeeId, formData.obraId, formData.partnerId, formData.fuelType, formData.litrosLiberados]);
 
     useEffect(() => {
         setBlockReason(null);
