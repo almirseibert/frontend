@@ -16,6 +16,7 @@ const CHIP = {
 const TIPO_LABEL = {
     horimetro_inicio: 'Horímetro início', horimetro_fim: 'Horímetro fim',
     foto_manha: 'Trabalho manhã', foto_tarde: 'Trabalho tarde', extra: 'Extra',
+    rotina_filtro: 'Limpeza de filtro', rotina_graxa: 'Engraxamento',
 };
 
 const ItemFila = ({ item }) => {

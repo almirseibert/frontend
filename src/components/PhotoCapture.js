@@ -44,9 +44,15 @@ export const compressImage = (file, onOk, onFail) => {
     try { reader.readAsDataURL(file); } catch { cair(); }
 };
 
-const PhotoCapture = ({ label, hint, photo, onPick, onClear, disabled }) => {
+// `fonte`: 'ambas' (padrão histórico) | 'camera' | 'galeria'.
+// Evidência do dia é 'camera': a foto tem que ser tirada no dia, e a fila offline
+// já cobre quem está sem sinal. Anexo retroativo é 'galeria': `capture` não faz
+// sentido para um dia passado.
+const PhotoCapture = ({ label, hint, photo, onPick, onClear, disabled, fonte = 'ambas' }) => {
     const camRef = useRef(null);
     const galRef = useRef(null);
+    const mostraCam = fonte !== 'galeria';
+    const mostraGal = fonte !== 'camera';
 
     const handle = (e) => {
         const file = e.target.files[0];
@@ -86,14 +92,18 @@ const PhotoCapture = ({ label, hint, photo, onPick, onClear, disabled }) => {
                     </div>
                 ) : (
                     <div className="flex gap-3 w-full h-full items-center justify-center">
-                        <div onClick={() => camRef.current?.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-yellow-50 active:bg-yellow-100 transition border border-gray-200 shadow-sm">
-                            <Camera size={30} className="text-gray-700 mb-1" />
-                            <span className="text-sm font-bold text-gray-700">Câmera</span>
-                        </div>
-                        <div onClick={() => galRef.current?.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-blue-50 active:bg-blue-100 transition border border-gray-200 shadow-sm">
-                            <ImageIcon size={30} className="text-gray-700 mb-1" />
-                            <span className="text-sm font-bold text-gray-700">Galeria</span>
-                        </div>
+                        {mostraCam && (
+                            <div onClick={() => camRef.current?.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-yellow-50 active:bg-yellow-100 transition border border-gray-200 shadow-sm">
+                                <Camera size={30} className="text-gray-700 mb-1" />
+                                <span className="text-sm font-bold text-gray-700">{mostraGal ? 'Câmera' : 'Tirar foto'}</span>
+                            </div>
+                        )}
+                        {mostraGal && (
+                            <div onClick={() => galRef.current?.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-blue-50 active:bg-blue-100 transition border border-gray-200 shadow-sm">
+                                <ImageIcon size={30} className="text-gray-700 mb-1" />
+                                <span className="text-sm font-bold text-gray-700">{mostraCam ? 'Galeria' : 'Escolher do arquivo'}</span>
+                            </div>
+                        )}
                     </div>
                 )}
                 <input type="file" ref={camRef} className="hidden" accept="image/*" capture="environment" onChange={handle} />

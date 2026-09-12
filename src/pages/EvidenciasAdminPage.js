@@ -4,14 +4,14 @@
 // Abas: Arquivo (grid + lightbox + editor de carimbo auditado) · Aderência ·
 // Cobranças (APROVAÇÃO MANUAL, um a um — nada dispara sozinho).
 // -----------------------------------------------------------------------------
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import {
     Loader, Camera, BarChart3, BellRing, X, Save, RotateCcw, Trash2,
     CheckCircle, AlertTriangle, Send, Ban, RefreshCw, MapPin, Clock,
-    Archive, Download, Upload, ShieldCheck,
+    Archive, Download, Upload, ShieldCheck, Settings, CalendarDays, Eye,
 } from 'lucide-react';
 
 delete L.Icon.Default.prototype._getIconUrl;
@@ -26,15 +26,17 @@ const diasAtras = (n) => { const d = new Date(); d.setDate(d.getDate() - n); ret
 const TIPO_LABEL = {
     horimetro_inicio: 'Horímetro início', horimetro_fim: 'Horímetro fim',
     foto_manha: 'Trabalho manhã', foto_tarde: 'Trabalho tarde', extra: 'Extra',
+    rotina_filtro: 'Limpeza de filtro', rotina_graxa: 'Engraxamento',
 };
 
-const EvidenciasAdminPage = ({ apiClient, obras = [], setAlertMessage }) => {
+const EvidenciasAdminPage = ({ apiClient, obras = [], vehicles = [], setAlertMessage }) => {
     const [aba, setAba] = useState('arquivo');
     const abas = [
         { k: 'arquivo', t: 'Arquivo', Icon: Camera },
         { k: 'aderencia', t: 'Aderência', Icon: BarChart3 },
         { k: 'cobrancas', t: 'Cobranças', Icon: BellRing },
         { k: 'arquivamento', t: 'Arquivamento', Icon: Archive },
+        { k: 'config', t: 'Configurações', Icon: Settings },
     ];
     return (
         <div className="p-4 md:p-6 max-w-7xl mx-auto">
@@ -51,6 +53,7 @@ const EvidenciasAdminPage = ({ apiClient, obras = [], setAlertMessage }) => {
             {aba === 'aderencia' && <AbaAderencia apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
             {aba === 'cobrancas' && <AbaCobrancas apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
             {aba === 'arquivamento' && <AbaArquivamento apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
+            {aba === 'config' && <AbaConfig apiClient={apiClient} obras={obras} vehicles={vehicles} setAlertMessage={setAlertMessage} />}
         </div>
     );
 };
@@ -103,6 +106,12 @@ const AbaArquivo = ({ apiClient, obras, setAlertMessage }) => {
                                 <div className="p-2">
                                     <div className="text-xs font-bold text-slate-700 truncate">{it.registroInterno || it.placa}</div>
                                     <div className="text-[11px] text-slate-400 truncate">{TIPO_LABEL[it.tipo]} · {it.data_ref?.split?.('-').reverse().join('/')}</div>
+                                    {it.origem_anexo === 'retroativo' && (
+                                        // Sem este selo o gestor leria dev_capturado_em (o instante da
+                                        // anexação) como se fosse a hora da captura em campo.
+                                        <div className="text-[10px] font-bold mt-0.5 inline-block px-1.5 py-0.5 rounded"
+                                            style={{ background: '#f5ead8', color: '#6a4e24' }}>anexada depois</div>
+                                    )}
                                 </div>
                             </button>
                         ))}
@@ -559,6 +568,401 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
                 )}
             </div>
         </div>
+    );
+};
+
+// ===================== CONFIGURAÇÕES =====================
+// Dá interface a três configurações que existiam no banco e não tinham tela:
+// a regra da obra (evidencia_config), os campos do carimbo em 3 níveis
+// (evidencia_carimbo_config, criada na Fase 2 e nunca lida) e as rotinas
+// semanais. As duas PRÉVIAS são o que torna a aba confiável — sem elas o gestor
+// configura às cegas e só vê o efeito na próxima foto real de campo.
+const DIAS_SEMANA = [
+    [1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [0, 'Dom'],
+];
+const MOMENTOS_CFG = [
+    ['horimetro_inicio', 'Horímetro início'], ['foto_manha', 'Trabalho manhã'],
+    ['foto_tarde', 'Trabalho tarde'], ['horimetro_fim', 'Horímetro fim'],
+];
+
+const AbaConfig = ({ apiClient, obras, vehicles, setAlertMessage }) => {
+    const [obraId, setObraId] = useState(obras[0]?.id || '');
+    const [cfg, setCfg] = useState(null);
+    const [salvando, setSalvando] = useState(false);
+
+    const carregar = useCallback(async (id) => {
+        if (!id) { setCfg(null); return; }
+        try { setCfg(await apiClient.getConfigEvidencia(id)); }
+        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    }, [apiClient, setAlertMessage]);
+
+    useEffect(() => { carregar(obraId); }, [obraId, carregar]);
+
+    const set = (k, v) => setCfg(c => ({ ...c, [k]: v }));
+    const toggleDia = (d) => {
+        const atual = cfg.dias_semana || [];
+        set('dias_semana', atual.includes(d) ? atual.filter(x => x !== d) : [...atual, d].sort());
+    };
+    const toggleMomento = (m) => {
+        const atual = cfg.momentos_exigidos || [];
+        set('momentos_exigidos', atual.includes(m) ? atual.filter(x => x !== m) : [...atual, m]);
+    };
+
+    const salvar = async () => {
+        setSalvando(true);
+        try {
+            await apiClient.putConfigEvidencia(obraId, cfg);
+            setAlertMessage?.({ type: 'success', message: 'Regra da obra salva.' });
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+        finally { setSalvando(false); }
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="bg-white p-3 rounded-xl shadow-sm flex flex-wrap gap-2 items-end">
+                <Campo label="Obra">
+                    <select value={obraId} onChange={e => setObraId(e.target.value)} className="input">
+                        <option value="">Selecione…</option>
+                        {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                    </select>
+                </Campo>
+            </div>
+
+            {!obraId ? <Centro>Selecione uma obra para configurar.</Centro> : !cfg ? <Centro><Loader className="animate-spin" /></Centro> : (
+                <>
+                    <section className="bg-white p-4 rounded-xl shadow-sm">
+                        <h2 className="font-bold text-slate-800 mb-3">Regra da obra</h2>
+
+                        <p className="text-[11px] font-bold text-slate-500 uppercase mb-1">Dias de solicitação</p>
+                        <div className="flex flex-wrap gap-2 mb-1">
+                            {DIAS_SEMANA.map(([d, t]) => {
+                                const on = (cfg.dias_semana || []).includes(d);
+                                return (
+                                    <button key={d} onClick={() => toggleDia(d)}
+                                        className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 ${on ? 'border-yellow-500 bg-yellow-50 text-slate-800' : 'border-gray-200 text-slate-500'}`}>
+                                        {t}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mb-3">
+                            Dias desligados não geram solicitação nem cobrança — mas o operador continua
+                            podendo enviar, caso o equipamento tenha trabalhado. Feriados da região saem
+                            automaticamente.
+                        </p>
+
+                        <p className="text-[11px] font-bold text-slate-500 uppercase mb-1">Momentos exigidos</p>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                            {MOMENTOS_CFG.map(([m, t]) => {
+                                const on = (cfg.momentos_exigidos || []).includes(m);
+                                return (
+                                    <button key={m} onClick={() => toggleMomento(m)}
+                                        className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 ${on ? 'border-yellow-500 bg-yellow-50 text-slate-800' : 'border-gray-200 text-slate-500'}`}>
+                                        {t}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                            {MOMENTOS_CFG.map(([m, t]) => (
+                                <Campo key={m} label={`Limite ${t}`}>
+                                    <input type="time" className="input"
+                                        value={(cfg.horarios_limite || {})[m] || ''}
+                                        onChange={e => set('horarios_limite', { ...(cfg.horarios_limite || {}), [m]: e.target.value })} />
+                                </Campo>
+                            ))}
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <Campo label="Raio da cerca (m)">
+                                <input type="number" className="input" value={cfg.raio_cerca_m ?? 500}
+                                    onChange={e => set('raio_cerca_m', Number(e.target.value))} />
+                            </Campo>
+                            <Campo label="Histórico (dias)">
+                                <input type="number" min={1} max={30} className="input" value={cfg.historico_dias ?? 14}
+                                    onChange={e => set('historico_dias', Number(e.target.value))} />
+                            </Campo>
+                            <Campo label="Retroativo (dias)">
+                                <input type="number" min={0} max={60} className="input" value={cfg.retroativo_max_dias ?? 14}
+                                    onChange={e => set('retroativo_max_dias', Number(e.target.value))} />
+                            </Campo>
+                            <div className="flex flex-col gap-1 justify-end pb-1">
+                                <Check2 label="Exigir GPS" on={cfg.exigir_gps !== false} onChange={v => set('exigir_gps', v)} />
+                                <Check2 label="Permitir galeria no dia" on={cfg.permitir_galeria === true} onChange={v => set('permitir_galeria', v)} />
+                                <Check2 label="Aceitar leitura retroativa" on={cfg.retroativo_horimetro !== false} onChange={v => set('retroativo_horimetro', v)} />
+                                <Check2 label="Regra ativa" on={cfg.ativa !== false} onChange={v => set('ativa', v)} />
+                            </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-2">
+                            Com a galeria desligada (padrão), a foto do dia só pode vir da câmera — a fila
+                            offline já cobre quem está sem sinal. O anexo retroativo sempre usa a galeria.
+                        </p>
+
+                        <button onClick={salvar} disabled={salvando} className="btn-amber mt-4 flex items-center gap-2 disabled:opacity-50">
+                            <Save size={16} /> {salvando ? 'Salvando…' : 'Salvar regra da obra'}
+                        </button>
+                    </section>
+
+                    <SecaoRotinas apiClient={apiClient} obraId={obraId} obras={obras} vehicles={vehicles} setAlertMessage={setAlertMessage} />
+                    <SecaoCarimbo apiClient={apiClient} obraId={obraId} setAlertMessage={setAlertMessage} />
+                </>
+            )}
+        </div>
+    );
+};
+
+const Check2 = ({ label, on, onChange }) => (
+    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+        <input type="checkbox" checked={!!on} onChange={e => onChange(e.target.checked)} />
+        {label}
+    </label>
+);
+
+// ---- Rotinas semanais (3 níveis) + prévia do calendário --------------------
+const SecaoRotinas = ({ apiClient, obraId, vehicles, setAlertMessage }) => {
+    const [escopo, setEscopo] = useState('obra');
+    const [veiculoId, setVeiculoId] = useState('');
+    const [dados, setDados] = useState(null);
+    const [preview, setPreview] = useState(null);
+    const [salvando, setSalvando] = useState(false);
+
+    const escopoId = escopo === 'obra' ? obraId : escopo === 'veiculo' ? veiculoId : '';
+    // Só equipamentos com horímetro entram no módulo (§2).
+    const equipamentos = useMemo(
+        () => (vehicles || []).filter(v => ['Máquina', 'Caminhão'].some(t => String(v.tipo || '').includes(t))),
+        [vehicles]
+    );
+
+    const carregar = useCallback(async () => {
+        if (escopo !== 'global' && !escopoId) { setDados(null); return; }
+        try { setDados(await apiClient.getRotinasConfig(escopo, escopoId)); }
+        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    }, [apiClient, escopo, escopoId, setAlertMessage]);
+
+    useEffect(() => { carregar(); }, [carregar]);
+
+    const propria = dados?.propria || {};
+    const efetiva = dados?.efetiva || {};
+    // null numa coluna significa "herda do nível acima" — por isso o formulário
+    // mostra o valor efetivo como placeholder e só envia o que foi preenchido.
+    const [form, setForm] = useState({});
+    useEffect(() => { setForm({}); }, [escopo, escopoId]);
+    const valor = (k) => (form[k] !== undefined ? form[k] : (propria[k] ?? ''));
+
+    const salvar = async () => {
+        setSalvando(true);
+        try {
+            const nn = (v) => (v === '' || v === undefined ? null : v);
+            await apiClient.putRotinasConfig({
+                escopo, escopo_id: escopoId,
+                ativa: form.ativa === undefined ? (propria.ativa == null ? null : propria.ativa !== 0) : form.ativa,
+                freq_dias: nn(valor('freq_dias')),
+                defasagem_dias: nn(valor('defasagem_dias')),
+                carry_dias: nn(valor('carry_dias')),
+                alternar_ordem: form.alternar_ordem === undefined
+                    ? (propria.alternar_ordem == null ? null : propria.alternar_ordem !== 0) : form.alternar_ordem,
+            });
+            setAlertMessage?.({ type: 'success', message: 'Rotinas salvas.' });
+            carregar();
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+        finally { setSalvando(false); }
+    };
+
+    const projetar = async () => {
+        if (!veiculoId) { setAlertMessage?.({ type: 'error', message: 'Escolha um equipamento para a prévia.' }); return; }
+        try { setPreview(await apiClient.getRotinasPreview(veiculoId)); }
+        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    };
+
+    return (
+        <section className="bg-white p-4 rounded-xl shadow-sm">
+            <h2 className="font-bold text-slate-800 mb-1">Rotinas semanais</h2>
+            <p className="text-[11px] text-slate-400 mb-3">
+                Limpeza de filtro e engraxamento. As duas caem no mesmo ciclo, separadas pela
+                defasagem, em dias que variam por equipamento e por semana. Elas não entram na
+                aderência 4/4, mas geram cobrança quando não cumpridas.
+            </p>
+
+            <div className="flex flex-wrap gap-2 items-end mb-3">
+                <Campo label="Nível">
+                    <select value={escopo} onChange={e => setEscopo(e.target.value)} className="input">
+                        <option value="global">Global (toda a frota)</option>
+                        <option value="obra">Esta obra</option>
+                        <option value="veiculo">Equipamento</option>
+                    </select>
+                </Campo>
+                {escopo === 'veiculo' && (
+                    <Campo label="Equipamento">
+                        <select value={veiculoId} onChange={e => setVeiculoId(e.target.value)} className="input">
+                            <option value="">Selecione…</option>
+                            {equipamentos.map(v => (
+                                <option key={v.id} value={v.id}>{v.registroInterno || v.placa || v.modelo}</option>
+                            ))}
+                        </select>
+                    </Campo>
+                )}
+            </div>
+
+            {(escopo === 'global' || escopoId) && dados && (
+                <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <Campo label={`Frequência (dias úteis) — vale ${efetiva.freq_dias}`}>
+                            <input type="number" min={2} max={60} className="input" placeholder={`herda: ${efetiva.freq_dias}`}
+                                value={valor('freq_dias')} onChange={e => setForm(f => ({ ...f, freq_dias: e.target.value }))} />
+                        </Campo>
+                        <Campo label={`Defasagem — vale ${efetiva.defasagem_dias}`}>
+                            <input type="number" min={1} max={30} className="input" placeholder={`herda: ${efetiva.defasagem_dias}`}
+                                value={valor('defasagem_dias')} onChange={e => setForm(f => ({ ...f, defasagem_dias: e.target.value }))} />
+                        </Campo>
+                        <Campo label={`Arrasto (dias) — vale ${efetiva.carry_dias}`}>
+                            <input type="number" min={0} max={30} className="input" placeholder={`herda: ${efetiva.carry_dias}`}
+                                value={valor('carry_dias')} onChange={e => setForm(f => ({ ...f, carry_dias: e.target.value }))} />
+                        </Campo>
+                        <div className="flex flex-col gap-1 justify-end pb-1">
+                            <Check2 label={`Ativa (vale: ${efetiva.ativa ? 'sim' : 'não'})`}
+                                on={form.ativa === undefined ? efetiva.ativa : form.ativa}
+                                onChange={v => setForm(f => ({ ...f, ativa: v }))} />
+                            <Check2 label="Alternar a ordem entre ciclos"
+                                on={form.alternar_ordem === undefined ? efetiva.alternar_ordem : form.alternar_ordem}
+                                onChange={v => setForm(f => ({ ...f, alternar_ordem: v }))} />
+                        </div>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                        Campo em branco herda do nível acima. Alternar a ordem aproxima duas ocorrências
+                        do mesmo tipo na virada do ciclo — por isso vem desligado.
+                    </p>
+
+                    <div className="flex gap-2 mt-3 flex-wrap">
+                        <button onClick={salvar} disabled={salvando} className="btn-amber flex items-center gap-2 disabled:opacity-50">
+                            <Save size={16} /> {salvando ? 'Salvando…' : 'Salvar rotinas'}
+                        </button>
+                        <button onClick={projetar} className="px-3 py-2 rounded-lg border-2 border-gray-200 text-sm font-semibold text-slate-600 flex items-center gap-2">
+                            <CalendarDays size={16} /> Ver próximos 30 dias
+                        </button>
+                    </div>
+                </>
+            )}
+
+            {preview && (
+                <div className="mt-4 border-t border-gray-100 pt-3">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">
+                        Prévia — {preview.de.split('-').reverse().join('/')} a {preview.ate.split('-').reverse().join('/')}
+                    </p>
+                    {preview.itens.length === 0 ? (
+                        <p className="text-sm text-slate-400">Nenhuma rotina no período (rotinas desativadas neste nível?).</p>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            {preview.itens.map((i, k) => (
+                                <span key={k} className="text-xs px-2 py-1 rounded-lg font-semibold"
+                                    style={{ background: i.tipo === 'rotina_graxa' ? '#f5ead8' : '#e8f0e0', color: '#4a3e2e' }}>
+                                    {i.data.slice(8, 10)}/{i.data.slice(5, 7)} · {i.label}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </section>
+    );
+};
+
+// ---- Campos do carimbo (3 níveis) + prévia em imagem -----------------------
+const SecaoCarimbo = ({ apiClient, obraId, setAlertMessage }) => {
+    const ROTULOS = {
+        data_hora: 'Data e hora', precisao: 'Precisão do GPS', obra: 'Obra e distância',
+        equipamento: 'Equipamento', operador: 'Operador', horimetro: 'Leitura',
+        linha_livre: 'Observação / linha livre',
+    };
+    const [escopo, setEscopo] = useState('global');
+    const [dados, setDados] = useState(null);
+    const [imgUrl, setImgUrl] = useState(null);
+    const [salvando, setSalvando] = useState(false);
+    const escopoId = escopo === 'obra' ? obraId : '';
+
+    const carregar = useCallback(async () => {
+        try { setDados(await apiClient.getCarimboConfig(escopo, escopoId)); }
+        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    }, [apiClient, escopo, escopoId, setAlertMessage]);
+
+    useEffect(() => { carregar(); }, [carregar]);
+    // Object URLs precisam ser revogadas, senão cada prévia vaza um blob.
+    useEffect(() => () => { if (imgUrl) URL.revokeObjectURL(imgUrl); }, [imgUrl]);
+
+    const previa = async (reduzido = false) => {
+        try {
+            const url = await apiClient.getCarimboPreview(escopo, escopoId, reduzido);
+            setImgUrl(old => { if (old) URL.revokeObjectURL(old); return url; });
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    };
+
+    const alternar = (k) => {
+        const atual = dados.propria || {};
+        setDados(d => ({ ...d, propria: { ...atual, [k]: !(atual[k] !== false) } }));
+    };
+
+    const salvar = async () => {
+        setSalvando(true);
+        try {
+            await apiClient.putCarimboConfig({ escopo, escopo_id: escopoId, campos: dados.propria || {} });
+            setAlertMessage?.({ type: 'success', message: 'Campos do carimbo salvos.' });
+            carregar();
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+        finally { setSalvando(false); }
+    };
+
+    return (
+        <section className="bg-white p-4 rounded-xl shadow-sm">
+            <h2 className="font-bold text-slate-800 mb-1">Campos do carimbo</h2>
+            <p className="text-[11px] text-slate-400 mb-3">
+                A coordenada é sempre impressa e não é configurável. O carimbo não tem mais tarja:
+                o texto é branco com contorno preto, para ficar legível sobre qualquer fundo.
+            </p>
+
+            <div className="flex flex-wrap gap-2 items-end mb-3">
+                <Campo label="Nível">
+                    <select value={escopo} onChange={e => setEscopo(e.target.value)} className="input">
+                        <option value="global">Global</option>
+                        <option value="obra">Esta obra</option>
+                    </select>
+                </Campo>
+            </div>
+
+            {dados && (
+                <>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                        {(dados.chaves || []).map(k => {
+                            const on = (dados.propria || {})[k] !== false;
+                            return (
+                                <button key={k} onClick={() => alternar(k)}
+                                    className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 ${on ? 'border-yellow-500 bg-yellow-50 text-slate-800' : 'border-gray-200 text-slate-400 line-through'}`}>
+                                    {ROTULOS[k] || k}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                        <button onClick={salvar} disabled={salvando} className="btn-amber flex items-center gap-2 disabled:opacity-50">
+                            <Save size={16} /> {salvando ? 'Salvando…' : 'Salvar campos'}
+                        </button>
+                        <button onClick={() => previa(false)} className="px-3 py-2 rounded-lg border-2 border-gray-200 text-sm font-semibold text-slate-600 flex items-center gap-2">
+                            <Eye size={16} /> Prévia
+                        </button>
+                        <button onClick={() => previa(true)} className="px-3 py-2 rounded-lg border-2 border-gray-200 text-sm font-semibold text-slate-600 flex items-center gap-2">
+                            <Eye size={16} /> Prévia (retroativo)
+                        </button>
+                    </div>
+                    {imgUrl && (
+                        <div className="mt-3">
+                            <img src={imgUrl} alt="Prévia do carimbo" className="rounded-lg max-w-full border border-gray-200" />
+                            <p className="text-[11px] text-slate-400 mt-1">
+                                Metade escura e metade clara de propósito — é assim que se confere o contorno.
+                            </p>
+                        </div>
+                    )}
+                </>
+            )}
+        </section>
     );
 };
 

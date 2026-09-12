@@ -497,6 +497,21 @@ body:has(.mak-modal-backdrop) .msn-widget { display: none; }
   animation: neonRedPulse 1s ease-in-out infinite;
 }
 
+/* ─── Rotina semanal — contorno pulsante do card de limpeza/engraxamento ───── */
+/* Solicitação esporádica (a cada ~5 dias de trabalho) precisa saltar aos olhos
+   no meio dos 4 cards fixos do dia, senão passa batida. */
+@keyframes rotinaPulse {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(158, 122, 66, 0.55); border-color: #9E7A42; }
+  50%      { box-shadow: 0 0 0 9px rgba(158, 122, 66, 0);     border-color: #d4b47a; }
+}
+.rotina-pulse {
+  border: 2px solid #9E7A42;
+  animation: rotinaPulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rotina-pulse { animation: none; box-shadow: 0 0 0 3px rgba(158, 122, 66, 0.35); }
+}
+
 /* ─── Evidências de Campo — classes de UI da página de administração ───────── */
 @layer components {
   .input { @apply border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white outline-none focus:border-yellow-500; }

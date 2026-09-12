@@ -13,19 +13,38 @@
 import apiClient from './apiClient';
 import { filaAdd, filaPut, filaGet, filaDelete, filaAll, pedirPersistencia } from './evidenciaDb';
 
-const STATUS_PERMANENTE = [400, 403, 404, 422];
+// 404 SAIU daqui de propósito: durante uma janela de deploy o proxy devolve 404
+// para /api/evidencias, e tratar isso como permanente marcava a foto de campo
+// como "recusada" para sempre. Foto de campo é cara demais para se perder por um
+// erro transitório — 404 agora entra no backoff, como 5xx.
+const STATUS_PERMANENTE = [400, 403, 422];
 const BACKOFF_BASE_MS = 60 * 1000;
 const BACKOFF_MAX_MS = 30 * 60 * 1000;
 
 let processando = false;
 let timer = null;
 const ouvintes = new Set();
+const ouvintesEnviados = new Set();
 
 const jitter = (ms) => Math.round(ms * (0.8 + Math.random() * 0.4)); // ±20%
 const backoff = (n) => jitter(Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, n - 1), BACKOFF_MAX_MS));
 
 // ---- Pub/sub para badge e página da fila ----
 export function assinarFila(fn) { ouvintes.add(fn); return () => ouvintes.delete(fn); }
+
+// ---- Pub/sub dos envios CONCLUÍDOS ----
+// Sem isto, no sucesso o item some do IndexedDB e o card cai no `hojeEnviado` do
+// servidor, que só é recarregado periodicamente — o cartão voltava de "Na fila"
+// para "Pendente" e só corrigia no F5. Quem ouve aqui marca "Enviado" na hora.
+export function assinarEnviados(fn) { ouvintesEnviados.add(fn); return () => ouvintesEnviados.delete(fn); }
+function notificarEnviado(item, resp) {
+    const ev = {
+        veiculo_id: item.veiculo_id, tipo: item.tipo, data_ref: item.data_ref,
+        id: resp?.id || null, em: Date.now(),
+    };
+    ouvintesEnviados.forEach(fn => { try { fn(ev); } catch { /* */ } });
+    try { window.dispatchEvent(new CustomEvent('evidencias:enviado', { detail: ev })); } catch { /* */ }
+}
 async function notificar() {
     let itens = [];
     try { itens = await filaAll(); } catch { /* */ }
@@ -76,6 +95,11 @@ function montarFormData(item) {
     if (item.employee_id) fd.append('employee_id', item.employee_id);
     if (item.leitura != null && item.leitura !== '') fd.append('leitura', item.leitura);
     if (item.observacao) fd.append('observacao', item.observacao);
+    // Dica de UX: quem DECIDE se é retroativo é o servidor, comparando data_ref
+    // com hoje. Isto aqui só ajuda o log — o servidor não confia neste campo.
+    if (item.retroativo) fd.append('retroativo', '1');
+    // O operador já viu o aviso de leitura anterior e confirmou.
+    if (item.confirmar_fora_janela) fd.append('confirmar_fora_janela', '1');
     fd.append('dev_origem', item.origem || 'web_online');
     return fd;
 }
@@ -96,9 +120,10 @@ export async function processarFila() {
             item.status = 'enviando';
             await filaPut(item); await notificar();
             try {
-                await apiClient.enviarEvidencia(montarFormData(item));
+                const resp = await apiClient.enviarEvidencia(montarFormData(item));
                 // Sucesso (inclui 200 idempotente com registro já existente) → sai da fila.
                 await filaDelete(item.clientId);
+                notificarEnviado(item, resp);
                 await notificar();
             } catch (err) {
                 const status = err?.status;

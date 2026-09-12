@@ -720,7 +720,7 @@ const AppContent = () => {
                     <div className="pb-16">
                         <Suspense fallback={<PageFallback />}>
                             {operadorAba === 'evidencias'
-                                ? <EvidenciasCapturaScreen apiClient={apiClient} user={user} setAlertMessage={setAlertMessage} />
+                                ? <EvidenciasCapturaScreen apiClient={apiClient} user={user} socket={socket} setAlertMessage={setAlertMessage} />
                                 : <EvidenciasFilaPage />}
                         </Suspense>
                     </div>

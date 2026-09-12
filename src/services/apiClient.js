@@ -765,10 +765,17 @@ const apiClient = {
         }),
 
     // --- Evidências de Campo ---
-    getEvidenciaEscopo: async () => apiFetch('/evidencias/meu-escopo'),
+    // O `_t` é cache-busting: sem ele o Safari mobile serve a resposta antiga e o
+    // operador vê o status congelado (mesmo motivo da tela de abastecimento).
+    getEvidenciaEscopo: async () => apiFetch(`/evidencias/meu-escopo?_t=${Date.now()}`),
     getMinhasEvidencias: async () => apiFetch('/evidencias/minhas'),
+    getHistoricoEvidencias: async (veiculoId, dias) =>
+        apiFetch(`/evidencias/historico?veiculo_id=${encodeURIComponent(veiculoId)}`
+            + `${dias ? `&dias=${dias}` : ''}&_t=${Date.now()}`),
     getMotivosDispensa: async () => apiFetch('/evidencias/motivos-dispensa'),
     registrarDispensa: async (data) => apiFetch('/evidencias/dispensa', { method: 'POST', body: JSON.stringify(data) }),
+    // Aviso de divergência do escopo (equipamento faltando/sobrando, operador errado).
+    reportarDivergencia: async (data) => apiFetch('/evidencias/divergencia', { method: 'POST', body: JSON.stringify(data) }),
     // Envio da evidência: FormData com a foto (campo 'foto') + metadados.
     enviarEvidencia: async (formData) => apiFetch('/evidencias', { method: 'POST', body: formData }),
     // Gestor
@@ -815,6 +822,27 @@ const apiClient = {
     // Config da obra
     getConfigEvidencia: async (obraId) => apiFetch(`/evidencias/config/${obraId}`),
     putConfigEvidencia: async (obraId, data) => apiFetch(`/evidencias/config/${obraId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    // Rotinas semanais (config em 3 níveis + prévia do calendário)
+    getRotinasConfig: async (escopo, escopoId = '') =>
+        apiFetch(`/evidencias/rotinas/config?escopo=${escopo}&escopo_id=${encodeURIComponent(escopoId)}`),
+    putRotinasConfig: async (data) => apiFetch('/evidencias/rotinas/config', { method: 'PUT', body: JSON.stringify(data) }),
+    getRotinasPreview: async (veiculoId, de, ate) => {
+        const qs = new URLSearchParams({ veiculo_id: veiculoId, ...(de ? { de } : {}), ...(ate ? { ate } : {}) });
+        return apiFetch(`/evidencias/rotinas/preview?${qs}`);
+    },
+    // Campos do carimbo (config em 3 níveis + prévia em imagem)
+    getCarimboConfig: async (escopo, escopoId = '') =>
+        apiFetch(`/evidencias/carimbo/config?escopo=${escopo}&escopo_id=${encodeURIComponent(escopoId)}`),
+    putCarimboConfig: async (data) => apiFetch('/evidencias/carimbo/config', { method: 'PUT', body: JSON.stringify(data) }),
+    // A prévia é rota autenticada — <img src> não manda o Authorization, então
+    // baixamos como blob e devolvemos um object URL (quem chama deve revogar).
+    getCarimboPreview: async (escopo, escopoId = '', reduzido = false) => {
+        const url = `${API_URL}/evidencias/carimbo/preview?escopo=${escopo}`
+            + `&escopo_id=${encodeURIComponent(escopoId)}${reduzido ? '&reduzido=1' : ''}&_t=${Date.now()}`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (!res.ok) throw new Error('Falha ao gerar a prévia do carimbo.');
+        return URL.createObjectURL(await res.blob());
+    },
     // Offload / arquivamento
     getLotesOffload: async (obraId) => apiFetch(`/evidencias/offload${obraId ? `?obra_id=${obraId}` : ''}`),
     gerarOffload: async (payload) => apiFetch('/evidencias/offload', { method: 'POST', body: JSON.stringify(payload) }),

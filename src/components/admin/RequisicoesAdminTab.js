@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Inbox, MapPin, User, Check, Trash2, RefreshCw, ArrowRight } from 'lucide-react';
+import { Inbox, MapPin, User, Check, Trash2, RefreshCw, ArrowRight, Camera } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 import { useData } from '../../contexts/DataContext';
 
 const TIPO_META = {
     mudanca_obra:     { label: 'Mudança de obra',     Icon: MapPin, color: 'text-blue-600 bg-blue-100' },
     mudanca_operador: { label: 'Mudança de operador', Icon: User,   color: 'text-purple-600 bg-purple-100' },
+    // Aviso do operador pela aba Evidências: equipamento faltando/sobrando na
+    // lista da obra, ou operador alocado errado.
+    divergencia_evidencias: { label: 'Divergência (Evidências)', Icon: Camera, color: 'text-amber-700 bg-amber-100' },
 };
 
 const formatDateTime = (s) => {
@@ -109,6 +112,9 @@ const RequisicoesAdminTab = () => {
                         const Icon = meta.Icon;
                         const atual = r.tipo === 'mudanca_obra' ? r.obra_atual_nome : r.operador_atual_nome;
                         const isResolved = (r.status || 'pendente') === 'resolvida';
+                        // A divergência de evidências não é uma sugestão "de X para Y":
+                        // é um relato. O par atual→sugerido renderizaria sem sentido.
+                        const ehRelato = r.tipo === 'divergencia_evidencias';
                         return (
                             <div key={r.id} className={`rounded-xl border p-4 ${isResolved ? 'border-gray-100 bg-gray-50 opacity-70' : 'border-gray-200'}`}>
                                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -117,14 +123,28 @@ const RequisicoesAdminTab = () => {
                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${meta.color}`}>
                                                 <Icon size={12} /> {meta.label}
                                             </span>
-                                            <span className="font-bold text-gray-800">{r.veiculo_registro || r.veiculo_id}</span>
+                                            <span className="font-bold text-gray-800">
+                                                {r.veiculo_registro || (ehRelato ? (r.obra_atual_nome || '—') : r.veiculo_id)}
+                                            </span>
                                             {isResolved && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Resolvida</span>}
                                         </div>
-                                        <div className="flex items-center gap-2 text-sm text-gray-700 flex-wrap">
-                                            <span className="text-gray-400">{atual || '—'}</span>
-                                            <ArrowRight size={14} className="text-gray-400" />
-                                            <span className="font-semibold text-gray-800">{r.valor_sugerido_nome}</span>
-                                        </div>
+                                        {ehRelato ? (
+                                            <div className="text-sm text-gray-700">
+                                                <span className="font-semibold text-gray-800">{r.valor_sugerido_nome}</span>
+                                                {r.obra_atual_nome && r.veiculo_registro && (
+                                                    <span className="text-gray-400"> · {r.obra_atual_nome}</span>
+                                                )}
+                                                {r.operador_atual_nome && (
+                                                    <span className="text-gray-400"> · operador atual: {r.operador_atual_nome}</span>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2 text-sm text-gray-700 flex-wrap">
+                                                <span className="text-gray-400">{atual || '—'}</span>
+                                                <ArrowRight size={14} className="text-gray-400" />
+                                                <span className="font-semibold text-gray-800">{r.valor_sugerido_nome}</span>
+                                            </div>
+                                        )}
                                         {r.observacao && <p className="text-sm text-gray-500 mt-1.5 italic">"{r.observacao}"</p>}
                                         <p className="text-xs text-gray-400 mt-2">
                                             {r.solicitante_email || 'Usuário'} · {formatDateTime(r.created_at)}
