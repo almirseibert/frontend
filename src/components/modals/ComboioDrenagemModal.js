@@ -18,7 +18,6 @@ const recDate = (r) => new Date(r?.data || r?.date || 0).getTime();
 const ComboioDrenagemModal = ({
     user,
     vehicles = [],
-    refuelings = [],
     onClose,
     setAlertMessage,
     apiClient,
@@ -62,14 +61,24 @@ const ComboioDrenagemModal = ({
         [formData.receivingVehicleId, receivingVehicles]
     );
 
+    // Abastecimentos do veículo de origem — buscados sob demanda (escopados),
+    // em vez de depender da tabela inteira de refuelings.
+    const [drainRefuelings, setDrainRefuelings] = useState([]);
+    useEffect(() => {
+        let cancel = false;
+        if (!formData.drainingVehicleId || !apiClient?.getRefuelingsByVehicle) { setDrainRefuelings([]); return undefined; }
+        apiClient.getRefuelingsByVehicle(formData.drainingVehicleId)
+            .then(rows => { if (!cancel) setDrainRefuelings(Array.isArray(rows) ? rows : []); })
+            .catch(() => { if (!cancel) setDrainRefuelings([]); });
+        return () => { cancel = true; };
+    }, [formData.drainingVehicleId, apiClient]);
+
     // Abastecimentos da origem, mais recentes primeiro
     const originRefuelings = useMemo(() => {
-        if (!formData.drainingVehicleId) return [];
-        return refuelings
-            .filter(r => String(r.vehicleId) === String(formData.drainingVehicleId)
-                && parseFloat(r.litrosAbastecidos) > 0)
+        return (drainRefuelings || [])
+            .filter(r => parseFloat(r.litrosAbastecidos) > 0)
             .sort((a, b) => recDate(b) - recDate(a));
-    }, [refuelings, formData.drainingVehicleId]);
+    }, [drainRefuelings]);
 
     // Auto-seleciona o combustível pela abastecida mais recente da origem
     useEffect(() => {

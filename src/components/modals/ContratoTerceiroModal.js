@@ -3,6 +3,7 @@ import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale } fro
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
 import CurrencyInput from '../ui/CurrencyInput';
 import SearchableObraSelect from '../SearchableObraSelect';
+import SearchableSelect from '../SearchableSelect';
 
 const FOROS = ['Santa Maria', 'Lajeado'];
 
@@ -74,6 +75,12 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
     const obrasSelecionaveis = useMemo(
         () => obras.filter((o) => o.tipo_registro !== 'centro_custo'),
         [obras]
+    );
+
+    const terceirosOrdenados = useMemo(
+        () => [...terceiros].sort((a, b) =>
+            (a.nomeFantasia || a.razaoSocial || '').localeCompare(b.nomeFantasia || b.razaoSocial || '')),
+        [terceiros]
     );
 
     const maquinasDoTerceiro = useMemo(
@@ -184,12 +191,16 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Terceiro</label>
-                            <select name="locadorId" value={form.locadorId}
-                                onChange={(e) => { handleChange(e); setMaquinas([]); }}
-                                className="w-full p-2 border rounded-lg bg-white text-sm" required>
-                                <option value="">— Selecionar —</option>
-                                {terceiros.map((t) => <option key={t.id} value={t.id}>{t.nomeFantasia || t.razaoSocial}</option>)}
-                            </select>
+                            <SearchableSelect
+                                items={terceirosOrdenados}
+                                value={form.locadorId}
+                                onChange={(t) => { setForm((f) => ({ ...f, locadorId: t?.id || '' })); setMaquinas([]); }}
+                                getLabel={(t) => t.nomeFantasia || t.razaoSocial || ''}
+                                getSubLabel={(t) => (t.nomeFantasia && t.razaoSocial && t.nomeFantasia !== t.razaoSocial) ? t.razaoSocial : ''}
+                                placeholder="Buscar terceiro..."
+                                overlayTitle="Selecione o terceiro"
+                                required
+                            />
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Obra</label>

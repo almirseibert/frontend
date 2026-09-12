@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { ImageOff, X, MapPin, FileText, ExternalLink, Package, ChevronRight, FileDown } from 'lucide-react';
+import { ImageOff, X, MapPin, FileText, ExternalLink, Package, ChevronRight, ChevronDown, FileDown } from 'lucide-react';
 import { getGroupUnit, getReadingSourceForUnit } from '../utils/vehicleRules';
 import { canUserAccessPage } from '../utils/permissions';
 import { STATUS_META, categoriaLabel } from './modals/PartCatalogItemModal';
@@ -11,6 +11,9 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {}, us
     const [documents, setDocuments] = useState([]);
     const [parts, setParts] = useState(null);
     const [partsLoading, setPartsLoading] = useState(false);
+    // Peças ficam recolhidas por padrão (só ocupam o modal quando o usuário abre).
+    const [partsExpanded, setPartsExpanded] = useState(false);
+    const [partsRequested, setPartsRequested] = useState(false);
 
     useEffect(() => {
         if (!vehicle?.id) return;
@@ -19,14 +22,23 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {}, us
             .catch(() => {});
     }, [vehicle?.id]);
 
+    // Reseta o estado das peças ao trocar de veículo.
     useEffect(() => {
-        if (!vehicle?.id) return;
+        setPartsExpanded(false);
+        setPartsRequested(false);
+        setParts(null);
+    }, [vehicle?.id]);
+
+    // Busca as peças apenas quando a seção é aberta pela primeira vez.
+    useEffect(() => {
+        if (!vehicle?.id || !partsExpanded || partsRequested) return;
+        setPartsRequested(true);
         setPartsLoading(true);
         apiClient.partCatalog.getPartsForVehicle(vehicle.id)
             .then(setParts)
             .catch(() => setParts(null))
             .finally(() => setPartsLoading(false));
-    }, [vehicle?.id]);
+    }, [vehicle?.id, partsExpanded, partsRequested]);
 
     // Achata itens resolvidos (matches por modelo + overrides por chassi).
     const resolvedItems = [
@@ -222,63 +234,76 @@ const VehicleDetailModal = ({ vehicle, revision, onClose, vehicleGroups = {}, us
                     </div>
                 )}
 
-                {/* Peças & Reposição */}
+                {/* Peças & Reposição — recolhido por padrão; só abre sob demanda,
+                    para não ocupar o modal inteiro. */}
                 <div className="px-4 pb-4">
-                    <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1.5">
-                            <Package size={13}/> Peças &amp; Reposição
-                        </p>
-                        <div className="flex items-center gap-3">
-                            {resolvedItems.length > 0 && (
-                                <button
-                                    onClick={() => generatePartsPickListPdf({
-                                        titulo: `${vehicle.registroInterno ? `${vehicle.registroInterno} · ` : ''}${vehicle.marca || ''} ${vehicle.modelo || ''}`.trim(),
-                                        subtitulo: [vehicle.placa, anoFab ? `Ano ${anoFab}` : null].filter(Boolean).join(' · '),
-                                        items: resolvedItems,
-                                    }).catch(() => {})}
-                                    className="text-xs text-gray-600 hover:text-gray-800 font-semibold flex items-center gap-0.5"
-                                    title="Gerar lista de separação (PDF)"
-                                >
-                                    <FileDown size={13}/> Lista (PDF)
-                                </button>
-                            )}
-                            {canOpenGuide && (
-                                <button
-                                    onClick={() => { navigate('guia_pecas', { vehicleId: vehicle.id }); onClose(); }}
-                                    className="text-xs text-yellow-700 hover:text-yellow-800 font-semibold flex items-center gap-0.5"
-                                >
-                                    Abrir guia completo <ChevronRight size={13}/>
-                                </button>
+                    <button
+                        type="button"
+                        onClick={() => setPartsExpanded(v => !v)}
+                        className="w-full flex items-center justify-between py-2 text-xs font-bold text-gray-500 uppercase hover:text-gray-700"
+                        aria-expanded={partsExpanded}
+                    >
+                        <span className="flex items-center gap-1.5"><Package size={13}/> Peças &amp; Reposição</span>
+                        <span className="flex items-center gap-1 text-[11px] normal-case font-semibold text-gray-400">
+                            {partsExpanded ? 'ocultar' : 'ver peças'}
+                            <ChevronDown size={14} className={`transition-transform ${partsExpanded ? 'rotate-180' : ''}`}/>
+                        </span>
+                    </button>
+
+                    {partsExpanded && (
+                        <div className="mt-1">
+                            <div className="flex items-center justify-end gap-3 mb-2">
+                                {resolvedItems.length > 0 && (
+                                    <button
+                                        onClick={() => generatePartsPickListPdf({
+                                            titulo: `${vehicle.registroInterno ? `${vehicle.registroInterno} · ` : ''}${vehicle.marca || ''} ${vehicle.modelo || ''}`.trim(),
+                                            subtitulo: [vehicle.placa, anoFab ? `Ano ${anoFab}` : null].filter(Boolean).join(' · '),
+                                            items: resolvedItems,
+                                        }).catch(() => {})}
+                                        className="text-xs text-gray-600 hover:text-gray-800 font-semibold flex items-center gap-0.5"
+                                        title="Gerar lista de separação (PDF)"
+                                    >
+                                        <FileDown size={13}/> Lista (PDF)
+                                    </button>
+                                )}
+                                {canOpenGuide && (
+                                    <button
+                                        onClick={() => { navigate('guia_pecas', { vehicleId: vehicle.id }); onClose(); }}
+                                        className="text-xs text-yellow-700 hover:text-yellow-800 font-semibold flex items-center gap-0.5"
+                                    >
+                                        Abrir guia completo <ChevronRight size={13}/>
+                                    </button>
+                                )}
+                            </div>
+                            {partsLoading ? (
+                                <p className="text-xs text-gray-400">Carregando…</p>
+                            ) : resolvedItems.length === 0 ? (
+                                <p className="text-xs text-gray-400 italic">
+                                    Nenhuma peça de referência para {vehicle.marca} {vehicle.modelo}
+                                    {canOpenGuide ? ' — cadastre no guia.' : '.'}
+                                </p>
+                            ) : (
+                                <ul className="space-y-1.5">
+                                    {resolvedItems.map(it => {
+                                        const meta = STATUS_META[it.status_validacao] || STATUS_META.referencia;
+                                        return (
+                                            <li key={it.id} className="text-sm border border-gray-100 rounded p-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-semibold text-gray-800">{it.descricao}</span>
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${meta.badge}`}>{meta.label}</span>
+                                                    <span className="text-[10px] text-gray-400">{categoriaLabel(it.categoria)}</span>
+                                                </div>
+                                                <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3">
+                                                    {it.especificacao && <span>{it.especificacao}</span>}
+                                                    {it.codigo_oem && <span>OEM: {it.codigo_oem}</span>}
+                                                    {formatIntervalo(it) && <span>Troca: {formatIntervalo(it)}</span>}
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
                             )}
                         </div>
-                    </div>
-                    {partsLoading ? (
-                        <p className="text-xs text-gray-400">Carregando…</p>
-                    ) : resolvedItems.length === 0 ? (
-                        <p className="text-xs text-gray-400 italic">
-                            Nenhuma peça de referência para {vehicle.marca} {vehicle.modelo}
-                            {canOpenGuide ? ' — cadastre no guia.' : '.'}
-                        </p>
-                    ) : (
-                        <ul className="space-y-1.5">
-                            {resolvedItems.map(it => {
-                                const meta = STATUS_META[it.status_validacao] || STATUS_META.referencia;
-                                return (
-                                    <li key={it.id} className="text-sm border border-gray-100 rounded p-2">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-semibold text-gray-800">{it.descricao}</span>
-                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${meta.badge}`}>{meta.label}</span>
-                                            <span className="text-[10px] text-gray-400">{categoriaLabel(it.categoria)}</span>
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3">
-                                            {it.especificacao && <span>{it.especificacao}</span>}
-                                            {it.codigo_oem && <span>OEM: {it.codigo_oem}</span>}
-                                            {formatIntervalo(it) && <span>Troca: {formatIntervalo(it)}</span>}
-                                        </div>
-                                    </li>
-                                );
-                            })}
-                        </ul>
                     )}
                 </div>
 

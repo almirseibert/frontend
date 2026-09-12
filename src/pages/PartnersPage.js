@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import {
     PlusCircle, Edit, Trash2, FileText, X, Loader, 
     Droplet, Truck, Fuel, Printer, ChevronDown, ChevronUp,
@@ -547,10 +547,24 @@ const FuelPriceModal = ({ user, partner, onClose, setAlertMessage, apiClient, re
 };
 
 // --- Modal de Relatório (MANTIDO NA ÍNTEGRA) ---
-const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboioTransactions = [], onClose, apiClient, reloadData, setAlertMessage }) => {
+const RefuelingReportModal = ({ partner, vehicles = [], comboioTransactions = [], onClose, apiClient, reloadData, setAlertMessage }) => {
     
     const today = new Date().toISOString().split('T')[0];
     const [dateRange, setDateRange] = useState({ start: '', end: today });
+
+    // Abastecimentos buscados sob demanda (escopo histórico por data), em vez de
+    // depender da tabela inteira carregada no contexto. Filtra por posto no cliente.
+    const [refuelingsData, setRefuelingsData] = useState([]);
+    useEffect(() => {
+        let cancel = false;
+        const params = {};
+        if (dateRange.start) params.startDate = dateRange.start;
+        if (dateRange.end) params.endDate = dateRange.end;
+        apiClient.getRefuelingsByScope('historico', params)
+            .then(res => { if (!cancel) setRefuelingsData(Array.isArray(res) ? res : (res?.data || [])); })
+            .catch(() => { if (!cancel) setRefuelingsData([]); });
+        return () => { cancel = true; };
+    }, [dateRange.start, dateRange.end, apiClient]);
 
     // Estados para edição de NF
     const [editingNfId, setEditingNfId] = useState(null);
@@ -564,7 +578,7 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
         const endDate = dateRange.end ? new Date(dateRange.end + 'T23:59:59Z') : null;
 
         // 1. Abastecimentos normais
-        (refuelings || []).forEach(e => {
+        (refuelingsData || []).forEach(e => {
             const itemDate = new Date(e.data);
             if (e.partnerId !== partner.id || e.status !== 'Concluída') return;
             if (startDate && itemDate < startDate) return;
@@ -617,7 +631,7 @@ const RefuelingReportModal = ({ partner, vehicles = [], refuelings = [], comboio
         }, { liters: 0, value: 0, others: 0, total: 0 });
 
         return { reportData: sortedData, totals };
-    }, [partner, refuelings, comboioTransactions, dateRange, vehicles]);
+    }, [partner, refuelingsData, comboioTransactions, dateRange, vehicles]);
 
     const formatDate = (date) => date ? new Date(date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A';
 

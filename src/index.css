@@ -288,6 +288,19 @@ body {
   color: #b0a090;
 }
 
+/* Evita o "zoom" automático ao focar um campo em telas pequenas (iOS amplia a
+   página sempre que um controle tem fonte < 16px, escondendo campos do layout).
+   Subimos a fonte dos controles para 16px no mobile — sem desabilitar o
+   pinch-zoom manual do usuário. Seletores de elemento (especificidade > :where)
+   garantem a sobrescrita da base de 13px. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 :where(input:disabled),
 :where(select:disabled),
 :where(textarea:disabled) {

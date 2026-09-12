@@ -152,11 +152,14 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
     const obra = escopo.obras?.find(o => o.id === equip?.obra_id) || null;
 
     const hoje = escopo.data;
-    const diaAtivo = useMemo(() => {
-        if (!historico) return null;
-        return historico.dias.find(d => d.data === (dataSel || hoje)) || null;
-    }, [historico, dataSel, hoje]);
-    const dataAtiva = diaAtivo?.data || dataSel || hoje;
+    // Para equipamento que saiu da obra, hoje NÃO está na faixa — o último dia
+    // disponível é a data de saída. Sem este fallback a tela abriria num dia que
+    // não existe na lista e nenhum card apareceria.
+    const dataAtiva = dataSel || historico?.ultimo_dia || hoje;
+    const diaAtivo = useMemo(
+        () => (historico ? historico.dias.find(d => d.data === dataAtiva) || null : null),
+        [historico, dataAtiva]
+    );
     const retro = !!dataAtiva && !!hoje && dataAtiva < hoje;
 
     const contar = useCallback((tipo) => {
@@ -196,8 +199,8 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
                 {(!escopo.equipamentos || escopo.equipamentos.length === 0) && (
                     <div className="bg-white rounded-xl p-6 text-center text-slate-500 shadow-sm">Nenhum equipamento no seu escopo hoje.</div>
                 )}
-                <div className="space-y-2">
-                    {escopo.equipamentos?.map(e => {
+                {(() => {
+                    const renderCard = (e) => {
                         // Conta SÓ os 4 momentos do dia: extras e rotinas deixariam o
                         // chip verde com 4 fotos avulsas e nenhum momento cumprido.
                         const cont = escopo.hojeContagem?.[e.id] || {};
@@ -214,7 +217,12 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
                                         <User size={12} />
                                         {e.operador_nome || 'Sem operador alocado'}
                                     </div>
-                                    {obraDoEquip && obraDoEquip.solicitado_hoje === false && (
+                                    {e.saiuDaObra && (
+                                        <div className="text-[11px] font-bold mt-0.5" style={{ color: '#b45309' }}>
+                                            Saiu da obra{e.saiuEm ? ` em ${e.saiuEm.split('-').reverse().join('/')}` : ''} · inclusão retroativa
+                                        </div>
+                                    )}
+                                    {!e.saiuDaObra && obraDoEquip && obraDoEquip.solicitado_hoje === false && (
                                         <div className="text-[11px] text-slate-400 mt-0.5">hoje não é dia de solicitação</div>
                                     )}
                                 </div>
@@ -230,8 +238,21 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
                                 </div>
                             </button>
                         );
-                    })}
-                </div>
+                    };
+                    const ativos = (escopo.equipamentos || []).filter(e => !e.saiuDaObra);
+                    const saiu = (escopo.equipamentos || []).filter(e => e.saiuDaObra);
+                    return (
+                        <>
+                            <div className="space-y-2">{ativos.map(renderCard)}</div>
+                            {saiu.length > 0 && (
+                                <div className="mt-5">
+                                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Saíram da obra (inclusão retroativa)</p>
+                                    <div className="space-y-2">{saiu.map(renderCard)}</div>
+                                </div>
+                            )}
+                        </>
+                    );
+                })()}
 
                 <button onClick={() => setDivergSheet(true)}
                     className="w-full mt-4 py-3 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 text-left active:bg-slate-100">
@@ -277,6 +298,11 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
             <p className="text-xs mb-1 flex items-center gap-1" style={{ color: equip.operador_nome ? '#6a5e4e' : '#b91c1c' }}>
                 <User size={12} /> {equip.operador_nome || 'Sem operador alocado'}
             </p>
+            {equip.saiuDaObra && (
+                <div className="mb-2 text-[12px] font-semibold rounded-lg px-3 py-2 flex items-center gap-2" style={{ background: '#fef3c7', color: '#92400e' }}>
+                    <AlertTriangle size={14} /> Equipamento saiu da obra{equip.saiuEm ? ` em ${equip.saiuEm.split('-').reverse().join('/')}` : ''}. Registro retroativo desse dia.
+                </div>
+            )}
             {degradado && <BannerCache />}
 
             {historico && (
@@ -496,6 +522,8 @@ const CaptureSheet = ({ momento, equip, obra, user, dataRef, retro, historico, o
                 obra_id: equip.obra_id,
                 veiculo_id: equip.id,
                 tipo: momento.tipo,
+                // Vem do dia escolhido na faixa. Para equipamento que saiu da obra a
+                // faixa termina na data de saída, então isto já cobre aquele caso.
                 data_ref: dataRef,
                 turno: momento.tipo === 'foto_manha' ? 'manha' : momento.tipo === 'foto_tarde' ? 'tarde' : 'indefinido',
                 // Retroativo vai sem nenhum dado de localização — o servidor
@@ -720,7 +748,7 @@ const DispensaSheet = ({ apiClient, equip, obra, escopo, onClose, setAlertMessag
             await apiClient.registrarDispensa({
                 obra_id: equip.obra_id,
                 veiculo_id: abrangencia === 'obra' ? null : equip.id,
-                data_ref: escopo.data, periodo,
+                data_ref: equip.saiuEm || escopo.data, periodo,
                 motivo_codigo: motivo || null, motivo_texto: texto.trim() || null,
             });
             setAlertMessage?.({ type: 'success', message: 'Dispensa registrada.' });

@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Fuel, Download, Filter } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 import { formatObraNome } from '../../utils/obraFormat';
+import apiClient from '../../services/apiClient';
 
 const fmt = (n) => n != null ? Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
 const fmtL = (n) => n != null ? Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' L' : '-';
@@ -22,50 +23,54 @@ const FuelConsumptionReport = ({ obras = [], vehicles = [], refuelings = [], exp
         [obras]
     );
 
-    const reportData = useMemo(() => {
-        const dateFrom = filterDateFrom ? new Date(filterDateFrom + 'T00:00:00') : null;
-        const dateTo = filterDateTo ? new Date(filterDateTo + 'T23:59:59') : null;
+    // A soma por obra/combustível agora é feita no banco (endpoint de agregação),
+    // evitando baixar a tabela inteira (~34 MB) só para somar no cliente. O reshape
+    // abaixo (byObra → byFuel) e as fórmulas são idênticos ao cálculo anterior.
+    const [reportData, setReportData] = useState([]);
+    const [loading, setLoading] = useState(false);
 
-        // Filtrar abastecimentos concluídos
-        const filtered = refuelings.filter(r => {
-            if (r.status !== 'Concluída') return false;
-            if (filterObraId && r.obraId !== filterObraId) return false;
-            if (filterFuelType !== 'Todos' && r.fuelType !== filterFuelType) return false;
-            const d = new Date(r.data || r.date || r.created_at);
-            if (dateFrom && d < dateFrom) return false;
-            if (dateTo && d > dateTo) return false;
-            return true;
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        apiClient.getRefuelingAggregatesByObra({
+            obraId: filterObraId || undefined,
+            fuelType: filterFuelType !== 'Todos' ? filterFuelType : undefined,
+            startDate: filterDateFrom || undefined,
+            endDate: filterDateTo || undefined,
+        }).then(rows => {
+            if (cancelled) return;
+            const byObra = {};
+            (rows || []).forEach(r => {
+                const obraId = r.obraId || '__sem_obra__';
+                if (!byObra[obraId]) {
+                    const obra = obras.find(o => o.id === obraId);
+                    byObra[obraId] = {
+                        obraId,
+                        obraNome: formatObraNome(obra) || (obraId === '__sem_obra__' ? 'Sem obra vinculada' : 'Obra não encontrada'),
+                        byFuel: {},
+                        totalLitros: 0,
+                        totalValor: 0,
+                        qtdOrdens: 0,
+                    };
+                }
+                const fuel = r.fuelType || 'Não especificado';
+                if (!byObra[obraId].byFuel[fuel]) byObra[obraId].byFuel[fuel] = { litros: 0, valor: 0, ordens: 0 };
+                byObra[obraId].byFuel[fuel].litros += r.litros;
+                byObra[obraId].byFuel[fuel].valor += r.valor;
+                byObra[obraId].byFuel[fuel].ordens += r.ordens;
+                byObra[obraId].totalLitros += r.litros;
+                byObra[obraId].totalValor += r.valor;
+                byObra[obraId].qtdOrdens += r.ordens;
+            });
+            setReportData(Object.values(byObra).sort((a, b) => a.obraNome.localeCompare(b.obraNome)));
+        }).catch(err => {
+            console.error('Erro ao carregar consumo por obra:', err);
+            if (!cancelled) setReportData([]);
+        }).finally(() => {
+            if (!cancelled) setLoading(false);
         });
-
-        // Agrupar por obra
-        const byObra = {};
-        filtered.forEach(r => {
-            const obraId = r.obraId || '__sem_obra__';
-            if (!byObra[obraId]) {
-                const obra = obras.find(o => o.id === obraId);
-                byObra[obraId] = {
-                    obraId,
-                    obraNome: formatObraNome(obra) || (obraId === '__sem_obra__' ? 'Sem obra vinculada' : 'Obra não encontrada'),
-                    byFuel: {},
-                    totalLitros: 0,
-                    totalValor: 0,
-                    qtdOrdens: 0,
-                };
-            }
-            const litros = parseFloat(r.litrosAbastecidos || r.liters || 0);
-            const valor = (litros * parseFloat(r.pricePerLiter || r.price || 0)) + parseFloat(r.outrosValor || 0);
-            const fuel = r.fuelType || 'Não especificado';
-            if (!byObra[obraId].byFuel[fuel]) byObra[obraId].byFuel[fuel] = { litros: 0, valor: 0, ordens: 0 };
-            byObra[obraId].byFuel[fuel].litros += litros;
-            byObra[obraId].byFuel[fuel].valor += valor;
-            byObra[obraId].byFuel[fuel].ordens += 1;
-            byObra[obraId].totalLitros += litros;
-            byObra[obraId].totalValor += valor;
-            byObra[obraId].qtdOrdens += 1;
-        });
-
-        return Object.values(byObra).sort((a, b) => a.obraNome.localeCompare(b.obraNome));
-    }, [refuelings, obras, filterObraId, filterFuelType, filterDateFrom, filterDateTo]);
+        return () => { cancelled = true; };
+    }, [obras, filterObraId, filterFuelType, filterDateFrom, filterDateTo]);
 
     const totals = useMemo(() => ({
         litros: reportData.reduce((s, r) => s + r.totalLitros, 0),
@@ -189,7 +194,7 @@ const FuelConsumptionReport = ({ obras = [], vehicles = [], refuelings = [], exp
                     </thead>
                     <tbody>
                         {reportData.length === 0 ? (
-                            <tr><td colSpan={5} className="p-8 text-center text-gray-400 italic">Nenhum dado encontrado para os filtros selecionados.</td></tr>
+                            <tr><td colSpan={5} className="p-8 text-center text-gray-400 italic">{loading ? 'Carregando…' : 'Nenhum dado encontrado para os filtros selecionados.'}</td></tr>
                         ) : (
                             reportData.map((obra, obraIdx) => (
                                 Object.entries(obra.byFuel).map(([fuel, data], fuelIdx) => (

@@ -1,14 +1,29 @@
 import React from 'react';
 import TerceirizadoBadge from '../ui/TerceirizadoBadge';
+import { getVehicleTerceiroName } from '../../utils/partners';
 
 // Lista de equipamentos da obra, sempre visível ao lado da tabela de dias.
 // Substitui o <select> de equipamento: mostra todos de uma vez, com o total
 // de horas do mês de cada um, e troca de máquina sem fechar nada.
 
+// Segunda linha do item: identifica a MÁQUINA, não repete o que o RE já diz.
+// Terceiro  -> placa · nome do locador (o que a pessoa não consegue deduzir do RE)
+// Próprio   -> tipo · placa
+// Sem placa (escavadeira, rolo, motoniveladora) cai para o que sobrar.
+const buildSubtitle = (v, partners) => {
+    const placa = (v.placa || '').trim();
+    if (v.isOutsourced) {
+        const terceiro = getVehicleTerceiroName(v, partners) || 'sem fornecedor';
+        return [placa || v.tipo, terceiro].filter(Boolean).join(' · ');
+    }
+    return [v.tipo, placa].filter(Boolean).join(' · ');
+};
+
 // Item fora do componente pelo mesmo motivo do Row em ObraStartList.
-const Item = ({ v, dim, selectedVehicleId, totalsByVehicle, formatHours, onSelect }) => {
+const Item = ({ v, dim, selectedVehicleId, totalsByVehicle, formatHours, onSelect, partners }) => {
     const total = totalsByVehicle[v.id] || 0;
     const on = v.id === selectedVehicleId;
+    const subtitle = buildSubtitle(v, partners);
     return (
         <button
             onClick={() => onSelect(v.id)}
@@ -27,7 +42,9 @@ const Item = ({ v, dim, selectedVehicleId, totalsByVehicle, formatHours, onSelec
                     {v.registroInterno}
                     <TerceirizadoBadge vehicle={v} />
                 </span>
-                <span className="block text-[11px] text-gray-400 truncate">{v.tipo}</span>
+                <span className="block text-[11px] text-gray-400 truncate" title={subtitle}>
+                    {subtitle}
+                </span>
             </span>
             <span
                 className={`text-xs font-mono shrink-0 pt-0.5 ${
@@ -44,13 +61,14 @@ const EquipmentRail = ({
     vehicles = [],
     selectedVehicleId,
     onSelect,
+    partners = [],          // para resolver o nome do locador dos terceirizados
     totalsByVehicle = {},   // { [vehicleId]: horasDecimais }
     formatHours,
 }) => {
     const presentes = vehicles.filter((v) => v.statusNaObra === 'presente');
     const historico = vehicles.filter((v) => v.statusNaObra === 'historico');
 
-    const itemProps = { selectedVehicleId, totalsByVehicle, formatHours, onSelect };
+    const itemProps = { selectedVehicleId, totalsByVehicle, formatHours, onSelect, partners };
 
     return (
         <div className="bg-white rounded-lg shadow p-2">

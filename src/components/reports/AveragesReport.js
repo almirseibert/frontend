@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Activity, Printer } from 'lucide-react';
 import { SectionHeader, FilterSection } from './ReportComponents';
 import { getGroupUnit, getReadingSourceForUnit, computeConsumption } from '../../utils/vehicleRules';
+import apiClient from '../../services/apiClient';
 import { formatObraNome } from '../../utils/obraFormat';
 import SearchableObraSelect from '../SearchableObraSelect';
 import TerceirizadoBadge, { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
@@ -11,7 +12,7 @@ import TerceirizadoBadge, { terceirizadoPdfMark } from '../ui/TerceirizadoBadge'
 // Helper para ordenação alfanumérica
 const sortAlphaNum = (a, b) => (a || '').toString().localeCompare((b || '').toString(), 'pt-BR', { numeric: true, sensitivity: 'base' });
 
-const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGroups = {} }) => {
+const AveragesReport = ({ vehicles = [], obras = [], vehicleGroups = {} }) => {
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: '',
@@ -33,91 +34,65 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
         return list.sort((a, b) => sortAlphaNum(a.registroInterno || a.placa, b.registroInterno || b.placa));
     }, [vehicles, filters.groupId]);
 
-    const reportData = useMemo(() => {
-        if (!refuelings || refuelings.length === 0) return [];
+    // A agregação por veículo (soma de litros + mín/máx de leituras) agora é feita
+    // no banco; a unidade km/hr e o cálculo final (computeConsumption) seguem aqui.
+    const [rawAgg, setRawAgg] = useState([]);
+    const [loading, setLoading] = useState(false);
 
-        let filteredRefuelings = [...refuelings];
-
-        if (filters.startDate) {
-            const start = new Date(filters.startDate).setHours(0, 0, 0, 0);
-            filteredRefuelings = filteredRefuelings.filter(r => new Date(r.data || r.dataAbastecimento).getTime() >= start);
-        }
-        if (filters.endDate) {
-            const end = new Date(filters.endDate).setHours(23, 59, 59, 999);
-            filteredRefuelings = filteredRefuelings.filter(r => new Date(r.data || r.dataAbastecimento).getTime() <= end);
-        }
-        if (filters.obraId) {
-            filteredRefuelings = filteredRefuelings.filter(r => (r.obraId || r.obraAtual) === filters.obraId);
-        }
-        if (filters.vehicleIds.length > 0) {
-            filteredRefuelings = filteredRefuelings.filter(r => filters.vehicleIds.includes(r.vehicleId || r.veiculoId));
-        }
-
-        const grouped = {};
-
-        filteredRefuelings.forEach(r => {
-            const vId = r.vehicleId || r.veiculoId;
-            if (!vId) return;
-            if (!grouped[vId]) {
-                const vehicleObj = vehicles.find(v => v.id === vId) || {};
-                const unit = getGroupUnit(vehicleObj.tipo);
-                const isKm = getReadingSourceForUnit(unit) === 'odometro';
-
-                grouped[vId] = {
-                    vehicleId: vId,
-                    isOutsourced: !!vehicleObj.isOutsourced,
-                    placa: vehicleObj.placa || 'N/A',
-                    nome: vehicleObj.nome || 'Desconhecido',
-                    grupo: vehicleObj.grupo || vehicleObj.tipo || 'N/A',
-                    obraAtual: vehicleObj.obraAtual || 'N/A',
-                    isKm: isKm,
-                    consumoUnit: unit,
-                    totalLiters: 0,
-                    leituras: []
-                };
-            }
-
-            // Campos reais da tabela refuelings: litrosAbastecidos, odometro, horimetro
-            grouped[vId].totalLiters += parseFloat(r.litrosAbastecidos || r.quantidade || 0);
-
-            const leituraAtual = parseFloat(grouped[vId].isKm
-                ? (r.odometro || r.odometroAtual)
-                : (r.horimetro || r.horimetroAtual));
-            if (!isNaN(leituraAtual) && leituraAtual > 0) {
-                grouped[vId].leituras.push(leituraAtual);
-            }
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        apiClient.getRefuelingAveragesByVehicle({
+            startDate: filters.startDate || undefined,
+            endDate: filters.endDate || undefined,
+            obraId: filters.obraId || undefined,
+            vehicleIds: filters.vehicleIds.length > 0 ? filters.vehicleIds.join(',') : undefined,
+        }).then(rows => {
+            if (!cancelled) setRawAgg(Array.isArray(rows) ? rows : []);
+        }).catch(err => {
+            console.error('Erro ao carregar médias por veículo:', err);
+            if (!cancelled) setRawAgg([]);
+        }).finally(() => {
+            if (!cancelled) setLoading(false);
         });
+        return () => { cancelled = true; };
+    }, [filters.startDate, filters.endDate, filters.obraId, filters.vehicleIds]);
 
-        return Object.values(grouped).map(item => {
+    const reportData = useMemo(() => {
+        return rawAgg.map(row => {
+            const vehicleObj = vehicles.find(v => v.id === row.vehicleId) || {};
+            const unit = getGroupUnit(vehicleObj.tipo);
+            const isKm = getReadingSourceForUnit(unit) === 'odometro';
+
+            const count = isKm ? row.odoCount : row.horCount;
             let totalUsage = 0;
-            let average = 0;
-
-            if (item.leituras.length > 1) {
-                const min = Math.min(...item.leituras);
-                const max = Math.max(...item.leituras);
-                totalUsage = max - min;
-            } else if (item.leituras.length === 1) {
-               const ref = filteredRefuelings.find(r => (r.vehicleId || r.veiculoId) === item.vehicleId);
-               const anterior = parseFloat(item.isKm
-                   ? (ref?.odometroAnterior || 0)
-                   : (ref?.horimetroAnterior || 0));
-               if (anterior > 0) totalUsage = item.leituras[0] - anterior;
+            if (count > 1) {
+                totalUsage = isKm ? (row.odoMax - row.odoMin) : (row.horMax - row.horMin);
             }
 
-            if (totalUsage > 0 && item.totalLiters > 0) {
-                average = computeConsumption(item.consumoUnit, totalUsage, item.totalLiters) || 0;
+            const totalLiters = row.totalLiters || 0;
+            let average = 0;
+            if (totalUsage > 0 && totalLiters > 0) {
+                average = computeConsumption(unit, totalUsage, totalLiters) || 0;
             }
 
             return {
-                ...item,
+                vehicleId: row.vehicleId,
+                isOutsourced: !!vehicleObj.isOutsourced,
+                placa: vehicleObj.placa || 'N/A',
+                nome: vehicleObj.nome || 'Desconhecido',
+                grupo: vehicleObj.grupo || vehicleObj.tipo || 'N/A',
+                obraAtual: vehicleObj.obraAtual || 'N/A',
+                isKm,
+                consumoUnit: unit,
+                totalLiters,
                 totalUsage,
                 average: average.toFixed(2),
-                unit: item.isKm ? 'Km' : 'Hr',
-                avgUnit: item.consumoUnit
+                unit: isKm ? 'Km' : 'Hr',
+                avgUnit: unit,
             };
         }).sort((a, b) => sortAlphaNum(a.placa, b.placa));
-
-    }, [refuelings, filters, vehicles]);
+    }, [rawAgg, vehicles]);
 
     const totalLitersGlobal = reportData.reduce((acc, curr) => acc + curr.totalLiters, 0);
 
@@ -235,7 +210,7 @@ const AveragesReport = ({ vehicles = [], obras = [], refuelings = [], vehicleGro
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {reportData.length === 0 ? (
-                                <tr><td colSpan="6" className="p-8 text-center text-gray-500">Nenhum registro de abastecimento encontrado.</td></tr>
+                                <tr><td colSpan="6" className="p-8 text-center text-gray-500">{loading ? 'Carregando…' : 'Nenhum registro de abastecimento encontrado.'}</td></tr>
                             ) : (
                                 reportData.map(item => (
                                     <tr key={item.vehicleId} className="hover:bg-gray-50">

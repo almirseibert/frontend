@@ -1,9 +1,26 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Activity, TrendingUp, TrendingDown, Filter } from 'lucide-react';
 import { getGroupUnit, getReadingSourceForUnit, computeConsumption, isHigherBetter } from '../../utils/vehicleRules';
+import apiClient from '../../services/apiClient';
 
-const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
+const FuelEfficiencyRanking = ({ vehicles = [] }) => {
     const [filterType, setFilterType] = useState('todos');
+
+    // Eficiência por veículo agregada no banco (primeira/última leitura + litros),
+    // em vez de baixar a tabela inteira de abastecimentos (~34 MB) no dashboard.
+    const [aggByVehicle, setAggByVehicle] = useState(null);
+    useEffect(() => {
+        let cancelled = false;
+        apiClient.getRefuelingEfficiencyByVehicle()
+            .then(rows => {
+                if (cancelled) return;
+                const m = {};
+                (rows || []).forEach(r => { m[r.vehicleId] = r; });
+                setAggByVehicle(m);
+            })
+            .catch(() => { if (!cancelled) setAggByVehicle({}); });
+        return () => { cancelled = true; };
+    }, []);
 
     const types = useMemo(() => {
         const uniqueTypes = [...new Set(vehicles.map(v => v.tipo))].sort();
@@ -11,39 +28,24 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
     }, [vehicles]);
 
     const rankingData = useMemo(() => {
-        if (!vehicles.length || !refuelings.length) return { best: [], worst: [] };
+        if (!vehicles.length || !aggByVehicle) return { best: [], worst: [] };
 
         const stats = vehicles.map(vehicle => {
+            const agg = aggByVehicle[vehicle.id];
+            // Precisa de pelo menos 2 abastecimentos concluídos (marco zero + intervalo).
+            if (!agg || agg.count < 2) return null;
+
             const unit = getGroupUnit(vehicle.tipo);
             const readingSource = getReadingSourceForUnit(unit);
             const isKm = readingSource === 'odometro';
             const higherBetter = isHigherBetter(unit);
 
-            // Pega apenas abastecimentos concluídos deste veículo
-            const history = refuelings
-                .filter(r => r.vehicleId === vehicle.id && r.status === 'Concluída')
-                .sort((a,b) => new Date(a.date) - new Date(b.date)); // Ordena do mais antigo para o mais novo
+            // Litros do intervalo já vêm sem o primeiro abastecimento (o marco zero).
+            const totalLiters = agg.totalLiters;
 
-            if (history.length < 2) return null;
-
-            // Soma litros (ignorando o primeiro abastecimento do intervalo, pois ele é o marco zero da leitura)
-            const totalLiters = history.slice(1).reduce((acc, r) => acc + (parseFloat(r.litrosAbastecidos) || 0), 0);
-            
-            let startReading = 0, endReading = 0;
-            
-            // CORREÇÃO UNIFICADA: Usa apenas 'odometro' ou 'horimetro'
-            if (isKm) {
-                const first = history[0];
-                const last = history[history.length - 1];
-                startReading = parseFloat(first.odometro || 0);
-                endReading = parseFloat(last.odometro || 0);
-            } else {
-                const first = history[0];
-                const last = history[history.length - 1];
-                // Regra Unificada: usa apenas vehicle.horimetro no banco
-                startReading = parseFloat(first.horimetro || 0);
-                endReading = parseFloat(last.horimetro || 0);
-            }
+            // Primeira/última leitura por data (ordenação correta feita no banco).
+            const startReading = isKm ? agg.firstOdo : agg.firstHor;
+            const endReading = isKm ? agg.lastOdo : agg.lastHor;
 
             const diff = endReading - startReading;
             if (diff <= 0 || totalLiters <= 0) return null;
@@ -75,7 +77,7 @@ const FuelEfficiencyRanking = ({ vehicles = [], refuelings = [] }) => {
             best: sorted.slice(0, 5),
             worst: sorted.reverse().slice(0, 5)
         };
-    }, [vehicles, refuelings, filterType]);
+    }, [vehicles, aggByVehicle, filterType]);
 
     const ListItem = ({ item, rank, isBest }) => (
         <div className="flex justify-between items-center p-1.5 bg-gray-50 rounded border border-gray-100 text-xs hover:bg-gray-100 transition">

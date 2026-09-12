@@ -10,6 +10,7 @@ import apiClient from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
 import { formatObraNome } from '../utils/obraFormat';
 import { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
+import { getVehicleTerceiroName } from '../utils/partners';
 import ContextFinder from '../components/billing/ContextFinder';
 import ObraStartList from '../components/billing/ObraStartList';
 import EquipmentRail from '../components/billing/EquipmentRail';
@@ -29,6 +30,7 @@ const BillingPage = ({
     obras = [], 
     vehicles = [], 
     employees = [], 
+    partners = [],
     vehicleGroups = {}, 
     setAlertMessage,
     initialFilter = null,
@@ -1381,6 +1383,7 @@ const BillingPage = ({
                             <EquipmentRail
                                 vehicles={getObraVehicles}
                                 selectedVehicleId={controlVehicleId}
+                                partners={partners}
                                 onSelect={handleSelectVehicle}
                                 totalsByVehicle={monthTotalsByVehicle}
                                 formatHours={formatDecimalToTime}
@@ -1391,9 +1394,16 @@ const BillingPage = ({
                                 <p className="text-sm text-gray-700 font-semibold">
                                     {(() => {
                                         const v = getObraVehicles.find(x => x.id === controlVehicleId);
-                                        return v
-                                            ? `${v.registroInterno} — ${v.tipo} ${v.marca || ''} ${v.modelo || ''}`.trim()
-                                            : 'Selecione um equipamento ao lado';
+                                        if (!v) return 'Selecione um equipamento ao lado';
+                                        // Identificação completa: quem lança 30 dias de hora confirma
+                                        // a máquina aqui — placa e terceiro evitam lançar na errada.
+                                        const base = `${v.registroInterno} — ${v.tipo} ${v.marca || ''} ${v.modelo || ''}`.trim();
+                                        const terceiro = getVehicleTerceiroName(v, partners);
+                                        return [
+                                            base,
+                                            v.placa || null,
+                                            v.isOutsourced ? `Terceiro: ${terceiro || 'sem fornecedor vinculado'}` : null,
+                                        ].filter(Boolean).join(' • ');
                                     })()}
                                 </p>
                                 <button onClick={scrollToToday} title="Ir para hoje"

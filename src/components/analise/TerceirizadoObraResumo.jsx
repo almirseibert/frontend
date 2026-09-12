@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Truck, DollarSign, Droplet } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { computeTerceirizadoPorObra } from '../../utils/terceirizados';
+import { computeTerceirizadoPorObra, getContratoMachines } from '../../utils/terceirizados';
+import apiClient from '../../services/apiClient';
 
 const fmtBRL = (n) =>
     (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -22,9 +23,30 @@ const fmtBRL = (n) =>
 const TerceirizadoObraResumo = ({ obraId, period, variant = 'card', hideWhenEmpty = true }) => {
     const {
         obras = [], vehicles = [], partners = [],
-        dailyWorkLogs = [], refuelings = [], comboioTransactions = [],
+        dailyWorkLogs = [], comboioTransactions = [],
         terceirizadoPagamentos = [], terceiroContratos = [],
     } = useData();
+
+    // Abastecimentos escopados às máquinas dos contratos DESTA obra — evita
+    // depender da tabela inteira (que pode nem estar carregada, ex.: no dashboard).
+    // O cálculo (computeTerceirizadoPorObra) permanece idêntico.
+    const scopedVehicleIds = useMemo(() => {
+        const ids = new Set();
+        (terceiroContratos || [])
+            .filter((c) => c.obraId === obraId)
+            .forEach((c) => getContratoMachines(c, obras, vehicles).forEach((v) => ids.add(v.id)));
+        return [...ids];
+    }, [terceiroContratos, obraId, obras, vehicles]);
+
+    const [refuelings, setRefuelings] = useState([]);
+    useEffect(() => {
+        let cancelled = false;
+        if (scopedVehicleIds.length === 0) { setRefuelings([]); return; }
+        apiClient.getRefuelingsByVehicles(scopedVehicleIds)
+            .then((rows) => { if (!cancelled) setRefuelings(Array.isArray(rows) ? rows : []); })
+            .catch(() => { if (!cancelled) setRefuelings([]); });
+        return () => { cancelled = true; };
+    }, [scopedVehicleIds]);
 
     const resumo = useMemo(() => {
         if (!obraId) return null;
