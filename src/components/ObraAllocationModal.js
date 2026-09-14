@@ -21,6 +21,20 @@ const PlanoItemPicker = ({ loading, resolucao, itens, value, onChange }) => {
     }
     if (!resolucao) return null;
 
+    // Leves e caminhões de trecho: alocam normalmente, mas rodam em km. Não há
+    // item a escolher porque não há hora a abater. Informar, não perguntar.
+    if (resolucao.decisao === 'nao_consome_horas') {
+        return (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Item do plano de trabalho
+                </p>
+                <p className="text-sm font-bold text-gray-800">Não se aplica</p>
+                <p className="text-xs text-gray-500 mt-0.5">{resolucao.motivo}</p>
+            </div>
+        );
+    }
+
     if (resolucao.decisao === 'sem_plano') {
         return (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
