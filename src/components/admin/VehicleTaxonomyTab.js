@@ -1,7 +1,13 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
-import { Truck, Plus, Edit2, Trash2, Loader, ChevronDown, ChevronRight, Fuel, Check, X, AlertTriangle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Truck, Plus, Edit2, Trash2, Loader, Fuel, Check, X, AlertTriangle, RefreshCw } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 import VehicleTypeConfigModal from '../modals/VehicleTypeConfigModal';
+
+// Vocabulário: o banco fala grupo/tipo/sub-tipo, o negócio fala
+// Categoria/Grupo/Subgrupo. A tela usa o vocabulário do negócio.
+//   vehicle_groups    → Categoria (define a unidade de consumo)
+//   vehicle_types     → Grupo
+//   vehicle_sub_types → Subgrupo (pode pertencer a vários Grupos da mesma Categoria)
 
 const UNIDADES = ['L/h', 'h/L', 'Km/L', 'L/Km'];
 
@@ -15,35 +21,45 @@ const unidadeHint = (u) => {
     }
 };
 
+const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+
 const VehicleTaxonomyTab = () => {
     const [tree, setTree] = useState([]);
+    const [subgrupos, setSubgrupos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [toast, setToast] = useState('');
-    const [openGroups, setOpenGroups] = useState({});
     const [showConfigModal, setShowConfigModal] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    // estados de adição inline
-    const [newGroupName, setNewGroupName] = useState('');
-    const [addingTypeFor, setAddingTypeFor] = useState(null);
-    const [newTypeName, setNewTypeName] = useState('');
-    const [addingSubFor, setAddingSubFor] = useState(null);
-    const [newSubName, setNewSubName] = useState('');
+    // seleção: filtra a coluna seguinte (não aninha)
+    const [selCat, setSelCat] = useState(null);
+    const [selGrp, setSelGrp] = useState(null);
+
+    // criação/edição inline
+    const [newCatName, setNewCatName] = useState('');
+    const [addingCat, setAddingCat] = useState(false);
+    const [newGrpName, setNewGrpName] = useState('');
+    const [addingGrp, setAddingGrp] = useState(false);
+    const [subForm, setSubForm] = useState(null); // { id|null, nome, grupos:[] }
 
     const toastTimer = useRef(null);
     const showToast = (msg) => {
         setToast(msg);
         if (toastTimer.current) clearTimeout(toastTimer.current);
-        toastTimer.current = setTimeout(() => setToast(''), 3500);
+        toastTimer.current = setTimeout(() => setToast(''), 5000);
     };
 
     const load = async () => {
         setLoading(true);
         setLoadError('');
         try {
-            const data = await apiClient.getVehicleTaxonomy();
+            const [data, subs] = await Promise.all([
+                apiClient.getVehicleTaxonomy(),
+                apiClient.getVehicleSubTypes(),
+            ]);
             setTree(Array.isArray(data) ? data : []);
+            setSubgrupos(Array.isArray(subs) ? subs : []);
         } catch (e) {
             setLoadError(e.message || 'Erro ao carregar. Verifique se o servidor está rodando e foi reiniciado após a última atualização.');
         } finally {
@@ -56,278 +72,510 @@ const VehicleTaxonomyTab = () => {
         return () => { if (toastTimer.current) clearTimeout(toastTimer.current); };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const toggleGroup = (id) => setOpenGroups(prev => ({ ...prev, [id]: !prev[id] }));
-
     const run = async (fn, okMsg) => {
         setSaving(true);
         try {
             await fn();
             if (okMsg) showToast(okMsg);
             await load();
+            return true;
         } catch (e) {
             showToast(e.message || 'Erro na operação.');
+            return false;
         } finally {
             setSaving(false);
         }
     };
 
-    // ── Grupos ────────────────────────────────────────────────────────────
-    const addGroup = async () => {
-        const nome = newGroupName.trim();
+    // ── Índices derivados ─────────────────────────────────────────────────
+    const grupos = useMemo(
+        () => tree.flatMap(c => (c.tipos || []).map(t => ({ ...t, catId: c.id, catNome: c.nome, unidade: c.unidade }))),
+        [tree]
+    );
+    const grupoById = useMemo(() => Object.fromEntries(grupos.map(g => [g.id, g])), [grupos]);
+
+    const gruposVisiveis = useMemo(
+        () => (selCat ? grupos.filter(g => g.catId === selCat) : grupos),
+        [grupos, selCat]
+    );
+
+    // Subgrupo sem nenhum grupo aparece SEMPRE, em qualquer filtro. Ele nasce assim
+    // quando um grupo é excluído e leva os vínculos junto; se sumisse das visões
+    // filtradas, continuaria ocupando o nome no índice único global e ninguém
+    // conseguiria achá-lo para corrigir — só um 409 inexplicável ao tentar recriar.
+    const subsVisiveis = useMemo(() => {
+        const orfaos = subgrupos.filter(s => (s.grupos || []).length === 0);
+        if (selGrp) {
+            return [...subgrupos.filter(s => (s.grupos || []).includes(selGrp)), ...orfaos];
+        }
+        if (selCat) {
+            return [
+                ...subgrupos.filter(s => (s.grupos || []).some(id => grupoById[id]?.catId === selCat)),
+                ...orfaos,
+            ];
+        }
+        return subgrupos;
+    }, [subgrupos, selGrp, selCat, grupoById]);
+
+    const orfaosCount = useMemo(
+        () => subgrupos.filter(s => (s.grupos || []).length === 0).length,
+        [subgrupos]
+    );
+
+    // Categoria travada pelo primeiro grupo marcado — é o que impede o subgrupo
+    // de valer em duas categorias com unidades de consumo diferentes.
+    const catTravada = useMemo(() => {
+        const primeiro = subForm?.grupos?.[0];
+        return primeiro ? grupoById[primeiro]?.catId : null;
+    }, [subForm, grupoById]);
+
+    // ── Categoria ─────────────────────────────────────────────────────────
+    const addCat = async () => {
+        const nome = newCatName.trim();
         if (!nome) return;
-        setNewGroupName('');
-        await run(() => apiClient.createVehicleGroup({ nome, unidade: 'L/h' }), `Grupo "${nome}" criado!`);
+        const ok = await run(() => apiClient.createVehicleGroup({ nome, unidade: 'L/h' }), `Categoria "${nome}" criada.`);
+        if (ok) { setNewCatName(''); setAddingCat(false); }
+    };
+    const renameCat = (c) => {
+        const nome = window.prompt('Novo nome da categoria:', c.nome);
+        if (!nome || nome.trim() === c.nome) return;
+        run(() => apiClient.updateVehicleGroup(c.id, { nome: nome.trim(), unidade: c.unidade }), 'Categoria renomeada.');
+    };
+    const setUnidade = (c, unidade) =>
+        run(() => apiClient.updateVehicleGroup(c.id, { nome: c.nome, unidade }), `Unidade de "${c.nome}" agora é ${unidade}.`);
+    const removeCat = (c) => {
+        // O CASCADE não para nos grupos: leva junto os vínculos de subgrupo deles.
+        // Avisar só sobre grupos escondia a perda do trabalho de vinculação.
+        const idsDosGrupos = (c.tipos || []).map(t => t.id);
+        const subsAfetados = subgrupos.filter(s => (s.grupos || []).some(id => idsDosGrupos.includes(id)));
+        const orfanariam = subsAfetados.filter(
+            s => (s.grupos || []).every(id => idsDosGrupos.includes(id))
+        );
+
+        const linhas = [
+            `Excluir a categoria "${c.nome}"?`,
+            '',
+            `• ${plural(idsDosGrupos.length, 'grupo sera excluido', 'grupos serao excluidos')}`,
+        ];
+        if (subsAfetados.length) {
+            linhas.push(`• ${plural(subsAfetados.length, 'subgrupo perde', 'subgrupos perdem')} o vinculo com esses grupos`);
+        }
+        if (orfanariam.length) {
+            linhas.push(`• ${plural(orfanariam.length, 'subgrupo fica', 'subgrupos ficam')} sem nenhum grupo: `
+                + orfanariam.map(s => s.nome).join(', '));
+        }
+        const msg = linhas.join('\n');
+        if (!window.confirm(msg)) return;
+        run(() => apiClient.deleteVehicleGroup(c.id), `Categoria "${c.nome}" excluída.`);
     };
 
-    const renameGroup = (g) => {
+    // ── Grupo ─────────────────────────────────────────────────────────────
+    const addGrp = async () => {
+        const nome = newGrpName.trim();
+        if (!nome || !selCat) return;
+        const ok = await run(() => apiClient.createVehicleType({ group_id: selCat, nome }), `Grupo "${nome}" criado.`);
+        if (ok) { setNewGrpName(''); setAddingGrp(false); }
+    };
+    const renameGrp = (g) => {
         const nome = window.prompt('Novo nome do grupo:', g.nome);
-        if (nome == null || nome.trim() === '' || nome.trim() === g.nome) return;
-        run(() => apiClient.updateVehicleGroup(g.id, { nome: nome.trim(), unidade: g.unidade }), 'Grupo renomeado!');
+        if (!nome || nome.trim() === g.nome) return;
+        run(() => apiClient.updateVehicleType(g.id, { nome: nome.trim() }), 'Grupo renomeado.');
+    };
+    const removeGrp = (g) => {
+        const vinculados = subgrupos.filter(s => (s.grupos || []).includes(g.id));
+        const orfanariam = vinculados.filter(s => (s.grupos || []).length === 1);
+
+        const linhas = [`Excluir o grupo "${g.nome}"?`];
+        if (vinculados.length) {
+            linhas.push('', `• ${plural(vinculados.length, 'subgrupo perde', 'subgrupos perdem')} o vinculo com ele`);
+        }
+        if (orfanariam.length) {
+            linhas.push(`• ${plural(orfanariam.length, 'subgrupo fica', 'subgrupos ficam')} sem nenhum grupo: `
+                + orfanariam.map(s => s.nome).join(', '));
+        }
+        const msg = linhas.join('\n');
+        if (!window.confirm(msg)) return;
+        // O backend exige confirmação explícita quando há vínculo em jogo (409 com
+        // exigeConfirmacao) — o usuário já confirmou aqui, com os números na frente.
+        run(() => apiClient.deleteVehicleType(g.id, { confirmar: vinculados.length > 0 }),
+            `Grupo "${g.nome}" excluído.`);
     };
 
-    const changeUnit = (g, unidade) => {
-        run(() => apiClient.updateVehicleGroup(g.id, { nome: g.nome, unidade }), `Unidade do grupo "${g.nome}" atualizada para ${unidade}!`);
+    // ── Subgrupo ──────────────────────────────────────────────────────────
+    const openSubForm = (sub) => setSubForm(
+        sub ? { id: sub.id, nome: sub.nome, grupos: [...(sub.grupos || [])] }
+            : { id: null, nome: '', grupos: selGrp ? [selGrp] : [] }
+    );
+    const toggleGrupoNoForm = (id) => setSubForm(f => ({
+        ...f,
+        grupos: f.grupos.includes(id) ? f.grupos.filter(x => x !== id) : [...f.grupos, id],
+    }));
+    const salvarSub = async () => {
+        const nome = (subForm.nome || '').trim();
+        if (!nome) { showToast('Dê um nome ao subgrupo antes de salvar.'); return; }
+        if (subForm.grupos.length === 0) {
+            showToast('Marque pelo menos um grupo — é ele que diz onde este subgrupo se encaixa.');
+            return;
+        }
+        const payload = { nome, type_ids: subForm.grupos };
+        const ok = await run(
+            () => (subForm.id
+                ? apiClient.updateVehicleSubType(subForm.id, payload)
+                : apiClient.createVehicleSubType(payload)),
+            subForm.id ? 'Subgrupo atualizado.' : `Subgrupo "${nome}" criado.`
+        );
+        if (ok) setSubForm(null);
+    };
+    const removeSub = (s) => {
+        if (!window.confirm(`Excluir o subgrupo "${s.nome}"?`)) return;
+        run(() => apiClient.deleteVehicleSubType(s.id), `Subgrupo "${s.nome}" excluído.`);
     };
 
-    const deleteGroup = (g) => {
-        if (!window.confirm(`Excluir o grupo "${g.nome}" e todos os seus tipos/sub-tipos?`)) return;
-        run(() => apiClient.deleteVehicleGroup(g.id), `Grupo "${g.nome}" excluído.`);
-    };
+    // ── Render ────────────────────────────────────────────────────────────
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20 text-gray-500 gap-2">
+                <Loader size={18} className="animate-spin" /> Carregando taxonomia…
+            </div>
+        );
+    }
 
-    // ── Tipos ─────────────────────────────────────────────────────────────
-    const addType = async (groupId) => {
-        const nome = newTypeName.trim();
-        if (!nome) return;
-        setNewTypeName('');
-        setAddingTypeFor(null);
-        await run(() => apiClient.createVehicleType({ group_id: groupId, nome }), `Tipo "${nome}" criado!`);
-    };
-
-    const renameType = (t) => {
-        const nome = window.prompt('Novo nome do tipo:', t.nome);
-        if (nome == null || nome.trim() === '' || nome.trim() === t.nome) return;
-        run(() => apiClient.updateVehicleType(t.id, { nome: nome.trim() }), 'Tipo renomeado!');
-    };
-
-    const deleteType = (t) => {
-        if (!window.confirm(`Excluir o tipo "${t.nome}" e seus sub-tipos?`)) return;
-        run(() => apiClient.deleteVehicleType(t.id), `Tipo "${t.nome}" excluído.`);
-    };
-
-    // ── Sub-tipos ─────────────────────────────────────────────────────────
-    const addSub = async (typeId) => {
-        const nome = newSubName.trim();
-        if (!nome) return;
-        setNewSubName('');
-        setAddingSubFor(null);
-        await run(() => apiClient.createVehicleSubType({ type_id: typeId, nome }), `Sub-tipo "${nome}" criado!`);
-    };
-
-    const renameSub = (s) => {
-        const nome = window.prompt('Novo nome do sub-tipo:', s.nome);
-        if (nome == null || nome.trim() === '' || nome.trim() === s.nome) return;
-        run(() => apiClient.updateVehicleSubType(s.id, { nome: nome.trim() }), 'Sub-tipo renomeado!');
-    };
-
-    const deleteSub = (s) => {
-        if (!window.confirm(`Excluir o sub-tipo "${s.nome}"?`)) return;
-        run(() => apiClient.deleteVehicleSubType(s.id), `Sub-tipo "${s.nome}" excluído.`);
-    };
+    const colHeader = (titulo, contagem, onAdd, addLabel, addDisabled, addTitle) => (
+        <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-200 bg-gray-50">
+            <div className="flex items-baseline gap-2 min-w-0">
+                <h3 className="font-bold text-[11px] tracking-wider uppercase text-gray-600">{titulo}</h3>
+                <span className="text-[11px] text-gray-400 tabular-nums">{contagem}</span>
+            </div>
+            <button
+                type="button"
+                onClick={onAdd}
+                disabled={addDisabled || saving}
+                title={addTitle}
+                className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+                <Plus size={13} /> {addLabel}
+            </button>
+        </div>
+    );
 
     return (
         <div className="space-y-4">
-            {/* Toast de sucesso/erro */}
+            {/* Cabeçalho */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <Truck size={18} className="text-gray-500" />
+                    <h2 className="font-bold text-gray-800">Taxonomia de Equipamentos</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button" onClick={load} title="Recarregar"
+                        className="p-1.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+                    >
+                        <RefreshCw size={14} />
+                    </button>
+                    <button
+                        type="button" onClick={() => setShowConfigModal(true)}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                    >
+                        <Fuel size={14} /> Médias de consumo
+                    </button>
+                </div>
+            </div>
+
+            <p className="text-sm text-gray-600 max-w-3xl">
+                Categoria, Grupo e Subgrupo são criados de forma independente. Um <b>Subgrupo</b> declara
+                em quais <b>Grupos</b> ele se encaixa — e só dentro da mesma <b>Categoria</b>, porque é a
+                Categoria que define a unidade de consumo e o tipo de leitura do equipamento.
+            </p>
+
+            {loadError && (
+                <div className="flex items-start gap-2 p-3 rounded border border-red-200 bg-red-50 text-red-700 text-sm">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {loadError}
+                </div>
+            )}
             {toast && (
-                <div className="fixed top-4 right-4 z-[9999] bg-gray-800 text-white px-4 py-3 rounded-lg shadow-lg text-sm max-w-sm">
-                    {toast}
+                <div className="flex items-start gap-2 p-3 rounded border border-amber-200 bg-amber-50 text-amber-900 text-sm">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {toast}
                 </div>
             )}
 
-            <div className="bg-white rounded-lg shadow border border-gray-200">
-                {/* Cabeçalho */}
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-gray-100">
-                    <div className="flex items-center gap-2">
-                        <Truck size={18} className="text-yellow-500" />
-                        <div>
-                            <h2 className="font-bold text-gray-800">Grupos, Tipos e Sub-tipos de Veículos</h2>
-                            <p className="text-xs text-gray-400">Gerencie a taxonomia. A unidade do grupo define como o consumo é calculado.</p>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_1.35fr] gap-3 items-start">
+
+                {/* ── Coluna 1: Categoria ───────────────────────────────── */}
+                <section className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    {colHeader('Categoria', tree.length, () => setAddingCat(v => !v), 'Nova', false)}
+                    <ul className="p-1.5 space-y-0.5 max-h-[430px] overflow-y-auto">
+                        {tree.map(c => {
+                            const nGrupos = (c.tipos || []).length;
+                            const ativa = selCat === c.id;
+                            return (
+                                <li key={c.id}>
+                                    <div
+                                        className={`group flex items-center gap-2 px-2.5 py-2 rounded border cursor-pointer ${
+                                            ativa ? 'bg-amber-50 border-amber-200' : 'border-transparent hover:bg-gray-50 hover:border-gray-200'
+                                        }`}
+                                        onClick={() => { setSelCat(ativa ? null : c.id); setSelGrp(null); setSubForm(null); }}
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm text-gray-800 break-words">{c.nome}</div>
+                                            <div className="text-xs text-gray-400">{plural(nGrupos, 'grupo', 'grupos')}</div>
+                                        </div>
+                                        <select
+                                            value={c.unidade}
+                                            title={unidadeHint(c.unidade)}
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => setUnidade(c, e.target.value)}
+                                            className="text-[10px] font-mono border border-gray-300 rounded px-1 py-0.5 bg-white text-gray-600"
+                                        >
+                                            {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+                                        </select>
+                                        <button
+                                            type="button" title="Renomear categoria"
+                                            onClick={e => { e.stopPropagation(); renameCat(c); }}
+                                            className="p-1 text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100"
+                                        ><Edit2 size={13} /></button>
+                                        <button
+                                            type="button" title="Excluir categoria"
+                                            onClick={e => { e.stopPropagation(); removeCat(c); }}
+                                            className="p-1 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100"
+                                        ><Trash2 size={13} /></button>
+                                    </div>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                    {addingCat && (
+                        <div className="border-t border-gray-200 bg-gray-50 p-3 flex gap-2">
+                            <input
+                                autoFocus value={newCatName} onChange={e => setNewCatName(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') addCat(); if (e.key === 'Escape') setAddingCat(false); }}
+                                placeholder="Nome da categoria"
+                                className="flex-1 text-sm px-2 py-1.5 border border-gray-300 rounded"
+                            />
+                            <button type="button" onClick={addCat} disabled={saving}
+                                className="p-1.5 rounded bg-amber-700 text-white disabled:opacity-50"><Check size={14} /></button>
+                            <button type="button" onClick={() => { setAddingCat(false); setNewCatName(''); }}
+                                className="p-1.5 rounded border border-gray-300 text-gray-500"><X size={14} /></button>
                         </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={load}
-                            disabled={loading}
-                            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Recarregar"
-                        >
-                            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-                        </button>
-                        <button
-                            onClick={() => setShowConfigModal(true)}
-                            className="flex items-center gap-2 px-3 py-2 bg-yellow-400 hover:bg-[#fdf8f0]0 text-gray-900 font-bold rounded-lg text-sm transition-colors"
-                        >
-                            <Fuel size={15} /> Configuração de Consumo
-                        </button>
-                    </div>
-                </div>
+                    )}
+                </section>
 
-                {/* Adicionar grupo */}
-                <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-gray-50">
-                    <input
-                        value={newGroupName}
-                        onChange={e => setNewGroupName(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && addGroup()}
-                        placeholder="Nome do novo grupo…"
-                        className="flex-1 max-w-xs p-2 border rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-                        disabled={saving}
-                    />
-                    <button
-                        onClick={addGroup}
-                        disabled={saving || !newGroupName.trim()}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm transition-colors disabled:opacity-50"
-                    >
-                        {saving ? <Loader size={14} className="animate-spin" /> : <Plus size={15} />} Novo Grupo
-                    </button>
-                </div>
+                {/* ── Coluna 2: Grupo ───────────────────────────────────── */}
+                <section className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    {colHeader(
+                        'Grupo',
+                        selCat ? `${gruposVisiveis.length} de ${grupos.length}` : grupos.length,
+                        () => setAddingGrp(v => !v),
+                        'Novo',
+                        !selCat,
+                        selCat ? 'Criar grupo nesta categoria' : 'Selecione uma categoria primeiro'
+                    )}
+                    <ul className="p-1.5 space-y-0.5 max-h-[430px] overflow-y-auto">
+                        {gruposVisiveis.length === 0 && (
+                            <li className="px-3 py-6 text-center text-sm text-gray-400 italic">
+                                Nenhum grupo nesta categoria.
+                            </li>
+                        )}
+                        {gruposVisiveis.map(g => {
+                            const nSub = subgrupos.filter(s => (s.grupos || []).includes(g.id)).length;
+                            const ativo = selGrp === g.id;
+                            return (
+                                <li key={g.id}>
+                                    <div
+                                        className={`group flex items-center gap-2 px-2.5 py-2 rounded border cursor-pointer ${
+                                            ativo ? 'bg-amber-50 border-amber-200' : 'border-transparent hover:bg-gray-50 hover:border-gray-200'
+                                        }`}
+                                        onClick={() => {
+                                            setSelGrp(ativo ? null : g.id);
+                                            if (!ativo) setSelCat(g.catId);
+                                            setSubForm(null);
+                                        }}
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm text-gray-800 break-words">{g.nome}</div>
+                                            <div className="text-xs text-gray-400">
+                                                {nSub ? plural(nSub, 'subgrupo', 'subgrupos') : 'sem subgrupo'}
+                                            </div>
+                                        </div>
+                                        <span className={`text-[11px] font-mono tabular-nums whitespace-nowrap ${g.veiculos ? 'text-gray-500' : 'text-gray-300'}`}>
+                                            {g.veiculos ? plural(g.veiculos, 'veíc.', 'veíc.') : 'sem veíc.'}
+                                        </span>
+                                        <button
+                                            type="button" title="Renomear grupo"
+                                            onClick={e => { e.stopPropagation(); renameGrp(g); }}
+                                            className="p-1 text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100"
+                                        ><Edit2 size={13} /></button>
+                                        <button
+                                            type="button" title="Excluir grupo"
+                                            onClick={e => { e.stopPropagation(); removeGrp(g); }}
+                                            className="p-1 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100"
+                                        ><Trash2 size={13} /></button>
+                                    </div>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                    {addingGrp && selCat && (
+                        <div className="border-t border-gray-200 bg-gray-50 p-3 flex gap-2">
+                            <input
+                                autoFocus value={newGrpName} onChange={e => setNewGrpName(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') addGrp(); if (e.key === 'Escape') setAddingGrp(false); }}
+                                placeholder="Nome do grupo"
+                                className="flex-1 text-sm px-2 py-1.5 border border-gray-300 rounded"
+                            />
+                            <button type="button" onClick={addGrp} disabled={saving}
+                                className="p-1.5 rounded bg-amber-700 text-white disabled:opacity-50"><Check size={14} /></button>
+                            <button type="button" onClick={() => { setAddingGrp(false); setNewGrpName(''); }}
+                                className="p-1.5 rounded border border-gray-300 text-gray-500"><X size={14} /></button>
+                        </div>
+                    )}
+                </section>
 
-                {/* Conteúdo */}
-                {loading ? (
-                    <div className="flex flex-col items-center justify-center py-12 gap-3">
-                        <Loader size={24} className="animate-spin text-yellow-500" />
-                        <p className="text-sm text-gray-400">Carregando taxonomia…</p>
-                    </div>
-                ) : loadError ? (
-                    <div className="p-6">
-                        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                            <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-                            <div>
-                                <p className="font-bold text-sm">Erro ao carregar dados</p>
-                                <p className="text-xs mt-1">{loadError}</p>
-                                <button onClick={load} className="mt-2 text-xs font-bold underline hover:no-underline">
-                                    Tentar novamente
+                {/* ── Coluna 3: Subgrupo ────────────────────────────────── */}
+                <section className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    {colHeader(
+                        'Subgrupo',
+                        (selGrp || selCat) ? `${subsVisiveis.length} de ${subgrupos.length}` : subgrupos.length,
+                        () => openSubForm(null),
+                        'Novo',
+                        false
+                    )}
+                    {orfaosCount > 0 && (
+                        <p className="px-3 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200">
+                            {plural(orfaosCount, 'subgrupo está', 'subgrupos estão')} sem nenhum grupo e
+                            {orfaosCount === 1 ? ' aparece' : ' aparecem'} em todos os filtros até
+                            {orfaosCount === 1 ? ' ser vinculado' : ' serem vinculados'}.
+                        </p>
+                    )}
+                    <ul className="p-1.5 space-y-0.5 max-h-[430px] overflow-y-auto">
+                        {subsVisiveis.length === 0 && (
+                            <li className="px-3 py-6 text-center text-sm text-gray-400 italic">
+                                Nenhum subgrupo vinculado a esta seleção.
+                            </li>
+                        )}
+                        {subsVisiveis.map(s => (
+                            <li key={s.id}>
+                                <div
+                                    className={`group flex items-start gap-2 px-2.5 py-2 rounded border cursor-pointer ${
+                                        subForm?.id === s.id ? 'bg-amber-50 border-amber-200' : 'border-transparent hover:bg-gray-50 hover:border-gray-200'
+                                    }`}
+                                    onClick={() => openSubForm(s)}
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm text-gray-800 break-words">{s.nome}</div>
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {(s.grupos || []).map(id => (
+                                                <span key={id} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 text-gray-600">
+                                                    {grupoById[id]?.nome || '—'}
+                                                </span>
+                                            ))}
+                                            {(s.grupos || []).length === 0 && (
+                                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-red-200 bg-red-50 text-red-600">
+                                                    sem grupo
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <span className={`text-[11px] font-mono tabular-nums whitespace-nowrap mt-0.5 ${s.veiculos ? 'text-gray-500' : 'text-gray-300'}`}>
+                                        {s.veiculos ? plural(s.veiculos, 'veíc.', 'veíc.') : 'sem veíc.'}
+                                    </span>
+                                    <button
+                                        type="button" title="Excluir subgrupo"
+                                        onClick={e => { e.stopPropagation(); removeSub(s); }}
+                                        className="p-1 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 mt-0.5"
+                                    ><Trash2 size={13} /></button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+
+                    {subForm && (
+                        <div className="border-t border-gray-200 bg-gray-50 p-3 space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-800">
+                                {subForm.id ? 'Editar subgrupo' : 'Novo subgrupo'}
+                            </h4>
+
+                            <div className="space-y-1">
+                                <label htmlFor="subNome" className="block text-[10px] font-mono uppercase tracking-wider text-gray-400">
+                                    Nome do subgrupo
+                                </label>
+                                <input
+                                    id="subNome" autoFocus value={subForm.nome}
+                                    onChange={e => setSubForm(f => ({ ...f, nome: e.target.value }))}
+                                    placeholder="Ex.: Caminhão Caçamba Basculante 12m³"
+                                    className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <span className="block text-[10px] font-mono uppercase tracking-wider text-gray-400">
+                                    Em quais grupos este subgrupo se encaixa
+                                </span>
+                                {tree.map(c => {
+                                    const bloqueada = catTravada && catTravada !== c.id;
+                                    return (
+                                        <div key={c.id}>
+                                            <p className="text-[10px] font-mono uppercase tracking-wide text-gray-400 mb-1 flex items-center gap-2">
+                                                {c.nome} · {c.unidade}
+                                                {bloqueada && (
+                                                    <span className="normal-case tracking-normal text-[11px] text-red-500">
+                                                        — fora da categoria travada
+                                                    </span>
+                                                )}
+                                            </p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {(c.tipos || []).map(t => {
+                                                    const on = subForm.grupos.includes(t.id);
+                                                    return (
+                                                        <label
+                                                            key={t.id}
+                                                            className={`inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border cursor-pointer ${
+                                                                on ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                                                   : 'bg-white border-gray-300 text-gray-700'
+                                                            } ${bloqueada ? 'opacity-40 line-through cursor-not-allowed' : ''}`}
+                                                        >
+                                                            <input
+                                                                type="checkbox" checked={on} disabled={bloqueada}
+                                                                onChange={() => toggleGrupoNoForm(t.id)}
+                                                                className="accent-amber-700"
+                                                            />
+                                                            {t.nome}{t.veiculos ? ` (${t.veiculos})` : ''}
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <p className="text-xs text-gray-600">
+                                {catTravada
+                                    ? `Categoria travada em ${tree.find(c => c.id === catTravada)?.nome} `
+                                      + `(${tree.find(c => c.id === catTravada)?.unidade}). `
+                                      + `${plural(subForm.grupos.length, 'grupo marcado', 'grupos marcados')}. `
+                                      + 'Desmarque todos para trocar de categoria.'
+                                    : 'Marque o primeiro grupo — a lista se restringe à categoria dele.'}
+                            </p>
+
+                            <div className="flex gap-2">
+                                <button
+                                    type="button" onClick={salvarSub} disabled={saving}
+                                    className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded bg-amber-700 text-white disabled:opacity-50"
+                                >
+                                    {saving ? <Loader size={14} className="animate-spin" /> : <Check size={14} />}
+                                    Salvar subgrupo
+                                </button>
+                                <button
+                                    type="button" onClick={() => setSubForm(null)}
+                                    className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-600"
+                                >
+                                    Cancelar
                                 </button>
                             </div>
                         </div>
-                    </div>
-                ) : tree.length === 0 ? (
-                    <div className="text-center py-12 text-gray-400">
-                        <Truck size={32} className="mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">Nenhum grupo cadastrado.</p>
-                        <p className="text-xs mt-1">Use o campo acima para criar o primeiro grupo.</p>
-                    </div>
-                ) : (
-                    <div className="divide-y divide-gray-100">
-                        {tree.map(g => {
-                            const open = openGroups[g.id] !== false;
-                            return (
-                                <div key={g.id}>
-                                    {/* Linha do grupo */}
-                                    <div className="flex flex-wrap items-center gap-2 p-3 hover:bg-gray-50">
-                                        <button
-                                            onClick={() => toggleGroup(g.id)}
-                                            className="text-gray-400 hover:text-gray-700 shrink-0"
-                                        >
-                                            {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                        </button>
-                                        <span className="font-bold text-gray-800">{g.nome}</span>
-                                        <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
-                                            {g.tipos.length} tipo(s)
-                                        </span>
-
-                                        <div className="flex flex-wrap items-center gap-2 ml-auto">
-                                            <div className="flex flex-col items-end">
-                                                <select
-                                                    value={g.unidade}
-                                                    onChange={e => changeUnit(g, e.target.value)}
-                                                    disabled={saving}
-                                                    className="p-1.5 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-yellow-400 outline-none disabled:opacity-60"
-                                                    title="Unidade de consumo do grupo"
-                                                >
-                                                    {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
-                                                </select>
-                                                <span className="text-[10px] text-gray-400 mt-0.5">{unidadeHint(g.unidade)}</span>
-                                            </div>
-                                            <button
-                                                onClick={() => renameGroup(g)}
-                                                disabled={saving}
-                                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                title="Renomear grupo"
-                                            >
-                                                <Edit2 size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => deleteGroup(g)}
-                                                disabled={saving}
-                                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                title="Excluir grupo"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Lista de tipos */}
-                                    {open && (
-                                        <div className="pl-8 pr-3 pb-3 space-y-1.5 bg-gray-50/50">
-                                            {g.tipos.map(t => (
-                                                <TypeRow
-                                                    key={t.id}
-                                                    type={t}
-                                                    saving={saving}
-                                                    addingSubFor={addingSubFor}
-                                                    setAddingSubFor={setAddingSubFor}
-                                                    newSubName={newSubName}
-                                                    setNewSubName={setNewSubName}
-                                                    onAddSub={addSub}
-                                                    onRenameType={renameType}
-                                                    onDeleteType={deleteType}
-                                                    onRenameSub={renameSub}
-                                                    onDeleteSub={deleteSub}
-                                                />
-                                            ))}
-
-                                            {/* Adicionar tipo */}
-                                            {addingTypeFor === g.id ? (
-                                                <div className="flex items-center gap-2 pt-1">
-                                                    <input
-                                                        autoFocus
-                                                        value={newTypeName}
-                                                        onChange={e => setNewTypeName(e.target.value)}
-                                                        onKeyDown={e => e.key === 'Enter' && addType(g.id)}
-                                                        placeholder="Nome do tipo…"
-                                                        className="flex-1 max-w-xs p-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-                                                        disabled={saving}
-                                                    />
-                                                    <button
-                                                        onClick={() => addType(g.id)}
-                                                        disabled={saving}
-                                                        className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg disabled:opacity-50"
-                                                    >
-                                                        {saving ? <Loader size={14} className="animate-spin" /> : <Check size={15} />}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => { setAddingTypeFor(null); setNewTypeName(''); }}
-                                                        className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"
-                                                    >
-                                                        <X size={15} />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <button
-                                                    onClick={() => { setAddingTypeFor(g.id); setAddingSubFor(null); setNewTypeName(''); }}
-                                                    disabled={saving}
-                                                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 pt-1 disabled:opacity-50"
-                                                >
-                                                    <Plus size={13} /> Adicionar tipo
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
+                    )}
+                </section>
             </div>
 
             {showConfigModal && (
@@ -341,118 +589,4 @@ const VehicleTaxonomyTab = () => {
     );
 };
 
-const TypeRow = ({
-    type, saving,
-    addingSubFor, setAddingSubFor, newSubName, setNewSubName,
-    onAddSub, onRenameType, onDeleteType, onRenameSub, onDeleteSub,
-}) => {
-    const [showSubs, setShowSubs] = useState(false);
-    const hasSubs = type.subTipos && type.subTipos.length > 0;
-
-    return (
-        <div className="border border-gray-100 rounded-lg bg-white">
-            <div className="flex items-center gap-2 p-2 hover:bg-gray-50">
-                <button
-                    onClick={() => setShowSubs(v => !v)}
-                    className={`text-gray-300 hover:text-gray-600 ${!hasSubs ? 'cursor-default' : ''}`}
-                >
-                    {hasSubs
-                        ? (showSubs ? <ChevronDown size={14} /> : <ChevronRight size={14} />)
-                        : <span className="inline-block w-3.5" />}
-                </button>
-                <span className="text-sm text-gray-700 flex-1">{type.nome}</span>
-                {hasSubs && (
-                    <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5">
-                        {type.subTipos.length}
-                    </span>
-                )}
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={() => onRenameType(type)}
-                        disabled={saving}
-                        className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                        title="Renomear tipo"
-                    >
-                        <Edit2 size={13} />
-                    </button>
-                    <button
-                        onClick={() => onDeleteType(type)}
-                        disabled={saving}
-                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="Excluir tipo"
-                    >
-                        <Trash2 size={13} />
-                    </button>
-                </div>
-            </div>
-
-            {showSubs && hasSubs && (
-                <div className="pl-8 pr-2 pb-2 space-y-1">
-                    {type.subTipos.map(s => (
-                        <div key={s.id} className="flex items-center gap-2 text-sm text-gray-600 py-0.5">
-                            <span className="text-gray-300 text-xs">▸</span>
-                            <span className="flex-1">{s.nome}</span>
-                            <div className="flex items-center gap-1">
-                                <button
-                                    onClick={() => onRenameSub(s)}
-                                    disabled={saving}
-                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                                >
-                                    <Edit2 size={12} />
-                                </button>
-                                <button
-                                    onClick={() => onDeleteSub(s)}
-                                    disabled={saving}
-                                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                                >
-                                    <Trash2 size={12} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Adicionar sub-tipo */}
-            <div className="pl-8 pr-2 pb-2">
-                {addingSubFor === type.id ? (
-                    <div className="flex items-center gap-2">
-                        <input
-                            autoFocus
-                            value={newSubName}
-                            onChange={e => setNewSubName(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && onAddSub(type.id)}
-                            placeholder="Nome do sub-tipo…"
-                            className="flex-1 max-w-xs p-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
-                            disabled={saving}
-                        />
-                        <button
-                            onClick={() => onAddSub(type.id)}
-                            disabled={saving}
-                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg disabled:opacity-50"
-                        >
-                            {saving ? <Loader size={13} className="animate-spin" /> : <Check size={14} />}
-                        </button>
-                        <button
-                            onClick={() => { setAddingSubFor(null); setNewSubName(''); }}
-                            className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        onClick={() => { setAddingSubFor(type.id); setNewSubName(''); setShowSubs(true); }}
-                        disabled={saving}
-                        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 disabled:opacity-50"
-                    >
-                        <Plus size={12} /> Adicionar sub-tipo
-                    </button>
-                )}
-            </div>
-        </div>
-    );
-};
-
 export default VehicleTaxonomyTab;
-

@@ -21,6 +21,7 @@ import HistoryModal from '../components/HistoryModal';
 import SearchableSelect from '../components/SearchableSelect';
 import ChecklistModal from '../components/ChecklistModal';
 import VehicleDocumentsModal from '../components/VehicleDocumentsModal';
+import BulkSubTipoModal from '../components/modals/BulkSubTipoModal';
 
 import { getVehicleMainReading, checkVehicleRestrictions } from '../utils/vehicleRules';
 import { getPartnerDisplayName } from '../utils/partners';
@@ -149,6 +150,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
     const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
     const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
     const [isDocModalOpen, setIsDocModalOpen] = useState(false);
+    const [isBulkSubTipoOpen, setIsBulkSubTipoOpen] = useState(false);
     const [vehicleToToggleStatus, setVehicleToToggleStatus] = useState(null);
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [filters, setFilters] = useState({
@@ -794,6 +796,16 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                         {/* Contador + Limpar */}
                         <div className="ml-auto flex items-center gap-3 shrink-0">
                             <span className="text-xs text-gray-400">{filteredVehicles.length} veículo{filteredVehicles.length !== 1 ? 's' : ''}</span>
+                            {['admin', 'editor'].includes(user?.user_type?.toLowerCase()) && (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsBulkSubTipoOpen(true)}
+                                    title="Definir o subgrupo de vários veículos de uma vez"
+                                    className="text-xs text-yellow-600 hover:text-yellow-700 font-medium"
+                                >
+                                    Subgrupo em lote
+                                </button>
+                            )}
                             {activeFiltersCount > 0 && (
                                 <button
                                     onClick={() => setFilters(p => ({ type: 'todos', status: 'todos', search: '', group: 'todos', origem: p.origem, locador: 'todos', showInactive: false, showSucata: false }))}
@@ -881,6 +893,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
             {isDetailModalOpen && <VehicleDetailModal vehicle={selectedVehicle} revision={revisions.find(r => r.vehicleId === selectedVehicle?.id)} onClose={() => setIsDetailModalOpen(false)} vehicleGroups={vehicleGroups} user={user} navigate={navigate}/>}
             {isFinesModalOpen && <VehicleFinesModal vehicle={selectedVehicle} fines={fines} onClose={() => setIsFinesModalOpen(false)}/>}
             {isMaintenanceModalOpen && <MaintenanceModal user={user} vehicle={selectedVehicle} onClose={() => setIsMaintenanceModalOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData}/>}
+            {isBulkSubTipoOpen && <BulkSubTipoModal vehicles={vehicles} onClose={() => setIsBulkSubTipoOpen(false)} apiClient={apiClient} setAlertMessage={setAlertMessage} reloadData={reloadData}/>}
             {isDocModalOpen && <VehicleDocumentsModal vehicle={selectedVehicle} onClose={() => setIsDocModalOpen(false)} apiClient={apiClient}/>}
 
             {isDeleteModalOpen && (

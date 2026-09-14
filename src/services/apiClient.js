@@ -157,6 +157,10 @@ const apiClient = {
     updateVehicle: async (id, data) => apiFetch(`/vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteVehicle: async (id) => apiFetch(`/vehicles/${id}`, { method: 'DELETE' }),
     allocateVehicleToObra: async (id, data) => apiFetch(`/vehicles/${id}/allocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
+    // Itens do plano de trabalho da obra + qual deles o sistema resolve para a máquina
+    // que está sendo alocada (docs/item-de-contrato-e-substituicao-plano.md).
+    getPlanoItens: async (obraId, vehicleId) =>
+        apiFetch(`/obras/${obraId}/plano-itens${vehicleId ? `?vehicleId=${encodeURIComponent(vehicleId)}` : ''}`),
     deallocateVehicleFromObra: async (id, data) => apiFetch(`/vehicles/${id}/deallocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
     registrarEstadiaRetroativa: async (id, data) => apiFetch(`/vehicles/${id}/estadia-retroativa`, { method: 'POST', body: JSON.stringify(data) }),
     assignVehicleToOperational: async (id, data) => apiFetch(`/vehicles/${id}/assign-operational`, { method: 'POST', body: JSON.stringify(data) }),
@@ -225,7 +229,13 @@ const apiClient = {
     deleteVehicleGroup: async (id) => apiFetch(`/vehicle-taxonomy/groups/${id}`, { method: 'DELETE' }),
     createVehicleType: async (data) => apiFetch('/vehicle-taxonomy/types', { method: 'POST', body: JSON.stringify(data) }),
     updateVehicleType: async (id, data) => apiFetch(`/vehicle-taxonomy/types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    deleteVehicleType: async (id) => apiFetch(`/vehicle-taxonomy/types/${id}`, { method: 'DELETE' }),
+    // `confirmar` libera a exclusao quando o backend avisa que subgrupos perderiam
+    // vinculo (409 com exigeConfirmacao). Vai na query porque DELETE nem sempre
+    // carrega corpo.
+    deleteVehicleType: async (id, opts = {}) => apiFetch(
+        `/vehicle-taxonomy/types/${id}${opts.confirmar ? '?confirmar=1' : ''}`, { method: 'DELETE' }),
+    getVehicleSubTypes: async () => apiFetch('/vehicle-taxonomy/sub-types'),
+    bulkSetVehicleSubTipo: async (data) => apiFetch('/vehicles/bulk-sub-tipo', { method: 'PATCH', body: JSON.stringify(data) }),
     createVehicleSubType: async (data) => apiFetch('/vehicle-taxonomy/sub-types', { method: 'POST', body: JSON.stringify(data) }),
     updateVehicleSubType: async (id, data) => apiFetch(`/vehicle-taxonomy/sub-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteVehicleSubType: async (id) => apiFetch(`/vehicle-taxonomy/sub-types/${id}`, { method: 'DELETE' }),
@@ -236,6 +246,9 @@ const apiClient = {
     // --- Obras ---
     getObras: async () => apiFetch('/obras'),
     getPlanejamentoObras: async (janelaDias) => apiFetch(`/obras/planejamento${janelaDias ? `?janelaDias=${janelaDias}` : ''}`),
+    // Panorama de capacidade: o que temos por fazer × o que podemos fazer × o que
+    // terceirizamos (docs/panorama-capacidade-plano.md).
+    getPanoramaCapacidade: async () => apiFetch('/obras/planejamento/panorama'),
     getObraById: async (id) => apiFetch(`/obras/${id}`),
     createObra: async (data) => apiFetch('/obras', { method: 'POST', body: JSON.stringify(data) }),
     updateObra: async (id, data) => apiFetch(`/obras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

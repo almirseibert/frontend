@@ -6,6 +6,85 @@ import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions
 import SearchableSelect from './SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
 
+// --- Item do plano de trabalho que a máquina vai desempenhar ---------------
+// Três estados visuais, porque significam coisas diferentes para quem aloca:
+//   automatico → confirmação passiva, cinza. Nada a decidir.
+//   confirmar com sugestão → âmbar, item pré-marcado. Um clique consciente.
+//   confirmar sem sugestão → âmbar, nada marcado. É onde 23T e 30T se separam.
+const PlanoItemPicker = ({ loading, resolucao, itens, value, onChange }) => {
+    if (loading) {
+        return (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center gap-2 text-xs text-gray-500">
+                <Loader className="animate-spin" size={13} /> Verificando o plano de trabalho da obra...
+            </div>
+        );
+    }
+    if (!resolucao) return null;
+
+    if (resolucao.decisao === 'sem_plano') {
+        return (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-xs text-gray-500">
+                    Esta obra não tem plano de trabalho cadastrado. A alocação segue normalmente e as
+                    horas continuam sendo classificadas pelo tipo da máquina.
+                </p>
+            </div>
+        );
+    }
+
+    if (resolucao.decisao === 'automatico') {
+        return (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Item do plano de trabalho
+                </p>
+                <p className="text-sm font-bold text-gray-800">{resolucao.itemKey}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{resolucao.motivo}</p>
+            </div>
+        );
+    }
+
+    // decisao === 'confirmar'
+    return (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                <AlertTriangle size={12} /> Confirme o item do plano de trabalho
+                <span className="text-red-500">*</span>
+            </p>
+            <p className="text-xs text-amber-900 mb-2.5">{resolucao.motivo}</p>
+
+            <div className="space-y-1">
+                {itens.map(item => {
+                    const marcado = value === item.key;
+                    return (
+                        <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => onChange(item.key)}
+                            className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition flex items-center justify-between gap-3 ${
+                                marcado
+                                    ? 'bg-white border-amber-500 ring-2 ring-amber-400 font-semibold text-gray-900'
+                                    : 'bg-white/70 border-amber-200 hover:bg-white text-gray-700'
+                            }`}
+                        >
+                            <span className="truncate">{item.key}</span>
+                            <span className="text-[11px] text-gray-500 shrink-0 tabular-nums">
+                                {item.horasContratadas.toLocaleString('pt-BR')} h
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {!value && (
+                <p className="text-[11px] text-amber-700 mt-2">
+                    Escolha um item para liberar a alocação.
+                </p>
+            )}
+        </div>
+    );
+};
+
 // --- Seletor de funcionário com pesquisa ---
 const EmployeeSelector = ({ employees, value, onChange, accentColor = 'green' }) => {
     const [search, setSearch] = useState('');
@@ -175,6 +254,54 @@ const ObraAllocationModal = ({
     const [obraToFinalize, setObraToFinalize] = useState(null);
     const [isRetroModalOpen, setIsRetroModalOpen] = useState(false);
 
+    // ── Item do plano de trabalho que esta máquina vai desempenhar ──────────
+    // O contrato pode ter 100 h de 30T e 200 h de 23T: só quem aloca sabe qual
+    // serviço a máquina vai fazer. Fora da correspondência exata de subgrupo, o
+    // sistema sugere e espera confirmação — nunca decide sozinho.
+    // Ver docs/item-de-contrato-e-substituicao-plano.md.
+    const [planoInfo, setPlanoInfo] = useState(null);      // { itens, resolucao }
+    const [planoLoading, setPlanoLoading] = useState(false);
+    const [planoItemKey, setPlanoItemKey] = useState('');
+    const [planoErro, setPlanoErro] = useState('');
+    const [planoTentativa, setPlanoTentativa] = useState(0);
+
+    useEffect(() => {
+        if (!obraId || !vehicle?.id) { setPlanoInfo(null); setPlanoItemKey(''); setPlanoErro(''); return; }
+        let cancelado = false;
+        setPlanoLoading(true);
+        setPlanoErro('');
+        apiClient.getPlanoItens(obraId, vehicle.id)
+            .then(data => {
+                if (cancelado) return;
+                setPlanoInfo(data);
+                const r = data?.resolucao;
+                // Automático já vem decidido; sugestão pré-seleciona; ambiguidade
+                // (2+ itens do mesmo grupo) fica em branco de propósito, para que
+                // "confirmar" não vire reflexo justo onde a escolha é real.
+                setPlanoItemKey(r?.itemKey || r?.sugestao || '');
+            })
+            .catch(err => {
+                if (cancelado) return;
+                // FALHA FECHADA. Antes o erro era engolido: o seletor sumia, a
+                // exigência de escolher item desaparecia junto e a alocação passava
+                // gravando planoItemKey nulo — o vínculo órfão que esta tela existe
+                // para impedir. Agora o erro aparece e trava a confirmação.
+                setPlanoInfo(null);
+                setPlanoItemKey('');
+                setPlanoErro(err?.message || 'Não foi possível carregar o plano de trabalho da obra.');
+            })
+            .finally(() => { if (!cancelado) setPlanoLoading(false); });
+        return () => { cancelado = true; };
+    }, [obraId, vehicle?.id, planoTentativa]);
+
+    const planoResolucao = planoInfo?.resolucao || null;
+    const planoItens = planoInfo?.itens || [];
+    // Só exige escolha quando há plano e o sistema não resolveu sozinho.
+    const precisaEscolherItem = planoResolucao?.decisao === 'confirmar';
+    // Consulta do plano falhou: não dá para saber se esta máquina precisaria
+    // declarar item, então a alocação fica bloqueada até conseguir verificar.
+    const planoIndisponivel = !!planoErro;
+
     const currentObra = obras.find(o => o.id === vehicle.obraAtualId);
 
     const validateRestrictions = () => {
@@ -200,6 +327,14 @@ const ObraAllocationModal = ({
             setAlertMessage('Preencha todos os campos obrigatórios.');
             return;
         }
+        if (planoIndisponivel) {
+            setAlertMessage('Não foi possível verificar o plano de trabalho da obra. Tente novamente antes de alocar.');
+            return;
+        }
+        if (precisaEscolherItem && !planoItemKey) {
+            setAlertMessage('Escolha qual item do plano de trabalho esta máquina vai desempenhar.');
+            return;
+        }
         if (!validateRestrictions()) {
             setBlockedAction(() => executeAllocate);
             return;
@@ -221,6 +356,7 @@ const ObraAllocationModal = ({
                 readingType,
                 readingValue: val,
                 observacoes: observacoes || '',
+                planoItemKey: planoItemKey || null,
                 horimetroEntrada: readingType === 'horimetro' ? val : 0,
                 odometroEntrada: readingType === 'odometro' ? val : 0,
                 horimetro: readingType === 'horimetro' ? val : 0,
@@ -467,6 +603,37 @@ const ObraAllocationModal = ({
                                     )}
                                 </div>
 
+                                {/* Item do plano de trabalho desempenhado pela máquina */}
+                                {obraId && planoIndisponivel && (
+                                    <div className="rounded-lg border border-red-300 bg-red-50 p-3">
+                                        <p className="text-[11px] font-semibold text-red-800 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                                            <AlertTriangle size={12} /> Plano de trabalho não verificado
+                                        </p>
+                                        <p className="text-xs text-red-900">{planoErro}</p>
+                                        <p className="text-xs text-red-900 mt-1">
+                                            A alocação fica bloqueada até conseguirmos confirmar qual item esta
+                                            máquina vai desempenhar — sem isso as horas ficariam fora do progresso da obra.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPlanoTentativa(n => n + 1)}
+                                            className="mt-2 text-xs font-semibold text-red-800 underline hover:text-red-900"
+                                        >
+                                            Tentar novamente
+                                        </button>
+                                    </div>
+                                )}
+
+                                {obraId && !planoIndisponivel && (planoLoading || planoResolucao) && (
+                                    <PlanoItemPicker
+                                        loading={planoLoading}
+                                        resolucao={planoResolucao}
+                                        itens={planoItens}
+                                        value={planoItemKey}
+                                        onChange={setPlanoItemKey}
+                                    />
+                                )}
+
                                 {/* Funcionário com busca */}
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
@@ -524,7 +691,7 @@ const ObraAllocationModal = ({
 
                                 <button
                                     onClick={handleAllocateClick}
-                                    disabled={isSaving}
+                                    disabled={isSaving || planoLoading || planoIndisponivel || (precisaEscolherItem && !planoItemKey)}
                                     className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-bold rounded-lg shadow text-sm flex items-center justify-center gap-2 transition"
                                 >
                                     {isSaving ? <Loader className="animate-spin" size={16} /> : 'Confirmar Alocação'}

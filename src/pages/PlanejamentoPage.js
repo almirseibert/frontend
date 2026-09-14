@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    RefreshCw, HardHat, TrendingDown, LayoutGrid,
+    RefreshCw, HardHat, TrendingDown, LayoutGrid, Gauge,
     AlertTriangle, Clock, MapPin, Loader, X, ArrowRight, Truck, User, Pencil
 } from 'lucide-react';
 import ObraModal from '../components/modals/ObraModal';
+import PanoramaCapacidade from '../components/planejamento/PanoramaCapacidade';
 
 // ============================================================================
 // PÁGINA DE PLANEJAMENTO ESTRATÉGICO DE OBRAS
-// Duas abas:
+// Tres abas:
+//  - Panorama: capacidade da carteira (o que temos por fazer x o que podemos
+//    fazer x o que terceirizamos). Visao da direcao; ver
+//    docs/panorama-capacidade-plano.md.
 //  - Kanban: quadro em tela cheia (colunas com scroll interno, sem scroll
 //    duplo da página). Pré-obra é arrastável; colunas de andamento são
 //    computadas por daily_work_logs.
@@ -449,7 +453,7 @@ const PlanejamentoPage = ({ apiClient, setAlertMessage, user, employees, equipme
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [janela, setJanela] = useState(60);
-    const [aba, setAba] = useState('kanban'); // 'kanban' | 'balanco'
+    const [aba, setAba] = useState('panorama'); // 'panorama' | 'kanban' | 'balanco'
     const [dragOverCol, setDragOverCol] = useState(null);
     const [confirmMove, setConfirmMove] = useState(null); // { obra, destino }
     const [detalheSub, setDetalheSub] = useState(null);   // item do balanço clicado
@@ -555,6 +559,12 @@ const PlanejamentoPage = ({ apiClient, setAlertMessage, user, employees, equipme
                 {/* Abas */}
                 <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
                     <button
+                        onClick={() => setAba('panorama')}
+                        className={`px-4 py-1.5 rounded-md text-sm font-bold flex items-center gap-1.5 transition-colors ${aba === 'panorama' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <Gauge size={14}/> Panorama
+                    </button>
+                    <button
                         onClick={() => setAba('kanban')}
                         className={`px-4 py-1.5 rounded-md text-sm font-bold flex items-center gap-1.5 transition-colors ${aba === 'kanban' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
                     >
@@ -572,20 +582,29 @@ const PlanejamentoPage = ({ apiClient, setAlertMessage, user, employees, equipme
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <select
-                        value={janela}
-                        onChange={(e) => setJanela(parseInt(e.target.value, 10))}
-                        className="p-2 border rounded-lg text-sm bg-white"
-                    >
-                        <option value={30}>Janela: 30 dias</option>
-                        <option value={60}>Janela: 60 dias</option>
-                        <option value={90}>Janela: 90 dias</option>
-                    </select>
+                    {/* A janela só existe para o Balanço — o Panorama é uma fotografia
+                        de tudo que está em carteira, sem recorte de tempo. */}
+                    {aba === 'balanco' && (
+                        <select
+                            value={janela}
+                            onChange={(e) => setJanela(parseInt(e.target.value, 10))}
+                            className="p-2 border rounded-lg text-sm bg-white"
+                        >
+                            <option value={30}>Janela: 30 dias</option>
+                            <option value={60}>Janela: 60 dias</option>
+                            <option value={90}>Janela: 90 dias</option>
+                        </select>
+                    )}
                     <button onClick={load} className="p-2 border rounded-lg bg-white hover:bg-gray-50" title="Atualizar">
                         <RefreshCw size={16} className={loading ? 'animate-spin' : ''}/>
                     </button>
                 </div>
             </div>
+
+            {/* ══ ABA: PANORAMA ══ — visão da direção, componente próprio */}
+            {aba === 'panorama' && (
+                <PanoramaCapacidade apiClient={apiClient} setAlertMessage={setAlertMessage} />
+            )}
 
             {/* ══ ABA: KANBAN ══ — ocupa todo o espaço restante, cada coluna com scroll próprio */}
             {aba === 'kanban' && (
