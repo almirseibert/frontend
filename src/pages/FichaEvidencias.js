@@ -3,14 +3,15 @@
 // É onde a foto vira argumento de cobrança: quem fatura vê a prova daquela obra e
 // gera o dossiê PDF anexável à medição.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader, FileText, RefreshCw, Camera } from 'lucide-react';
+import { Loader, FileText, RefreshCw, Camera, Archive } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
 const hoje = () => new Date().toLocaleDateString('en-CA');
 const diasAtras = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toLocaleDateString('en-CA'); };
 const TIPO_LABEL = {
     horimetro_inicio: 'Horímetro início', horimetro_fim: 'Horímetro fim',
-    foto_manha: 'Trabalho manhã', foto_tarde: 'Trabalho tarde', extra: 'Extra',
+    foto_manha: 'Trabalho manhã', foto_tarde: 'Trabalho tarde',
+    planilha_trabalho: 'Planilha de trabalho', extra: 'Extra',
     rotina_filtro: 'Limpeza de filtro', rotina_graxa: 'Engraxamento',
 };
 
@@ -20,6 +21,7 @@ const FichaEvidencias = ({ obraId, obra, dataInicio, setAlertMessage }) => {
     const [itens, setItens] = useState([]);
     const [loading, setLoading] = useState(false);
     const [gerando, setGerando] = useState(false);
+    const [armaz, setArmaz] = useState(null); // { ativos, bytes } desta obra
 
     const buscar = useCallback(async () => {
         if (!obraId) return;
@@ -29,8 +31,11 @@ const FichaEvidencias = ({ obraId, obra, dataInicio, setAlertMessage }) => {
         finally { setLoading(false); }
     }, [obraId, de, ate, setAlertMessage]);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { buscar(); }, [obraId]);
+    useEffect(() => {
+        buscar();
+        apiClient.getArmazenamentoObras?.().then(r => setArmaz(r?.obras?.[obraId] || null)).catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [obraId]);
 
     const baixarDossie = async () => {
         setGerando(true);
@@ -45,8 +50,19 @@ const FichaEvidencias = ({ obraId, obra, dataInicio, setAlertMessage }) => {
         finally { setGerando(false); }
     };
 
+    const concluida = obra?.status === 'finalizada';
     return (
         <div>
+            {armaz && armaz.ativos > 0 && (
+                <div className={`mb-3 rounded-lg px-3 py-2 text-sm flex items-start gap-2 border ${concluida ? 'bg-red-50 border-red-200 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                    <Archive size={16} className="mt-0.5 shrink-0" />
+                    <span>
+                        {concluida ? <b>Obra concluída com dados no servidor. </b> : null}
+                        {armaz.ativos} evidência(s) · {(armaz.bytes / 1e6).toFixed(1)} MB ocupando espaço.
+                        {concluida ? ' Você pode baixar o dossiê/ZIP e liberar o servidor na aba Arquivamento (não é obrigatório).' : ''}
+                    </span>
+                </div>
+            )}
             <div className="flex flex-wrap gap-2 items-end mb-4">
                 <label className="flex flex-col gap-1"><span className="text-[11px] font-bold text-slate-500 uppercase">De</span>
                     <input type="date" value={de} onChange={e => setDe(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" /></label>

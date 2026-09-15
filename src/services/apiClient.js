@@ -108,6 +108,46 @@ const apiFetch = async (endpoint, options = {}) => {
     }
 };
 
+// Como o apiFetch, mas para respostas BINÁRIAS (PDF/ZIP/imagem): renova o token no
+// 401 UMA vez e refaz a requisição. Os downloads de dossiê/ZIP/prévia/chat antes
+// usavam fetch cru com token estático e SEM refresh — depois que o access token
+// expirava, davam 401 e "não baixavam nada". Devolve o Blob.
+const apiFetchBlob = async (endpoint, options = {}) => {
+    const token = getToken();
+    const headers = { ...(options.headers || {}) };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+    const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+    if (res.status === 401 && !options._retry
+        && !endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/refresh')) {
+        if (!refreshPromise) refreshPromise = runRefresh().finally(() => { refreshPromise = null; });
+        const renewed = await refreshPromise;
+        if (renewed) return apiFetchBlob(endpoint, { ...options, _retry: true });
+        forceLogout();
+    }
+    if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        const err = new Error(e.error || e.message || `Erro ${res.status} ao baixar o arquivo.`);
+        err.status = res.status;
+        throw err;
+    }
+    return await res.blob();
+};
+
+// Dispara o download de um Blob no navegador. Fallback: se o clique programático
+// em <a download> lançar (ambiente restrito), abre em nova aba.
+const saveBlob = (blob, nome) => {
+    const url = URL.createObjectURL(blob);
+    try {
+        const a = document.createElement('a');
+        a.href = url; a.download = nome || 'download'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+    } catch { try { window.open(url, '_blank', 'noopener'); } catch { /* */ } }
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
+
 const apiClient = {
     // --- Upload Genérico (Usado em Funcionários e Multas) ---
     uploadFile: async (formData) => apiFetch('/upload', { method: 'POST', body: formData }),
@@ -293,16 +333,8 @@ const apiClient = {
     reportChatUser: async (userId, reason) => apiFetch('/chat/report', { method: 'POST', body: JSON.stringify({ userId, reason }) }),
     // Baixa o PDF da conversa (blob) e dispara o download no navegador.
     exportChatConversation: async (userId, filename = 'conversa.pdf') => {
-        const res = await fetch(`${API_URL}/chat/export/${userId}`, {
-            headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (!res.ok) throw new Error('Falha ao exportar conversa.');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = filename;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
+        const blob = await apiFetchBlob(`/chat/export/${userId}`);
+        saveBlob(blob, filename);
     },
 
     // --- MÓDULO SUPERVISOR (Novo) ---
@@ -839,15 +871,8 @@ const apiClient = {
     // URL absoluta de uma imagem assinada (o path vem como /api/public/evidencias/...).
     evidenciaImgUrl: (signedPath) => `${API_URL.replace(/\/api\/?$/, '')}${signedPath}`,
     // Dossiê PDF — retorna um Blob (binário), não JSON.
-    baixarDossie: async (payload) => {
-        const res = await fetch(`${API_URL}/evidencias/dossie`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-            body: JSON.stringify(payload),
-        });
-        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Falha ao gerar dossiê.'); }
-        return await res.blob();
-    },
+    baixarDossie: async (payload) =>
+        apiFetchBlob('/evidencias/dossie', { method: 'POST', body: JSON.stringify(payload) }),
     // Aderência / consolidação
     getAderencia: async (params = {}) => {
         const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
@@ -867,6 +892,9 @@ const apiClient = {
     aprovarCobranca: async (id) => apiFetch(`/evidencias/cobrancas/${id}/aprovar`, { method: 'POST' }),
     aprovarCobrancasLote: async (ids) => apiFetch('/evidencias/cobrancas/aprovar-lote', { method: 'POST', body: JSON.stringify({ ids }) }),
     ignorarCobranca: async (id) => apiFetch(`/evidencias/cobrancas/${id}/ignorar`, { method: 'PUT' }),
+    // Faixa de intervalo entre mensagens de cobrança (anti-flood do WhatsApp).
+    getCobrancaConfig: async () => apiFetch('/evidencias/cobrancas/config'),
+    putCobrancaConfig: async (data) => apiFetch('/evidencias/cobrancas/config', { method: 'PUT', body: JSON.stringify(data) }),
     // Editor de carimbo
     editarCarimbo: async (id, data) => apiFetch(`/evidencias/${id}/carimbo`, { method: 'PUT', body: JSON.stringify(data) }),
     removerCarimbo: async (id, motivo) => apiFetch(`/evidencias/${id}/carimbo`, { method: 'DELETE', body: JSON.stringify({ motivo }) }),
@@ -889,24 +917,20 @@ const apiClient = {
     // A prévia é rota autenticada — <img src> não manda o Authorization, então
     // baixamos como blob e devolvemos um object URL (quem chama deve revogar).
     getCarimboPreview: async (escopo, escopoId = '', reduzido = false) => {
-        const url = `${API_URL}/evidencias/carimbo/preview?escopo=${escopo}`
+        const ep = `/evidencias/carimbo/preview?escopo=${escopo}`
             + `&escopo_id=${encodeURIComponent(escopoId)}${reduzido ? '&reduzido=1' : ''}&_t=${Date.now()}`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (!res.ok) throw new Error('Falha ao gerar a prévia do carimbo.');
-        return URL.createObjectURL(await res.blob());
+        return URL.createObjectURL(await apiFetchBlob(ep));
     },
     // Offload / arquivamento
     getLotesOffload: async (obraId) => apiFetch(`/evidencias/offload${obraId ? `?obra_id=${obraId}` : ''}`),
     gerarOffload: async (payload) => apiFetch('/evidencias/offload', { method: 'POST', body: JSON.stringify(payload) }),
     confirmarOffload: async (id) => apiFetch(`/evidencias/offload/${id}/confirmar`, { method: 'POST' }),
     baixarOffloadZip: async (id, nome) => {
-        const res = await fetch(`${API_URL}/evidencias/offload/${id}/zip`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Falha ao baixar o ZIP.'); }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = nome || `lote-${id}.zip`;
-        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+        const blob = await apiFetchBlob(`/evidencias/offload/${id}/zip`);
+        saveBlob(blob, nome || `lote-${id}.zip`);
     },
+    // Resumo de armazenamento por obra (selo "com dados no servidor").
+    getArmazenamentoObras: async () => apiFetch('/evidencias/armazenamento'),
     // Restauração (multipart de arquivos de imagem). preflight=true não grava.
     restaurarEvidencias: async (files, preflight = false) => {
         const fd = new FormData();

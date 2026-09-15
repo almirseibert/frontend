@@ -25,9 +25,11 @@ const hoje = () => new Date().toLocaleDateString('en-CA');
 const diasAtras = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toLocaleDateString('en-CA'); };
 const TIPO_LABEL = {
     horimetro_inicio: 'Horímetro início', horimetro_fim: 'Horímetro fim',
-    foto_manha: 'Trabalho manhã', foto_tarde: 'Trabalho tarde', extra: 'Extra',
+    foto_manha: 'Trabalho manhã', foto_tarde: 'Trabalho tarde',
+    planilha_trabalho: 'Planilha de trabalho', extra: 'Extra',
     rotina_filtro: 'Limpeza de filtro', rotina_graxa: 'Engraxamento',
 };
+const labelVeic = (v) => (v?.registroInterno || v?.placa || v?.modelo || v?.id || '—');
 
 const EvidenciasAdminPage = ({ apiClient, obras = [], vehicles = [], setAlertMessage }) => {
     const [aba, setAba] = useState('arquivo');
@@ -49,7 +51,7 @@ const EvidenciasAdminPage = ({ apiClient, obras = [], vehicles = [], setAlertMes
                     </button>
                 ))}
             </div>
-            {aba === 'arquivo' && <AbaArquivo apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
+            {aba === 'arquivo' && <AbaArquivo apiClient={apiClient} obras={obras} vehicles={vehicles} setAlertMessage={setAlertMessage} />}
             {aba === 'aderencia' && <AbaAderencia apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
             {aba === 'cobrancas' && <AbaCobrancas apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
             {aba === 'arquivamento' && <AbaArquivamento apiClient={apiClient} obras={obras} setAlertMessage={setAlertMessage} />}
@@ -59,44 +61,96 @@ const EvidenciasAdminPage = ({ apiClient, obras = [], vehicles = [], setAlertMes
 };
 
 // ===================== ARQUIVO =====================
-const AbaArquivo = ({ apiClient, obras, setAlertMessage }) => {
-    const [filtros, setFiltros] = useState({ obra_id: '', de: diasAtras(7), ate: hoje(), tipo: '', estado: 'ativo' });
+// Abertura: só as 12 fotos mais recentes (não sobrecarrega). O filtro em cascata
+// Obra → máquina → tipo(s) abre um resultado maior sob demanda.
+const AbaArquivo = ({ apiClient, obras, vehicles = [], setAlertMessage }) => {
+    const VAZIO = { obra_id: '', veiculo_id: '', de: '', ate: '', tipos: [], estado: 'ativo' };
+    const [filtros, setFiltros] = useState(VAZIO);
     const [carregando, setCarregando] = useState(false);
     const [itens, setItens] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [filtrado, setFiltrado] = useState(false); // já aplicou filtro? (mostra > 12)
     const [sel, setSel] = useState(null); // id aberto no lightbox
 
-    const buscar = useCallback(async () => {
+    // Máquinas da obra selecionada (cascata). Sem obra escolhida, lista todas.
+    const veicsDaObra = useMemo(() => {
+        const arr = (vehicles || []).filter(Boolean);
+        if (!filtros.obra_id) return arr;
+        const f = arr.filter(v => [v.obraId, v.obra_id, v.obraAtualId, v.currentObraId, v.obra?.id]
+            .some(x => x != null && String(x) === String(filtros.obra_id)));
+        return f.length ? f : arr; // fallback: se o veículo não carrega a obra, não esconde nada
+    }, [vehicles, filtros.obra_id]);
+
+    const buscar = useCallback(async (limit) => {
         setCarregando(true);
-        try { const r = await apiClient.listarEvidencias({ ...filtros, limit: 100 }); setItens(r.itens || []); }
-        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+        try {
+            const params = {
+                obra_id: filtros.obra_id || undefined,
+                veiculo_id: filtros.veiculo_id || undefined,
+                tipo: filtros.tipos.length ? filtros.tipos.join(',') : undefined,
+                de: filtros.de || undefined, ate: filtros.ate || undefined,
+                estado: 'ativo', limit,
+            };
+            const r = await apiClient.listarEvidencias(params);
+            setItens(r.itens || []); setTotal(r.total || 0);
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
         finally { setCarregando(false); }
     }, [apiClient, filtros, setAlertMessage]);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { buscar(); }, []);
+    useEffect(() => { buscar(12); }, []);
+
+    const aplicar = () => { setFiltrado(true); buscar(60); };
+    const limpar = () => { setFiltros(VAZIO); setFiltrado(false); setTimeout(() => buscar(12), 0); };
+    const toggleTipo = (k) => setFiltros(f => ({
+        ...f, tipos: f.tipos.includes(k) ? f.tipos.filter(t => t !== k) : [...f.tipos, k],
+    }));
 
     return (
         <div>
-            <div className="flex flex-wrap gap-2 items-end mb-4 bg-white p-3 rounded-xl shadow-sm">
-                <Campo label="Obra">
-                    <select value={filtros.obra_id} onChange={e => setFiltros(f => ({ ...f, obra_id: e.target.value }))} className="input">
-                        <option value="">Todas</option>
-                        {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                    </select>
-                </Campo>
-                <Campo label="De"><input type="date" value={filtros.de} onChange={e => setFiltros(f => ({ ...f, de: e.target.value }))} className="input" /></Campo>
-                <Campo label="Até"><input type="date" value={filtros.ate} onChange={e => setFiltros(f => ({ ...f, ate: e.target.value }))} className="input" /></Campo>
-                <Campo label="Momento">
-                    <select value={filtros.tipo} onChange={e => setFiltros(f => ({ ...f, tipo: e.target.value }))} className="input">
-                        <option value="">Todos</option>
-                        {Object.entries(TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                </Campo>
-                <button onClick={buscar} className="btn-amber flex items-center gap-2"><RefreshCw size={16} /> Buscar</button>
+            <div className="bg-white p-3 rounded-xl shadow-sm mb-4">
+                <div className="flex flex-wrap gap-2 items-end">
+                    <Campo label="Obra">
+                        <select value={filtros.obra_id}
+                            onChange={e => setFiltros(f => ({ ...f, obra_id: e.target.value, veiculo_id: '' }))} className="input">
+                            <option value="">Todas</option>
+                            {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                        </select>
+                    </Campo>
+                    <Campo label="Máquina">
+                        <select value={filtros.veiculo_id}
+                            onChange={e => setFiltros(f => ({ ...f, veiculo_id: e.target.value }))} className="input">
+                            <option value="">Todas</option>
+                            {veicsDaObra.map(v => <option key={v.id} value={v.id}>{labelVeic(v)}</option>)}
+                        </select>
+                    </Campo>
+                    <Campo label="De"><input type="date" value={filtros.de} onChange={e => setFiltros(f => ({ ...f, de: e.target.value }))} className="input" /></Campo>
+                    <Campo label="Até"><input type="date" value={filtros.ate} onChange={e => setFiltros(f => ({ ...f, ate: e.target.value }))} className="input" /></Campo>
+                    <button onClick={aplicar} className="btn-amber flex items-center gap-2"><RefreshCw size={16} /> Filtrar</button>
+                    {filtrado && <button onClick={limpar} className="btn-ghost flex items-center gap-2"><X size={16} /> Limpar</button>}
+                </div>
+                <div className="mt-3">
+                    <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Tipo de evidência (pode marcar vários)</div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(TIPO_LABEL).map(([k, v]) => {
+                            const on = filtros.tipos.includes(k);
+                            return (
+                                <button key={k} type="button" onClick={() => toggleTipo(k)}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition ${on ? 'bg-yellow-500 border-yellow-500 text-white' : 'bg-white border-gray-300 text-slate-600 hover:border-yellow-400'}`}>
+                                    {v}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            <div className="text-xs text-slate-500 mb-2">
+                {filtrado ? `${itens.length} de ${total} evidência(s)` : 'Últimas 12 evidências enviadas'}
             </div>
 
             {carregando ? <Centro><Loader className="animate-spin" /></Centro> : (
-                itens.length === 0 ? <Centro>Nenhuma evidência no período.</Centro> : (
+                itens.length === 0 ? <Centro>Nenhuma evidência encontrada.</Centro> : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                         {itens.map(it => (
                             <button key={it.id} onClick={() => setSel(it.id)} className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition text-left">
@@ -119,7 +173,7 @@ const AbaArquivo = ({ apiClient, obras, setAlertMessage }) => {
                 )
             )}
 
-            {sel && <Lightbox id={sel} apiClient={apiClient} onClose={() => setSel(null)} onChanged={buscar} setAlertMessage={setAlertMessage} />}
+            {sel && <Lightbox id={sel} apiClient={apiClient} onClose={() => setSel(null)} onChanged={() => buscar(filtrado ? 60 : 12)} setAlertMessage={setAlertMessage} />}
         </div>
     );
 };
@@ -384,6 +438,7 @@ const AbaCobrancas = ({ apiClient, obras, setAlertMessage }) => {
     const [itens, setItens] = useState([]);
     const [sel, setSel] = useState(new Set());
     const [carregando, setCarregando] = useState(false);
+    const [intervalo, setIntervalo] = useState({ min_s: 30, max_s: 78 });
 
     const buscar = useCallback(async () => {
         setCarregando(true);
@@ -391,8 +446,18 @@ const AbaCobrancas = ({ apiClient, obras, setAlertMessage }) => {
         catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
         finally { setCarregando(false); }
     }, [apiClient, data, obraId, setAlertMessage]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { buscar(); }, []);
+    useEffect(() => {
+        buscar();
+        apiClient.getCobrancaConfig?.().then(c => c && setIntervalo({ min_s: c.min_s, max_s: c.max_s })).catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const salvarIntervalo = async () => {
+        try {
+            await apiClient.putCobrancaConfig({ min_s: intervalo.min_s, max_s: intervalo.max_s });
+            setAlertMessage?.({ type: 'success', message: 'Intervalo de envio salvo.' });
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    };
 
     const consolidar = async () => {
         try { const r = await apiClient.consolidarEvidencias(data); setAlertMessage?.({ type: 'success', message: `${r.cobrancas} cobranças projetadas.` }); buscar(); }
@@ -405,8 +470,12 @@ const AbaCobrancas = ({ apiClient, obras, setAlertMessage }) => {
     const ignorar = async (id) => { try { await apiClient.ignorarCobranca(id); buscar(); } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); } };
     const aprovarLote = async () => {
         if (!sel.size) return;
-        try { const r = await apiClient.aprovarCobrancasLote([...sel]); setAlertMessage?.({ type: 'success', message: `${r.enviadas} enviadas, ${r.semToken} sem push.` }); buscar(); }
-        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+        try {
+            const r = await apiClient.aprovarCobrancasLote([...sel]);
+            const [mn, mx] = r.intervalo_s || [intervalo.min_s, intervalo.max_s];
+            setAlertMessage?.({ type: 'success', message: `${r.enfileiradas} cobrança(s) enfileiradas — envio espaçado de ${mn}–${mx}s entre mensagens. Atualize em instantes.` });
+            buscar();
+        } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
     };
     const toggle = (id) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -415,6 +484,15 @@ const AbaCobrancas = ({ apiClient, obras, setAlertMessage }) => {
             <div className="mb-3 text-sm text-slate-600 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertTriangle size={16} className="text-amber-500 mt-0.5" />
                 <span>Modo seguro: nada é enviado automaticamente. Consolide o dia para projetar os faltantes e <b>aprove cada cobrança manualmente</b>. O envio vai só ao operador do equipamento (push).</span>
+            </div>
+            <div className="mb-4 text-sm bg-white border border-gray-200 rounded-lg p-3 flex flex-wrap items-end gap-3">
+                <div className="flex items-center gap-2 text-slate-500 mr-2"><Clock size={16} /> <b className="text-slate-700">Intervalo entre mensagens</b></div>
+                <Campo label="Mínimo (s)"><input type="number" min={5} max={600} value={intervalo.min_s}
+                    onChange={e => setIntervalo(i => ({ ...i, min_s: Number(e.target.value) }))} className="input w-24" /></Campo>
+                <Campo label="Máximo (s)"><input type="number" min={5} max={600} value={intervalo.max_s}
+                    onChange={e => setIntervalo(i => ({ ...i, max_s: Number(e.target.value) }))} className="input w-24" /></Campo>
+                <button onClick={salvarIntervalo} className="btn-ghost flex items-center gap-2"><Save size={16} /> Salvar</button>
+                <span className="text-xs text-slate-400">Padrão 30–78s. Espaça os envios para não sobrecarregar o WhatsApp quando o canal for ligado.</span>
             </div>
             <div className="flex flex-wrap gap-2 items-end mb-4 bg-white p-3 rounded-xl shadow-sm">
                 <Campo label="Dia"><input type="date" value={data} onChange={e => setData(e.target.value)} className="input" /></Campo>
@@ -471,6 +549,7 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
     const [gerando, setGerando] = useState(false);
     const [restFiles, setRestFiles] = useState([]);
     const [restResult, setRestResult] = useState(null);
+    const [armaz, setArmaz] = useState({}); // obra_id -> { ativos, bytes, de, ate }
 
     const buscar = useCallback(async () => {
         setCarregando(true);
@@ -478,8 +557,20 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
         catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
         finally { setCarregando(false); }
     }, [apiClient, obraId, setAlertMessage]);
+    const carregarArmaz = useCallback(async () => {
+        try { const r = await apiClient.getArmazenamentoObras?.(); setArmaz(r?.obras || {}); } catch { /* */ }
+    }, [apiClient]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { buscar(); }, []);
+    useEffect(() => { buscar(); carregarArmaz(); }, []);
+
+    // Obras que ainda ocupam espaço no servidor (evidências ativas). Concluídas
+    // (status 'finalizada') vêm destacadas — são as candidatas naturais a limpar.
+    const nomeObra = (id) => (obras.find(o => String(o.id) === String(id))?.nome) || id;
+    const obraFinalizada = (id) => (obras.find(o => String(o.id) === String(id))?.status) === 'finalizada';
+    const linhasArmaz = Object.entries(armaz)
+        .map(([id, v]) => ({ id, ...v, nome: nomeObra(id), finalizada: obraFinalizada(id) }))
+        .filter(x => x.ativos > 0)
+        .sort((a, b) => (b.finalizada - a.finalizada) || (b.bytes - a.bytes));
 
     const gerar = async () => {
         if (!obraId) return setAlertMessage?.({ type: 'error', message: 'Escolha a obra.' });
@@ -491,12 +582,12 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
     const baixar = async (l) => { try { await apiClient.baixarOffloadZip(l.id, `MAK_EVID_${(l.obra_nome || 'obra').replace(/[^a-z0-9]+/gi, '_')}.zip`); } catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); } };
     const confirmar = async (l) => {
         if (!window.confirm('Confirmar baixa e PURGAR os originais deste lote? Faça isso só depois de abrir o ZIP e conferir. Miniaturas e metadados permanecem.')) return;
-        try { const r = await apiClient.confirmarOffload(l.id); setAlertMessage?.({ type: 'success', message: `${r.arquivadas} evidências arquivadas e purgadas.` }); buscar(); }
+        try { const r = await apiClient.confirmarOffload(l.id); setAlertMessage?.({ type: 'success', message: `${r.arquivadas} evidências arquivadas e purgadas.` }); buscar(); carregarArmaz(); }
         catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
     };
     const restaurar = async (preflight) => {
         if (!restFiles.length) return setAlertMessage?.({ type: 'error', message: 'Selecione arquivos de imagem.' });
-        try { const r = await apiClient.restaurarEvidencias(restFiles, preflight); setRestResult(r); if (!preflight) buscar(); }
+        try { const r = await apiClient.restaurarEvidencias(restFiles, preflight); setRestResult(r); if (!preflight) { buscar(); carregarArmaz(); } }
         catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
     };
 
@@ -504,8 +595,28 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
         <div className="space-y-5">
             <div className="text-sm text-slate-600 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertTriangle size={16} className="text-amber-500 mt-0.5" />
-                <span>Exportar e apagar são etapas separadas. Gere o ZIP, baixe para a máquina de TI, <b>abra e confira</b>, e só então confirme a baixa (que purga os originais). Miniaturas e metadados permanecem sempre.</span>
+                <span>Exportar e apagar são etapas separadas. Gere o ZIP, baixe para a máquina de TI, <b>abra e confira</b>, e só então confirme a baixa (que purga os originais). Miniaturas e metadados permanecem sempre. Não é obrigatório limpar: a obra pode continuar com os arquivos no servidor.</span>
             </div>
+
+            {/* Armazenamento por obra (o que ainda ocupa espaço no servidor) */}
+            {linhasArmaz.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm">
+                    <div className="px-3 pt-3 pb-1 text-sm font-bold text-slate-700 flex items-center gap-2"><Archive size={16} /> Obras com dados no servidor</div>
+                    <div className="divide-y">
+                        {linhasArmaz.map(x => (
+                            <div key={x.id} className="flex items-center gap-3 p-3 flex-wrap text-sm">
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-semibold text-slate-800 truncate">{x.nome}
+                                        {x.finalizada && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle" style={{ background: '#fee2e2', color: '#b91c1c' }}>concluída · limpar</span>}
+                                    </div>
+                                    <div className="text-xs text-slate-400">{x.ativos} evidência(s) · {(x.bytes / 1e6).toFixed(1)} MB{x.de ? ` · ${x.de.split('-').reverse().join('/')}–${x.ate.split('-').reverse().join('/')}` : ''}</div>
+                                </div>
+                                <button onClick={() => setObraId(x.id)} className="btn-ghost text-xs py-1.5">Selecionar</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Gerar lote */}
             <div className="bg-white p-3 rounded-xl shadow-sm flex flex-wrap gap-2 items-end">

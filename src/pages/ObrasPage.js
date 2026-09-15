@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { 
-    PlusCircle, Download, Edit, Trash2, RefreshCw, MapPin, 
-    AlertTriangle, Search, CheckCircle
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+    PlusCircle, Download, Edit, Trash2, RefreshCw, MapPin,
+    AlertTriangle, Search, CheckCircle, Archive
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { canAccessAnaliseGerencial } from '../utils/permissions';
@@ -44,6 +44,16 @@ const ObrasPage = ({
     const [sortBy, setSortBy] = useState('nome-asc'); // ordenação da listagem
     const [searchTerm, setSearchTerm] = useState('');
     const [showFinished, setShowFinished] = useState(false); // por padrão, obras finalizadas ficam ocultas
+    // Evidências ocupando espaço no servidor por obra (selo "dados no servidor").
+    // Só gestor de evidências tem a rota; para os demais o 403 é silenciado.
+    const [armazObras, setArmazObras] = useState({});
+    useEffect(() => {
+        let vivo = true;
+        apiClient?.getArmazenamentoObras?.()
+            .then(r => { if (vivo) setArmazObras(r?.obras || {}); })
+            .catch(() => { /* sem permissão / offline: sem selo */ });
+        return () => { vivo = false; };
+    }, [apiClient]);
     
     // --- ESTADOS DOS MODAIS ---
     const [modalState, setModalState] = useState({
@@ -354,6 +364,12 @@ const ObrasPage = ({
                                                         <div className="line-clamp-1" style={{ fontWeight: 600, color: '#3d3528' }} title={formatObraNome(obra)}>
                                                             {formatObraNome(obra)}
                                                         </div>
+                                                        {obra.status === 'finalizada' && armazObras[obra.id]?.ativos > 0 && (
+                                                            <span title={`${armazObras[obra.id].ativos} evidência(s) · ${(armazObras[obra.id].bytes / 1e6).toFixed(1)} MB no servidor`}
+                                                                style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 9999, padding: '1px 7px', display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
+                                                                <Archive size={10} /> Dados no servidor
+                                                            </span>
+                                                        )}
                                                         {obra.latitude && (
                                                             <a href={`https://www.google.com/maps/search/?api=1&query=${obra.latitude},${obra.longitude}`} target="_blank" rel="noreferrer"
                                                                 style={{ fontSize: 11, color: '#2d5a8a', display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2 }}>

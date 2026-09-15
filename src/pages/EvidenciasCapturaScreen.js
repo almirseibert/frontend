@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     Loader, MapPin, ChevronLeft, Ban, CheckCircle, Clock, AlertTriangle, Gauge,
-    User, ImagePlus, MessageSquareWarning, History, Droplet, Filter,
+    User, ImagePlus, MessageSquareWarning, History, Droplet, Filter, ClipboardList,
 } from 'lucide-react';
 import PhotoCapture from '../components/PhotoCapture';
 import { enfileirar, assinarFila, assinarEnviados } from '../services/evidenciaQueue';
@@ -33,6 +33,9 @@ const ROTINA_META = {
     rotina_filtro: { label: 'Limpeza de filtro', Icon: Filter },
     rotina_graxa: { label: 'Engraxamento', Icon: Droplet },
 };
+// Planilha de trabalho: 2x/semana (sexta + terça/quarta conforme o fim de semana),
+// no fim do expediente. Vem do meu-escopo como escopo.planilha[equip.id].
+const PLANILHA_META = { label: 'Planilha de trabalho', Icon: ClipboardList };
 const DOW = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const brDia = (ymd) => (ymd ? ymd.slice(8, 10) : '');
 const brMes = (ymd) => (ymd ? ymd.slice(5, 7) : '');
@@ -48,7 +51,7 @@ async function carregarGeo() {
 const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) => {
     const [carregando, setCarregando] = useState(true);
     const [degradado, setDegradado] = useState(false);
-    const [escopo, setEscopo] = useState({ data: '', obras: [], equipamentos: [], hojeEnviado: {}, hojeContagem: {}, rotinas: {} });
+    const [escopo, setEscopo] = useState({ data: '', obras: [], equipamentos: [], hojeEnviado: {}, hojeContagem: {}, rotinas: {}, planilha: {} });
     const [veiculoSel, setVeiculoSel] = useState(null);
     const [historico, setHistorico] = useState(null);
     const [dataSel, setDataSel] = useState(null);
@@ -365,6 +368,21 @@ const EvidenciasCapturaScreen = ({ apiClient, user, socket, setAlertMessage }) =
                         onClick={() => setSheet({ tipo: r.tipo, label: ROTINA_META[r.tipo]?.label || r.tipo, leitura: false })}
                     />
                 ))}
+
+                {/* Planilha de trabalho (2x/semana, fim do expediente). Só aparece
+                    nos dias em que é solicitada (o backend decide sexta + ter/qua). */}
+                {!retro && escopo.planilha?.[equip.id] && (
+                    <CardMomento
+                        label={PLANILHA_META.label}
+                        sub={escopo.planilha[equip.id].pendente
+                            ? 'Solicitada hoje — foto da planilha (fim do expediente)'
+                            : 'Planilha já enviada hoje'}
+                        Icon={PLANILHA_META.Icon}
+                        status={statusMomento('planilha_trabalho')}
+                        pulsa={escopo.planilha[equip.id].pendente}
+                        onClick={() => setSheet({ tipo: 'planilha_trabalho', label: PLANILHA_META.label, leitura: false, exigeObs: false })}
+                    />
+                )}
             </div>
 
             <button onClick={() => setSheet({ tipo: 'extra', label: 'Imagem extra', leitura: false, exigeObs: true })}
