@@ -72,12 +72,20 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
     const [sortBy, setSortBy] = useState('criticidade');
     const [soComTerceiros, setSoComTerceiros] = useState(false);
     const [orgaoFilter, setOrgaoFilter] = useState('todos');
+    // Resumo global de terceiros: vem de um endpoint próprio porque o card do
+    // topo precisa do VALOR TOTAL CONTRATADO (toda a carteira), enquanto a lista
+    // de obras abaixo continua restrita às obras em execução.
+    const [terceirosResumo, setTerceirosResumo] = useState(null);
 
     const fetchDashboardData = async () => {
         try {
             if (obras.length === 0) setLoading(true);
-            const data = await apiClient.get('/supervisor/dashboard');
+            const [data, resumo] = await Promise.all([
+                apiClient.get('/supervisor/dashboard'),
+                apiClient.get('/supervisor/terceiros-resumo').catch(() => null),
+            ]);
             setObras((data || []).filter(o => (o.tipo_registro || 'obra') !== 'centro_custo'));
+            setTerceirosResumo(resumo);
             setLastUpdate(new Date());
         } catch (error) {
             console.error("Erro ao carregar dashboard:", error);
@@ -101,7 +109,10 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             receitaTotal: 0, custoTotal: 0, valorProduzido: 0, margemMediaPct: 0,
             aditivoEstourado: 0, aditivoRisco: 0,
             terceirosTotal: 0, obrasComTerceiros: 0, terceirosPct: 0,
+            terceirosEmExecucao: 0, terceirosContratos: 0, terceirosObras: 0,
+            terceirosPorStatusObra: null, terceirosTooltip: '',
         };
+        const resumo = terceirosResumo;
         if (!obras.length) return empty;
 
         let capacidadeTotal = 0;
@@ -160,11 +171,28 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             margemMediaPct,
             aditivoEstourado,
             aditivoRisco,
-            terceirosTotal,
+            // `terceirosTotal` somado aqui cobre só as obras listadas (status
+            // 'ativa'). O total contratado de verdade vem do resumo global —
+            // inclui obra em mobilização/planejada, onde o compromisso com o
+            // terceiro já existe mesmo antes de a obra começar a produzir.
+            terceirosTotal: resumo ? resumo.valorTotalContratado : terceirosTotal,
+            terceirosEmExecucao: resumo ? resumo.valorEmExecucao : terceirosTotal,
+            terceirosContratos: resumo ? resumo.qtdContratos : 0,
+            terceirosObras: resumo ? resumo.qtdObras : obrasComTerceiros,
+            terceirosPorStatusObra: resumo ? resumo.porStatusObra : null,
+            // Quebra por situação da obra, no tooltip do card: deixa explícito
+            // quanto do total já está em execução e quanto ainda vai entrar.
+            terceirosTooltip: resumo
+                ? Object.entries(resumo.porStatusObra || {})
+                    .map(([st, d]) => st + ': ' + fmtBRL(d.valor) + ' (' + d.contratos + ' contratos)')
+                    .join(' | ')
+                : '',
             obrasComTerceiros,
-            terceirosPct: receitaTotal > 0 ? (terceirosTotal / receitaTotal) * 100 : 0,
+            terceirosPct: resumo
+                ? resumo.percCarteira
+                : (receitaTotal > 0 ? (terceirosTotal / receitaTotal) * 100 : 0),
         };
-    }, [obras]);
+    }, [obras, terceirosResumo]);
 
     // Órgãos contratantes presentes na carteira, com quantas obras cada um tem.
     // Derivado dos dados — não há cadastro fechado de órgãos.
@@ -261,7 +289,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
         // KPIs em texto
         const kpiLine = [
             `Valor contratado: ${fmtBRL(aggregateKpis.receitaTotal)}`,
-            `Comprometido com terceiros: ${fmtBRL(aggregateKpis.terceirosTotal)} (${aggregateKpis.terceirosPct.toFixed(1)}%)`,
+            `Valor total contratado com terceiros: ${fmtBRL(aggregateKpis.terceirosTotal)} (${aggregateKpis.terceirosPct.toFixed(1)}% da carteira) — ${fmtBRL(aggregateKpis.terceirosEmExecucao)} em obras em execução`,
             `Custo realizado: ${fmtBRL(aggregateKpis.custoTotal)}`,
             `Valor produzido: ${fmtBRL(aggregateKpis.valorProduzido)}`,
             `Margem média: ${aggregateKpis.margemMediaPct.toFixed(1)}%`,
@@ -383,9 +411,17 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
                     <span className="text-sm text-slate-600">
                         <b className="text-slate-900">{fmtBRL(aggregateKpis.receitaTotal)}</b> em contratos
                     </span>
-                    <span className="text-sm text-slate-600">
-                        <b className="text-orange-700">{fmtBRL(aggregateKpis.terceirosTotal)}</b> com terceiros
-                        <span className="text-slate-400"> · {aggregateKpis.terceirosPct.toFixed(0)}% da carteira</span>
+                    <span
+                        className="text-sm text-slate-600"
+                        title={aggregateKpis.terceirosTooltip || undefined}
+                    >
+                        <b className="text-orange-700">{fmtBRL(aggregateKpis.terceirosTotal)}</b> contratado com terceiros
+                        <span className="text-slate-400">
+                            {' · '}{aggregateKpis.terceirosPct.toFixed(0)}% da carteira
+                            {aggregateKpis.terceirosEmExecucao < aggregateKpis.terceirosTotal && (
+                                <> · {fmtBRL(aggregateKpis.terceirosEmExecucao)} em obras em execução</>
+                            )}
+                        </span>
                     </span>
                     <span className="text-sm text-slate-600">
                         <b className="text-slate-900">{aggregateKpis.capacidadeTotal.toLocaleString('pt-BR')} h</b> contratadas

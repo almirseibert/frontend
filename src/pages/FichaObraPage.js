@@ -6,6 +6,7 @@ import { formatObraNome } from '../utils/obraFormat';
 import FichaAproveitamento from './FichaAproveitamento';
 import FichaFaturamento from './FichaFaturamento';
 import FichaEvidencias from './FichaEvidencias';
+import FichaTerceiros from '../components/analise/FichaTerceiros';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ficha da Obra — aba "Visão geral" (Fase 1)
@@ -85,7 +86,7 @@ function Stat({ label, value, valueColor, hint }) {
 
 function Card({ title, children, right }) {
     return (
-        <div className="rounded-xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+        <div className="rounded-xl p-4 flex flex-col h-full" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
             {(title || right) && (
                 <div className="flex items-center justify-between mb-2">
                     <h3 style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.inkSub }}>{title}</h3>
@@ -103,6 +104,25 @@ function ProgressBar({ pct }) {
     return (
         <div className="w-full h-2.5 rounded-full" style={{ background: C.bg }}>
             <div className="h-2.5 rounded-full" style={{ width: `${w}%`, background: C.gold }} />
+        </div>
+    );
+}
+
+// Uma leitura de progresso: rótulo, percentual, detalhe e barra.
+function Progresso({ rotulo, pct, detalhe }) {
+    const indisponivel = pct == null || Number.isNaN(pct);
+    return (
+        <div>
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.inkSub }}>
+                    {rotulo}
+                </span>
+                <span style={{ fontSize: 17, fontWeight: 800, color: indisponivel ? C.inkSub : C.ink }}>
+                    {indisponivel ? '—' : fmtPct(pct)}
+                </span>
+            </div>
+            <ProgressBar pct={indisponivel ? 0 : pct} />
+            <div style={{ fontSize: 11.5, color: C.inkMid, marginTop: 3 }}>{detalhe}</div>
         </div>
     );
 }
@@ -212,16 +232,19 @@ const FichaObraPage = ({ obraId, onBack, obras = [], vehicles = [], setAlertMess
             temValores, horasContratadas, horasLancadas, pctFisico, valorProduzido,
             gastoReal, despesasPorCategoria, margemRS, margemPct, custoPorHora, valorContrato, saldoContrato,
             ritmoPctQuinzena, faltaPara100, conclusaoProjetada, inicio, metaEncerramento, diaAtual, desvioDias,
-            quinzenas, comb,
+            quinzenas, comb, porItem: proj.faturamento?.porItem || [],
             ritmoHorasDia: f.ritmoHorasPorDia, diasComLancamento: f.diasComLancamento,
         };
     }, [proj, expenses, obraId, obra]);
 
     const frota = useMemo(() => {
+        // linhas = tudo que trabalhou na obra no período; `alocados` conta só quem
+        // continua na obra hoje (o backend marca alocadaAtualmente=false em quem saiu).
         const linhas = (analytics?.porVeiculo || []).filter(v => v.estado !== 'sucata');
         return {
             linhas,
-            alocados: linhas.length,
+            alocados: linhas.filter(v => v.alocadaAtualmente !== false).length,
+            jaSairam: linhas.filter(v => v.alocadaAtualmente === false).length,
             aproveitamentoMedio: analytics?.summary?.aproveitamento ?? null,
         };
     }, [analytics]);
@@ -269,20 +292,28 @@ const FichaObraPage = ({ obraId, onBack, obras = [], vehicles = [], setAlertMess
 
                             {d && (
                                 <>
-                                    {/* 2 ── Físico & financeiro | Projeção · Despesas | Combustível
-                                        Grade por linha (não por coluna): cada par alinha o topo na
-                                        mesma régua. items-start evita esticar o card mais curto. */}
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                                    {/* 2 ── Grade por PARES de peso parecido, cada linha com a
+                                        mesma altura (items-stretch + h-full no Card):
+                                          linha 1: números da obra    | projeção
+                                          linha 2: itens do contrato  | despesas  (duas listas)
+                                        Combustível sai da grade: com 3 números ele nunca
+                                        empatava a altura de um vizinho em lista — vira faixa
+                                        larga e rasa. */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
                                         <FisicoFinanceiro d={d} />
                                         <Projecao d={d} />
+                                        <ProgressoPorItem itens={d.porItem} horasContratadas={d.horasContratadas} horasLancadas={d.horasLancadas} />
                                         <DespesasPorCategoria itens={d.despesasPorCategoria} total={d.gastoReal} />
-                                        <Combustivel d={d} />
                                     </div>
+                                    <Combustivel d={d} />
 
-                                    {/* 3 ── Frota nesta obra ─────────────────────────────── */}
+                                    {/* 3 ── Terceiros nesta obra (some quando não há) ────── */}
+                                    <FichaTerceiros obraId={obraId} />
+
+                                    {/* 4 ── Frota nesta obra ─────────────────────────────── */}
                                     <FrotaTabela frota={frota} anErro={anErro} loading={loading && !analytics} />
 
-                                    {/* 4 ── Evolução física (quinzenal) ──────────────────── */}
+                                    {/* 5 ── Evolução física (quinzenal) ──────────────────── */}
                                     <EvolucaoQuinzenal quinzenas={d.quinzenas} />
                                 </>
                             )}
@@ -404,13 +435,11 @@ function FisicoFinanceiro({ d }) {
     return (
         <Card title="Físico & financeiro">
             <div className="mb-3">
-                <div className="flex items-baseline justify-between mb-1.5">
-                    <span style={{ fontSize: 13, color: C.inkMid }}>
-                        {fmtH(d.horasLancadas)} de {d.horasContratadas ? fmtH(d.horasContratadas) : '—'} lançadas
-                    </span>
-                    <span style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>{fmtPct(d.pctFisico)}</span>
-                </div>
-                <ProgressBar pct={d.pctFisico} />
+                <Progresso
+                    rotulo="Progresso físico"
+                    pct={d.pctFisico}
+                    detalhe={`${fmtH(d.horasLancadas)} de ${d.horasContratadas ? fmtH(d.horasContratadas) : '—'} contratadas`}
+                />
             </div>
 
             <Stat label="Valor produzido" value={d.temValores ? fmtBRL(d.valorProduzido) : '—'}
@@ -426,7 +455,75 @@ function FisicoFinanceiro({ d }) {
     );
 }
 
-// ── 2b. Projeção contra a meta de 45 dias ─────────────────────────────────────
+// ── 2b. Progresso por item do contrato ────────────────────────────────────────
+// O contrato é fechado item a item (subgrupo: "Escavadeira 13t" ≠ "26t"). Um
+// progresso agregado de 91% pode ser um item em 130% e outro em 20% — leitura
+// que a Ficha não entregava. Horas apontadas em item que o contrato não prevê
+// aparecem no topo como "fora do contrato": não é ruído a esconder, é sujeira de
+// dado a corrigir, e enquanto existir ela infla o total.
+function ProgressoPorItem({ itens = [], horasContratadas = 0, horasLancadas = 0 }) {
+    if (!itens.length) {
+        // Lista vazia tem três causas e elas pedem ações diferentes. Afirmar
+        // "não tem plano" para todas era errado: obra COM plano e COM horas só
+        // cai aqui quando a resposta do backend não traz a quebra por item.
+        const temPlano = horasContratadas > 0;
+        const temHoras = horasLancadas > 0;
+        const msg = (temPlano || temHoras)
+            ? 'Quebra por item indisponível nesta resposta do servidor. Se o plano por item existe, reinicie o backend para publicar o campo.'
+            : 'Esta obra não tem plano de horas por item nem apontamento classificado.';
+        return (
+            <Card title="Progresso por item do contrato">
+                <p style={{ fontSize: 12.5, color: C.inkSub }}>{msg}</p>
+            </Card>
+        );
+    }
+    const fora = itens.filter((i) => i.foraDoContrato);
+    const horasFora = fora.reduce((a, i) => a + i.horasExecutadas, 0);
+
+    return (
+        <Card title="Progresso por item do contrato"
+            right={<span style={{ fontSize: 11, color: C.inkSub }}>{itens.length - fora.length} {itens.length - fora.length === 1 ? 'item' : 'itens'}</span>}>
+            <div className="space-y-2.5">
+                {itens.map((i) => {
+                    const estourou = i.percentual != null && i.percentual > 100;
+                    const cor = i.foraDoContrato || estourou ? C.red : C.gold;
+                    return (
+                        <div key={i.key}>
+                            <div className="flex items-baseline justify-between gap-2 mb-1">
+                                <span className="truncate" style={{ fontSize: 12.5, color: C.ink, fontWeight: 600 }}>
+                                    {i.key}
+                                    {i.foraDoContrato && (
+                                        <span style={{ fontSize: 10.5, color: C.red, marginLeft: 6, fontWeight: 700 }}>fora do contrato</span>
+                                    )}
+                                </span>
+                                <span className="shrink-0" style={{ fontSize: 12.5 }}>
+                                    <span style={{ fontWeight: 700, color: estourou || i.foraDoContrato ? C.red : C.ink }}>
+                                        {i.percentual != null ? fmtPct(i.percentual) : '—'}
+                                    </span>
+                                    <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>
+                                        {fmtH(i.horasExecutadas)}{i.horasContratadas > 0 ? ` / ${fmtH(i.horasContratadas)}` : ''}
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="w-full h-2 rounded-full" style={{ background: C.bg }}>
+                                <div className="h-2 rounded-full"
+                                    style={{ width: `${Math.min(i.percentual ?? 100, 100)}%`, background: cor }} />
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            {horasFora > 0 && (
+                <p style={{ fontSize: 10.5, color: C.inkSub, marginTop: 10, fontStyle: 'italic' }}>
+                    {fmtH(horasFora)} apontadas em item que não está no contrato — corrigir o item da alocação
+                    devolve essas horas ao item certo.
+                </p>
+            )}
+        </Card>
+    );
+}
+
+// ── 2c. Projeção contra a meta de 45 dias ─────────────────────────────────────
 function Projecao({ d }) {
     const atrasada = d.desvioDias != null && d.desvioDias > 0;
     return (
@@ -445,7 +542,7 @@ function Projecao({ d }) {
     );
 }
 
-// ── 2c. Combustível vs faturamento ────────────────────────────────────────────
+// ── 2d. Combustível vs faturamento ────────────────────────────────────────────
 function Combustivel({ d }) {
     const c = d.comb || {};
     if (c.semDados) {
@@ -458,11 +555,16 @@ function Combustivel({ d }) {
     const acimaLimite = c.projecaoFinalPercent != null && c.projecaoFinalPercent > LIMITE_COMBUSTIVEL;
     return (
         <Card title="Combustível vs faturamento">
-            <Stat label="% atual sobre faturado" value={fmtPct(c.percentualAtual, 1)} />
-            <Stat label="Projeção ao final"
-                value={fmtPct(c.projecaoFinalPercent, 1)}
-                valueColor={acimaLimite ? C.red : C.green} />
-            <Stat label="Custo de combustível" value={fmtBRL(c.totalCustoRS)} hint={c.totalLitros ? `${Number(c.totalLitros).toLocaleString('pt-BR')} L` : null} />
+            {/* Três números em linha: o card é largo e raso de propósito — em
+                coluna ele ficava com metade da altura do vizinho e a grade
+                parecia quebrada. */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6">
+                <Stat label="% atual sobre faturado" value={fmtPct(c.percentualAtual, 1)} />
+                <Stat label="Projeção ao final"
+                    value={fmtPct(c.projecaoFinalPercent, 1)}
+                    valueColor={acimaLimite ? C.red : C.green} />
+                <Stat label="Custo de combustível" value={fmtBRL(c.totalCustoRS)} hint={c.totalLitros ? `${Number(c.totalLitros).toLocaleString('pt-BR')} L` : null} />
+            </div>
             <p style={{ fontSize: 10.5, color: C.inkSub, marginTop: 8 }}>
                 Limite interno: {LIMITE_COMBUSTIVEL}% do faturamento.
             </p>
@@ -470,7 +572,7 @@ function Combustivel({ d }) {
     );
 }
 
-// ── 2d. Despesas por categoria ────────────────────────────────────────────────
+// ── 2e. Despesas por categoria ────────────────────────────────────────────────
 function DespesasPorCategoria({ itens = [], total = 0 }) {
     if (!itens.length) {
         return (
@@ -480,10 +582,16 @@ function DespesasPorCategoria({ itens = [], total = 0 }) {
         );
     }
     const max = itens[0]?.total || 1;
+    // Teto de linhas: sem ele uma obra com 15 categorias fazia este card ficar
+    // com o dobro da altura do vizinho e desalinhava a grade inteira.
+    const TETO = 8;
+    const visiveis = itens.length > TETO ? itens.slice(0, TETO) : itens;
+    const resto = itens.slice(visiveis.length);
+    const totalResto = resto.reduce((a, c) => a + c.total, 0);
     return (
         <Card title="Despesas por categoria">
             <div className="space-y-2.5">
-                {itens.map((c) => {
+                {visiveis.map((c) => {
                     const share = total > 0 ? (c.total / total) * 100 : 0;
                     return (
                         <div key={c.category}>
@@ -501,7 +609,13 @@ function DespesasPorCategoria({ itens = [], total = 0 }) {
                     );
                 })}
             </div>
-            <div className="flex justify-between mt-3 pt-2" style={{ borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
+            {resto.length > 0 && (
+                <div className="flex justify-between mt-2.5" style={{ fontSize: 12, color: C.inkSub }}>
+                    <span>+ {resto.length} outras categorias</span>
+                    <span>{fmtBRL(totalResto)}</span>
+                </div>
+            )}
+            <div className="flex justify-between mt-auto pt-2" style={{ borderTop: `1px solid ${C.border}`, fontSize: 12.5, marginTop: 12 }}>
                 <span style={{ color: C.inkMid }}>Total de despesas</span>
                 <span style={{ fontWeight: 700, color: C.ink }}>{fmtBRL(total)}</span>
             </div>
@@ -513,9 +627,10 @@ function DespesasPorCategoria({ itens = [], total = 0 }) {
 function FrotaTabela({ frota, anErro, loading }) {
     return (
         <Card title="Frota nesta obra"
-            right={frota.alocados > 0 ? (
+            right={frota.linhas.length > 0 ? (
                 <span style={{ fontSize: 11.5, color: C.inkSub }}>
                     {frota.alocados} alocado{frota.alocados !== 1 ? 's' : ''}
+                    {frota.jaSairam > 0 && ` · ${frota.jaSairam} já ${frota.jaSairam === 1 ? 'saiu' : 'saíram'}`}
                     {frota.aproveitamentoMedio != null && ` · aproveitamento médio ${fmtPct(frota.aproveitamentoMedio)}`}
                 </span>
             ) : null}
@@ -525,7 +640,7 @@ function FrotaTabela({ frota, anErro, loading }) {
             ) : anErro ? (
                 <p style={{ fontSize: 12.5, color: C.inkSub }}>{anErro}</p>
             ) : frota.linhas.length === 0 ? (
-                <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhum veículo alocado nesta obra no momento.</p>
+                <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhuma máquina com apontamento nesta obra no período.</p>
             ) : (
                 <div className="overflow-x-auto">
                     <table className="w-full" style={{ borderCollapse: 'collapse' }}>
@@ -544,6 +659,7 @@ function FrotaTabela({ frota, anErro, loading }) {
                                         <span style={{ fontWeight: 700, color: C.ink }}>{v.registroInterno || '—'}</span>
                                         {v.modelo && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 12 }}>{v.modelo}</span>}
                                         {v.estado === 'manutencao' && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>· em manutenção</span>}
+                                        {v.alocadaAtualmente === false && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>· já saiu</span>}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 12.5, color: C.inkMid }}>{v.tipo || '—'}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, textAlign: 'right', color: C.ink }}>{fmtH(v.horas_executadas)}</td>

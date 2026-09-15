@@ -227,9 +227,23 @@ const FichaAproveitamento = ({ obraId, dataInicio, setAlertMessage }) => {
         () => [...(analytics?.frotaPorTipo || [])].sort((a, b) => a.aproveitamento - b.aproveitamento),
         [analytics]
     );
+    // Inclui as máquinas que trabalharam na obra no período mas já saíram
+    // (alocadaAtualmente=false, vindas do backend). As horas delas SEMPRE
+    // contaram no numerador do aproveitamento médio; sem listá-las, a média da
+    // obra não fechava com as linhas da tabela — 90% no topo e uma única máquina
+    // a 30% embaixo. Elas não têm capacidade a cobrar no período (não estão na
+    // frota de hoje), então o % individual fica "—" e só as horas aparecem.
     const veiculos = useMemo(
         () => (analytics?.porVeiculo || []).filter(v => v.estado !== 'sucata'),
         [analytics]
+    );
+    const veiculosQueSairam = useMemo(
+        () => veiculos.filter(v => v.alocadaAtualmente === false),
+        [veiculos]
+    );
+    const horasDeQuemSaiu = useMemo(
+        () => veiculosQueSairam.reduce((a, v) => a + (v.horas_executadas || 0), 0),
+        [veiculosQueSairam]
     );
 
     if (loading && !analytics) {
@@ -323,9 +337,12 @@ const FichaAproveitamento = ({ obraId, dataInicio, setAlertMessage }) => {
             </Card>
 
             {/* Ranking por máquina */}
-            <Card title="Aproveitamento por máquina" right={<span style={{ fontSize: 11, color: C.inkSub }}>pior → melhor</span>}>
+            <Card title="Máquinas que trabalharam nesta obra"
+                right={<span style={{ fontSize: 11, color: C.inkSub }}>
+                    {veiculos.length} {veiculos.length === 1 ? 'máquina' : 'máquinas'} · pior → melhor
+                </span>}>
                 {veiculos.length === 0 ? (
-                    <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhum veículo alocado nesta obra.</p>
+                    <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhuma máquina com apontamento nesta obra no período.</p>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
@@ -341,6 +358,11 @@ const FichaAproveitamento = ({ obraId, dataInicio, setAlertMessage }) => {
                                             <span style={{ fontWeight: 700, color: C.ink }}>{v.registroInterno || '—'}</span>
                                             {v.modelo && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 12 }}>{v.modelo}</span>}
                                             {v.estado === 'manutencao' && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>· em manutenção</span>}
+                                            {v.alocadaAtualmente === false && (
+                                                <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>
+                                                    · já saiu{v.obraNome && v.obraNome !== '—' ? ` → ${v.obraNome}` : ''}
+                                                </span>
+                                            )}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 12.5, color: C.inkMid }}>{v.tipo || '—'}</td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, textAlign: 'right', color: C.ink }}>{fmtH(v.horas_executadas)}</td>
@@ -355,6 +377,13 @@ const FichaAproveitamento = ({ obraId, dataInicio, setAlertMessage }) => {
                             </tbody>
                         </table>
                     </div>
+                )}
+                {veiculosQueSairam.length > 0 && (
+                    <p style={{ fontSize: 10.5, color: C.inkSub, marginTop: 10, fontStyle: 'italic' }}>
+                        {veiculosQueSairam.length} {veiculosQueSairam.length === 1 ? 'máquina já saiu' : 'máquinas já saíram'} da
+                        obra e {veiculosQueSairam.length === 1 ? 'somou' : 'somaram'} {fmtH(horasDeQuemSaiu)} no período.
+                        As horas contam no aproveitamento da obra; a capacidade delas, não — por isso o % individual fica “—”.
+                    </p>
                 )}
             </Card>
 

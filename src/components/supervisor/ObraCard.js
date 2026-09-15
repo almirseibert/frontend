@@ -12,8 +12,8 @@ import { Clock, AlertTriangle, Users } from 'lucide-react';
 //   4. SINAIS      — badges de risco + previsão em rodapé
 //
 // ALINHAMENTO: todo card renderiza EXATAMENTE as mesmas seções, com a mesma
-// altura, independentemente dos dados. Obra sem terceiro mostra "R$ 0 · 0%" em
-// vez de esconder o bloco — ausência de terceirização é informação, e esconder
+// altura, independentemente dos dados. Obra sem terceiro mostra "Sem terceiros"
+// em vez de esconder o bloco — ausência de terceirização é informação, e esconder
 // o bloco quebrava o alinhamento da grade inteira. O nome tem altura reservada
 // de 2 linhas pelo mesmo motivo.
 //
@@ -91,48 +91,59 @@ const ObraCard = ({ obra, onClick }) => {
 
                 {/* ── 2. Financeiro ───────────────────────────────────────── */}
                 <div className="mt-3 pt-3 border-t border-slate-100">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Valor de contrato
-                    </div>
-                    <div className="text-xl font-bold text-slate-900 leading-tight mt-0.5 tabular-nums">
-                        {valorTotal > 0 ? fmtBRL(valorTotal) : '—'}
-                    </div>
-
-                    {/* Divisão do contrato — sempre presente, para a grade não
-                        mudar de forma entre obras com e sem terceiro. A ordem
-                        (execução própria à esquerda) espelha as colunas abaixo. */}
-                    <div className="flex w-full h-1.5 rounded-full overflow-hidden bg-slate-100 mt-2.5">
-                        <div className="bg-slate-800" style={{ width: `${Math.max(100 - pctTerceiros, 0)}%` }} />
-                        {temTerceiros && (
-                            <div className={`flex-1 ${comprometimentoAlto ? 'bg-orange-500' : 'bg-amber-400'}`} />
+                    <div className="flex items-baseline justify-between gap-2">
+                        <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                Valor de contrato
+                            </div>
+                            <div className="text-xl font-bold text-slate-900 leading-tight mt-0.5 tabular-nums">
+                                {valorTotal > 0 ? fmtBRL(valorTotal) : '—'}
+                            </div>
+                        </div>
+                        {qtdContratos > 0 && (
+                            <span className="flex items-center shrink-0 text-[10px] font-bold text-slate-500 bg-slate-100 rounded px-1.5 py-0.5">
+                                <Users size={11} className="mr-1" />
+                                {qtdContratos}
+                            </span>
                         )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                        <div className="min-w-0">
-                            <div className="text-[10px] uppercase tracking-wide text-slate-400 flex items-center gap-1">
-                                <span className="inline-block w-2 h-2 rounded-sm bg-slate-800 shrink-0" />
-                                Execução própria
+                    {/* Divisão do contrato — dois painéis, sempre presentes, para
+                        a grade não mudar de forma entre obras com e sem terceiro.
+                        Deliberadamente NÃO é uma barra: uma barra cheia de ponta a
+                        ponta (obra sem terceiro) é lida como "100% concluído", que
+                        é a leitura errada. O percentual vira selo numérico. */}
+                    <div className="grid grid-cols-2 gap-1.5 mt-2.5">
+                        <div className="min-w-0 rounded-md bg-slate-50 border-l-[3px] border-slate-800 px-2 py-1.5">
+                            <div className="flex items-baseline justify-between gap-1">
+                                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                                    Própria
+                                </span>
+                                <span className="text-[10px] font-bold tabular-nums text-slate-500">
+                                    {(100 - pctTerceiros).toFixed(0)}%
+                                </span>
                             </div>
                             <div className="text-[13px] font-bold text-slate-800 tabular-nums truncate" title={fmtBRL(execucaoPropria)}>
                                 {fmtBRL(execucaoPropria)}
                             </div>
-                            <div className="text-[10px] text-slate-400 tabular-nums">
-                                {(100 - pctTerceiros).toFixed(0)}% do contrato
-                            </div>
                         </div>
-                        <div className="min-w-0 text-right">
-                            <div className="text-[10px] uppercase tracking-wide text-slate-400 flex items-center justify-end gap-1">
-                                Terceiros
-                                <span className={`inline-block w-2 h-2 rounded-sm shrink-0 ${
-                                    !temTerceiros ? 'bg-slate-200' : comprometimentoAlto ? 'bg-orange-500' : 'bg-amber-400'
-                                }`} />
+                        <div className={`min-w-0 rounded-md px-2 py-1.5 border-l-[3px] ${
+                            !temTerceiros ? 'bg-slate-50/60 border-slate-200'
+                                : comprometimentoAlto ? 'bg-orange-50 border-orange-500'
+                                : 'bg-amber-50 border-amber-400'
+                        }`}>
+                            <div className="flex items-baseline justify-between gap-1">
+                                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                                    Terceiros
+                                </span>
+                                <span className={`text-[10px] font-bold tabular-nums ${
+                                    comprometimentoAlto ? 'text-orange-600' : 'text-slate-500'
+                                }`}>
+                                    {pctTerceiros.toFixed(0)}%
+                                </span>
                             </div>
                             <div className={`text-[13px] font-bold tabular-nums truncate ${corTerceiros}`} title={fmtBRL(valorTerceiros)}>
-                                {fmtBRL(valorTerceiros)}
-                            </div>
-                            <div className={`text-[10px] tabular-nums ${comprometimentoAlto ? 'text-orange-600' : 'text-slate-400'}`}>
-                                {pctTerceiros.toFixed(0)}% do contrato
+                                {temTerceiros ? fmtBRL(valorTerceiros) : 'Sem terceiros'}
                             </div>
                         </div>
                     </div>
@@ -171,12 +182,6 @@ const ObraCard = ({ obra, onClick }) => {
                             <span className="flex items-center bg-orange-50 text-orange-700 px-2 py-0.5 rounded border border-orange-100 text-[10px] font-bold">
                                 <Clock size={11} className="mr-1" />
                                 Prazo Curto
-                            </span>
-                        )}
-                        {qtdContratos > 0 && (
-                            <span className="flex items-center bg-slate-50 text-slate-600 px-2 py-0.5 rounded border border-slate-200 text-[10px] font-bold">
-                                <Users size={11} className="mr-1" />
-                                {qtdContratos} {qtdContratos === 1 ? 'terceiro' : 'terceiros'}
                             </span>
                         )}
                     </div>
