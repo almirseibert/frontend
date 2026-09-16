@@ -143,10 +143,14 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
     });
 
     // Subgrupos em que as horas pedidas estouram o saldo disponível.
+    // Subgrupo FORA do plano da obra não tem saldo a controlar — é contrato legado,
+    // e o backend o ignora de propósito. Se entrasse aqui, seu saldo seria 0 e o
+    // contrato antigo ficaria impossível de salvar por uma regra que não vale para ele.
     const excedidos = useMemo(() => {
         if (!temPlano) return [];
         return planoRows
-            .map((r) => ({ r, h: parseFloat(itemDoTipo(r.type)?.hours) || 0 }))
+            .filter((r) => !r.foraDoPlano)
+            .map((r) => ({ r, h: parseFloat(itens.find((i) => i.type === r.type)?.hours) || 0 }))
             .filter((x) => x.h > x.r.saldo + 1e-6)
             .map((x) => x.r);
     }, [planoRows, itens, temPlano]);
