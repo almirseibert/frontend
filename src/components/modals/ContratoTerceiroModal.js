@@ -4,6 +4,7 @@ import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRule
 import CurrencyInput from '../ui/CurrencyInput';
 import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
+import { planoTrabalhoDisponivel } from '../../utils/terceirizados';
 
 const FOROS = ['Santa Maria', 'Lajeado'];
 
@@ -102,6 +103,54 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
     const removeItem = (i) => setItens((c) => c.filter((_, idx) => idx !== i));
     const updateItem = (i, field, value) => setItens((c) => c.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
 
+    // ---- Plano de trabalho da obra -------------------------------------------------
+    // A obra selecionada traz o plano ORIGINAL por subgrupo. O saldo de cada subgrupo
+    // desconta apenas o que OUTROS contratos de terceiro já comprometeram — a execução
+    // física (horas apontadas) não abate nada aqui.
+    const obraSelecionada = useMemo(
+        () => obras.find((o) => o.id === form.obraId) || null,
+        [obras, form.obraId]
+    );
+    const planoRows = useMemo(
+        () => planoTrabalhoDisponivel({
+            obra: obraSelecionada,
+            contratos,
+            exceptContratoId: contrato?.id || null,
+            incluirTypes: itens.map((i) => i.type),
+        }),
+        [obraSelecionada, contratos, contrato, itens]
+    );
+    // Sem plano por subgrupo (obra por m², ou obra sem plano cadastrado) → cai no
+    // modo livre antigo, com "Adicionar item".
+    const temPlano = planoRows.some((r) => !r.foraDoPlano);
+
+    // A presença do subgrupo em `itens` É a seleção: só o que o usuário marcar
+    // entra no contrato do terceiro. Nada do plano da obra vem marcado por padrão.
+    const itemDoTipo = (type) => itens.find((i) => i.type === type) || null;
+    const isSelecionado = (type) => itens.some((i) => i.type === type);
+    // Marcar NÃO preenche valor: o valor/hora da obra é o que a MAK recebe, não o
+    // que o terceiro cobra. Ele aparece só como referência ao lado, e o campo
+    // começa vazio de propósito.
+    const toggleItemTipo = (type) => setItens((cur) => (
+        cur.some((i) => i.type === type)
+            ? cur.filter((i) => i.type !== type)
+            : [...cur, { type, hours: '', price: '' }]
+    ));
+    const setItemDoTipo = (type, field, value) => setItens((cur) => {
+        const idx = cur.findIndex((i) => i.type === type);
+        if (idx === -1) return [...cur, { type, hours: '', price: '', [field]: value }];
+        return cur.map((it, i) => (i === idx ? { ...it, [field]: value } : it));
+    });
+
+    // Subgrupos em que as horas pedidas estouram o saldo disponível.
+    const excedidos = useMemo(() => {
+        if (!temPlano) return [];
+        return planoRows
+            .map((r) => ({ r, h: parseFloat(itemDoTipo(r.type)?.hours) || 0 }))
+            .filter((x) => x.h > x.r.saldo + 1e-6)
+            .map((x) => x.r);
+    }, [planoRows, itens, temPlano]);
+
     const isFechado = form.contractType === 'fechado';
     // No modo fechado as máquinas entram sem valor/hora — só a coluna de horas aparece.
     const showPrice = !isFechado;
@@ -120,6 +169,22 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         e.preventDefault();
         if (!form.locadorId) { setAlertMessage?.('Selecione o terceiro.'); return; }
         if (!form.obraId) { setAlertMessage?.('Selecione a obra.'); return; }
+        if (excedidos.length > 0) {
+            setAlertMessage?.(
+                'Horas acima do saldo do plano de trabalho da obra: ' +
+                excedidos.map((r) => `${r.type} (saldo ${r.saldo.toLocaleString('pt-BR')} h)`).join(', ') + '.'
+            );
+            return;
+        }
+        if (temPlano) {
+            if (itens.filter((i) => i.type).length === 0) {
+                setAlertMessage?.('Marque no plano de trabalho quais itens o terceiro vai executar.'); return;
+            }
+            const semHoras = itens.filter((i) => i.type && !((parseFloat(i.hours) || 0) > 0));
+            if (semHoras.length > 0) {
+                setAlertMessage?.('Informe as horas dos itens marcados: ' + semHoras.map((i) => i.type).join(', ') + '.'); return;
+            }
+        }
         if (!isFechado && itens.filter((i) => i.type).length === 0) {
             setAlertMessage?.('Adicione ao menos um equipamento ao plano, ou use "Valor fechado".'); return;
         }
@@ -129,7 +194,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         setIsSaving(true);
         try {
             // No modo fechado as máquinas entram com price = 0: o valor é global, as horas são só demonstrativas.
-            const itensLimpos = itens.filter((i) => i.type).map((i) => ({ type: i.type, hours: parseFloat(i.hours) || 0, price: isFechado ? 0 : (parseFloat(i.price) || 0) }));
+            const itensLimpos = itens
+                .filter((i) => i.type && (!temPlano || (parseFloat(i.hours) || 0) > 0))
+                .map((i) => ({ type: i.type, hours: parseFloat(i.hours) || 0, price: isFechado ? 0 : (parseFloat(i.price) || 0) }));
             // tipoMaquina: usa o digitado ou deriva dos subgrupos do plano.
             const tipoMaquina = form.tipoMaquina || (itensLimpos.length > 0 ? [...new Set(itensLimpos.map((i) => i.type))].join(', ') : null);
             // No fechado, as horas contratadas (progresso físico) somam as horas das máquinas do plano.
@@ -207,7 +274,12 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                             <SearchableObraSelect
                                 obras={obrasSelecionaveis}
                                 value={form.obraId}
-                                onChange={(obra) => setForm((f) => ({ ...f, obraId: obra?.id || '' }))}
+                                onChange={(obra) => {
+                                    const novaObraId = obra?.id || '';
+                                    // Trocar de obra troca o plano de trabalho: os itens da obra anterior não valem mais.
+                                    if (novaObraId !== form.obraId) setItens([]);
+                                    setForm((f) => ({ ...f, obraId: novaObraId }));
+                                }}
                                 placeholder="Buscar obra..."
                                 overlay
                                 overlayTitle="Selecione a obra"
@@ -239,50 +311,159 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         </div>
                     )}
 
-                    {/* B. MÁQUINAS / EQUIPAMENTOS CONTRATADOS — usado nos dois modos.
-                        No fechado: subgrupo + horas (sem valor/hora); no por horas: com valor/hora. */}
+                    {/* B. PLANO DE TRABALHO — usado nos dois modos.
+                        Com plano na obra: as linhas vêm do plano ORIGINAL da obra, com o saldo
+                        disponível (plano − horas já levadas por outros contratos de terceiro).
+                        Sem plano por subgrupo: lista livre (comportamento antigo). */}
                     <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-100">
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="text-sm font-bold text-purple-800 flex items-center gap-2">
-                                <Clock size={16} /> {isFechado ? 'Máquinas contratadas (horas, sem valor/hora)' : 'Equipamentos contratados'}
+                                <Clock size={16} /> {temPlano ? 'Plano de trabalho da obra' : (isFechado ? 'Máquinas contratadas (horas, sem valor/hora)' : 'Equipamentos contratados')}
                             </h3>
-                            <button type="button" onClick={addItem} className="text-xs flex items-center gap-1 text-purple-600 hover:text-purple-800 font-bold bg-white px-2 py-1 rounded border border-purple-200 shadow-sm">
-                                <Plus size={14} /> Adicionar item
-                            </button>
+                            {!temPlano && (
+                                <button type="button" onClick={addItem} className="text-xs flex items-center gap-1 text-purple-600 hover:text-purple-800 font-bold bg-white px-2 py-1 rounded border border-purple-200 shadow-sm">
+                                    <Plus size={14} /> Adicionar item
+                                </button>
+                            )}
                         </div>
-                        {itens.length === 0 && (
-                            <p className="text-sm text-gray-400 italic text-center py-4 bg-white rounded border border-dashed">
-                                {isFechado ? 'Nenhuma máquina adicionada (opcional).' : 'Nenhum equipamento adicionado.'}
-                            </p>
-                        )}
-                        <div className="space-y-2">
-                            {itens.map((item, index) => (
-                                <div key={index} className="flex flex-col sm:flex-row gap-2 items-end bg-white p-3 rounded border shadow-sm">
-                                    <div className="w-full sm:flex-1">
-                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (subgrupo)</label>
-                                        <select value={item.type} onChange={(e) => updateItem(index, 'type', e.target.value)} className="w-full p-2 border rounded text-sm">
-                                            <option value="">Selecione...</option>
-                                            {equipmentOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className={showPrice ? 'w-1/2 sm:w-24' : 'w-full sm:w-32'}>
-                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas</label>
-                                        <input type="number" min="0" step="any" value={item.hours} onChange={(e) => updateItem(index, 'hours', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0" />
-                                    </div>
-                                    {showPrice && (
-                                        <div className="w-1/2 sm:w-32">
-                                            <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora (R$)</label>
-                                            <CurrencyInput value={item.price} onChange={(e) => updateItem(index, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
-                                        </div>
-                                    )}
-                                    <button type="button" onClick={() => removeItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5"><Trash2 size={18} /></button>
+
+                        {/* --- MODO PLANO --- */}
+                        {temPlano && (
+                            <>
+                                <p className="text-[11px] text-gray-500 mb-2">
+                                    <span className="font-semibold">Marque</span> os itens do plano que este terceiro vai executar e informe as horas de cada um.
+                                    O que ficar desmarcado continua com a MAK ou com outro terceiro.
+                                    O saldo desconta apenas as horas de outros contratos de terceiro nesta obra — a execução física não abate o saldo.
+                                </p>
+                                <div className="space-y-2">
+                                    {planoRows.map((r) => {
+                                        const it = itemDoTipo(r.type);
+                                        const h = parseFloat(it?.hours) || 0;
+                                        const excede = h > r.saldo + 1e-6;
+                                        const restante = r.saldo - h;
+                                        const selecionado = isSelecionado(r.type);
+                                        // Item do plano já esgotado por outros terceiros não pode ser marcado.
+                                        const semSaldo = !r.foraDoPlano && r.saldo <= 0;
+                                        return (
+                                            <div key={r.type} className={`p-3 rounded border shadow-sm transition ${excede ? 'bg-white border-red-300' : selecionado ? 'bg-white border-purple-300' : 'bg-gray-50 border-gray-200'}`}>
+                                                <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                                                    <label className={`w-full sm:flex-1 min-w-0 flex items-start gap-2 ${semSaldo && !selecionado ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selecionado}
+                                                            disabled={semSaldo && !selecionado}
+                                                            onChange={() => toggleItemTipo(r.type)}
+                                                            className="h-4 w-4 mt-0.5 text-purple-600 rounded shrink-0"
+                                                        />
+                                                        <span className="min-w-0">
+                                                        <span className={`block text-sm font-semibold truncate ${selecionado ? 'text-gray-800' : 'text-gray-500'}`}>{r.type}</span>
+                                                        <span className="block text-[11px] text-gray-500">
+                                                            {r.foraDoPlano ? (
+                                                                <span className="text-amber-600 font-medium">Fora do plano atual da obra</span>
+                                                            ) : (
+                                                                <>Plano: <span className="font-medium text-gray-700">{r.horasPlano.toLocaleString('pt-BR')} h</span>
+                                                                    {r.horasOutros > 0 && <> · outros terceiros: <span className="font-medium text-gray-700">{r.horasOutros.toLocaleString('pt-BR')} h</span></>}
+                                                                    {' '}· disponível: <span className={`font-bold ${r.saldo > 0 ? 'text-green-700' : 'text-gray-400'}`}>{r.saldo.toLocaleString('pt-BR')} h</span>
+                                                                    {showPrice && r.valorHoraPlano > 0 && (
+                                                                        <> · <span className="text-gray-400">valor/hora da obra: {fmtBRL(r.valorHoraPlano)} (referência)</span></>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                            {semSaldo && !selecionado && <span className="text-gray-400"> · sem saldo disponível</span>}
+                                                        </span>
+                                                        </span>
+                                                    </label>
+                                                    {selecionado && (
+                                                        <>
+                                                            <div className={showPrice ? 'w-1/2 sm:w-24' : 'w-full sm:w-32'}>
+                                                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas do terceiro</label>
+                                                                <input
+                                                                    type="number" min="0" step="any"
+                                                                    value={it?.hours ?? ''}
+                                                                    onChange={(e) => setItemDoTipo(r.type, 'hours', e.target.value)}
+                                                                    className={`w-full p-2 border rounded text-sm ${excede ? 'border-red-400 bg-red-50' : ''}`}
+                                                                    placeholder="0"
+                                                                    autoFocus
+                                                                />
+                                                            </div>
+                                                            {showPrice && (
+                                                                <div className="w-1/2 sm:w-32">
+                                                                    <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora do terceiro (R$)</label>
+                                                                    <CurrencyInput
+                                                                        value={it?.price ?? ''}
+                                                                        onChange={(e) => setItemDoTipo(r.type, 'price', e.target.value)}
+                                                                        className="w-full p-2 border rounded text-sm"
+                                                                        placeholder="0,00"
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                                {excede && (
+                                                    <p className="text-[11px] text-red-600 font-medium mt-1">
+                                                        Excede o saldo disponível em {(h - r.saldo).toLocaleString('pt-BR')} h.
+                                                    </p>
+                                                )}
+                                                {!excede && h > 0 && !r.foraDoPlano && (
+                                                    <p className="text-[11px] text-gray-400 mt-1">Restariam {restante.toLocaleString('pt-BR')} h no plano.</p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            ))}
-                        </div>
-                        {isFechado && itens.length > 0 && (
-                            <p className="text-[11px] text-gray-500 mt-2">
-                                Total: <span className="font-bold text-gray-700">{totalHorasItens.toLocaleString('pt-BR')} h</span> · as horas constam no contrato sem valor individual; o valor é o global fechado acima.
-                            </p>
+                                <p className="text-[11px] text-gray-500 mt-2">
+                                    Selecionados: <span className="font-bold text-gray-700">{itens.filter((i) => i.type).length} de {planoRows.length}</span> itens ·
+                                    total deste contrato: <span className="font-bold text-gray-700">{totalHorasItens.toLocaleString('pt-BR')} h</span>
+                                    {isFechado && ' · as horas constam no contrato sem valor individual; o valor é o global fechado acima.'}
+                                </p>
+                            </>
+                        )}
+
+                        {/* --- MODO LIVRE (obra sem plano por subgrupo) --- */}
+                        {!temPlano && (
+                            <>
+                                {!form.obraId && (
+                                    <p className="text-[11px] text-gray-400 mb-2">Selecione a obra para carregar o plano de trabalho original.</p>
+                                )}
+                                {form.obraId && (
+                                    <p className="text-[11px] text-amber-600 mb-2">Esta obra não tem plano de trabalho por subgrupo cadastrado — os itens abaixo são livres e não têm saldo a descontar.</p>
+                                )}
+                                {itens.length === 0 && (
+                                    <p className="text-sm text-gray-400 italic text-center py-4 bg-white rounded border border-dashed">
+                                        {isFechado ? 'Nenhuma máquina adicionada (opcional).' : 'Nenhum equipamento adicionado.'}
+                                    </p>
+                                )}
+                                <div className="space-y-2">
+                                    {itens.map((item, index) => (
+                                        <div key={index} className="flex flex-col sm:flex-row gap-2 items-end bg-white p-3 rounded border shadow-sm">
+                                            <div className="w-full sm:flex-1">
+                                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (subgrupo)</label>
+                                                <select value={item.type} onChange={(e) => updateItem(index, 'type', e.target.value)} className="w-full p-2 border rounded text-sm">
+                                                    <option value="">Selecione...</option>
+                                                    {equipmentOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className={showPrice ? 'w-1/2 sm:w-24' : 'w-full sm:w-32'}>
+                                                <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas</label>
+                                                <input type="number" min="0" step="any" value={item.hours} onChange={(e) => updateItem(index, 'hours', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0" />
+                                            </div>
+                                            {showPrice && (
+                                                <div className="w-1/2 sm:w-32">
+                                                    <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora (R$)</label>
+                                                    <CurrencyInput value={item.price} onChange={(e) => updateItem(index, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
+                                                </div>
+                                            )}
+                                            <button type="button" onClick={() => removeItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5"><Trash2 size={18} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                                {isFechado && itens.length > 0 && (
+                                    <p className="text-[11px] text-gray-500 mt-2">
+                                        Total: <span className="font-bold text-gray-700">{totalHorasItens.toLocaleString('pt-BR')} h</span> · as horas constam no contrato sem valor individual; o valor é o global fechado acima.
+                                    </p>
+                                )}
+                            </>
                         )}
                     </div>
 
