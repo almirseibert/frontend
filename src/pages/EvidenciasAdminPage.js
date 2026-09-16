@@ -585,6 +585,14 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
         try { const r = await apiClient.confirmarOffload(l.id); setAlertMessage?.({ type: 'success', message: `${r.arquivadas} evidências arquivadas e purgadas.` }); buscar(); carregarArmaz(); }
         catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
     };
+    const descartar = async (l) => {
+        const msg = l.status === 'GERANDO'
+            ? 'Descartar este lote travado em "gerando"? Nenhuma foto é apagada.'
+            : 'Descartar este lote? Apaga só o ZIP do servidor — as fotos continuam ativas e você pode gerar outro lote.';
+        if (!window.confirm(msg)) return;
+        try { await apiClient.descartarOffload(l.id); setAlertMessage?.({ type: 'success', message: 'Lote descartado.' }); buscar(); carregarArmaz(); }
+        catch (e) { setAlertMessage?.({ type: 'error', message: e.message }); }
+    };
     const restaurar = async (preflight) => {
         if (!restFiles.length) return setAlertMessage?.({ type: 'error', message: 'Selecione arquivos de imagem.' });
         try { const r = await apiClient.restaurarEvidencias(restFiles, preflight); setRestResult(r); if (!preflight) { buscar(); carregarArmaz(); } }
@@ -649,6 +657,7 @@ const AbaArquivamento = ({ apiClient, obras, setAlertMessage }) => {
                                 <span className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: st.bg, color: st.cor }}>{st.t}</span>
                                 {(l.status === 'PRONTO' || l.status === 'BAIXADO') && <button onClick={() => baixar(l)} className="btn-ghost text-xs py-1.5 flex items-center gap-1"><Download size={14} /> ZIP</button>}
                                 {podeConfirmar && <button onClick={() => confirmar(l)} className="btn-danger text-xs py-1.5 flex items-center gap-1"><Trash2 size={14} /> Confirmar e purgar</button>}
+                                {l.status !== 'CONFIRMADO' && l.status !== 'PURGADO' && <button onClick={() => descartar(l)} className="btn-ghost text-xs py-1.5 flex items-center gap-1" title="Descartar lote (não apaga fotos)"><X size={14} /> Descartar</button>}
                             </div>
                         );
                     })}

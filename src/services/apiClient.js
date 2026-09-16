@@ -925,6 +925,7 @@ const apiClient = {
     getLotesOffload: async (obraId) => apiFetch(`/evidencias/offload${obraId ? `?obra_id=${obraId}` : ''}`),
     gerarOffload: async (payload) => apiFetch('/evidencias/offload', { method: 'POST', body: JSON.stringify(payload) }),
     confirmarOffload: async (id) => apiFetch(`/evidencias/offload/${id}/confirmar`, { method: 'POST' }),
+    descartarOffload: async (id) => apiFetch(`/evidencias/offload/${id}`, { method: 'DELETE' }),
     baixarOffloadZip: async (id, nome) => {
         const blob = await apiFetchBlob(`/evidencias/offload/${id}/zip`);
         saveBlob(blob, nome || `lote-${id}.zip`);
