@@ -1,9 +1,10 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
-import { X, Loader, MapPin, Clock, Plus, Trash2, DollarSign, User, ClipboardList, Users, Star } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Loader, MapPin, Clock, Plus, Trash2, DollarSign, User, ClipboardList, Users, Star, ChevronDown, ChevronRight } from 'lucide-react';
 import CurrencyInput from '../ui/CurrencyInput';
 import { vehicleSubTypes } from '../../utils/vehicleRules';
 import SearchableCitySelect from '../SearchableCitySelect';
-import { cidadePorNome } from '../../utils/geo';
+import { cidadePorCodigo, cidadePorNome } from '../../utils/geo';
+import { REGIOES, regiaoPorCidade } from '../../utils/obraFormat';
 import { rankOperatorsForObra } from '../../utils/geoSuggest';
 
 // Ciclo de vida de planejamento — transições automáticas:
@@ -63,6 +64,11 @@ const ObraModal = ({
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // Plano de trabalho (contrato) começa recolhido quando ainda não existe:
+    // a obra nasce 'radar' e só sobe para 'planejada' quando o plano é definido,
+    // então na criação ele é a exceção, não a regra.
+    const [planoAberto, setPlanoAberto] = useState(false);
+
     // Contatos internos (para vincular WhatsApp do responsável da obra)
     useEffect(() => {
         apiClient.getInternalContacts()
@@ -113,6 +119,8 @@ const ObraModal = ({
             // Restaura Contrato por M²
             const sectorsParsed = Array.isArray(obra.sectors) ? obra.sectors : [];
             setSectors(sectorsParsed);
+
+            setPlanoAberto(items.length > 0 || sectorsParsed.length > 0);
         } else {
             // Se for nova obra, inicia limpo
             setContractedItems([]);
@@ -131,17 +139,34 @@ const ObraModal = ({
         return [...new Set(opts)].sort();
     }, [equipmentTypesForHours]);
 
-    // Seleção de cidade (RS/IBGE): grava código + preenche lat/long com o centroide
-    // quando ainda vazias (mantém coordenada manual se já existir).
+    // Seleção de cidade (RS/IBGE): grava o código, assume o centroide do município
+    // como coordenada da obra e sugere a região (filial) mais próxima.
+    //
+    // A coordenada deixou de ser digitável — o centroide é a melhor informação que
+    // temos sem um mapa com pino — então ela passa a acompanhar a cidade sempre.
+    // A região é só sugestão: o seletor continua editável para a exceção.
     const handleCitySelect = (city) => {
         if (!city) {
             setCidadeIbge('');
             return;
         }
         setCidadeIbge(city.codigo_ibge);
-        if (!latitude) setLatitude(String(city.lat));
-        if (!longitude) setLongitude(String(city.lng));
+        setLatitude(String(city.lat));
+        setLongitude(String(city.lng));
+
+        const sugerida = regiaoPorCidade(city);
+        if (sugerida) setRegiao(sugerida);
     };
+
+    // Cidade escolhida, para exibir coordenada e região derivada em texto.
+    const cidadeSelecionada = useMemo(
+        () => (cidadeIbge ? cidadePorCodigo(cidadeIbge) : null),
+        [cidadeIbge]
+    );
+    const regiaoSugerida = useMemo(
+        () => regiaoPorCidade(cidadeSelecionada),
+        [cidadeSelecionada]
+    );
 
     // Colaboradores mais próximos da obra (por cidade/coordenada) — sugestão ao cadastrar.
     const colaboradoresProximos = useMemo(() => {
@@ -289,286 +314,339 @@ const ObraModal = ({
         }
     };
 
+    const isCentroCusto = tipoRegistro === 'centro_custo';
+    const temPlano = contractedItems.length > 0 || sectors.length > 0;
+    const faseAtual = OBRA_FASES.find(f => f.value === statusObra);
+
     return (
         <div className="mak-modal-backdrop backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                <div className="mak-modal-header">
-                    <h2 className="mak-modal-title">
-                        {obra
-                            ? (tipoRegistro === 'centro_custo' ? 'Editar Centro de Custo' : 'Editar Obra')
-                            : (tipoRegistro === 'centro_custo' ? 'Novo Centro de Custo' : 'Nova Obra')}
-                    </h2>
+            <div className={`bg-white rounded-lg shadow-2xl w-full flex flex-col max-h-[88vh] ${isCentroCusto ? 'max-w-xl' : 'max-w-5xl'}`}>
+
+                {/* Cabeçalho: título + fase da obra como selo */}
+                <div className="mak-modal-header flex-shrink-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <h2 className="mak-modal-title truncate">
+                            {obra
+                                ? (isCentroCusto ? 'Editar Centro de Custo' : 'Editar Obra')
+                                : (isCentroCusto ? 'Novo Centro de Custo' : 'Nova Obra')}
+                        </h2>
+                        {!isCentroCusto && (
+                            <span className="flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                                {obra ? (faseAtual ? faseAtual.label.split(' (')[0] : statusObra) : 'No radar'}
+                            </span>
+                        )}
+                    </div>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200 text-gray-500" disabled={isSubmitting}><X size={24}/></button>
                 </div>
-                
-                <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                    {/* 1. Dados Básicos */}
-                    <div className="space-y-4">
-                        {/* Tipo de Registro */}
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">Tipo de Registro</label>
-                            <div className="flex gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setTipoRegistro('obra')}
-                                    className={`flex-1 py-2 rounded-lg border-2 font-bold transition text-sm ${tipoRegistro === 'obra' ? 'border-yellow-400 bg-yellow-50 text-yellow-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
-                                >
-                                    Obra
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setTipoRegistro('centro_custo')}
-                                    className={`flex-1 py-2 rounded-lg border-2 font-bold transition text-sm ${tipoRegistro === 'centro_custo' ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
-                                >
-                                    Centro de Custo
-                                </button>
-                            </div>
-                        </div>
 
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">
-                                {tipoRegistro === 'centro_custo' ? 'Nome do Centro de Custo *' : 'Nome da Obra *'}
-                            </label>
-                            <input
-                                type="text"
-                                value={nome}
-                                onChange={(e) => setNome(e.target.value)}
-                                className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
-                                required
-                                placeholder={tipoRegistro === 'centro_custo' ? 'Ex: Manutenção Interna' : 'Ex: Pavimentação Rua A'}
-                            />
-                        </div>
+                <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
 
-                        {/* Novos Campos: Responsável e Fiscal */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Tipo de registro — decide a forma do resto do formulário */}
+                    <div className="px-6 pt-4 flex-shrink-0">
+                        <div className="inline-flex rounded-lg border-2 border-gray-200 overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() => setTipoRegistro('obra')}
+                                className={`px-5 py-1.5 font-bold text-sm transition ${!isCentroCusto ? 'bg-yellow-50 text-yellow-700' : 'text-gray-500 hover:bg-gray-50'}`}
+                            >
+                                Obra
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setTipoRegistro('centro_custo')}
+                                className={`px-5 py-1.5 font-bold text-sm transition border-l-2 border-gray-200 ${isCentroCusto ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'}`}
+                            >
+                                Centro de Custo
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Miolo: só ele rola. Total e ações ficam sempre visíveis no rodapé. */}
+                    <div className={`flex-1 min-h-0 overflow-y-auto px-6 py-4 grid gap-6 ${isCentroCusto ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-5'}`}>
+
+                        {/* ---- COLUNA ESQUERDA: identificação ---- */}
+                        <div className={`space-y-4 min-w-0 ${isCentroCusto ? '' : 'md:col-span-2'}`}>
+
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                                    <User size={14}/> Líder de Obra
-                                </label>
-                                {employees.length > 0 ? (
-                                    <select
-                                        value={responsavelEmail}
-                                        onChange={(e) => {
-                                            const email = e.target.value;
-                                            setResponsavelEmail(email);
-                                            const emp = employees.find(x => x.email === email);
-                                            setResponsavel(emp ? emp.nome : '');
-                                        }}
-                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
-                                    >
-                                        <option value="">— Nenhum —</option>
-                                        {employees.filter(emp => emp.email).map(emp => (
-                                            <option key={emp.id} value={emp.email}>
-                                                {emp.nome} ({emp.email})
-                                            </option>
-                                        ))}
-                                    </select>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        value={responsavel}
-                                        onChange={(e) => setResponsavel(e.target.value)}
-                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
-                                        placeholder="Nome do Responsável"
-                                    />
-                                )}
-                                <p className="text-xs text-gray-400 mt-0.5">Recebe alertas da obra</p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                                    <User size={14}/> WhatsApp do Responsável
-                                </label>
-                                <select
-                                    value={responsavelWhatsapp}
-                                    onChange={(e) => setResponsavelWhatsapp(e.target.value)}
-                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
-                                >
-                                    <option value="">— Nenhum —</option>
-                                    {internalContacts.filter(c => c.whatsapp).map(c => (
-                                        <option key={c.id} value={c.whatsapp}>
-                                            {c.nome}{c.cargo ? ` — ${c.cargo}` : ''}{c.setor ? ` (${c.setor})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                {internalContacts.length === 0 && (
-                                    <p className="text-xs text-red-500 mt-0.5">Nenhum contato interno com WhatsApp. Cadastre em Administração → Contatos Internos.</p>
-                                )}
-                                <p className="text-xs text-gray-400 mt-0.5">Recebe alertas da obra</p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                                    <ClipboardList size={14}/> Fiscal da Obra
+                                <label className="block text-sm font-bold text-gray-700 mb-1">
+                                    {isCentroCusto ? 'Nome do Centro de Custo *' : 'Nome da Obra *'}
                                 </label>
                                 <input
                                     type="text"
-                                    value={fiscal}
-                                    onChange={(e) => setFiscal(e.target.value)}
+                                    value={nome}
+                                    onChange={(e) => setNome(e.target.value)}
                                     className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
-                                    placeholder="Nome do Fiscal"
+                                    required
+                                    placeholder={isCentroCusto ? 'Ex: Manutenção Interna' : 'Ex: Pavimentação Rua A'}
                                 />
                             </div>
-                        </div>
 
-                        {/* Fase (ciclo de vida de planejamento) — não se aplica a centro de custo */}
-                        {tipoRegistro !== 'centro_custo' && (
-                            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 space-y-3">
-                                {obra ? (
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">Fase da Obra</label>
+                            {/* Órgão contratante fica colado ao nome: ele compõe o rótulo
+                                exibido da obra em todo o sistema — "Estrela (SEDUR)". */}
+                            {!isCentroCusto && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Órgão Contratante</label>
+                                    <select
+                                        value={orgaoContratante}
+                                        onChange={(e) => setOrgaoContratante(e.target.value)}
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                    >
+                                        <option value="">Selecione...</option>
+                                        {['ALUGUEL','DOAÇÃO','INCRA','MUNICÍPIO','PARTICULAR','SEAPI','SEDUR'].map(o => (
+                                            <option key={o} value={o}>{o}</option>
+                                        ))}
+                                    </select>
+                                    {nome && orgaoContratante && (
+                                        <p className="text-[11px] text-gray-400 mt-1">
+                                            Aparece no sistema como <strong>{nome} ({orgaoContratante})</strong>
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {!isCentroCusto && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                        <MapPin size={14} /> Cidade (RS)
+                                    </label>
+                                    <SearchableCitySelect
+                                        value={cidadeIbge}
+                                        onChange={handleCitySelect}
+                                        placeholder="Buscar cidade do RS..."
+                                    />
+                                    {/* A coordenada não é mais digitada: vem do centro do
+                                        município e alimenta o ranking de colaboradores. */}
+                                    {cidadeSelecionada && latitude && longitude && (
+                                        <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
+                                            <MapPin size={11} className="flex-shrink-0" />
+                                            {Number(latitude).toFixed(4)} / {Number(longitude).toFixed(4)}
+                                            <span className="text-gray-400">· centro de {cidadeSelecionada.nome}</span>
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {!isCentroCusto && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Região (filial)</label>
+                                    <select
+                                        value={regiao}
+                                        onChange={(e) => setRegiao(e.target.value)}
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                    >
+                                        <option value="">Selecione...</option>
+                                        {REGIOES.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                    {regiaoSugerida && regiao === regiaoSugerida && (
+                                        <p className="text-[11px] text-gray-400 mt-1">
+                                            Sugerida pela base mais próxima da cidade. Altere se outra filial atende a obra.
+                                        </p>
+                                    )}
+                                    {regiaoSugerida && regiao && regiao !== regiaoSugerida && (
+                                        <p className="text-[11px] text-amber-600 mt-1">
+                                            A base mais próxima seria <strong>{regiaoSugerida}</strong>.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Início</label>
+                                    <input
+                                        type="date"
+                                        value={dataInicioPrevisto}
+                                        onChange={(e) => setDataInicioPrevisto(e.target.value)}
+                                        className="w-full p-2 border rounded"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Fim</label>
+                                    <input
+                                        type="date"
+                                        value={dataFim}
+                                        onChange={(e) => setDataFim(e.target.value)}
+                                        className="w-full p-2 border rounded"
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-gray-400">
+                                O início real é definido automaticamente pelo 1º lançamento de horas.
+                            </p>
+
+                            {/* Responsáveis */}
+                            <div className="pt-3 border-t space-y-3">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                        <User size={14}/> Líder de Obra
+                                    </label>
+                                    {employees.length > 0 ? (
                                         <select
-                                            value={statusObra}
-                                            onChange={(e) => setStatusObra(e.target.value)}
+                                            value={responsavelEmail}
+                                            onChange={(e) => {
+                                                const email = e.target.value;
+                                                setResponsavelEmail(email);
+                                                const emp = employees.find(x => x.email === email);
+                                                setResponsavel(emp ? emp.nome : '');
+                                            }}
                                             className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
                                         >
-                                            {OBRA_FASES.map(f => (
-                                                <option key={f.value} value={f.value}>{f.label}</option>
+                                            <option value="">— Nenhum —</option>
+                                            {employees.filter(emp => emp.email).map(emp => (
+                                                <option key={emp.id} value={emp.email}>
+                                                    {emp.nome} ({emp.email})
+                                                </option>
                                             ))}
                                         </select>
-                                        {PRE_ACTIVE_STATUSES.includes(statusObra) && (
-                                            <p className="text-xs text-amber-700 mt-1">
-                                                Obra em fase de planejamento: fica fora dos fluxos operacionais e é ativada
-                                                automaticamente ao receber o primeiro equipamento.
-                                            </p>
-                                        )}
+                                    ) : (
+                                        <input
+                                            type="text"
+                                            value={responsavel}
+                                            onChange={(e) => setResponsavel(e.target.value)}
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
+                                            placeholder="Nome do Responsável"
+                                        />
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                        <User size={14}/> WhatsApp do Responsável
+                                    </label>
+                                    <select
+                                        value={responsavelWhatsapp}
+                                        onChange={(e) => setResponsavelWhatsapp(e.target.value)}
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                    >
+                                        <option value="">— Nenhum —</option>
+                                        {internalContacts.filter(c => c.whatsapp).map(c => (
+                                            <option key={c.id} value={c.whatsapp}>
+                                                {c.nome}{c.cargo ? ` — ${c.cargo}` : ''}{c.setor ? ` (${c.setor})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {internalContacts.length === 0 && (
+                                        <p className="text-xs text-red-500 mt-0.5">Nenhum contato interno com WhatsApp. Cadastre em Administração → Contatos Internos.</p>
+                                    )}
+                                    <p className="text-xs text-gray-400 mt-0.5">Líder e WhatsApp recebem os alertas da obra.</p>
+                                </div>
+
+                                {!isCentroCusto && (
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                            <ClipboardList size={14}/> Fiscal da Obra
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={fiscal}
+                                            onChange={(e) => setFiscal(e.target.value)}
+                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
+                                            placeholder="Nome do Fiscal"
+                                        />
                                     </div>
-                                ) : (
-                                    <p className="text-xs text-amber-700">
-                                        A obra será criada <strong>no radar</strong> e avança de fase
-                                        automaticamente conforme os dados chegam: plano de trabalho registrado,
-                                        equipamento alocado e horas apontadas.
-                                    </p>
                                 )}
                             </div>
-                        )}
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Início</label>
-                                <input
-                                    type="date"
-                                    value={dataInicioPrevisto}
-                                    onChange={(e) => setDataInicioPrevisto(e.target.value)}
-                                    className="w-full p-2 border rounded"
-                                />
-                                <p className="text-xs text-gray-500 mt-1">
-                                    O início real é definido automaticamente pelo 1º lançamento de horas.
-                                </p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Previsão Fim</label>
-                                <input
-                                    type="date"
-                                    value={dataFim}
-                                    onChange={(e) => setDataFim(e.target.value)}
-                                    className="w-full p-2 border rounded"
-                                />
-                            </div>
-                        </div>
+                            {/* Fase: regressão manual só na edição. Na criação o selo do
+                                cabeçalho já diz que a obra nasce no radar. */}
+                            {!isCentroCusto && obra && (
+                                <div className="pt-3 border-t">
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Fase da Obra</label>
+                                    <select
+                                        value={statusObra}
+                                        onChange={(e) => setStatusObra(e.target.value)}
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
+                                    >
+                                        {OBRA_FASES.map(f => (
+                                            <option key={f.value} value={f.value}>{f.label}</option>
+                                        ))}
+                                    </select>
+                                    {PRE_ACTIVE_STATUSES.includes(statusObra) && (
+                                        <p className="text-xs text-amber-700 mt-1">
+                                            Obra em planejamento: fica fora dos fluxos operacionais e é ativada
+                                            automaticamente ao receber o primeiro equipamento.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
-                        {/* Cidade (RS / IBGE) */}
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                                <MapPin size={14} /> Cidade (RS)
-                            </label>
-                            <SearchableCitySelect
-                                value={cidadeIbge}
-                                onChange={handleCitySelect}
-                                placeholder="Buscar cidade do RS..."
-                            />
-                            <p className="text-[11px] text-gray-400 mt-1">
-                                Ao escolher a cidade, latitude/longitude são preenchidas com o centro do município (editável abaixo).
-                            </p>
-                        </div>
-
-                        {/* Órgão Contratante e Região */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Órgão Contratante</label>
-                                <select
-                                    value={orgaoContratante}
-                                    onChange={(e) => setOrgaoContratante(e.target.value)}
-                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
-                                >
-                                    <option value="">Selecione...</option>
-                                    {['ALUGUEL','DOAÇÃO','INCRA','MUNICÍPIO','PARTICULAR','SEAPI','SEDUR'].map(o => (
-                                        <option key={o} value={o}>{o}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Região</label>
-                                <select
-                                    value={regiao}
-                                    onChange={(e) => setRegiao(e.target.value)}
-                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none"
-                                >
-                                    <option value="">Selecione...</option>
-                                    <option value="Lajeado">Lajeado</option>
-                                    <option value="Santa Maria">Santa Maria</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1"><MapPin size={14}/> Latitude</label>
-                                <input type="text" value={latitude} onChange={(e) => setLatitude(e.target.value)} className="w-full p-2 border rounded" placeholder="-29.1234"/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1"><MapPin size={14}/> Longitude</label>
-                                <input type="text" value={longitude} onChange={(e) => setLongitude(e.target.value)} className="w-full p-2 border rounded" placeholder="-51.5678"/>
-                            </div>
-                        </div>
-
-                        {/* Colaboradores mais próximos da obra (sugestão) */}
-                        {colaboradoresProximos.length > 0 && (
-                            <div className="mt-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
-                                <p className="text-xs font-bold text-gray-600 uppercase mb-2 flex items-center gap-1">
-                                    <Users size={13} /> Colaboradores mais próximos
-                                </p>
-                                <ul className="space-y-1">
-                                    {colaboradoresProximos.map(({ employee, distanciaKm, isLider, cidade }) => (
-                                        <li key={employee.id} className="flex items-center gap-2 text-sm">
-                                            {isLider
-                                                ? <Star size={13} className="text-yellow-500 flex-shrink-0" />
-                                                : <User size={13} className="text-gray-400 flex-shrink-0" />}
-                                            <span className="font-medium text-gray-800 truncate">
-                                                {employee.nome}
-                                            </span>
-                                            <span className="text-gray-400 text-xs truncate">{cidade}</span>
-                                            <span className="ml-auto text-xs font-semibold text-gray-500 flex-shrink-0">
-                                                {distanciaKm.toFixed(0)} km
-                                            </span>
+                            {/* Sugestão, não decisão: recolhida por padrão. */}
+                            {!isCentroCusto && colaboradoresProximos.length > 0 && (
+                                <details className="border border-gray-200 rounded-lg bg-gray-50">
+                                    <summary className="cursor-pointer list-none p-3 text-xs font-bold text-gray-600 uppercase flex items-center gap-1">
+                                        <Users size={13} /> Colaboradores mais próximos ({colaboradoresProximos.length})
+                                    </summary>
+                                    <ul className="space-y-1 px-3 pb-3">
+                                        {colaboradoresProximos.map(({ employee, distanciaKm, isLider, cidade }) => (
+                                            <li key={employee.id} className="flex items-center gap-2 text-sm">
+                                                {isLider
+                                                    ? <Star size={13} className="text-yellow-500 flex-shrink-0" />
+                                                    : <User size={13} className="text-gray-400 flex-shrink-0" />}
+                                                <span className="font-medium text-gray-800 truncate">
+                                                    {employee.nome}
+                                                </span>
+                                                <span className="text-gray-400 text-xs truncate">{cidade}</span>
+                                                <span className="ml-auto text-xs font-semibold text-gray-500 flex-shrink-0">
+                                                    {distanciaKm.toFixed(0)} km
+                                                </span>
+                                            </li>
+                                        ))}
+                                        <li className="text-[11px] text-gray-400 pt-1">
+                                            <Star size={10} className="inline text-yellow-500" /> = apto a liderar obra. Ordenado por distância da cidade de residência.
                                         </li>
-                                    ))}
-                                </ul>
-                                <p className="text-[11px] text-gray-400 mt-2">
-                                    <Star size={10} className="inline text-yellow-500" /> = apto a liderar obra. Ordenado por distância da cidade de residência.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* 2. Configuração do Contrato */}
-                    <div className="border-t pt-4">
-                        <label className="block text-sm font-bold text-gray-700 mb-3">Tipo de Contrato</label>
-                        <div className="flex gap-4 mb-4">
-                            <button 
-                                type="button" 
-                                onClick={() => setContractType('horas')}
-                                className={`flex-1 py-2 rounded-lg border-2 font-bold transition ${contractType === 'horas' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
-                            >
-                                Por Horas (Equipamentos)
-                            </button>
-                            <button 
-                                type="button" 
-                                onClick={() => setContractType('metrosQuadrados')}
-                                className={`flex-1 py-2 rounded-lg border-2 font-bold transition ${contractType === 'metrosQuadrados' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
-                            >
-                                Por Produção (m² / Km)
-                            </button>
+                                    </ul>
+                                </details>
+                            )}
                         </div>
 
+                        {/* ---- COLUNA DIREITA: plano de trabalho (contrato) ---- */}
+                        {!isCentroCusto && (
+                            <div className="min-w-0 md:col-span-3">
+                                {!planoAberto && !temPlano ? (
+                                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center bg-gray-50">
+                                        <ClipboardList size={24} className="mx-auto text-gray-400" />
+                                        <p className="text-sm font-bold text-gray-600 mt-2">Ainda sem plano de trabalho</p>
+                                        <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                                            A obra é criada <strong>no radar</strong>. Ao registrar horas ou setores
+                                            contratados ela passa para <strong>plano definido</strong>.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPlanoAberto(true)}
+                                            className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-blue-700 bg-white px-3 py-1.5 rounded border border-blue-200 hover:bg-blue-50 transition"
+                                        >
+                                            <Plus size={14}/> Definir plano de trabalho
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPlanoAberto(!planoAberto)}
+                                            className="w-full flex items-center gap-1 text-sm font-bold text-gray-700 mb-3"
+                                        >
+                                            {planoAberto ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+                                            Plano de trabalho
+                                        </button>
+
+                                        {planoAberto && (
+                                            <div>
+                                                <div className="flex gap-3 mb-4">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setContractType('horas')}
+                                                        className={`flex-1 py-2 rounded-lg border-2 font-bold text-sm transition ${contractType === 'horas' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                                                    >
+                                                        Por Horas
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setContractType('metrosQuadrados')}
+                                                        className={`flex-1 py-2 rounded-lg border-2 font-bold text-sm transition ${contractType === 'metrosQuadrados' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                                                    >
+                                                        Por Produção (m²/Km)
+                                                    </button>
+                                                </div>
                         {/* A. POR HORAS (LISTA DINÂMICA) */}
                         {contractType === 'horas' && (
                             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 animate-fadeIn">
@@ -590,14 +668,17 @@ const ObraModal = ({
                                 <div className="space-y-3">
                                     {contractedItems.map((item, index) => (
                                         <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-white p-3 rounded border shadow-sm">
-                                            <div className="w-full sm:flex-1">
+                                            <div className="w-full sm:flex-1 min-w-0">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (Subgrupo)</label>
                                                 <select
                                                     value={item.type}
                                                     onChange={(e) => updateContractedItem(index, 'type', e.target.value)}
-                                                    className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-400 outline-none"
+                                                    className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-blue-400 outline-none bg-white"
                                                 >
                                                     <option value="">Selecione...</option>
+                                                    {item.type && !equipmentOptions.includes(item.type) && (
+                                                        <option value={item.type}>{item.type} — fora da lista atual</option>
+                                                    )}
                                                     {equipmentOptions.map(opt => (
                                                         <option key={opt} value={opt}>{opt}</option>
                                                     ))}
@@ -605,10 +686,10 @@ const ObraModal = ({
                                             </div>
                                             <div className="w-1/2 sm:w-24">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas</label>
-                                                <input 
-                                                    type="number" 
-                                                    value={item.hours} 
-                                                    onChange={(e) => updateContractedItem(index, 'hours', e.target.value)} 
+                                                <input
+                                                    type="number"
+                                                    value={item.hours}
+                                                    onChange={(e) => updateContractedItem(index, 'hours', e.target.value)}
                                                     className="w-full p-2 border rounded text-sm"
                                                     placeholder="0"
                                                 />
@@ -672,23 +753,23 @@ const ObraModal = ({
                                 <div className="space-y-3">
                                     {sectors.map((sector, idx) => (
                                         <div key={idx} className="flex flex-col sm:flex-row gap-3 items-end bg-white p-3 rounded border shadow-sm">
-                                            <div className="w-full sm:flex-1">
+                                            <div className="w-full sm:flex-1 min-w-0">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Nome do Setor</label>
-                                                <input 
-                                                    type="text" 
-                                                    value={sector.name} 
-                                                    onChange={(e) => updateSector(idx, 'name', e.target.value)} 
-                                                    className="w-full p-2 border rounded text-sm" 
+                                                <input
+                                                    type="text"
+                                                    value={sector.name}
+                                                    onChange={(e) => updateSector(idx, 'name', e.target.value)}
+                                                    className="w-full p-2 border rounded text-sm"
                                                     placeholder="Ex: Trecho 1"
                                                 />
                                             </div>
                                             <div className="w-1/2 sm:w-24">
                                                 <label className="block text-[10px] font-bold text-gray-500 mb-1">Qtd (m²/Km)</label>
-                                                <input 
-                                                    type="number" 
-                                                    value={sector.kmContratado} 
-                                                    onChange={(e) => updateSector(idx, 'kmContratado', e.target.value)} 
-                                                    className="w-full p-2 border rounded text-sm" 
+                                                <input
+                                                    type="number"
+                                                    value={sector.kmContratado}
+                                                    onChange={(e) => updateSector(idx, 'kmContratado', e.target.value)}
+                                                    className="w-full p-2 border rounded text-sm"
                                                     placeholder="0"
                                                 />
                                             </div>
@@ -736,22 +817,32 @@ const ObraModal = ({
                                 </div>
                             </div>
                         )}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Totalizador */}
-                    <div className="bg-gray-900 text-white p-4 rounded-lg flex flex-col sm:flex-row justify-between items-center shadow-lg">
-                        <span className="font-medium flex items-center gap-2"><DollarSign size={20} className="text-green-400"/> Valor Total Estimado do Contrato:</span>
-                        <span className="text-2xl font-bold text-green-400">
-                            {totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                    </div>
-
-                    {/* Footer */}
-                    <div className="flex justify-end gap-3 pt-4 border-t">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded hover:bg-gray-200 transition" disabled={isSubmitting}>Cancelar</button>
-                        <button type="submit" className="px-6 py-2 bg-yellow-400 text-gray-900 font-bold rounded hover:bg-[#fdf8f0]0 transition shadow-lg flex items-center gap-2" disabled={isSubmitting}>
-                            {isSubmitting ? <><Loader className="animate-spin" size={18}/> Salvando...</> : (tipoRegistro === 'centro_custo' ? 'Salvar Centro de Custo' : 'Salvar Obra')}
-                        </button>
+                    {/* Rodapé fixo: o total acompanha a digitação do contrato. */}
+                    <div className="flex-shrink-0 border-t bg-gray-50 px-6 py-3 flex items-center gap-4">
+                        {!isCentroCusto && (
+                            <div className="min-w-0">
+                                <p className="text-[11px] text-gray-500 flex items-center gap-1">
+                                    <DollarSign size={12}/> Valor total estimado
+                                </p>
+                                <p className="text-lg font-bold text-gray-900 leading-tight">
+                                    {totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                            </div>
+                        )}
+                        <div className="ml-auto flex gap-3">
+                            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded hover:bg-gray-200 transition" disabled={isSubmitting}>Cancelar</button>
+                            <button type="submit" className="px-6 py-2 bg-yellow-400 text-gray-900 font-bold rounded hover:bg-yellow-300 transition shadow flex items-center gap-2" disabled={isSubmitting}>
+                                {isSubmitting ? <><Loader className="animate-spin" size={18}/> Salvando...</> : (isCentroCusto ? 'Salvar Centro de Custo' : 'Salvar Obra')}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -760,6 +851,3 @@ const ObraModal = ({
 };
 
 export default ObraModal;
-
-
-

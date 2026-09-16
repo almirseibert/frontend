@@ -363,3 +363,79 @@ export const computeTerceirizadoPorObra = (obraId, obras = [], vehicles = [], ct
         saldo: results.reduce((a, r) => a + r.saldo, 0),
     };
 };
+
+// ============================================================================
+// Plano de trabalho da OBRA × contratos de terceiros
+// ============================================================================
+//
+// O plano original da obra (horasContratadasPorSubTipo) é o teto. Cada contrato
+// de terceiro consome horas desse plano por SUBGRUPO. O saldo disponível para um
+// novo contrato é:
+//
+//      saldo(subgrupo) = horas do plano da obra
+//                      − horas já contratadas por OUTROS contratos de terceiro
+//
+// A execução física (dailyWorkLogs) NÃO entra nessa conta: ela mede progresso,
+// não compromisso contratual. Vale para os dois tipos de contrato (por horas e
+// valor fechado) — no fechado as horas também saem do mesmo saldo, só não têm
+// valor/hora individual.
+// ============================================================================
+
+/** Itens contratados (base + aditivos, quando houver) de um contrato, normalizados. */
+export const contratoItensVigentes = (contrato) => {
+    const raw = contrato?.vigente?.itensContratados ?? contrato?.itensContratados;
+    let arr = raw;
+    if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { arr = []; } }
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((i) => i && i.type)
+        .map((i) => ({ type: String(i.type), hours: num(i.hours), price: num(i.price) }));
+};
+
+/** Horas por subgrupo já comprometidas com terceiros numa obra, exceto um contrato. */
+export const horasTerceirizadasPorSubTipo = (obraId, contratos = [], exceptContratoId = null) => {
+    const out = {};
+    contratos.forEach((c) => {
+        if (!c || c.obraId !== obraId) return;
+        if (exceptContratoId && c.id === exceptContratoId) return;
+        if (c.status === 'cancelado') return;
+        contratoItensVigentes(c).forEach((i) => {
+            out[i.type] = (out[i.type] || 0) + i.hours;
+        });
+    });
+    return out;
+};
+
+/**
+ * Plano de trabalho da obra com o saldo disponível para um contrato de terceiro.
+ * @returns {Array<{type, horasPlano, valorHoraPlano, horasOutros, saldo, foraDoPlano}>}
+ *          Os subgrupos fora do plano da obra (contratos legados) vêm ao final
+ *          com `foraDoPlano: true` e horasPlano 0.
+ */
+export const planoTrabalhoDisponivel = ({ obra, contratos = [], exceptContratoId = null, incluirTypes = [] } = {}) => {
+    const parse = (v) => {
+        if (!v) return {};
+        if (typeof v === 'string') { try { return JSON.parse(v) || {}; } catch { return {}; } }
+        return v;
+    };
+    const horasPlano = parse(obra?.horasContratadasPorSubTipo);
+    const valoresPlano = parse(obra?.valoresPorSubTipo);
+    const outros = horasTerceirizadasPorSubTipo(obra?.id, contratos, exceptContratoId);
+
+    const types = [...new Set([...Object.keys(horasPlano), ...incluirTypes.filter(Boolean)])];
+    return types
+        .map((type) => {
+            const hPlano = num(horasPlano[type]);
+            const hOutros = num(outros[type]);
+            return {
+                type,
+                horasPlano: hPlano,
+                valorHoraPlano: num(valoresPlano[type]),
+                horasOutros: hOutros,
+                saldo: hPlano - hOutros,
+                foraDoPlano: !(type in horasPlano),
+            };
+        })
+        .sort((a, b) => (a.foraDoPlano === b.foraDoPlano
+            ? a.type.localeCompare(b.type)
+            : (a.foraDoPlano ? 1 : -1)));
+};

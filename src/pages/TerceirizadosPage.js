@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
     Truck, Building2, PlusCircle, ChevronRight, ArrowLeft, Search, Clock,
-    FileDown, Loader, AlertTriangle, MapPin, FileWarning,
+    FileDown, Loader, AlertTriangle, MapPin, FileWarning, BarChart3,
 } from 'lucide-react';
 import { useData, useEnsureResources } from '../contexts/DataContext';
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -9,6 +9,8 @@ import TerceirizadoPagamentoModal from '../components/modals/TerceirizadoPagamen
 import ContratoTerceiroModal from '../components/modals/ContratoTerceiroModal';
 import AditivoModal from '../components/modals/AditivoModal';
 import ContratoDetalhe from '../components/terceirizados/ContratoDetalhe';
+import RelatorioPanorama from '../components/terceirizados/RelatorioPanorama';
+import ObraFiltroSelect from '../components/terceirizados/ObraFiltroSelect';
 import { computeContrato, computeContratosPorTerceiro, getContratoMachines } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
 
@@ -80,6 +82,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
 
     const [selectedTerceiroId, setSelectedTerceiroId] = useState(null);
     const [busca, setBusca] = useState('');
+    const [obraFiltro, setObraFiltro] = useState('');   // '' = todas as obras
     const [contratoModal, setContratoModal] = useState(null);   // { contrato } | { contrato: null }
     const [pagamentoModal, setPagamentoModal] = useState(null); // { contrato, locador, pagamento? }
     const [detalheId, setDetalheId] = useState(null);           // contrato.id aberto no modal de detalhe
@@ -91,6 +94,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const [assinadoLoading, setAssinadoLoading] = useState(false);
     const [aditivoModal, setAditivoModal] = useState(null);     // { contrato, aditivo? }
     const [aditivoLoadingId, setAditivoLoadingId] = useState(null);
+    const [relatorioAberto, setRelatorioAberto] = useState(false); // panorama geral (direção)
 
     const reload = () => { refresh?.('terceiroContratos'); refresh?.('terceirizadoPagamentos'); };
 
@@ -129,13 +133,50 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
             .sort((a, b) => b.saldo - a.saldo);
     }, [terceiroContratos, terceiroPorId, ctx]);
 
+    // Obras que têm contrato — opções do filtro (não faz sentido oferecer obra sem terceiro).
+    const obrasComContrato = useMemo(() => {
+        const ids = [...new Set(terceiroContratos.map((c) => c.obraId).filter(Boolean))];
+        return ids
+            .map((id) => ({ id, nome: obraNome(id), local: obraLocal(id) }))
+            .sort((a, b) => a.nome.localeCompare(b.nome));
+    }, [terceiroContratos, obraNome, obraLocal]);
+
+    // Com obra selecionada os agregados são RECALCULADOS sobre os contratos daquela
+    // obra: filtrar só a lista mostraria o saldo do terceiro inteiro numa tela que
+    // promete falar de uma obra só.
+    const gruposDaObra = useMemo(() => {
+        if (!obraFiltro) return grupos;
+        const doObra = terceiroContratos.filter((c) => String(c.obraId) === String(obraFiltro));
+        const ids = [...new Set(doObra.map((c) => c.locadorId))];
+        return ids
+            .map((id) => ({ terceiro: terceiroPorId.get(id) || { id, razaoSocial: '—' }, ...computeContratosPorTerceiro(id, doObra, ctx) }))
+            .sort((a, b) => b.saldo - a.saldo);
+    }, [obraFiltro, grupos, terceiroContratos, terceiroPorId, ctx]);
+
     const gruposFiltrados = useMemo(() => {
         const q = busca.trim().toLowerCase();
-        if (!q) return grupos;
-        return grupos.filter((g) =>
+        if (!q) return gruposDaObra;
+        return gruposDaObra.filter((g) =>
             (g.terceiro.razaoSocial || '').toLowerCase().includes(q) ||
             (g.terceiro.nomeFantasia || '').toLowerCase().includes(q));
-    }, [grupos, busca]);
+    }, [gruposDaObra, busca]);
+
+    // Indicadores do topo — sempre sobre o que está sendo exibido (respeitam o filtro).
+    const resumoTopo = useMemo(() => {
+        const obraIds = new Set();
+        const maquinaIds = new Set();
+        gruposDaObra.forEach((g) => {
+            g.obraIds.forEach((id) => obraIds.add(id));
+            g.contratos.forEach((r) => r.machines.forEach((m) => maquinaIds.add(m.id)));
+        });
+        return {
+            numObras: obraIds.size,
+            numTerceiros: gruposDaObra.length,
+            numMaquinas: maquinaIds.size,
+            numContratos: gruposDaObra.reduce((a, g) => a + g.contratos.length, 0),
+            saldo: gruposDaObra.reduce((a, g) => a + g.saldo, 0),
+        };
+    }, [gruposDaObra]);
 
     const grupoSel = useMemo(
         () => grupos.find((g) => g.terceiro.id === selectedTerceiroId) || null,
@@ -340,25 +381,51 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                                 Quanto devemos a cada terceiro. Entre em um para ver os contratos e o histórico.
                             </p>
                         </div>
-                        <ProtectedComponent requiredPermission="editor">
-                            <button onClick={() => setContratoModal({ contrato: null })}
-                                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-                                <PlusCircle size={16} /> Novo Contrato
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setRelatorioAberto(true)} disabled={grupos.length === 0}
+                                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-white border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Panorama consolidado de todos os contratos de terceirizados">
+                                <BarChart3 size={16} /> Relatório
                             </button>
-                        </ProtectedComponent>
+                            <ProtectedComponent requiredPermission="editor">
+                                <button onClick={() => setContratoModal({ contrato: null })}
+                                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                                    <PlusCircle size={16} /> Novo Contrato
+                                </button>
+                            </ProtectedComponent>
+                        </div>
                     </div>
 
-                    <div className="relative max-w-sm mb-4">
-                        <Search size={15} className="absolute left-3 top-2.5 text-gray-400" />
-                        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar terceiro"
-                            className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-white" />
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        <KpiCard label="Obras" value={resumoTopo.numObras} tone="blue" />
+                        <KpiCard label="Terceiros" value={resumoTopo.numTerceiros} tone="gray" />
+                        <KpiCard label="Máquinas" value={resumoTopo.numMaquinas} tone="green" />
+                        <KpiCard label="Saldo devedor" value={fmtBRL(resumoTopo.saldo)} tone="red" />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <div className="relative flex-1 min-w-[200px] max-w-sm">
+                            <Search size={15} className="absolute left-3 top-2.5 text-gray-400" />
+                            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar terceiro"
+                                className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-white" />
+                        </div>
+                        <ObraFiltroSelect
+                            obras={obrasComContrato}
+                            value={obraFiltro}
+                            onChange={setObraFiltro}
+                        />
+                        <span className="text-xs text-gray-400 ml-auto">
+                            {resumoTopo.numContratos} contrato(s){obraFiltro ? ' nesta obra' : ''}
+                        </span>
                     </div>
 
                     {gruposFiltrados.length === 0 ? (
                         <div className="bg-white rounded-lg shadow p-12 text-center text-gray-400 text-sm">
                             {grupos.length === 0
                                 ? <>Nenhum contrato de terceirizado cadastrado. Clique em <b>Novo Contrato</b> para começar.</>
-                                : 'Nenhum terceiro corresponde à busca.'}
+                                : obraFiltro && gruposDaObra.length === 0
+                                    ? 'Nenhum terceiro com contrato nesta obra.'
+                                    : 'Nenhum terceiro corresponde à busca.'}
                         </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow divide-y divide-gray-100">
@@ -560,6 +627,17 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     setAlertMessage={setAlertMessage}
                     onClose={() => setAditivoModal(null)}
                     onSaved={() => refresh?.('terceiroContratos')}
+                />
+            )}
+
+            {relatorioAberto && (
+                <RelatorioPanorama
+                    contratos={terceiroContratos}
+                    ctx={ctx}
+                    partners={partners}
+                    obras={obras}
+                    setAlertMessage={setAlertMessage}
+                    onClose={() => setRelatorioAberto(false)}
                 />
             )}
 
