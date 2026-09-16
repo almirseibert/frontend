@@ -29,7 +29,6 @@ const EmployeeReport = ({ employees = [], obras = [], vehicles = [], fines = [] 
     // ADICIONADO: Novas colunas mapeadas
     const allColumns = useMemo(() => [
         { key: 'nome', label: 'Nome' },
-        { key: 'vulgo', label: 'Apelido' },
         { key: 'funcao', label: 'Função' },
         { key: 'status', label: 'Status Cadastro' }, 
         { key: 'allocationStatus', label: 'Situação Atual' },

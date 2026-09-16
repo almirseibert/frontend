@@ -21,7 +21,6 @@ const EmployeeModal = ({
     // Estado inicial
     const [formData, setFormData] = useState({
         nome: '',
-        vulgo: '',
         registroInterno: '',
         dataAdmissao: '',
         cpf: '',
@@ -60,7 +59,6 @@ const EmployeeModal = ({
 
             setFormData({
                 nome: employee.nome || '',
-                vulgo: employee.vulgo || '',
                 registroInterno: employee.registroInterno || '',
                 dataAdmissao: formatDateForInput(employee.dataAdmissao || employee.dataContratacao),
                 cpf: employee.cpf || '',
@@ -267,13 +265,9 @@ const EmployeeModal = ({
                     {/* DADOS PESSOAIS */}
                     {activeTab === 'dados' && (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                            <div className="md:col-span-2">
+                            <div className="md:col-span-3">
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Completo *</label>
                                 <input required name="nome" value={formData.nome} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" placeholder="Nome do funcionário"/>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Vulgo (Apelido)</label>
-                                <input name="vulgo" value={formData.vulgo} onChange={handleChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 outline-none" />
                             </div>
                             
                             <div>

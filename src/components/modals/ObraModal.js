@@ -533,7 +533,7 @@ const ObraModal = ({
                                                 ? <Star size={13} className="text-yellow-500 flex-shrink-0" />
                                                 : <User size={13} className="text-gray-400 flex-shrink-0" />}
                                             <span className="font-medium text-gray-800 truncate">
-                                                {employee.nome}{employee.vulgo ? ` (${employee.vulgo})` : ''}
+                                                {employee.nome}
                                             </span>
                                             <span className="text-gray-400 text-xs truncate">{cidade}</span>
                                             <span className="ml-auto text-xs font-semibold text-gray-500 flex-shrink-0">

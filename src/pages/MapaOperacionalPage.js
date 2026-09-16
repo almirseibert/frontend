@@ -260,7 +260,7 @@ const MapaOperacionalPage = ({ apiClient, obras = [], vehicles = [], employees =
             if (opEquip.size > 0 && !aptidoes(emp).some((t) => opEquip.has(t))) continue;
             const p = resolveEmployeePoint(emp);
             if (!p) continue;
-            if (q && !(`${emp.nome} ${emp.vulgo || ''}`.toLowerCase().includes(q))) continue;
+            if (q && !(String(emp.nome || '').toLowerCase().includes(q))) continue;
             let dist = null;
             if (obraPoint) {
                 dist = haversineKm(obraPoint, p);
@@ -452,7 +452,7 @@ const MapaOperacionalPage = ({ apiClient, obras = [], vehicles = [], employees =
                                 <input
                                     value={opSearch}
                                     onChange={(e) => setOpSearch(e.target.value)}
-                                    placeholder="Nome ou apelido..."
+                                    placeholder="Nome..."
                                     className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-yellow-400"
                                 />
                             </div>
@@ -561,7 +561,7 @@ const MapaOperacionalPage = ({ apiClient, obras = [], vehicles = [], employees =
                         return (
                             <Marker key={emp.id} position={[lat, lng]} icon={employeeIcon(!!emp.is_lider_obra)}>
                                 <Popup>
-                                    <strong>{emp.nome}{emp.vulgo ? ` (${emp.vulgo})` : ''}</strong><br />
+                                    <strong>{emp.nome}</strong><br />
                                     <span className="text-xs">{emp.funcao || '—'} · {ponto.cidade}</span><br />
                                     <span className="text-xs">Apto: {aptidoes(emp).join(', ') || '—'}</span>
                                     {emp.is_lider_obra ? <><br /><span className="text-xs text-yellow-600">⭐ Líder de obra</span></> : null}

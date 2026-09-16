@@ -1448,7 +1448,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     items={sortedEmployees}
                                     value={formData.employeeId}
                                     onChange={(item) => setFormData({...formData, employeeId: item?.id || ''})}
-                                    getLabel={(e) => `${e.nome}${e.vulgo ? ` (${e.vulgo})` : ''}`}
+                                    getLabel={(e) => e.nome}
                                     getSubLabel={(e) => e.profissao || ''}
                                     placeholder="Selecione quem irá retirar..."
                                     disabled={isReadOnly}

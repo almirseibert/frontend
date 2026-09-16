@@ -200,7 +200,6 @@ const EmployeesPage = ({
             const searchLower = searchTerm.toLowerCase();
             const matchesSearch = 
                 (emp.nome && emp.nome.toLowerCase().includes(searchLower)) ||
-                (emp.vulgo && emp.vulgo.toLowerCase().includes(searchLower)) ||
                 (emp.funcao && emp.funcao.toLowerCase().includes(searchLower)) ||
                 (emp.cidade && emp.cidade.toLowerCase().includes(searchLower)) ||
                 (emp.registroInterno && emp.registroInterno.toString().includes(searchLower));
@@ -352,7 +351,7 @@ const EmployeesPage = ({
                             <Search className="absolute left-3 top-2.5" size={15} style={{ color: '#b0a090' }} />
                             <input
                                 type="text"
-                                placeholder="Buscar: Nome, Vulgo, Função, Cidade, Registro..."
+                                placeholder="Buscar: Nome, Função, Cidade, Registro..."
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                                 className="w-full pl-9 pr-4 py-2 text-sm"
@@ -402,7 +401,6 @@ const EmployeesPage = ({
                                         <td className="p-4 align-top">
                                             <div className="font-bold text-gray-800 text-base flex items-center gap-2">
                                                 {emp.nome} 
-                                                {emp.vulgo && <span className="text-gray-500 font-normal ml-1">({emp.vulgo})</span>}
                                                 {returnedRecently && <BellRing size={16} className="text-blue-500 animate-pulse" title="Retornou de Afastamento Recentemente" />}
                                             </div>
                                             <div className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-1" title="Registro Interno">
