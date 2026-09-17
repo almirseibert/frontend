@@ -1,423 +1,402 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
-import { Loader, X, Lock, TrendingUp, AlertTriangle } from 'lucide-react';
-import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
-import SearchableObraSelect from '../SearchableObraSelect';
+// components/modals/ComboioSaidaModal.js
+//
+// Saída do comboio (abastecimento de uma máquina/veículo) — registro direto.
+//
+// As travas são as mesmas da ordem de abastecimento e são aplicadas NO SERVIDOR:
+// leitura fora da regra ou obra acima de 20% do contrato não impedem o registro
+// (o diesel já saiu do tanque), mas a saída fica BLOQUEADA até um admin liberar.
+// Aqui só avisamos antes. A antiga "liberação por senha" não funcionava: o
+// backend recusava do mesmo jeito.
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Loader, AlertTriangle, Lock, TrendingUp, Droplet, Fuel } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
+import SearchableObraSelect from '../SearchableObraSelect';
+import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
+import { getComboioTanks, toComboioTankKey } from '../../utils/fuelTypes';
+import { todayBRT, ymdBRT, withTimeBRT } from '../../utils/dateBRT';
 
-const ComboioSaidaModal = ({ 
-    user, 
-    comboioVehicle, 
-    transactionData = null, 
-    vehicles = [], 
-    obras = [], 
-    employees = [], 
-    expenses = [], 
-    onClose, 
-    setAlertMessage, 
-    apiClient, 
-    extraObraOptions = [], 
-    vehicleGroups = {}, 
-    reloadData,
-    PasswordConfirmationModal 
+const fmtL = (n, d = 1) => `${(Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: d })} L`;
+const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// Medidor de consumo da obra: a cor carrega a severidade, a trilha é um tom
+// claro da mesma rampa. A severidade sempre vem com texto — nunca só a cor.
+const LIMITE_ORCAMENTO = 20;
+const ObraOrcamentoMeter = ({ status }) => {
+    if (!status || !(status.valorContrato > 0)) return null;
+    const pct = Number(status.percentual) || 0;
+    const nivel = pct >= LIMITE_ORCAMENTO
+        ? { fill: '#d03b3b', track: '#f6dada', texto: 'Acima do limite de 20% — a saída ficará bloqueada', Icon: Lock }
+        : pct >= LIMITE_ORCAMENTO * 0.75
+            ? { fill: '#fab219', track: '#fdefc8', texto: 'Próximo do limite de 20%', Icon: AlertTriangle }
+            : { fill: '#9E7A42', track: '#efe4d2', texto: 'Dentro do limite', Icon: TrendingUp };
+    const { Icon } = nivel;
+    return (
+        <div className="rounded-lg p-2.5" style={{ background: '#faf9f7', border: '1px solid #f0ebe3' }}>
+            <div className="flex justify-between items-center" style={{ fontSize: 11, color: '#3d3528' }}>
+                <span className="flex items-center gap-1 font-bold"><Icon size={12} /> Combustível da obra</span>
+                <span className="font-bold">{pct.toFixed(1)}% do contrato</span>
+            </div>
+            <div
+                className="mt-1.5 w-full rounded-full overflow-hidden"
+                style={{ height: 6, background: nivel.track }}
+                role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}
+                aria-label="Combustível da obra em relação ao contrato"
+            >
+                <div style={{ width: `${Math.min(pct / LIMITE_ORCAMENTO, 1) * 100}%`, height: '100%', background: nivel.fill, borderRadius: 9999 }} />
+            </div>
+            <div className="flex justify-between mt-1" style={{ fontSize: 10, color: '#6a5e4e' }}>
+                <span>{nivel.texto}</span>
+                <span>{fmtBRL(status.totalGasto)} de {fmtBRL(status.valorContrato)}</span>
+            </div>
+        </div>
+    );
+};
+
+const ComboioSaidaModal = ({
+    user,
+    comboios = [],
+    defaultComboioId = '',
+    transactionData = null,
+    vehicles = [],
+    obras = [],
+    employees = [],
+    onClose,
+    setAlertMessage,
+    apiClient,
+    onSaved,
+    onGeneratePDF,
 }) => {
     const isEditing = !!transactionData;
 
-    const [formData, setFormData] = useState({
-        receivingVehicleId: '',
-        obraId: '',
-        liters: '',
-        date: new Date().toISOString().split('T')[0],
-        fuelType: '',
-        employeeId: '',
-        odometro: '',
-        horimetro: '',
-    });
-    
+    const [form, setForm] = useState(() => ({
+        comboioVehicleId: transactionData?.comboioVehicleId || defaultComboioId || '',
+        receivingVehicleId: transactionData?.receivingVehicleId || '',
+        obraId: transactionData?.obraId || '',
+        employeeId: transactionData?.employeeId || '',
+        tankKey: toComboioTankKey(transactionData?.fuelType) || '',
+        liters: transactionData?.liters ? String(transactionData.liters) : '',
+        date: transactionData?.date ? ymdBRT(transactionData.date) : todayBRT(),
+        odometro: transactionData?.odometro ? String(transactionData.odometro) : '',
+        horimetro: transactionData?.horimetro ? String(transactionData.horimetro) : '',
+    }));
     const [isSaving, setIsSaving] = useState(false);
-    const [vehicleIssues, setVehicleIssues] = useState([]);
-    const [blockReason, setBlockReason] = useState(null); 
-    const [pendingSubmission, setPendingSubmission] = useState(null);
-    const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [obraStatus, setObraStatus] = useState(null);
+    const [gerarPdf, setGerarPdf] = useState(false);
 
-    const availableMachines = useMemo(() => vehicles.filter(v => !v.isComboioVehicle && v.id !== comboioVehicle?.id).sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')), [vehicles, comboioVehicle]);
-    const sortedObras = useMemo(() => obras.filter(o => ['ativa', 'mobilizacao'].includes(o.status)).sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [obras]);
-    const sortedEmployees = useMemo(() => employees.sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
-    const selectedVehicle = useMemo(() => vehicles.find(v => v.id === formData.receivingVehicleId), [formData.receivingVehicleId, vehicles]);
+    const set = (patch) => setForm(prev => ({ ...prev, ...patch }));
+
+    const comboio = useMemo(() => comboios.find(c => c.id === form.comboioVehicleId) || null, [comboios, form.comboioVehicleId]);
+    const tanques = useMemo(() => getComboioTanks(comboio), [comboio]);
+
+    const maquinas = useMemo(
+        () => vehicles.filter(v => !v.isComboioVehicle).sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')),
+        [vehicles]
+    );
+    const veiculo = useMemo(() => vehicles.find(v => v.id === form.receivingVehicleId) || null, [vehicles, form.receivingVehicleId]);
+    const sortedEmployees = useMemo(() => [...employees].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
+    const obrasAtivas = useMemo(
+        () => obras.filter(o => ['ativa', 'mobilizacao'].includes(o.status) || o.id === form.obraId),
+        [obras, form.obraId]
+    );
+
+    // Na criação: tanque com saldo, obra e motorista vêm do comboio/veículo.
+    useEffect(() => {
+        if (isEditing || !comboio) return;
+        setForm(prev => {
+            if (prev.tankKey) return prev;
+            const comSaldo = getComboioTanks(comboio).filter(t => t.litros > 0);
+            return comSaldo.length === 1 ? { ...prev, tankKey: comSaldo[0].key } : prev;
+        });
+    }, [comboio, isEditing]);
 
     useEffect(() => {
-        if (isEditing && transactionData) {
-            setFormData({
-                receivingVehicleId: transactionData.receivingVehicleId || '',
-                obraId: transactionData.obraId || '',
-                liters: transactionData.liters || '',
-                date: transactionData.date ? new Date(transactionData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                fuelType: transactionData.fuelType || '',
-                employeeId: transactionData.employeeId || '',
-                odometro: transactionData.odometro || '',
-                horimetro: transactionData.horimetro || '',
-            });
-        }
-    }, [isEditing, transactionData]);
+        if (isEditing || !veiculo) return;
+        setForm(prev => ({
+            ...prev,
+            obraId: prev.obraId || veiculo.obraAtualId || '',
+            employeeId: prev.employeeId || veiculo.operationalAssignment?.employeeId || '',
+        }));
+    }, [veiculo, isEditing]);
 
     useEffect(() => {
-        if (!isEditing && selectedVehicle) {
-            let autoObra = selectedVehicle.obraAtualId || '';
-            let autoEmployee = '';
-            
-            if (selectedVehicle.operationalAssignment && selectedVehicle.operationalAssignment.employeeId) {
-                 autoEmployee = selectedVehicle.operationalAssignment.employeeId;
-            }
+        if (!form.obraId) { setObraStatus(null); return undefined; }
+        let cancelado = false;
+        apiClient.getObraFuelStatus(form.obraId)
+            .then(st => { if (!cancelado) setObraStatus(st || null); })
+            .catch(() => { if (!cancelado) setObraStatus(null); });
+        return () => { cancelado = true; };
+    }, [form.obraId, apiClient]);
 
-            setFormData(prev => ({
-                ...prev,
-                odometro: selectedVehicle.odometro || '',
-                horimetro: selectedVehicle.horimetro || '',
-                obraId: prev.obraId || autoObra,
-                employeeId: prev.employeeId || autoEmployee
-            }));
+    const campoLeitura = veiculo
+        ? (getAllowedReadingTypes(veiculo.tipo).includes('odometro') ? 'odometro' : 'horimetro')
+        : null;
 
-            const issues = [];
-            if(selectedVehicle.naoPodeCircular) issues.push({ type: 'bloqueio', message: "Veículo marcado como NÃO PODE CIRCULAR" });
-            setVehicleIssues(issues);
-            setBlockReason(null);
-        } else if (!selectedVehicle && !isEditing) {
-            setVehicleIssues([]);
-            setBlockReason(null);
-        }
-    }, [selectedVehicle, isEditing]);
-
-    useEffect(() => {
-        if (formData.obraId) {
-            const obra = obras.find(o => o.id === formData.obraId);
-            if (obra) {
-                const totalGasto = expenses
-                    .filter(e => e.obraId === formData.obraId && e.category === 'Combustível')
-                    .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-                
-                const valorContrato = parseFloat(obra.valorTotalContrato || 0);
-                const percentual = valorContrato > 0 ? (totalGasto / valorContrato) * 100 : 0;
-
-                setObraStatus({ totalGasto, valorContrato, percentual });
-            } else {
-                setObraStatus(null);
-            }
+    // Mesmo critério de checkLeituraBloqueada (backend). Só aviso.
+    const avisoLeitura = useMemo(() => {
+        if (!veiculo || !campoLeitura || veiculo.isOutsourced || veiculo.permiteMultiplosAbastecimentos) return null;
+        const atual = parseFloat(form[campoLeitura]);
+        const anteriorOriginal = parseFloat(transactionData?.[campoLeitura]);
+        if (!(atual > 0)) return null;
+        if (isEditing && atual === anteriorOriginal) return null;
+        const ultimo = parseFloat(veiculo[campoLeitura] || 0);
+        if (!(ultimo > 0)) return null;
+        if (campoLeitura === 'odometro') {
+            const limite = getGroupForType(veiculo.tipo) === 'Caminhões de Trecho' ? 2000 : 1000;
+            if (atual < ultimo) return `Odômetro (${atual}) menor que o atual do veículo (${ultimo}).`;
+            if (atual - ultimo > limite) return `Salto de ${atual - ultimo} Km (máximo ${limite} Km).`;
         } else {
-            setObraStatus(null);
-        }
-    }, [formData.obraId, obras, expenses]);
-
-    const checkBudgetLimit = (obraId, costToAdd) => {
-        const obra = obras.find(o => o.id === obraId);
-        if (!obra || !obra.valorTotalContrato || parseFloat(obra.valorTotalContrato) <= 0) return null;
-
-        const limit = parseFloat(obra.valorTotalContrato) * 0.20; 
-        const currentExpenses = expenses
-            .filter(e => e.obraId === obraId && e.category === 'Combustível')
-            .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-
-        const newTotal = currentExpenses + costToAdd;
-
-        if (newTotal >= limit) {
-            return {
-                message: `ORÇAMENTO EXCEDIDO: O custo ultrapassa 20% do contrato.`
-            };
+            if (atual < ultimo) return `Horímetro (${atual}) menor que o atual do veículo (${ultimo}).`;
+            if (atual - ultimo > 50) return `Salto de ${(atual - ultimo).toFixed(1)} h (máximo 50 h).`;
         }
         return null;
-    };
+    }, [veiculo, campoLeitura, form, isEditing, transactionData]);
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-        setBlockReason(null); 
-    };
+    const orcamentoEstourado = !veiculo?.isOutsourced && obraStatus?.valorContrato > 0 && Number(obraStatus.percentual) >= LIMITE_ORCAMENTO;
+    const vaiBloquear = !!avisoLeitura || orcamentoEstourado;
 
-    // --- VALIDAÇÃO RIGOROSA EM TEMPO REAL ---
-    useEffect(() => {
-        if (!selectedVehicle || isEditing) return;
-        
-        let reason = null;
-        
-        const allowedTypes = getAllowedReadingTypes(selectedVehicle.tipo);
-        const isKmVehicle = allowedTypes.includes('odometro');
-        const isHourVehicle = allowedTypes.includes('horimetro'); 
-
-        // 1. Validação KM
-        if (isKmVehicle && formData.odometro) {
-            const current = parseFloat(formData.odometro);
-            const last = parseFloat(selectedVehicle.odometro || 0);
-            
-            if (!isNaN(current) && last > 0) {
-                const limiteKm = getGroupForType(selectedVehicle.tipo) === 'Caminhões de Trecho' ? 2000 : 1000;
-                if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual (${last}).`;
-                else if (current - last > limiteKm) reason = `Salto excessivo de Km (> ${limiteKm}).`;
-            }
-        }
-
-        // 2. Validação HORAS (Unificado)
-        if (isHourVehicle && formData.horimetro) {
-            const current = parseFloat(formData.horimetro);
-            // Busca o último valor unificado, ou fallback para legados se ainda existirem
-            let last = parseFloat(selectedVehicle.horimetro || 0);
-
-            if (!isNaN(current) && last > 0) {
-                if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
-                else if (current - last > 50) reason = `Salto excessivo de Horas (> 50h).`;
-            }
-        }
-
-        setBlockReason(reason);
-
-    }, [formData.odometro, formData.horimetro, selectedVehicle, isEditing]);
-
+    const tanqueSel = tanques.find(t => t.key === form.tankKey);
+    // Na edição o saldo atual já está sem os litros desta saída.
+    const saldoDisponivel = tanqueSel
+        ? tanqueSel.litros + (isEditing && toComboioTankKey(transactionData.fuelType) === form.tankKey ? (parseFloat(transactionData.liters) || 0) : 0)
+        : null;
+    const litros = parseFloat(form.liters);
+    const semSaldo = saldoDisponivel != null && litros > saldoDisponivel + 1;
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
-        
-        if (!formData.receivingVehicleId || !formData.obraId || !formData.liters || !formData.fuelType || !formData.employeeId) {
-            setAlertMessage("Preencha todos os campos obrigatórios.");
+        e?.preventDefault();
+        if (!form.comboioVehicleId || !form.receivingVehicleId || !form.obraId || !form.tankKey || !form.employeeId) {
+            setAlertMessage('Preencha comboio, veículo, obra, combustível e motorista.');
+            return;
+        }
+        if (!(litros > 0)) {
+            setAlertMessage('Informe a quantidade de litros.');
+            return;
+        }
+        if (semSaldo) {
+            setAlertMessage(`Saldo insuficiente no comboio: ${fmtL(saldoDisponivel)} disponíveis. Dê baixa na entrada antes de distribuir.`);
+            return;
+        }
+        if (campoLeitura && !isEditing && !(parseFloat(form[campoLeitura]) > 0)) {
+            setAlertMessage(`Informe o ${campoLeitura === 'odometro' ? 'odômetro' : 'horímetro'} do veículo.`);
             return;
         }
 
-        const liters = parseFloat(formData.liters);
-        if (!isEditing) {
-            const comboioStock = comboioVehicle?.fuelLevels?.[formData.fuelType] || 0;
-            if (liters > comboioStock) {
-                setAlertMessage(`Saldo insuficiente no comboio. Disponível: ${comboioStock.toFixed(2)} L.`);
-                return;
-            }
-        }
+        const payload = {
+            comboioVehicleId: form.comboioVehicleId,
+            receivingVehicleId: form.receivingVehicleId,
+            obraId: form.obraId,
+            employeeId: form.employeeId,
+            fuelType: form.tankKey,
+            liters: litros,
+            date: withTimeBRT(form.date),
+            odometro: campoLeitura === 'odometro' ? (parseFloat(form.odometro) || null) : null,
+            horimetro: campoLeitura === 'horimetro' ? (parseFloat(form.horimetro) || null) : null,
+            createdBy: { id: user?.id, userEmail: user?.email, name: user?.name || user?.nome },
+        };
 
-        // 1. Bloqueio de Leitura (Senha necessária)
-        if (blockReason && !isEditing) {
-            setPendingSubmission(formData);
-            setShowPasswordModal(true);
-            return;
-        }
-
-        // 2. Bloqueio de Orçamento
-        if (!isEditing) { 
-            const estimatedCost = liters * 6.50; 
-            const budgetCheck = checkBudgetLimit(formData.obraId, estimatedCost);
-            
-            if (budgetCheck) {
-                setBlockReason(budgetCheck.message); 
-                setPendingSubmission(formData);
-                setShowPasswordModal(true);
-                return;
-            }
-        }
-
-        await processTransaction(formData);
-    };
-
-    const processTransaction = async (data) => {
         setIsSaving(true);
         try {
-            const payload = {
-                id: isEditing ? transactionData.id : undefined,
-                comboioVehicleId: comboioVehicle.id,
-                receivingVehicleId: data.receivingVehicleId,
-                odometro: parseFloat(data.odometro) || null,
-                horimetro: parseFloat(data.horimetro) || null,
-                liters: parseFloat(data.liters),
-                date: new Date(data.date + 'T12:00:00-03:00').toISOString(),
-                fuelType: data.fuelType,
-                obraId: data.obraId,
-                employeeId: data.employeeId,
-                createdBy: {
-                    userId: user.id || user.uid,
-                    userEmail: user.email || 'sistema@frotasmak.com'
-                }
-            };
+            const res = isEditing
+                ? await apiClient.updateComboioTransaction(transactionData.id, payload)
+                : await apiClient.createComboioSaida(payload);
 
-            if (isEditing) {
-                await apiClient.updateComboioTransaction(transactionData.id, payload);
-                setAlertMessage("Abastecimento atualizado com sucesso!");
-            } else {
-                await apiClient.createComboioSaida(payload);
-                setAlertMessage("Abastecimento registrado com sucesso!");
+            setAlertMessage(res?.message || (isEditing ? 'Saída atualizada.' : 'Saída registrada.'));
+
+            if (gerarPdf && onGeneratePDF) {
+                const obra = obras.find(o => o.id === form.obraId);
+                onGeneratePDF({
+                    ...(transactionData || {}),
+                    ...payload,
+                    id: res?.id || transactionData?.id,
+                    authNumber: res?.refuelingOrder?.authNumber || transactionData?.authNumber,
+                    obraName: obra?.nome || transactionData?.obraName,
+                    status: res?.status || 'Concluída',
+                    motivoBloqueio: res?.motivoBloqueio,
+                    responsibleUserEmail: user?.email,
+                }).catch(() => {});
             }
-            
-            reloadData();
+            onSaved?.();
             onClose();
-
         } catch (error) {
-            console.error(error);
-            setAlertMessage(error.message || "Erro ao processar transação.");
+            setAlertMessage(error.message || 'Erro ao registrar a saída.');
         } finally {
             setIsSaving(false);
-            setShowPasswordModal(false);
-            setPendingSubmission(null);
-        }
-    };
-
-    const handlePasswordOverride = () => {
-        if (pendingSubmission) {
-            processTransaction(pendingSubmission);
-        }
-    };
-
-    // Renderiza Input Único Baseado no Tipo
-    const renderReadingInputs = () => {
-        if (!selectedVehicle) return null;
-        const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
-
-        if (allowed.includes('odometro')) {
-            return (
-                <div>
-                    <label className="block font-medium mb-1">Odômetro Final (Km) *</label>
-                    <input name="odometro" type="number" step="0.1" value={formData.odometro} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.odometro}`} />
-                </div>
-            );
-        } else {
-            return (
-                <div>
-                    <label className="block font-medium mb-1">Horímetro Final (Hr) *</label>
-                    <input name="horimetro" type="number" step="0.1" value={formData.horimetro} onChange={handleChange} className="w-full p-2 border rounded" required placeholder={`Atual: ${selectedVehicle.horimetro || 0}`} />
-                    <p className="text-[10px] text-gray-400 mt-0.5">Unificado (Substitui Digital/Analógico)</p>
-                </div>
-            );
         }
     };
 
     return (
-        <div className="mak-modal-backdrop p-2 sm:p-4">
-            <div className="mak-modal max-w-lg">
+        <div className="mak-modal-backdrop">
+            <div className="mak-modal" style={{ maxWidth: 580 }}>
                 <div className="mak-modal-header">
-                    <h2 className="mak-modal-title">{isEditing ? 'Editar Distribuição' : 'Distribuição (Saída)'}</h2>
-                    <button onClick={onClose} disabled={isSaving}><X size={20}/></button>
+                    <div>
+                        <h2 className="mak-modal-title">
+                            {isEditing ? `Editar Saída Nº ${String(transactionData.authNumber || '').padStart(6, '0')}` : 'Registrar Saída do Comboio'}
+                        </h2>
+                        <p className="mak-modal-subtitle">Diesel distribuído pelo comboio a uma máquina ou veículo.</p>
+                    </div>
+                    <button type="button" className="mak-modal-close" onClick={onClose} disabled={isSaving}><X size={18} /></button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 text-sm">
-                    {/* Avisos de Bloqueio */}
-                    {blockReason && (
-                        <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-800 rounded flex items-center gap-2 animate-pulse">
-                            <Lock size={20} />
-                            <span className="font-bold">{blockReason}</span>
+                <form onSubmit={handleSubmit} className="mak-modal-body space-y-4">
+                    {vaiBloquear && (
+                        <div className="flex items-start gap-2 p-2.5 rounded-lg" style={{ background: '#fdf0ec', border: '1px solid #e8c8bc', color: '#b03828', fontSize: 12 }}>
+                            <Lock size={14} className="mt-0.5 flex-shrink-0" />
+                            <div>
+                                <strong>Esta saída será salva BLOQUEADA</strong> e aguardará a liberação de um administrador.
+                                {avisoLeitura && <div>Leitura: {avisoLeitura}</div>}
+                                {orcamentoEstourado && <div>Obra acima de 20% do contrato em combustível.</div>}
+                            </div>
                         </div>
                     )}
-                    
-                    {obraStatus && (
-                        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-xs">
-                            <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
-                                <TrendingUp size={14}/> Progresso Financeiro
-                            </h4>
-                            <div className="flex justify-between text-blue-700">
-                                <span>Gasto: {obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                <span>Total: {obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <div className="mt-1 w-full bg-blue-200 rounded-full h-1.5">
-                                <div className={`h-1.5 rounded-full ${obraStatus.percentual > 80 ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${Math.min(obraStatus.percentual, 100)}%`}}></div>
-                            </div>
-                            <div className="text-right mt-0.5 text-blue-600 font-bold">{obraStatus.percentual.toFixed(1)}%</div>
+                    {veiculo?.naoPodeCircular && (
+                        <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', fontSize: 12 }}>
+                            <AlertTriangle size={14} /> Veículo marcado como NÃO PODE CIRCULAR.
                         </div>
                     )}
 
-                    {vehicleIssues.length > 0 && !isEditing && (
-                        <div className="mb-4 space-y-2">
-                            {vehicleIssues.map((issue, idx) => (
-                                <div key={idx} className={`p-2 border rounded text-xs flex items-center gap-2 ${issue.type === 'bloqueio' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-yellow-50 border-yellow-200 text-yellow-700'}`}>
-                                    <AlertTriangle size={14} />
-                                    {issue.message}
-                                </div>
-                            ))}
+                    <div className="mak-form-section"><Droplet size={12} /> Origem</div>
+                    <div className="flex flex-col gap-1">
+                        <label className="mak-label">Comboio *</label>
+                        <SearchableSelect
+                            items={comboios}
+                            value={form.comboioVehicleId}
+                            onChange={(item) => set({ comboioVehicleId: item?.id || '', tankKey: '' })}
+                            getLabel={(v) => `${v.registroInterno} — ${v.placa || ''}`}
+                            getSubLabel={(v) => v.modelo || ''}
+                            placeholder="Selecione o comboio..."
+                            disabled={isEditing}
+                            required
+                        />
+                    </div>
+                    {comboio && (
+                        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Tanque">
+                            {tanques.map(t => {
+                                const ativo = form.tankKey === t.key;
+                                const vazio = t.litros <= 0 && !(isEditing && toComboioTankKey(transactionData.fuelType) === t.key);
+                                return (
+                                    <button
+                                        key={t.key}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={ativo}
+                                        disabled={vazio}
+                                        onClick={() => set({ tankKey: t.key })}
+                                        className="text-left rounded-lg p-2.5 transition disabled:opacity-50"
+                                        style={{
+                                            border: `1px solid ${ativo ? '#9E7A42' : '#e8e0d4'}`,
+                                            background: ativo ? '#fdf8f0' : '#ffffff',
+                                            boxShadow: ativo ? '0 0 0 3px rgba(158,122,66,0.15)' : 'none',
+                                        }}
+                                    >
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1e1a14' }}>{t.label}</div>
+                                        <div style={{ fontSize: 11, color: '#6a5e4e' }}>{vazio ? 'Tanque vazio' : `Saldo ${fmtL(t.litros)}`}</div>
+                                    </button>
+                                );
+                            })}
                         </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="md:col-span-2">
-                            <label className="block font-medium mb-1">Veículo a Abastecer *</label>
-                            <SearchableSelect
-                                items={availableMachines}
-                                value={formData.receivingVehicleId}
-                                onChange={(item) => handleChange({ target: { name: 'receivingVehicleId', value: item?.id || '' } })}
-                                getLabel={(v) => `${v.registroInterno} - ${v.modelo || ''}`.trim()}
-                                getSubLabel={(v) => v.placa || ''}
-                                placeholder="Selecione o veículo..."
-                                disabled={isEditing}
-                                required
+                    <div className="mak-form-section"><Fuel size={12} /> Destino</div>
+                    <div className="flex flex-col gap-1">
+                        <label className="mak-label">Veículo abastecido *</label>
+                        <SearchableSelect
+                            items={maquinas}
+                            value={form.receivingVehicleId}
+                            onChange={(item) => set({ receivingVehicleId: item?.id || '' })}
+                            getLabel={(v) => `${v.registroInterno} — ${v.modelo || ''}`.trim()}
+                            getSubLabel={(v) => v.placa || ''}
+                            placeholder="Selecione o veículo..."
+                            disabled={isEditing}
+                            required
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {campoLeitura && (
+                            <div className="flex flex-col gap-1">
+                                <label className="mak-label">{campoLeitura === 'odometro' ? 'Odômetro (Km) *' : 'Horímetro (h) *'}</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    className={`w-full mak-input-mono ${avisoLeitura ? 'mak-input-error' : ''}`}
+                                    value={form[campoLeitura]}
+                                    onChange={(e) => set({ [campoLeitura]: e.target.value })}
+                                    placeholder={`Atual: ${veiculo?.[campoLeitura] || 0}`}
+                                />
+                                {avisoLeitura && <span className="mak-error">{avisoLeitura}</span>}
+                            </div>
+                        )}
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Litros *</label>
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                className={`w-full ${semSaldo ? 'mak-input-error' : ''}`}
+                                value={form.liters}
+                                onChange={(e) => set({ liters: e.target.value })}
                             />
+                            {saldoDisponivel != null && (
+                                <span className={semSaldo ? 'mak-error' : ''} style={semSaldo ? undefined : { fontSize: 11, color: '#9a8a78' }}>
+                                    Disponível no tanque: {fmtL(saldoDisponivel)}
+                                </span>
+                            )}
                         </div>
+                    </div>
 
-                        {renderReadingInputs()}
+                    <div className="flex flex-col gap-1">
+                        <label className="mak-label">Obra (centro de custo) *</label>
+                        <SearchableObraSelect
+                            obras={obrasAtivas}
+                            value={form.obraId}
+                            onChange={(obra) => set({ obraId: obra?.id || '' })}
+                            placeholder="Selecione a obra..."
+                            includeInactive
+                        />
+                    </div>
+                    <ObraOrcamentoMeter status={veiculo?.isOutsourced ? null : obraStatus} />
 
-                        <div className="md:col-span-2">
-                            <label className="block font-medium mb-1">Funcionário *</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Operador/Motorista *</label>
                             <SearchableSelect
                                 items={sortedEmployees}
-                                value={formData.employeeId}
-                                onChange={(item) => handleChange({ target: { name: 'employeeId', value: item?.id || '' } })}
+                                value={form.employeeId}
+                                onChange={(item) => set({ employeeId: item?.id || '' })}
                                 getLabel={(e) => e.nome || ''}
                                 getSubLabel={(e) => e.profissao || ''}
-                                placeholder="Selecione o funcionário..."
+                                placeholder="Selecione..."
                                 required
                             />
                         </div>
-
-                        {/* OBRA MANTIDA AQUI (Obrigatório) */}
-                        <div className="md:col-span-2">
-                            <label className="block font-medium mb-1">Obra (Centro de Custo) *</label>
-                            <SearchableObraSelect
-                                obras={sortedObras}
-                                value={formData.obraId}
-                                onChange={(obra) => setFormData(prev => ({...prev, obraId: obra?.id || ''}))}
-                                placeholder="Selecione..."
-                                includeInactive={true}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block font-medium mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-2 border rounded" required disabled={isEditing}>
-                                <option value="">Selecione</option>
-                                {Object.entries(comboioVehicle?.fuelLevels || {})
-                                    .filter(([_, level]) => level > 0 || isEditing) 
-                                    .map(([type, level]) => (
-                                        <option key={type} value={type}>{type === 'dieselS10' ? 'Diesel S10' : 'Diesel Comum'} ({level.toFixed(1)} L)</option>
-                                    ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block font-medium mb-1">Litros *</label>
-                            <input name="liters" type="number" step="0.01" value={formData.liters} onChange={handleChange} className="w-full p-2 border rounded" required />
-                        </div>
-
-                        <div className="md:col-span-2">
-                            <label className="block font-medium mb-1">Data *</label>
-                            <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-2 border rounded" required />
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Data *</label>
+                            <input type="date" className="w-full" value={form.date} onChange={(e) => set({ date: e.target.value })} required />
                         </div>
                     </div>
                 </form>
 
-                <div className="mak-modal-footer">
-                    <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
-                    
-                    {blockReason ? (
-                        <button onClick={handleSubmit} type="button" className="px-4 py-2 bg-red-500 text-white font-bold rounded hover:bg-red-600 shadow-md flex items-center gap-1">
-                            <Lock size={14}/> Liberar
+                <div className="mak-modal-footer" style={{ justifyContent: 'space-between' }}>
+                    <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 12, color: '#6a5e4e' }}>
+                        <input type="checkbox" checked={gerarPdf} onChange={(e) => setGerarPdf(e.target.checked)} />
+                        Baixar comprovante
+                    </label>
+                    <div className="flex gap-2">
+                        <button type="button" className="mak-btn mak-btn-cancel" onClick={onClose} disabled={isSaving}>Cancelar</button>
+                        <button
+                            type="button"
+                            className={`mak-btn ${vaiBloquear ? 'mak-btn-danger' : 'mak-btn-primary'}`}
+                            onClick={handleSubmit}
+                            disabled={isSaving || semSaldo}
+                        >
+                            {isSaving ? <Loader size={14} className="animate-spin" /> : (vaiBloquear ? <Lock size={14} /> : <Droplet size={14} />)}
+                            {vaiBloquear ? 'Registrar bloqueada' : (isEditing ? 'Salvar' : 'Registrar saída')}
                         </button>
-                    ) : (
-                        <button onClick={handleSubmit} disabled={isSaving || !selectedVehicle} className="px-4 py-2 bg-yellow-400 font-bold rounded hover:bg-[#fdf8f0]0 flex items-center gap-2">
-                            {isSaving && <Loader className="animate-spin" size={16}/>} {isEditing ? 'Salvar' : 'Registrar'}
-                        </button>
-                    )}
+                    </div>
                 </div>
-
-                {showPasswordModal && (
-                    <PasswordConfirmationModal
-                        message={`BLOQUEIO DE SEGURANÇA:\n${blockReason || "Orçamento excedido."}\nInsira senha para autorizar.`}
-                        onConfirm={handlePasswordOverride}
-                        onClose={() => { setShowPasswordModal(false); setPendingSubmission(null); }}
-                        apiClient={apiClient}
-                    />
-                )}
             </div>
         </div>
     );
 };
 
 export default ComboioSaidaModal;
-
-

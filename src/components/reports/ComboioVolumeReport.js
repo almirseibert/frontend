@@ -4,8 +4,15 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiClient from '../../services/apiClient';
 import { formatObraNome } from '../../utils/obraFormat';
+import { COMBOIO_TANKS, comboioTankLabel } from '../../utils/fuelTypes';
+import { todayBRT } from '../../utils/dateBRT';
 
-const FUEL_OPTIONS = ['', 'Diesel S10', 'Diesel S500', 'Diesel Comum', 'Arla', 'Gasolina', 'Etanol'];
+// O comboio só tem dois tanques. O filtro antigo mandava rótulos ('Diesel S10')
+// e o banco guarda a chave ('dieselS10'): qualquer filtro devolvia zero.
+const FUEL_OPTIONS = [{ key: '', label: 'Todos' }, ...COMBOIO_TANKS.map(t => ({ key: t.key, label: t.label }))];
+
+const TIPO_LABEL = { entrada: 'Entrada', saida: 'Saída', drenagem: 'Drenagem' };
+const TIPO_CLASS = { entrada: 'bg-green-100 text-green-700', saida: 'bg-red-100 text-red-700', drenagem: 'bg-blue-100 text-blue-700' };
 
 const fmtL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' L';
 const fmtDate = (d) => d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -16,7 +23,7 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
         [vehicles]
     );
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayBRT();
     const firstOfMonth = today.slice(0, 8) + '01';
 
     const [comboioId, setComboioId] = useState('');
@@ -59,7 +66,7 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
         doc.setFontSize(10);
         doc.text(`Comboio: ${comboioNome}`, 14, 24);
         doc.text(`Período: ${from.split('-').reverse().join('/')} a ${to.split('-').reverse().join('/')}`, 14, 30);
-        if (fuelType) doc.text(`Combustível: ${fuelType}`, 14, 36);
+        if (fuelType) doc.text(`Combustível: ${comboioTankLabel(fuelType)}`, 14, 36);
 
         autoTable(doc, {
             startY: 42,
@@ -67,6 +74,7 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
             body: [
                 ['Saldo inicial (na data inicial)', fmtL(result.saldoInicial)],
                 ['Entradas no período', fmtL(result.totalEntradas)],
+                ['Drenagens devolvidas ao tanque', fmtL(result.totalDrenagens)],
                 ['Saídas no período', fmtL(result.totalSaidas)],
                 ['Saldo final (até a data final)', fmtL(result.saldoFinal)],
             ],
@@ -109,7 +117,7 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
                 <div>
                     <label className="block text-xs font-bold text-gray-600 mb-1">Tipo de combustível</label>
                     <select value={fuelType} onChange={e => setFuelType(e.target.value)} className="w-full p-2 border rounded text-sm bg-white">
-                        {FUEL_OPTIONS.map(f => <option key={f} value={f}>{f || 'Todos'}</option>)}
+                        {FUEL_OPTIONS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
                 </div>
                 <div>
@@ -131,7 +139,7 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
             {result && (
                 <div className="space-y-4">
                     {/* Cards de saldo */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                         <div className="bg-white border rounded-lg p-3">
                             <p className="text-[11px] text-gray-500 uppercase font-bold">Saldo inicial</p>
                             <p className="text-lg font-bold text-gray-800">{fmtL(result.saldoInicial)}</p>
@@ -140,6 +148,11 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
                         <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                             <p className="text-[11px] text-green-700 uppercase font-bold flex items-center gap-1"><ArrowDownCircle size={12} /> Entradas</p>
                             <p className="text-lg font-bold text-green-700">{fmtL(result.totalEntradas)}</p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <p className="text-[11px] text-blue-700 uppercase font-bold">Drenagens</p>
+                            <p className="text-lg font-bold text-blue-700">{fmtL(result.totalDrenagens)}</p>
+                            <p className="text-[10px] text-gray-400">devolvidas ao tanque</p>
                         </div>
                         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                             <p className="text-[11px] text-red-700 uppercase font-bold flex items-center gap-1"><ArrowUpCircle size={12} /> Saídas</p>
@@ -191,6 +204,7 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
                                         <tr>
                                             <th className="px-3 py-2 text-left">Data</th>
                                             <th className="px-3 py-2 text-left">Tipo</th>
+                                            <th className="px-3 py-2 text-left">Status</th>
                                             <th className="px-3 py-2 text-left">Combustível</th>
                                             <th className="px-3 py-2 text-left">Destino / Origem</th>
                                             <th className="px-3 py-2 text-right">Litros</th>
@@ -201,13 +215,20 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
                                             <tr key={t.id} className="hover:bg-gray-50">
                                                 <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(t.date)}</td>
                                                 <td className="px-3 py-2">
-                                                    <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${t.type === 'entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                        {t.type === 'entrada' ? 'Entrada' : 'Saída'}
+                                                    <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${TIPO_CLASS[t.type] || TIPO_CLASS.saida}`}>
+                                                        {TIPO_LABEL[t.type] || t.type}
                                                     </span>
                                                 </td>
-                                                <td className="px-3 py-2 text-gray-600">{t.fuelType || '—'}</td>
+                                                <td className="px-3 py-2 text-[11px] text-gray-600">
+                                                    {t.status && t.status !== 'Concluída' ? <span className="font-bold text-red-700">Bloqueada</span> : 'Concluída'}
+                                                </td>
+                                                <td className="px-3 py-2 text-gray-600">{comboioTankLabel(t.fuelType) || '—'}</td>
                                                 <td className="px-3 py-2 text-gray-600 max-w-xs truncate">
-                                                    {t.type === 'entrada' ? (t.partnerName || '—') : (t.receivingVehicleName || t.obraName || '—')}
+                                                    {t.type === 'entrada'
+                                                        ? (t.partnerName || '—')
+                                                        : t.type === 'drenagem'
+                                                            ? `de ${t.drainingVehicleName || '—'}`
+                                                            : (t.receivingVehicleName || t.obraName || '—')}
                                                 </td>
                                                 <td className="px-3 py-2 text-right font-medium">{fmtL(t.liters)}</td>
                                             </tr>

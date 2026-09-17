@@ -1,8 +1,7 @@
 ﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { PlusCircle, Printer, Edit, Trash2, CheckCircle, Search, History, Loader, Smartphone, EyeOff, Eye, Clock, Ban, Unlock, ChevronDown, ChevronRight } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent'; 
-import { jsPDF } from 'jspdf'; 
-import autoTable from 'jspdf-autotable'; 
+import { generateAuthorizationPDF as gerarPdfAutorizacao } from '../utils/refuelingAuthPdf';
 
 import RefuelingHistory from '../components/RefuelingHistory';
 import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
@@ -188,169 +187,23 @@ const RefuelingPage = ({
         return [...vehicles].sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''));
     }, [vehicles]);
 
-    const generateAuthorizationPDF = (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, groups = vehicleGroups, returnBlob = false) => {
+    // PDF da autorização — gerador único em utils/refuelingAuthPdf (a ordem de
+    // entrada de comboio usa a variante própria).
+    const generateAuthorizationPDF = async (order, vehiclesList = vehicles, partnersList = partners, employeesList = employees, _groups, returnBlob = false) => {
         setIsGeneratingPdf(true);
-        return new Promise((resolve, reject) => {
-            try {
-                const buildPdf = (logoDataUrl) => {
-                    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-                    const pageWidth = doc.internal.pageSize.getWidth();
-                    const effectivePageHeight = 148.5; 
-                    const margin = 10;
-
-                    const vehicle = vehiclesList.find(v => v.id === order.vehicleId);
-                    const partner = partnersList.find(p => p.id === order.partnerId);
-                    const employee = employeesList.find(e => e.id === order.employeeId);
-                    
-                    const dateToUse = order.data || order.date;
-                    let emissionDateStr = 'N/A';
-                    if (isValidDbDate(dateToUse)) {
-                        emissionDateStr = formatDateSafe(dateToUse);
-                    }
-
-                    if (logoDataUrl) {
-                        try {
-                            doc.addImage(logoDataUrl, 'PNG', margin, 10, 45, 16.875);
-                        } catch (e) {
-                            console.error("Erro ao adicionar logo ao PDF:", e);
-                        }
-                    }
-
-                    doc.setFontSize(16);
-                    doc.text(`Autorização de Abastecimento`, pageWidth - margin, 15, { align: 'right' });
-                    doc.setFontSize(12);
-                    doc.text(`Nº: ${String(order.authNumber || '0').padStart(6, '0')}`, pageWidth - margin, 22, { align: 'right' });
-
-                    let leituraLabel = 'Leitura';
-                    let leituraValue = 'N/A';
-                    
-                    const odoVal = parseFloat(order.odometro);
-                    const horiVal = parseFloat(order.horimetro);
-                    
-                    // Lógica segura para determinar a exibição correta baseada no tipo de veículo
-                    if (odoVal > 0 && horiVal > 0) {
-                        const isLeveOrTrecho = vehicle && [
-                            'Automóvel', 'Camionete', 'Utilitários', 'Moto', 
-                            'Caminhão Prancha', 'Semirreboques'
-                        ].includes(vehicle.tipo);
-                        if (isLeveOrTrecho) {
-                            leituraLabel = 'Odômetro';
-                            leituraValue = odoVal;
-                        } else {
-                            leituraLabel = 'Horímetro';
-                            leituraValue = horiVal;
-                        }
-                    } else if (odoVal > 0) {
-                        leituraLabel = 'Odômetro';
-                        leituraValue = odoVal;
-                    } else if (horiVal > 0) {
-                        leituraLabel = 'Horímetro';
-                        leituraValue = horiVal;
-                    }
-
-                    const terceiroName = getVehicleTerceiroName(vehicle, partnersList);
-
-                    const body = [
-                        ['Data de Emissão', emissionDateStr],
-                        ['Funcionário Autorizado', employee?.nome || 'Não especificado'],
-                        ['Veículo Autorizado', `${vehicle?.registroInterno || 'N/A'} - ${vehicle?.placa || 'N/A'}${terceirizadoPdfMark(vehicle)}`],
-                    ];
-
-                    if (vehicle?.isOutsourced) {
-                        body.push(['Terceiro (Locador)', terceiroName || 'Sem fornecedor vinculado']);
-                    }
-
-                    body.push(
-                        ['Modelo', `${vehicle?.marca || ''} ${vehicle?.modelo || ''}`.trim() || 'N/A'],
-                        [leituraLabel, `${leituraValue}`],
-                        ['Posto Autorizado', resolveOrderPartnerName(partner, order.partnerName)],
-                        ['Combustível Autorizado', order.fuelType || 'N/A'],
-                        ['Litros Liberados', order.isFillUp ? 'Completar Tanque' : `${order.litrosLiberados || 0} L`],
-                    );
-
-                    if (order.needsArla) {
-                        body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : `${order.litrosLiberadosArla || 0} L`]);
-                    }
-                    if (order.outros) {
-                        body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
-                    }
-
-                    let issuer = 'N/A';
-                    if (order.createdBy) {
-                        if (typeof order.createdBy === 'string') {
-                            issuer = order.createdBy; 
-                        } else if (typeof order.createdBy === 'object') {
-                            issuer = order.createdBy.nome || order.createdBy.name || order.createdBy.userEmail || order.createdBy.email || 'Usuário do Sistema';
-                        }
-                    }
-                    body.push(['Emitido por', issuer]);
-
-                    autoTable(doc, {
-                        startY: 35,
-                        body: body,
-                        theme: 'striped',
-                        styles: { fontSize: 9, cellPadding: 1.5 },
-                        headStyles: { fillColor: [24, 49, 83] },
-                        columnStyles: {
-                            0: { cellWidth: 40, fontStyle: 'bold' }
-                        }
-                    });
-
-                    let finalY = (doc.lastAutoTable?.finalY || 35) + 10;
-                    const footerStartY = Math.max(finalY, effectivePageHeight - 20); 
-                    doc.setFontSize(8);
-                    doc.setFont('helvetica', 'italic');
-                    doc.text('*A presente ordem de abastecimento é válida exclusivamente para a placa/RE indicada e para o tipo de combustível previamente autorizado.', margin, footerStartY);
-                    doc.text('*Estão autorizados somente os itens discriminados acima.', margin, footerStartY + 4);
-
-                    doc.setLineDashPattern([1, 1], 0);
-                    doc.setDrawColor(180, 180, 180);
-                    doc.line(0, effectivePageHeight, pageWidth, effectivePageHeight);
-
-                    if (returnBlob) {
-                        const blob = doc.output('blob');
-                        setIsGeneratingPdf(false);
-                        resolve(blob);
-                    } else {
-                        let fileDate = 'DATA';
-                        try {
-                            let dObj;
-                            if (dateToUse && typeof dateToUse.toDate === 'function') {
-                                dObj = dateToUse.toDate();
-                            } else {
-                                let ds = String(dateToUse);
-                                if(ds.includes(' ') && !ds.includes('T')) ds = ds.replace(' ', 'T');
-                                dObj = new Date(ds);
-                            }
-                            if(!isNaN(dObj.getTime())) fileDate = dObj.toISOString().split('T')[0];
-                        } catch(e) {}
-
-                        doc.save(`Autorizacao_${order.authNumber}_${vehicle?.registroInterno || 'VEIC'}_${fileDate}.pdf`);
-                        setIsGeneratingPdf(false);
-                        resolve(true);
-                    }
-                };
-
-                const logo = new Image();
-                logo.crossOrigin = 'Anonymous';
-                logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
-                logo.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = logo.width;
-                    canvas.height = logo.height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(logo, 0, 0);
-                    buildPdf(canvas.toDataURL('image/png'));
-                };
-                logo.onerror = () => buildPdf(null);
-
-            } catch (error) {
-                console.error("Erro ao gerar PDF:", error);
-                setAlertMessage("Erro ao gerar o PDF.");
-                setIsGeneratingPdf(false);
-                reject(error);
-            }
-        });
+        try {
+            return await gerarPdfAutorizacao(
+                order,
+                { vehicles: vehiclesList, partners: partnersList, employees: employeesList },
+                { variant: Number(order.comboioEntrada) === 1 ? 'entrada_comboio' : 'abastecimento', returnBlob }
+            );
+        } catch (error) {
+            console.error('Erro ao gerar PDF:', error);
+            setAlertMessage('Erro ao gerar o PDF.');
+            throw error;
+        } finally {
+            setIsGeneratingPdf(false);
+        }
     };
 
     // --- Ordens reservadas ---
@@ -585,6 +438,12 @@ const RefuelingPage = ({
                                                         <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                                                             {order.status}
                                                         </span>
+                                                        {Number(order.comboioEntrada) === 1 && (
+                                                            <span title="Ordem para encher o tanque de estoque do comboio (gerenciada na tela de Comboio)"
+                                                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#fdf8f0', color: '#9E7A42', border: '1px solid #e8d8b8' }}>
+                                                                Comboio
+                                                            </span>
+                                                        )}
                                                         <OrderDeliveryBadge info={deliveryMap[String(order.authNumber)]} />
                                                     </div>
                                                 </td>

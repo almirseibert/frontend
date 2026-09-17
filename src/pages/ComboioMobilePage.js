@@ -1,30 +1,37 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Droplet, ArrowUpCircle, ArrowDownCircle, RefreshCw,
-    LogOut, Lock, Loader, Clock, FileText
+    LogOut, Lock, Loader, Clock, FileText, Recycle,
 } from 'lucide-react';
 
 import ComboioDistribuicaoModal from '../components/modals/ComboioDistribuicaoModal';
 import ChangePasswordModal from '../components/ChangePasswordModal';
-import { getPartnerDisplayName } from '../utils/partners';
+import { useAuth } from '../contexts/AuthContext';
+import { getComboioTanks, comboioTankLabel } from '../utils/fuelTypes';
+import { formatDateTimeBRT } from '../utils/dateBRT';
+
+const RECENTES = 30;
 
 // ─── Barra de Combustível ─────────────────────────────────────────────────────
-const FuelBar = ({ label, liters, capacity, colorClass }) => {
-    const pct = capacity > 0 ? Math.min((liters / capacity) * 100, 100) : 0;
+// Sem capacidade cadastrada não inventamos porcentagem (antes assumia 2000 L).
+const FuelBar = ({ tanque }) => {
+    const pct = tanque.pct == null ? null : Math.min(Math.max(tanque.pct, 0), 100);
+    const baixo = tanque.pct != null && tanque.pct <= 20;
     return (
         <div className="mb-3">
             <div className="flex justify-between text-xs mb-1">
-                <span className="font-bold text-gray-300">{label}</span>
+                <span className="font-bold text-gray-300">{tanque.label}</span>
                 <span className="text-white font-mono">
-                    {liters.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
-                    &nbsp;/&nbsp;
-                    {capacity.toLocaleString('pt-BR')} L
+                    {tanque.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
+                    {tanque.capacidade ? <> &nbsp;/&nbsp; {tanque.capacidade.toLocaleString('pt-BR')} L</> : null}
                 </span>
             </div>
             <div className="w-full bg-gray-700 rounded-full h-3">
-                <div className={`h-3 rounded-full transition-all ${colorClass}`} style={{ width: `${pct}%` }} />
+                <div className="h-3 rounded-full transition-all" style={{ width: `${pct ?? 0}%`, background: baixo ? '#fab219' : '#c9a15e' }} />
             </div>
-            <div className="text-right text-[11px] text-gray-400 mt-0.5">{pct.toFixed(1)}%</div>
+            <div className="text-right text-[11px] text-gray-400 mt-0.5">
+                {pct == null ? 'capacidade não cadastrada' : `${pct.toFixed(1)}%${baixo ? ' · nível baixo' : ''}`}
+            </div>
         </div>
     );
 };
@@ -34,67 +41,64 @@ const ComboioMobilePage = ({
     apiClient,
     user,
     comboio: initialComboio,
+    comboios = [],
     vehicles = [],
     obras = [],
     employees = [],
-    partners = [],
     setAlertMessage,
     socket,
     onVoltar,
     onAbrirDocumentos,
 }) => {
+    const { logout } = useAuth();
+    // Operador com mais de um comboio vinculado escolhe qual está operando.
+    const opcoes = comboios.length > 0 ? comboios : [initialComboio];
+    const [comboioId, setComboioId] = useState(initialComboio.id);
     const [comboio, setComboio] = useState(initialComboio);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [showSaida, setShowSaida] = useState(false);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
 
+    // Só o necessário: o próprio comboio e as últimas movimentações dele.
+    // Antes baixava a tabela inteira de movimentações e todos os veículos.
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [allTxns, allVehicles] = await Promise.all([
-                apiClient.getComboioTransactions(),
-                apiClient.getVehicles(),
+            const [hist, fresh] = await Promise.all([
+                apiClient.getComboioTransactionsByScope('historico', { comboioVehicleId: comboioId, limit: RECENTES }),
+                apiClient.getVehicleById(comboioId).catch(() => null),
             ]);
-            const myTxns = allTxns.filter(t => t.comboioVehicleId === initialComboio.id);
-            setTransactions(myTxns.sort((a, b) => new Date(b.date) - new Date(a.date)));
-            const fresh = allVehicles.find(v => v.id === initialComboio.id);
+            setTransactions(Array.isArray(hist?.data) ? hist.data : []);
             if (fresh) setComboio(fresh);
         } catch (e) {
             console.error('[ComboioMobilePage] fetchData:', e);
         } finally {
             setLoading(false);
         }
-    }, [apiClient, initialComboio.id]);
+    }, [apiClient, comboioId]);
+
+    useEffect(() => {
+        const escolhido = opcoes.find(c => c.id === comboioId);
+        if (escolhido) setComboio(escolhido);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [comboioId]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
+    // O operador fica na sala 'operadores', que não recebe o server:sync do
+    // comboio. O backend emite 'comboio:saldo' com o id do comboio alterado.
     useEffect(() => {
-        if (!socket) return;
-        socket.on('server:sync', fetchData);
-        return () => socket.off('server:sync', fetchData);
-    }, [socket, fetchData]);
+        if (!socket) return undefined;
+        const onSaldo = ({ comboioVehicleId } = {}) => {
+            if (!comboioVehicleId || comboioVehicleId === comboioId) fetchData();
+        };
+        socket.on('comboio:saldo', onSaldo);
+        return () => socket.off('comboio:saldo', onSaldo);
+    }, [socket, fetchData, comboioId]);
 
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('user');
-        window.location.href = '/';
-    };
-
-    const fuelLevels = comboio.fuelLevels || {};
-    const capacity = comboio.fuelCapacity || 2000;
-
-    const recentTxns = useMemo(() => transactions.slice(0, 30), [transactions]);
-
-    const formatTxDate = (dateStr) => {
-        if (!dateStr) return '';
-        try {
-            const d = new Date(dateStr);
-            return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-                + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        } catch { return ''; }
-    };
+    const tanques = getComboioTanks(comboio);
+    const primeiroNome = String(user?.name || user?.nome || 'Operador').split(' ')[0];
 
     return (
         <div className="min-h-screen bg-gray-100">
@@ -115,11 +119,25 @@ const ComboioMobilePage = ({
                                 Voltar
                             </button>
                         )}
-                        <h1 className="text-xl font-bold truncate">Olá, {user.name.split(' ')[0]}</h1>
+                        <h1 className="text-xl font-bold truncate">Olá, {primeiroNome}</h1>
                         <p className="text-gray-400 text-sm">Operador de Comboio</p>
-                        <p className="text-yellow-400 text-xs font-mono mt-0.5">
-                            {comboio.registroInterno} · {comboio.modelo || ''}
-                        </p>
+                        {opcoes.length > 1 ? (
+                            <select
+                                value={comboioId}
+                                onChange={(e) => setComboioId(e.target.value)}
+                                className="mt-1 text-xs font-mono"
+                                style={{ background: '#1f2937', color: '#fcd34d', border: '1px solid #374151' }}
+                                aria-label="Comboio em operação"
+                            >
+                                {opcoes.map(c => (
+                                    <option key={c.id} value={c.id}>{c.registroInterno} · {c.modelo || ''}</option>
+                                ))}
+                            </select>
+                        ) : (
+                            <p className="text-yellow-400 text-xs font-mono mt-0.5">
+                                {comboio.registroInterno} · {comboio.modelo || ''}
+                            </p>
+                        )}
                     </div>
                     <div className="flex gap-2 items-center shrink-0">
                         {onAbrirDocumentos && (
@@ -146,7 +164,7 @@ const ComboioMobilePage = ({
                             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
                         </button>
                         <button
-                            onClick={handleLogout}
+                            onClick={logout}
                             className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-2 shadow-sm"
                             title="Sair"
                         >
@@ -158,24 +176,13 @@ const ComboioMobilePage = ({
 
                 {/* Barras de combustível */}
                 <div className="relative z-10">
-                    <FuelBar
-                        label="Diesel S10"
-                        liters={fuelLevels.dieselS10 || 0}
-                        capacity={capacity}
-                        colorClass="bg-blue-500"
-                    />
-                    <FuelBar
-                        label="Diesel Comum"
-                        liters={fuelLevels.dieselComum || 0}
-                        capacity={capacity}
-                        colorClass="bg-green-500"
-                    />
+                    {tanques.map(t => <FuelBar key={t.key} tanque={t} />)}
                 </div>
             </div>
 
             {/* ── Botão de ação ──────────────────────────────────────────── */}
             {/* Operador do comboio só distribui combustível (Abastecer). A entrada
-                (carregar o comboio no posto) é feita pelo setor de frotas. */}
+                (carregar o comboio no posto) é uma ordem emitida pelo setor de frotas. */}
             <div className="px-4 -mt-5 relative z-20">
                 <button
                     onClick={() => setShowSaida(true)}
@@ -196,50 +203,50 @@ const ComboioMobilePage = ({
                     <div className="flex justify-center py-10">
                         <Loader size={28} className="animate-spin text-yellow-500" />
                     </div>
-                ) : recentTxns.length === 0 ? (
+                ) : transactions.length === 0 ? (
                     <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-200">
                         <p className="text-gray-400 text-sm">Nenhuma transação registrada.</p>
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        {recentTxns.map(t => {
+                        {transactions.map(t => {
                             const isEntrada = t.type === 'entrada';
-                            const partnerName = isEntrada
-                                ? (getPartnerDisplayName(partners.find(p => p.id === t.partnerId)) || 'Fornecedor')
-                                : null;
-                            const receivingVehicle = !isEntrada
-                                ? vehicles.find(v => v.id === t.receivingVehicleId)
-                                : null;
+                            const isDrenagem = t.type === 'drenagem';
+                            const bloqueada = t.status === 'BloqueadoLeitura' || t.status === 'BloqueadoOrcamento';
+                            const titulo = isEntrada
+                                ? (t.partnerName || 'Posto')
+                                : isDrenagem
+                                    ? `Drenagem ← ${t.drainingVehicleName || 'veículo'}`
+                                    : `${t.receivingVehicleName || 'Veículo'}${t.receivingVehicleModelo ? ` · ${t.receivingVehicleModelo}` : ''}`;
+                            const Icone = isEntrada ? ArrowUpCircle : isDrenagem ? Recycle : ArrowDownCircle;
 
                             return (
                                 <div
                                     key={t.id}
                                     className="bg-white rounded-xl px-4 py-3 shadow-sm flex items-center gap-3"
-                                    style={{ border: '1px solid #f0ebe3' }}
+                                    style={{ border: `1px solid ${bloqueada ? '#e8c8bc' : '#f0ebe3'}` }}
                                 >
-                                    <div className={`p-2 rounded-full shrink-0 ${isEntrada ? 'bg-blue-100 text-blue-600' : 'bg-yellow-100 text-yellow-700'}`}>
-                                        {isEntrada ? <ArrowUpCircle size={18} /> : <ArrowDownCircle size={18} />}
+                                    <div className={`p-2 rounded-full shrink-0 ${isEntrada || isDrenagem ? 'bg-blue-100 text-blue-600' : 'bg-yellow-100 text-yellow-700'}`}>
+                                        <Icone size={18} />
                                     </div>
 
                                     <div className="flex-1 min-w-0">
                                         <div className="flex justify-between items-center gap-2">
-                                            <span className="font-bold text-sm text-gray-800 truncate">
-                                                {isEntrada
-                                                    ? partnerName
-                                                    : (receivingVehicle
-                                                        ? `${receivingVehicle.registroInterno} · ${receivingVehicle.modelo || ''}`
-                                                        : 'Saída')
-                                                }
-                                            </span>
+                                            <span className="font-bold text-sm text-gray-800 truncate">{titulo}</span>
                                             <span className="text-xs font-mono text-gray-700 shrink-0 font-bold">
-                                                {parseFloat(t.liters || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
+                                                {isEntrada || isDrenagem ? '+' : '−'}{parseFloat(t.liters || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
                                             </span>
                                         </div>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${t.fuelType === 'dieselS10' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                                                {t.fuelType === 'dieselS10' ? 'S10' : 'Comum'}
+                                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-gray-100 text-gray-700">
+                                                {comboioTankLabel(t.fuelType)}
                                             </span>
-                                            <span className="text-[10px] text-gray-400">{formatTxDate(t.date)}</span>
+                                            <span className="text-[10px] text-gray-400">{formatDateTimeBRT(t.date)}</span>
+                                            {bloqueada && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-red-100 text-red-700">
+                                                    Aguardando liberação
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

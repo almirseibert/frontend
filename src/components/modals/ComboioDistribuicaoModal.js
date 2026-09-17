@@ -1,87 +1,18 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-    Loader, X, Lock, Camera, Image as ImageIcon, CheckCircle, Trash2,
+    Loader, X, Lock, Camera, CheckCircle,
     Gauge, CalendarClock, Fuel, ArrowRight, AlertTriangle, Droplet
 } from 'lucide-react';
 import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
 import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
+// Captura compartilhada: a cópia antiga deste arquivo não tinha onerror, e uma
+// foto HEIC de iPhone se perdia sem aviso.
+import PhotoCapture from '../PhotoCapture';
+import { getComboioTanks, comboioTankLabel } from '../../utils/fuelTypes';
+import { todayBRT, withTimeBRT } from '../../utils/dateBRT';
 
-// ─── Compressão de imagem (mesma lógica da SolicitacaoAbastecimentoPage) ──────
-const compressImage = (file, callback) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target.result;
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1280;
-            let { width, height } = img;
-            if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-            }
-            canvas.width = width;
-            canvas.height = height;
-            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-            canvas.toBlob((blob) => {
-                const compressed = new File([blob], (file.name || 'foto').replace(/\.[^/.]+$/, '.jpg'), {
-                    type: 'image/jpeg',
-                    lastModified: Date.now(),
-                });
-                callback(compressed, URL.createObjectURL(compressed));
-            }, 'image/jpeg', 0.7);
-        };
-    };
-};
-
-// ─── Captura de uma foto (câmera ou galeria) ──────────────────────────────────
-const PhotoCapture = ({ label, hint, photo, onPick, onClear }) => {
-    const camRef = useRef(null);
-    const galRef = useRef(null);
-
-    const handle = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        compressImage(file, (compressed, preview) => onPick(compressed, preview));
-        e.target.value = '';
-    };
-
-    return (
-        <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-600 uppercase ml-0.5 flex items-center gap-1">
-                {label} <span className="text-red-500">*</span>
-            </label>
-            {hint && <p className="text-[11px] text-gray-400 -mt-0.5">{hint}</p>}
-            <div className={`border-2 border-dashed rounded-xl p-2 flex items-center justify-center h-36 relative overflow-hidden ${photo ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-gray-50'}`}>
-                {photo ? (
-                    <div onClick={onClear} className="w-full h-full relative cursor-pointer">
-                        <img src={photo.preview} alt={label} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
-                        <div className="absolute bottom-1.5 left-0 right-0 flex justify-center">
-                            <span className="bg-white px-2 py-0.5 rounded-full shadow text-[11px] font-bold text-green-700 inline-flex items-center gap-1">
-                                <CheckCircle size={11} /> OK <span className="text-gray-300">|</span> <Trash2 size={10} className="text-red-500" /> Trocar
-                            </span>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex gap-3 w-full h-full items-center justify-center">
-                        <div onClick={() => camRef.current?.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-yellow-50 active:bg-yellow-100 transition border border-gray-200 shadow-sm">
-                            <Camera size={26} className="text-gray-700 mb-1" />
-                            <span className="text-xs font-bold text-gray-700">Câmera</span>
-                        </div>
-                        <div onClick={() => galRef.current?.click()} className="flex-1 h-full flex flex-col items-center justify-center bg-white rounded-lg cursor-pointer hover:bg-blue-50 active:bg-blue-100 transition border border-gray-200 shadow-sm">
-                            <ImageIcon size={26} className="text-gray-700 mb-1" />
-                            <span className="text-xs font-bold text-gray-700">Galeria</span>
-                        </div>
-                    </div>
-                )}
-                <input type="file" ref={camRef} className="hidden" accept="image/*" capture="environment" onChange={handle} />
-                <input type="file" ref={galRef} className="hidden" accept="image/*" onChange={handle} />
-            </div>
-        </div>
-    );
-};
+const novoIdEnvio = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null);
 
 // ─── Modal principal: distribuição (saída) feita pelo operador do comboio ─────
 const ComboioDistribuicaoModal = ({
@@ -96,7 +27,7 @@ const ComboioDistribuicaoModal = ({
     apiClient,
     reloadData,
 }) => {
-    const today = () => new Date().toISOString().split('T')[0];
+    const today = todayBRT;
 
     const emptyForm = {
         receivingVehicleId: '',
@@ -113,7 +44,12 @@ const ComboioDistribuicaoModal = ({
     const [formData, setFormData] = useState(emptyForm);
     const [photos, setPhotos] = useState({ horimetro: null, re: null, medidorZerado: null, litragem: null });
     const [isSaving, setIsSaving] = useState(false);
+    // Leitura fora da regra não impede mais o registro: a saída é salva
+    // BLOQUEADA no servidor e um administrador libera. Aqui é só aviso.
     const [blockReason, setBlockReason] = useState(null);
+    // Id gerado no cliente: se a rede cair depois do envio, o reenvio com o
+    // mesmo id não duplica a distribuição.
+    const [envioId, setEnvioId] = useState(novoIdEnvio);
 
     const availableMachines = useMemo(
         () => vehicles
@@ -133,9 +69,10 @@ const ComboioDistribuicaoModal = ({
         return last?.fuelType || '';
     }, [transactions]);
 
+    const tanques = useMemo(() => getComboioTanks(comboioVehicle), [comboioVehicle]);
     const availableFuels = useMemo(
-        () => Object.entries(comboioVehicle?.fuelLevels || {}).filter(([, level]) => level > 0),
-        [comboioVehicle]
+        () => tanques.filter(t => t.litros > 0).map(t => [t.key, t.litros]),
+        [tanques]
     );
 
     // Auto-preenchimento ao escolher o veículo (tudo como sugestão, editável).
@@ -160,7 +97,7 @@ const ComboioDistribuicaoModal = ({
             obraId: prev.obraId || selectedVehicle.obraAtualId || '',
             employeeId: prev.employeeId || autoEmployee,
             fuelType: prev.fuelType || sugFuel,
-            date: prev.date || today(),
+            date: prev.date || todayBRT(),
         }));
     }, [selectedVehicle, obras, availableFuels, lastFuelForVehicle]);
 
@@ -176,7 +113,7 @@ const ComboioDistribuicaoModal = ({
             const last = parseFloat(selectedVehicle.odometro || 0);
             if (!isNaN(current) && last > 0) {
                 const limite = getGroupForType(selectedVehicle.tipo) === 'Caminhões de Trecho' ? 2000 : 1000;
-                if (current <= last) reason = `Odômetro (${current}) menor/igual ao atual (${last}).`;
+                if (current < last) reason = `Odômetro (${current}) menor que o atual (${last}).`;
                 else if (current - last > limite) reason = `Salto excessivo de Km (> ${limite}).`;
             }
         }
@@ -184,7 +121,7 @@ const ComboioDistribuicaoModal = ({
             const current = parseFloat(formData.horimetro);
             const last = parseFloat(selectedVehicle.horimetro || 0);
             if (!isNaN(current) && last > 0) {
-                if (current <= last) reason = `Horímetro (${current}) menor/igual ao atual (${last}).`;
+                if (current < last) reason = `Horímetro (${current}) menor que o atual (${last}).`;
                 else if (current - last > 50) reason = `Salto excessivo de Horas (> 50h).`;
             }
         }
@@ -193,7 +130,16 @@ const ComboioDistribuicaoModal = ({
 
     const setField = (name, value) => setFormData(prev => ({ ...prev, [name]: value }));
 
-    const pickPhoto = (key) => (file, preview) => setPhotos(prev => ({ ...prev, [key]: { file, preview } }));
+    const pickPhoto = (key) => (blob, preview, info = {}) => {
+        // Sem compressão (HEIC que o navegador não decodifica) o servidor do
+        // comboio recusaria o arquivo — melhor avisar agora do que perder a foto.
+        if (info.original && /\.(heic|heif)$/i.test(blob?.name || '')) {
+            setAlertMessage('Foto em formato HEIC não é aceita. Ajuste a câmera para "Mais compatível" (JPG) e tire novamente.');
+            return;
+        }
+        const file = blob instanceof File ? blob : new File([blob], `${key}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+        setPhotos(prev => ({ ...prev, [key]: { file, preview } }));
+    };
     const clearPhoto = (key) => () => setPhotos(prev => ({ ...prev, [key]: null }));
 
     const isKmVehicle = selectedVehicle && getAllowedReadingTypes(selectedVehicle.tipo).includes('odometro');
@@ -203,7 +149,6 @@ const ComboioDistribuicaoModal = ({
     const canStart = () => {
         if (!formData.receivingVehicleId || !formData.obraId || !formData.fuelType || !formData.employeeId) return false;
         if (!readingValue) return false;
-        if (blockReason) return false;
         if (!photos.horimetro || !photos.re || !photos.medidorZerado) return false;
         return true;
     };
@@ -215,10 +160,6 @@ const ComboioDistribuicaoModal = ({
         }
         if (!readingValue) {
             setAlertMessage(`Informe o ${isKmVehicle ? 'odômetro' : 'horímetro'} atual.`);
-            return;
-        }
-        if (blockReason) {
-            setAlertMessage(`Leitura bloqueada: ${blockReason}`);
             return;
         }
         if (!photos.horimetro || !photos.re || !photos.medidorZerado) {
@@ -239,8 +180,8 @@ const ComboioDistribuicaoModal = ({
             setAlertMessage('Tire a foto do medidor com a litragem abastecida.');
             return;
         }
-        const stock = comboioVehicle?.fuelLevels?.[formData.fuelType] || 0;
-        if (liters > stock) {
+        const stock = tanques.find(t => t.key === formData.fuelType)?.litros || 0;
+        if (liters > stock + 1) {
             setAlertMessage(`Saldo insuficiente no comboio. Disponível: ${stock.toFixed(2)} L.`);
             return;
         }
@@ -248,44 +189,52 @@ const ComboioDistribuicaoModal = ({
         setIsSaving(true);
         try {
             const payload = new FormData();
+            if (envioId) payload.append('id', envioId);
             payload.append('comboioVehicleId', comboioVehicle.id);
             payload.append('receivingVehicleId', formData.receivingVehicleId);
             payload.append('obraId', formData.obraId);
             payload.append('employeeId', formData.employeeId);
             payload.append('fuelType', formData.fuelType);
             payload.append('liters', String(liters));
-            payload.append('date', new Date(formData.date + 'T12:00:00-03:00').toISOString());
+            payload.append('date', withTimeBRT(formData.date));
             if (isKmVehicle) payload.append('odometro', String(parseFloat(formData.odometro) || ''));
             else payload.append('horimetro', String(parseFloat(formData.horimetro) || ''));
             payload.append('createdBy', JSON.stringify({
-                userId: user.id || user.uid,
-                userEmail: user.email || 'sistema@frotasmak.com',
-                name: user.name,
+                id: user?.id,
+                userEmail: user?.email,
+                name: user?.name,
             }));
             payload.append('foto_horimetro', photos.horimetro.file);
             payload.append('foto_re', photos.re.file);
             payload.append('foto_medidor_zerado', photos.medidorZerado.file);
             payload.append('foto_litragem', photos.litragem.file);
 
-            await apiClient.createComboioSaidaComFotos(payload);
-            setAlertMessage('Abastecimento registrado com sucesso!');
+            const res = await apiClient.createComboioSaidaComFotos(payload);
+            setAlertMessage(res?.bloqueada
+                ? `Abastecimento registrado, mas AGUARDANDO LIBERAÇÃO do administrador: ${res.motivoBloqueio || 'leitura fora da regra.'}`
+                : 'Abastecimento registrado com sucesso!');
             if (reloadData) reloadData();
 
             // Já abre a tela para um novo abastecimento.
             setFormData(emptyForm);
             setPhotos({ horimetro: null, re: null, medidorZerado: null, litragem: null });
             setBlockReason(null);
+            setEnvioId(novoIdEnvio());
             setStep('dados');
         } catch (error) {
             console.error(error);
-            setAlertMessage(error.message || 'Erro ao registrar abastecimento.');
+            if (error?.data?.code === 'INSUFFICIENT_COMBOIO_BALANCE') {
+                setAlertMessage(`Saldo insuficiente no comboio: ${Number(error.data.saldoDisponivel || 0).toFixed(1)} L disponíveis. Avise o escritório para dar baixa na entrada.`);
+            } else {
+                setAlertMessage(error.message || 'Erro ao registrar abastecimento.');
+            }
         } finally {
             setIsSaving(false);
         }
     };
 
-    const stock = comboioVehicle?.fuelLevels?.[formData.fuelType] || 0;
-    const fuelLabel = (t) => (t === 'dieselS10' ? 'Diesel S10' : t === 'dieselComum' ? 'Diesel Comum' : t);
+    const stock = tanques.find(t => t.key === formData.fuelType)?.litros || 0;
+    const fuelLabel = comboioTankLabel;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
@@ -345,8 +294,9 @@ const ComboioDistribuicaoModal = ({
                                     </div>
 
                                     {blockReason && (
-                                        <div className="p-3 bg-red-100 border border-red-300 text-red-800 rounded-lg flex items-center gap-2 font-bold animate-pulse">
-                                            <Lock size={18} /> {blockReason}
+                                        <div className="p-3 bg-red-50 border border-red-300 text-red-800 rounded-lg flex items-start gap-2 text-xs">
+                                            <Lock size={16} className="flex-shrink-0 mt-0.5" />
+                                            <span><strong>{blockReason}</strong> Confira a leitura. Se estiver certa, pode seguir: o abastecimento fica aguardando a liberação do administrador.</span>
                                         </div>
                                     )}
 

@@ -1,41 +1,43 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Loader, X, Truck, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { Loader, X, Truck, ArrowRightLeft, Trash2, Recycle } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
 import { getAllowedReadingTypes, getVehicleMainReading } from '../../utils/vehicleRules';
-
-// Converte o fuelType de um refueling (dieselS10 / dieselS500 / dieselComum...)
-// para a convenção do comboio (dieselS10 / dieselComum). A drenagem é, na
-// prática, sempre diesel.
-const toComboioFuelKey = (fuelType) => {
-    const f = String(fuelType || '').toLowerCase();
-    if (f.includes('s10')) return 'dieselS10';
-    if (f.includes('s500') || f.includes('comum') || f.includes('diesel')) return 'dieselComum';
-    return fuelType || '';
-};
+import { COMBOIO_TANKS, toComboioTankKey } from '../../utils/fuelTypes';
+import { todayBRT, withTimeBRT } from '../../utils/dateBRT';
 
 const recDate = (r) => new Date(r?.data || r?.date || 0).getTime();
+
+const DESTINOS = [
+    { key: 'comboio', label: 'Comboio', icon: Truck, desc: 'Devolve ao tanque do comboio' },
+    { key: 'transfusao', label: 'Transfusão', icon: ArrowRightLeft, desc: 'Abastece outro equipamento' },
+    { key: 'eliminado', label: 'Eliminado', icon: Trash2, desc: 'Combustível contaminado, descartado (vira custo da obra)' },
+];
 
 const ComboioDrenagemModal = ({
     user,
     vehicles = [],
+    defaultComboioId = '',
     onClose,
     setAlertMessage,
     apiClient,
-    reloadData
+    onSaved,
+    reloadData,
 }) => {
     const [formData, setFormData] = useState({
         destino: 'comboio',
         drainingVehicleId: '',
-        comboioVehicleId: '',
+        comboioVehicleId: defaultComboioId || '',
         receivingVehicleId: '',
         liters: '',
-        date: new Date().toISOString().split('T')[0],
+        date: todayBRT(),
         fuelType: '',
         reason: '',
         odometro: '',
         horimetro: '',
     });
     const [isSaving, setIsSaving] = useState(false);
+
+    const set = (patch) => setFormData(prev => ({ ...prev, ...patch }));
 
     // Listas
     const comboioVehicles = useMemo(
@@ -83,7 +85,7 @@ const ComboioDrenagemModal = ({
     // Auto-seleciona o combustível pela abastecida mais recente da origem
     useEffect(() => {
         if (originRefuelings.length > 0) {
-            const key = toComboioFuelKey(originRefuelings[0].fuelType);
+            const key = toComboioTankKey(originRefuelings[0].fuelType);
             if (key) setFormData(prev => ({ ...prev, fuelType: key }));
         }
     }, [originRefuelings]);
@@ -102,23 +104,23 @@ const ComboioDrenagemModal = ({
     // Disponível para drenagem = soma das 2 últimas abastecidas do combustível escolhido
     const disponivel = useMemo(() => {
         if (!formData.fuelType) return null;
-        const matching = originRefuelings.filter(r => toComboioFuelKey(r.fuelType) === formData.fuelType);
+        const matching = originRefuelings.filter(r => toComboioTankKey(r.fuelType) === formData.fuelType);
         const last2 = matching.slice(0, 2);
         if (last2.length === 0) return 0;
         return last2.reduce((s, r) => s + (parseFloat(r.litrosAbastecidos) || 0), 0);
     }, [originRefuelings, formData.fuelType]);
 
-    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const handleChange = (e) => set({ [e.target.name]: e.target.value });
 
     // Campo de leitura do receptor (odômetro OU horímetro conforme o tipo)
     const receiverReading = useMemo(() => {
         if (!selectedReceivingVehicle) return null;
         const usesKm = getAllowedReadingTypes(selectedReceivingVehicle.tipo).includes('odometro');
-        return usesKm ? { name: 'odometro', label: 'Odômetro (Km)' } : { name: 'horimetro', label: 'Horímetro (Hr)' };
+        return usesKm ? { name: 'odometro', label: 'Odômetro (Km)' } : { name: 'horimetro', label: 'Horímetro (h)' };
     }, [selectedReceivingVehicle]);
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        e?.preventDefault();
         const { destino, drainingVehicleId, comboioVehicleId, receivingVehicleId, liters, fuelType } = formData;
 
         if (!drainingVehicleId || !liters || !fuelType) {
@@ -146,13 +148,10 @@ const ComboioDrenagemModal = ({
                 destino,
                 drainingVehicleId,
                 liters: litersVal,
-                date: new Date(formData.date + 'T12:00:00-03:00').toISOString(),
+                date: withTimeBRT(formData.date),
                 fuelType,
                 reason: formData.reason,
-                createdBy: {
-                    userId: user?.id || user?.uid,
-                    userEmail: user?.email || 'sistema@frotasmak.com'
-                }
+                createdBy: { id: user?.id, userEmail: user?.email, name: user?.name || user?.nome },
             };
             if (destino === 'comboio') {
                 payload.comboioVehicleId = comboioVehicleId;
@@ -164,7 +163,7 @@ const ComboioDrenagemModal = ({
             }
             await apiClient.createComboioDrenagem(payload);
             setAlertMessage("Drenagem registrada com sucesso.");
-            reloadData();
+            (onSaved || reloadData)?.();
             onClose();
         } catch (error) {
             setAlertMessage(error.message);
@@ -173,57 +172,57 @@ const ComboioDrenagemModal = ({
         }
     };
 
-    const destinos = [
-        { key: 'comboio', label: 'Comboio', icon: Truck, desc: 'Devolve ao tanque do comboio' },
-        { key: 'transfusao', label: 'Transfusão', icon: ArrowRightLeft, desc: 'Abastece outro equipamento' },
-        { key: 'eliminado', label: 'Eliminado', icon: Trash2, desc: 'Combustível contaminado' },
-    ];
-
     return (
-        <div className="mak-modal-backdrop p-2 sm:p-4">
-            <div className="mak-modal max-w-lg">
+        <div className="mak-modal-backdrop">
+            <div className="mak-modal" style={{ maxWidth: 520 }}>
                 <div className="mak-modal-header">
-                    <h2 className="mak-modal-title">Registrar Drenagem</h2>
-                    <button onClick={onClose}><X size={20} /></button>
+                    <div>
+                        <h2 className="mak-modal-title">Registrar Drenagem</h2>
+                        <p className="mak-modal-subtitle">Retira combustível de um veículo. O destino define para onde ele vai.</p>
+                    </div>
+                    <button type="button" className="mak-modal-close" onClick={onClose} disabled={isSaving}><X size={18} /></button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
-                    <div className="p-4 sm:p-5 space-y-3 overflow-y-auto flex-1 mak-scrollbar">
-                    <p className="text-xs text-gray-500 leading-snug">Retira combustível de um veículo. O destino define para onde o combustível vai.</p>
-
+                <form onSubmit={handleSubmit} className="mak-modal-body space-y-4">
                     {/* DESTINO */}
-                    <div>
-                        <label className="block text-xs font-semibold mb-1">Destino *</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {destinos.map(({ key, label, icon: Icon, desc }) => (
-                                <button
-                                    type="button"
-                                    key={key}
-                                    onClick={() => setFormData(prev => ({ ...prev, destino: key }))}
-                                    className={`flex flex-col items-center gap-1 p-1.5 rounded-lg border text-xs transition ${
-                                        formData.destino === key
-                                            ? 'bg-orange-500 text-white border-orange-500'
-                                            : 'bg-white text-gray-600 border-gray-200 hover:bg-orange-50'
-                                    }`}
-                                    title={desc}
-                                >
-                                    <Icon size={16} />
-                                    <span className="font-semibold">{label}</span>
-                                </button>
-                            ))}
+                    <div className="flex flex-col gap-1">
+                        <label className="mak-label">Destino *</label>
+                        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Destino da drenagem">
+                            {DESTINOS.map(({ key, label, icon: Icon, desc }) => {
+                                const ativo = formData.destino === key;
+                                return (
+                                    <button
+                                        type="button"
+                                        key={key}
+                                        role="radio"
+                                        aria-checked={ativo}
+                                        onClick={() => set({ destino: key })}
+                                        className="flex flex-col items-center gap-1 p-2 rounded-lg transition"
+                                        style={{
+                                            border: `1px solid ${ativo ? '#9E7A42' : '#e8e0d4'}`,
+                                            background: ativo ? '#fdf8f0' : '#ffffff',
+                                            color: ativo ? '#9E7A42' : '#6a5e4e',
+                                            boxShadow: ativo ? '0 0 0 3px rgba(158,122,66,0.15)' : 'none',
+                                            fontSize: 12,
+                                        }}
+                                        title={desc}
+                                    >
+                                        <Icon size={16} />
+                                        <span className="font-semibold">{label}</span>
+                                    </button>
+                                );
+                            })}
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-1 leading-snug">
-                            {destinos.find(d => d.key === formData.destino)?.desc}
-                        </p>
+                        <span style={{ fontSize: 11, color: '#9a8a78' }}>{DESTINOS.find(d => d.key === formData.destino)?.desc}</span>
                     </div>
 
                     {/* ORIGEM */}
-                    <div>
-                        <label className="block text-xs font-semibold mb-1">Drenar de (Origem) *</label>
+                    <div className="flex flex-col gap-1">
+                        <label className="mak-label">Drenar de (origem) *</label>
                         <SearchableSelect
                             items={drainableVehicles}
                             value={formData.drainingVehicleId}
-                            onChange={(item) => handleChange({ target: { name: 'drainingVehicleId', value: item?.id || '' } })}
+                            onChange={(item) => set({ drainingVehicleId: item?.id || '' })}
                             getLabel={(v) => `${v.registroInterno} - ${v.modelo || ''}`.trim()}
                             getSubLabel={(v) => v.placa || ''}
                             placeholder="Selecione o veículo de origem..."
@@ -233,14 +232,14 @@ const ComboioDrenagemModal = ({
 
                     {/* DESTINO: COMBOIO */}
                     {formData.destino === 'comboio' && (
-                        <div>
-                            <label className="block text-xs font-semibold mb-1">Para Comboio (Destino) *</label>
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Para o comboio *</label>
                             <SearchableSelect
                                 items={comboioVehicles}
                                 value={formData.comboioVehicleId}
-                                onChange={(item) => handleChange({ target: { name: 'comboioVehicleId', value: item?.id || '' } })}
-                                getLabel={(v) => v.registroInterno || ''}
-                                getSubLabel={(v) => v.placa || ''}
+                                onChange={(item) => set({ comboioVehicleId: item?.id || '' })}
+                                getLabel={(v) => `${v.registroInterno} — ${v.placa || ''}`}
+                                getSubLabel={(v) => v.modelo || ''}
                                 placeholder="Selecione o comboio destino..."
                                 required
                             />
@@ -250,12 +249,12 @@ const ComboioDrenagemModal = ({
                     {/* DESTINO: TRANSFUSÃO */}
                     {formData.destino === 'transfusao' && (
                         <>
-                            <div>
-                                <label className="block text-xs font-semibold mb-1">Transferir para (Receptor) *</label>
+                            <div className="flex flex-col gap-1">
+                                <label className="mak-label">Transferir para (receptor) *</label>
                                 <SearchableSelect
                                     items={receivingVehicles}
                                     value={formData.receivingVehicleId}
-                                    onChange={(item) => handleChange({ target: { name: 'receivingVehicleId', value: item?.id || '' } })}
+                                    onChange={(item) => set({ receivingVehicleId: item?.id || '' })}
                                     getLabel={(v) => `${v.registroInterno} - ${v.modelo || ''}`.trim()}
                                     getSubLabel={(v) => v.placa || ''}
                                     placeholder="Selecione o equipamento receptor..."
@@ -263,69 +262,64 @@ const ComboioDrenagemModal = ({
                                 />
                             </div>
                             {receiverReading && (
-                                <div>
-                                    <label className="block text-xs font-semibold mb-1">{receiverReading.label} do receptor *</label>
+                                <div className="flex flex-col gap-1">
+                                    <label className="mak-label">{receiverReading.label} do receptor *</label>
                                     <input
                                         name={receiverReading.name}
                                         type="number"
                                         step="0.1"
                                         value={formData[receiverReading.name]}
                                         onChange={handleChange}
-                                        className="w-full p-1.5 border rounded text-sm"
+                                        className="w-full mak-input-mono"
                                         required
                                     />
-                                    <p className="text-[11px] text-gray-400 mt-1 leading-snug">
+                                    <span style={{ fontSize: 11, color: '#9a8a78' }}>
                                         Leitura atual: {getVehicleMainReading(selectedReceivingVehicle).value} {getVehicleMainReading(selectedReceivingVehicle).unit}
-                                    </p>
+                                    </span>
                                 </div>
                             )}
                         </>
                     )}
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="block text-xs font-semibold mb-1">Combustível *</label>
-                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" required>
-                                <option value="">Auto</option>
-                                <option value="dieselComum">Diesel Comum</option>
-                                <option value="dieselS10">Diesel S10</option>
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Combustível *</label>
+                            <select name="fuelType" value={formData.fuelType} onChange={handleChange} className="w-full" required>
+                                <option value="">Selecione</option>
+                                {COMBOIO_TANKS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-xs font-semibold mb-1">Litros *</label>
-                            <input name="liters" type="number" step="0.1" value={formData.liters} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" required />
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Litros *</label>
+                            <input name="liters" type="number" step="0.1" min="0" value={formData.liters} onChange={handleChange} className="w-full" required />
                         </div>
                     </div>
 
                     {/* DISPONÍVEL (informativo) */}
                     {formData.drainingVehicleId && formData.fuelType && (
-                        <div className="text-xs bg-blue-50 border border-blue-100 text-blue-700 rounded p-2 leading-snug">
-                            Disponível (2 últimas abastecidas): <strong>{Number(disponivel || 0).toFixed(2)} L</strong>
-                            <span className="text-blue-400"> — referência, não bloqueia.</span>
+                        <div className="p-2 rounded-lg" style={{ background: '#faf9f7', border: '1px solid #f0ebe3', fontSize: 12, color: '#6a5e4e' }}>
+                            Referência (2 últimas abastecidas da origem): <strong style={{ color: '#1e1a14' }}>{Number(disponivel || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} L</strong> — não bloqueia.
                         </div>
                     )}
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="block text-xs font-semibold mb-1">Data *</label>
-                            <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" required />
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Data *</label>
+                            <input name="date" type="date" value={formData.date} onChange={handleChange} className="w-full" required />
                         </div>
-                        <div>
-                            <label className="block text-xs font-semibold mb-1">
-                                Motivo {formData.destino === 'eliminado' && <span className="text-gray-400">(contaminação)</span>}
-                            </label>
-                            <input name="reason" type="text" value={formData.reason} onChange={handleChange} className="w-full p-1.5 border rounded text-sm" placeholder="Opcional..." />
+                        <div className="flex flex-col gap-1">
+                            <label className="mak-label">Motivo {formData.destino === 'eliminado' && '(contaminação)'}</label>
+                            <input name="reason" type="text" value={formData.reason} onChange={handleChange} className="w-full" placeholder="Opcional" />
                         </div>
-                    </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2 p-3 border-t bg-gray-50 shrink-0">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded text-sm font-semibold">Cancelar</button>
-                        <button type="submit" disabled={isSaving} className="px-4 py-2 bg-orange-500 text-white rounded text-sm font-bold flex items-center gap-2 disabled:opacity-60">
-                            {isSaving && <Loader className="animate-spin" size={16} />} Registrar Drenagem
-                        </button>
                     </div>
                 </form>
+
+                <div className="mak-modal-footer">
+                    <button type="button" onClick={onClose} className="mak-btn mak-btn-cancel" disabled={isSaving}>Cancelar</button>
+                    <button type="button" onClick={handleSubmit} disabled={isSaving} className="mak-btn mak-btn-dark">
+                        {isSaving ? <Loader className="animate-spin" size={14} /> : <Recycle size={14} />} Registrar drenagem
+                    </button>
+                </div>
             </div>
         </div>
     );

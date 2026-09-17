@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
-import { Fuel, CheckCircle, Loader, AlertTriangle, RefreshCw, Gauge, Wallet, XCircle, Settings, Plus, X } from 'lucide-react';
+import { Fuel, CheckCircle, Loader, AlertTriangle, RefreshCw, Gauge, Wallet, XCircle, Settings, Plus, X, Truck } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 import SearchableSelect from '../SearchableSelect';
 import { formatObraNome } from '../../utils/obraFormat';
@@ -21,6 +21,9 @@ const AbastecimentoAdminTab = () => {
     const [filtro, setFiltro]         = useState('Todos');
     const [vehicleToAdd, setVehicleToAdd] = useState(null);
     const [togglingId, setTogglingId] = useState(null);
+    // Saídas de comboio salvas bloqueadas (leitura/orçamento) — mesma regra das ordens.
+    const [saidasComboio, setSaidasComboio] = useState([]);
+    const [comboioBusy, setComboioBusy] = useState(null);
 
     const load = async () => {
         setLoading(true);
@@ -37,6 +40,10 @@ const AbastecimentoAdminTab = () => {
             setObras(Array.isArray(o) ? o : []);
             setVehicles(Array.isArray(v) ? v : []);
             setEmployees(Array.isArray(e) ? e : []);
+            // Quem não tem a página de comboio recebe 403 — a seção só some.
+            apiClient.getComboioTransactionsByScope('pendentes', { type: 'saida', limit: 200 })
+                .then(res => setSaidasComboio(Array.isArray(res?.data) ? res.data : []))
+                .catch(() => setSaidasComboio([]));
         } catch {
             setMensagem({ tipo: 'erro', texto: 'Erro ao carregar dados.' });
         } finally {
@@ -142,6 +149,27 @@ const AbastecimentoAdminTab = () => {
             setMensagem({ tipo: 'erro', texto: `Erro ao negar: ${e.message}` });
         } finally {
             setNegando(null);
+        }
+    };
+
+    const handleComboio = async (saida, acao) => {
+        const num = String(saida.authNumber || '').padStart(6, '0');
+        if (acao === 'negar' && !window.confirm(`Negar a saída de comboio #${num}? Ela será excluída e o diesel volta ao saldo do comboio.`)) return;
+        setComboioBusy(saida.id);
+        setMensagem(null);
+        try {
+            if (acao === 'liberar') {
+                await apiClient.liberarComboioSaida(saida.id);
+                setMensagem({ tipo: 'ok', texto: `Saída de comboio #${num} liberada.` });
+            } else {
+                await apiClient.deleteComboioTransaction(saida.id);
+                setMensagem({ tipo: 'ok', texto: `Saída de comboio #${num} negada e excluída.` });
+            }
+            await load();
+        } catch (e) {
+            setMensagem({ tipo: 'erro', texto: `Erro: ${e.message}` });
+        } finally {
+            setComboioBusy(null);
         }
     };
 
@@ -390,6 +418,55 @@ const AbastecimentoAdminTab = () => {
                     </div>
                     <div className="px-4 py-2 bg-gray-50 border-t text-xs text-gray-400">
                         {bloqueadas.length} ordem(ns) aguardando liberação
+                    </div>
+                </div>
+            )}
+
+            {saidasComboio.length > 0 && (
+                <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                    <div className="px-4 py-3 border-b flex items-center gap-2">
+                        <Truck size={16} style={{ color: '#9E7A42' }} />
+                        <h3 className="text-sm font-bold text-gray-800">Saídas de Comboio bloqueadas</h3>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-red-100 text-red-800">{saidasComboio.length}</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-500 uppercase text-xs border-b">
+                                <tr>
+                                    <th className="px-4 py-3">Nº</th>
+                                    <th className="px-4 py-3">Data</th>
+                                    <th className="px-4 py-3">Comboio → Veículo</th>
+                                    <th className="px-4 py-3">Obra</th>
+                                    <th className="px-4 py-3">Litros</th>
+                                    <th className="px-4 py-3">Motivo</th>
+                                    <th className="px-4 py-3 text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {saidasComboio.map(s => (
+                                    <tr key={s.id} className="bg-red-50/30 hover:bg-red-50/60">
+                                        <td className="px-4 py-3 font-bold text-gray-800">#{String(s.authNumber || '').padStart(6, '0')}</td>
+                                        <td className="px-4 py-3">{formatDate(s.date)}</td>
+                                        <td className="px-4 py-3">{s.comboioRegistroInterno} → {s.receivingVehicleName}</td>
+                                        <td className="px-4 py-3">{s.obraName || '—'}</td>
+                                        <td className="px-4 py-3">{(Number(s.liters) || 0).toLocaleString('pt-BR')} L</td>
+                                        <td className="px-4 py-3 text-xs text-gray-600">{s.motivoBloqueio || '—'}</td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={() => handleComboio(s, 'liberar')} disabled={comboioBusy === s.id}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-white text-xs font-bold rounded-lg hover:bg-green-600 transition disabled:opacity-50 whitespace-nowrap">
+                                                    {comboioBusy === s.id ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />} Liberar
+                                                </button>
+                                                <button onClick={() => handleComboio(s, 'negar')} disabled={comboioBusy === s.id}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition disabled:opacity-50 whitespace-nowrap">
+                                                    <XCircle size={12} /> Negar
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}

@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import CurrencyInput from '../ui/CurrencyInput';
-import { X, Loader, TrendingDown, TrendingUp, Lock, AlertTriangle, CheckCircle } from 'lucide-react';
+import { X, Loader, TrendingDown, TrendingUp, Lock, AlertTriangle, CheckCircle, Droplet } from 'lucide-react';
 import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRules';
 import { getPartnerDisplayName } from '../../utils/partners';
+import { fuelLabel, getPartnerFuelPrice, getComboioTanks, toComboioTankKey } from '../../utils/fuelTypes';
 import SugestaoCupomIa, { parseSugestaoIa } from '../refueling/SugestaoCupomIa';
 
+// variant:
+//   'abastecimento'  (padrão) baixa de ordem de abastecimento de veículo
+//   'comboioEntrada' baixa da ordem que ENCHE o tanque de estoque do comboio —
+//                    sem leitura/média; confere a capacidade livre do tanque.
 const ConfirmRefuelingModal = ({
     user,
     order,
@@ -18,23 +23,28 @@ const ConfirmRefuelingModal = ({
     vehicles = [],
     partners = [],
     employees = [],
-    PasswordConfirmationModal
+    PasswordConfirmationModal,
+    variant = 'abastecimento',
 }) => {
+    const isEntradaComboio = variant === 'comboioEntrada';
+    // Reabrir uma entrada já baixada (correção) parte dos valores gravados.
+    const jaBaixada = isEntradaComboio && order.status === 'Concluída';
+
     // Histórico do veículo desta ordem, para a estimativa de consumo. Vem de
     // GET /refuelings/vehicle/:id — antes era filtrado do array completo, que
     // obrigava a tela a carregar a tabela inteira.
     const [vehicleHistory, setVehicleHistory] = useState([]);
     useEffect(() => {
-        if (!order.vehicleId) { setVehicleHistory([]); return; }
+        if (!order.vehicleId || isEntradaComboio) { setVehicleHistory([]); return; }
         let cancelado = false;
         apiClient
             .getRefuelingsByVehicle(order.vehicleId)
             .then(rs => { if (!cancelado) setVehicleHistory(Array.isArray(rs) ? rs : []); })
             .catch(() => { if (!cancelado) setVehicleHistory([]); });
         return () => { cancelado = true; };
-    }, [order.vehicleId, apiClient]);
+    }, [order.vehicleId, apiClient, isEntradaComboio]);
 
-    const [litros, setLitros] = useState(order.litrosLiberados || '');
+    const [litros, setLitros] = useState((jaBaixada && order.litrosAbastecidos) || order.litrosLiberados || '');
     const [litrosArla, setLitrosArla] = useState(order.litrosLiberadosArla || '');
 
     const [precoUnitario, setPrecoUnitario] = useState('');
@@ -66,6 +76,7 @@ const ConfirmRefuelingModal = ({
     };
 
     const [litrosBlock, setLitrosBlock] = useState(null);
+    const [litrosWarning, setLitrosWarning] = useState(null);
     const [priceBlock, setPriceBlock] = useState(null);
     const [priceWarning, setPriceWarning] = useState(null);
 
@@ -93,6 +104,17 @@ const ConfirmRefuelingModal = ({
         return employees.find(e => e.id === order.employeeId) || null;
     }, [order.employeeId, employees]);
 
+    // Tanque do comboio que recebe o diesel. Numa correção de baixa o saldo atual
+    // já contém os litros lançados antes — descontamos para projetar certo.
+    const tanque = useMemo(() => {
+        if (!isEntradaComboio || !vehicleInfo) return null;
+        const key = toComboioTankKey(order.fuelType);
+        const t = getComboioTanks(vehicleInfo).find(x => x.key === key);
+        if (!t) return null;
+        const saldoBase = t.litros - (jaBaixada ? (parseFloat(order.litrosAbastecidos) || 0) : 0);
+        return { ...t, saldoBase };
+    }, [isEntradaComboio, vehicleInfo, order.fuelType, jaBaixada, order.litrosAbastecidos]);
+
     // --- Totais ---
     const valorCombustivel = useMemo(
         () => (parseFloat(litros) || 0) * (parseFloat(precoUnitario) || 0),
@@ -114,10 +136,13 @@ const ConfirmRefuelingModal = ({
             const partner = partners.find(p => p.id === order.partnerId);
             if (partner && partner.fuel_prices) {
                 if (order.fuelType) {
-                    const currentPrice = partner.fuel_prices[order.fuelType];
+                    // O cadastro grava por rótulo ('Diesel S10') e a baixa por
+                    // chave ('dieselS10'): getPartnerFuelPrice tenta os dois.
+                    const currentPrice = getPartnerFuelPrice(partner, order.fuelType);
                     if (currentPrice) {
-                        setPrecoUnitario(currentPrice);
-                        setInitialPartnerPrice(parseFloat(currentPrice));
+                        const gravado = jaBaixada ? parseFloat(order.pricePerLiter) : 0;
+                        setPrecoUnitario(gravado > 0 ? gravado : currentPrice);
+                        setInitialPartnerPrice(currentPrice);
                     }
                 }
                 if (order.needsArla) {
@@ -129,7 +154,7 @@ const ConfirmRefuelingModal = ({
                 }
             }
         }
-    }, [order.partnerId, order.fuelType, order.needsArla, partners]);
+    }, [order.partnerId, order.fuelType, order.needsArla, partners, jaBaixada, order.pricePerLiter]);
 
     // --- 2. Progresso Financeiro Obra ---
     useEffect(() => {
@@ -165,7 +190,7 @@ const ConfirmRefuelingModal = ({
     // --- 3. Validação Leitura ---
     useEffect(() => {
         setReadingBlock(null);
-        if (!kmOuHrConfirmado || !order.vehicleId) return;
+        if (isEntradaComboio || !kmOuHrConfirmado || !order.vehicleId) return;
 
         const vehicle = vehicles.find(v => v.id === order.vehicleId);
         if (!vehicle) return;
@@ -196,21 +221,36 @@ const ConfirmRefuelingModal = ({
                 }
             }
         }
-    }, [kmOuHrConfirmado, order.vehicleId, vehicles]);
+    }, [kmOuHrConfirmado, order.vehicleId, vehicles, isEntradaComboio]);
 
-    // --- 4. Validação Litros vs Liberados ---
+    // --- 4. Validação Litros vs Liberados (e vs capacidade livre do comboio) ---
     useEffect(() => {
         setLitrosBlock(null);
+        setLitrosWarning(null);
         const l = parseFloat(litros);
+        if (!l) return;
+
+        // Entrada no comboio: o tanque precisa comportar o diesel. Se o saldo já
+        // está acima da capacidade cadastrada o dado está inconsistente — só avisa.
+        if (tanque && tanque.capacidade) {
+            const livre = tanque.capacidade - tanque.saldoBase;
+            if (livre < 0) {
+                setLitrosWarning(`Saldo do tanque (${tanque.saldoBase.toFixed(0)} L) já está acima da capacidade cadastrada (${tanque.capacidade} L). Confira o cadastro do comboio.`);
+            } else if (l > livre * 1.05 + 1) {
+                setLitrosBlock(`Litros (${l}) acima da capacidade livre do tanque (${livre.toFixed(0)} L de ${tanque.capacidade} L).`);
+                return;
+            }
+        }
+
         const liberados = parseFloat(order.litrosLiberados);
-        if (!l || !liberados || liberados <= 0) return;
+        if (!liberados || liberados <= 0) return;
 
         if (l > liberados * 1.10) {
             setLitrosBlock(`Litros (${l}) acima do liberado +10% (máx: ${(liberados * 1.10).toFixed(2)} L). Verifique se não trocou as casas.`);
         } else if (l < liberados * 0.30) {
             setLitrosBlock(`Litros (${l}) muito abaixo do liberado (${liberados} L). Verifique se não trocou as casas.`);
         }
-    }, [litros, order.litrosLiberados]);
+    }, [litros, order.litrosLiberados, tanque]);
 
     // --- 5. Validação Preço vs Cadastro ---
     useEffect(() => {
@@ -313,16 +353,22 @@ const ConfirmRefuelingModal = ({
                 litrosAbastecidosArla: order.needsArla ? (parseFloat(litrosArla) || 0) : 0,
                 pricePerLiter: parseFloat(precoUnitario) || 0,
                 pricePerLiterArla: order.needsArla ? (parseFloat(precoUnitarioArla) || 0) : 0,
-                confirmedReading: parseFloat(kmOuHrConfirmado) || 0,
+                confirmedReading: isEntradaComboio ? 0 : (parseFloat(kmOuHrConfirmado) || 0),
                 confirmedBy: user,
                 outrosValor: order.outrosGeraValor ? (parseFloat(outrosValorConfirmado) || 0) : 0,
                 invoiceNumber: invoiceNumber,
                 updatePartnerPrice: shouldUpdatePartnerPrice
             };
 
-            await apiClient.confirmRefuelingOrder(order.id, payload);
+            if (isEntradaComboio) {
+                await apiClient.confirmComboioEntrada(order.id, payload);
+            } else {
+                await apiClient.confirmRefuelingOrder(order.id, payload);
+            }
             if (onAfterConfirm) await onAfterConfirm();
-            setAlertMessage("Abastecimento confirmado!");
+            setAlertMessage(isEntradaComboio
+                ? `Baixa registrada: ${(parseFloat(litros) || 0).toLocaleString('pt-BR')} L entraram no tanque do comboio.`
+                : "Abastecimento confirmado!");
             reloadData();
             onClose();
         } catch (error) {
@@ -342,7 +388,9 @@ const ConfirmRefuelingModal = ({
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm border border-gray-200 flex flex-col relative overflow-hidden max-h-[95vh]">
                 <div className="p-3 border-b flex justify-between items-center bg-gray-50 rounded-t-lg shrink-0">
-                    <h2 className="text-base font-bold text-gray-800">Confirmar Abastecimento</h2>
+                    <h2 className="text-base font-bold text-gray-800">
+                        {isEntradaComboio ? (jaBaixada ? 'Corrigir Baixa da Entrada' : 'Baixa da Entrada no Comboio') : 'Confirmar Abastecimento'}
+                    </h2>
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full"><X size={16} /></button>
                 </div>
 
@@ -351,11 +399,28 @@ const ConfirmRefuelingModal = ({
                     <div className="bg-blue-50 p-2 rounded text-[10px] border border-blue-100">
                         <div className="flex justify-between font-bold">
                             <span>#{String(order.authNumber).padStart(6, '0')}</span>
-                            <span>{order.fuelType}</span>
+                            <span>{fuelLabel(order.fuelType)}</span>
                         </div>
-                        {order.litrosLiberados && <p>Liberado: {order.litrosLiberados} L</p>}
+                        {isEntradaComboio && vehicleInfo && (
+                            <p>Comboio: {vehicleInfo.registroInterno} — {partnerName}</p>
+                        )}
+                        {order.isFillUp ? <p>Liberado: completar tanque</p> : (order.litrosLiberados && <p>Liberado: {order.litrosLiberados} L</p>)}
                         {order.outros && <p className="mt-1 border-t border-blue-200 pt-0.5">Obs: {order.outros}</p>}
                     </div>
+
+                    {/* TANQUE DO COMBOIO — antes e depois da baixa */}
+                    {tanque && (
+                        <div className="p-2 rounded border text-[10px]" style={{ background: '#faf9f7', borderColor: '#f0ebe3' }}>
+                            <div className="flex justify-between items-center font-bold" style={{ color: '#3d3528' }}>
+                                <span className="flex items-center gap-1"><Droplet size={11} /> Tanque {tanque.label}</span>
+                                {tanque.capacidade && <span>capacidade {tanque.capacidade.toLocaleString('pt-BR')} L</span>}
+                            </div>
+                            <div className="flex justify-between mt-1" style={{ color: '#6a5e4e' }}>
+                                <span>Saldo atual: <strong>{tanque.saldoBase.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</strong></span>
+                                <span>Após a baixa: <strong>{(tanque.saldoBase + (parseFloat(litros) || 0)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</strong></span>
+                            </div>
+                        </div>
+                    )}
 
                     {/* PROGRESSO FINANCEIRO */}
                     {obraStatus && (
@@ -403,6 +468,9 @@ const ConfirmRefuelingModal = ({
                             <p className="text-[10px] text-red-700 mt-0.5 font-medium flex gap-1 items-start">
                                 <AlertTriangle size={10} className="shrink-0 mt-0.5" /> {litrosBlock}
                             </p>
+                        )}
+                        {!litrosBlock && litrosWarning && (
+                            <p className="text-[10px] text-yellow-700 mt-0.5 font-medium">⚠ {litrosWarning}</p>
                         )}
                     </div>
 
@@ -523,7 +591,8 @@ const ConfirmRefuelingModal = ({
                         />
                     </div>
 
-                    {/* Leitura Painel */}
+                    {/* Leitura Painel — não se aplica ao tanque de estoque do comboio */}
+                    {!isEntradaComboio && (
                     <div>
                         <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Leitura Painel (Atual) *</label>
                         <input
@@ -541,6 +610,7 @@ const ConfirmRefuelingModal = ({
                             </p>
                         )}
                     </div>
+                    )}
 
                     <div className="pt-1 flex justify-end gap-2 shrink-0">
                         <button type="button" onClick={onClose} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded font-bold hover:bg-gray-200">Cancelar</button>
@@ -570,7 +640,7 @@ const ConfirmRefuelingModal = ({
                         {/* Identificação */}
                         <div className="bg-gray-50 border border-gray-200 rounded p-2 mb-2 text-[11px] space-y-1">
                             <div className="flex justify-between"><span className="text-gray-500">Posto:</span><span className="font-bold text-right">{partnerName}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-500">Veículo:</span><span className="font-bold text-right">{vehicleRegistro} — {vehicleModelo}{vehiclePlaca ? ` (${vehiclePlaca})` : ''}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-500">{isEntradaComboio ? 'Comboio:' : 'Veículo:'}</span><span className="font-bold text-right">{vehicleRegistro} — {vehicleModelo}{vehiclePlaca ? ` (${vehiclePlaca})` : ''}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Motorista:</span><span className="font-bold text-right">{driverName}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Ordem:</span><span className="font-bold">#{String(order.authNumber).padStart(6, '0')}</span></div>
                         </div>
@@ -591,7 +661,9 @@ const ConfirmRefuelingModal = ({
                             {invoiceNumber && (
                                 <div className="flex justify-between"><span className="text-gray-500">NF:</span><span className="font-bold">{invoiceNumber}</span></div>
                             )}
-                            <div className="flex justify-between"><span className="text-gray-500">Leitura:</span><span className="font-bold">{kmOuHrConfirmado}</span></div>
+                            {isEntradaComboio
+                                ? tanque && <div className="flex justify-between"><span className="text-gray-500">Tanque após a baixa:</span><span className="font-bold">{(tanque.saldoBase + (parseFloat(litros) || 0)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</span></div>
+                                : <div className="flex justify-between"><span className="text-gray-500">Leitura:</span><span className="font-bold">{kmOuHrConfirmado}</span></div>}
                         </div>
 
                         {/* Médias */}

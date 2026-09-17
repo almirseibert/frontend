@@ -602,7 +602,8 @@ const AppContent = () => {
         refueling:            ['revisions'],
         saldo_postos:         ['partnerFuelCredits'],
         admin_solicitacoes:   [],
-        comboio:              ['comboioTransactions'],
+        // Listas e resumo vêm por escopo (getComboioTransactionsByScope/getComboioResumo).
+        comboio:              [],
         expenses:             ['expenses'],
         fines:                ['fines'],
         tires:                ['revisions'],
@@ -812,6 +813,7 @@ const AppContent = () => {
                         apiClient={apiClient}
                         user={user}
                         comboio={comboiosVinculados[0]}
+                        comboios={comboiosVinculados}
                         vehicles={vehicles}
                         obras={obras}
                         employees={employees}
@@ -835,6 +837,7 @@ const AppContent = () => {
                             apiClient={apiClient}
                             user={user}
                             comboio={comboiosVinculados[0]}
+                            comboios={comboiosVinculados}
                             vehicles={vehicles}
                             obras={obras}
                             employees={employees}

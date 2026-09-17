@@ -594,10 +594,40 @@ const apiClient = {
     uploadRefuelingPdf: async (formData) => apiFetch('/refuelings/upload-pdf', { method: 'POST', body: formData }),
 
     // --- Transações do Comboio ---
+    // Sem parâmetros devolve a tabela inteira (terceirizados). A tela de Comboio
+    // usa o escopo: { data, total, page, limit }.
     getComboioTransactions: async () => apiFetch('/comboioTransactions'),
+    // scope: 'historico' | 'pendentes'. Filtros: comboioVehicleId, type, obraId,
+    // receivingVehicleId, startDate, endDate, search, page, limit.
+    getComboioTransactionsByScope: async (scope, params = {}) => {
+        const clean = Object.fromEntries(Object.entries({ scope, ...params }).filter(([, v]) => v != null && v !== ''));
+        return apiFetch(`/comboioTransactions?${new URLSearchParams(clean).toString()}`);
+    },
+    // Ordens de entrada aguardando baixa + saídas bloqueadas aguardando admin.
+    getComboioPendencias: async (comboioVehicleId) =>
+        apiFetch(`/comboioTransactions/pendencias${comboioVehicleId ? `?comboioVehicleId=${encodeURIComponent(comboioVehicleId)}` : ''}`),
+    // Painel "Análise Detalhada por Comboio" (agregado no banco).
+    getComboioResumo: async (params = {}) => {
+        const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== ''));
+        return apiFetch(`/comboioTransactions/resumo?${new URLSearchParams(clean).toString()}`);
+    },
     getComboioTransactionById: async (id) => apiFetch(`/comboioTransactions/${id}`),
-    deleteComboioTransaction: async (id) => apiFetch(`/comboioTransactions/${id}`, { method: 'DELETE' }),
+    // force=true (só admin): exclui mesmo que o tanque fique negativo.
+    deleteComboioTransaction: async (id, { force = false } = {}) =>
+        apiFetch(`/comboioTransactions/${id}${force ? '?force=1' : ''}`, { method: 'DELETE' }),
     updateComboioTransaction: async (id, data) => apiFetch(`/comboioTransactions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    liberarComboioSaida: async (id, data = {}) =>
+        apiFetch(`/comboioTransactions/${id}/liberar`, { method: 'PUT', body: JSON.stringify(data) }),
+    // Entrada = ordem ao posto + baixa (mesmo pipeline do Abastecimento).
+    createComboioEntradaOrder: async (data) =>
+        apiFetch('/comboioTransactions/entrada/ordem', { method: 'POST', body: JSON.stringify(data) }),
+    updateComboioEntradaOrder: async (id, data) =>
+        apiFetch(`/comboioTransactions/entrada/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    confirmComboioEntrada: async (id, data) =>
+        apiFetch(`/comboioTransactions/entrada/${id}/baixa`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteComboioEntradaOrder: async (id, { force = false } = {}) =>
+        apiFetch(`/comboioTransactions/entrada/${id}${force ? '?force=1' : ''}`, { method: 'DELETE' }),
+    // Lançamento direto de entrada já abastecida (compatibilidade).
     createComboioEntrada: async (data) => apiFetch('/comboioTransactions/entrada', { method: 'POST', body: JSON.stringify(data) }),
     createComboioSaida: async (data) => apiFetch('/comboioTransactions/saida', { method: 'POST', body: JSON.stringify(data) }),
     // Distribuição do operador do comboio (com fotos). Recebe um FormData já montado.
