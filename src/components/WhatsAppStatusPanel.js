@@ -2,7 +2,7 @@
 import { QRCodeSVG } from 'qrcode.react';
 import {
     Wifi, WifiOff, RefreshCw, Loader, Smartphone,
-    Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle
+    Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, ShieldAlert
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
@@ -13,7 +13,30 @@ const STATUS_CFG = {
     QR_PRONTO:       { label: 'Aguardando QR',    cor: 'yellow', Icon: Smartphone },
     DESCONECTADO:    { label: 'Desconectado',     cor: 'red',    Icon: WifiOff    },
     NAO_CONFIGURADO: { label: 'Não configurado',  cor: 'red',    Icon: WifiOff    },
+    PAUSADO:         { label: 'Reconexão pausada', cor: 'red',   Icon: ShieldAlert },
 };
+
+const horaCurta = (iso) => (iso
+    ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : null);
+
+// Trava anti-banimento do microsserviço: reconectar em sequência é um dos
+// padrões que levam o WhatsApp a restringir o número.
+const ReconexaoPausadaInfo = ({ conexao = {} }) => (
+    <div className="flex flex-col items-center text-center text-red-700 animate-fade-in max-w-sm">
+        <ShieldAlert size={48} className="mb-3 opacity-80" />
+        <p className="text-lg font-bold">Reconexão automática pausada</p>
+        <p className="text-sm mt-1">{conexao.motivo || 'Proteção contra bloqueio do número.'}</p>
+        <p className="text-xs text-red-800/80 mt-3">
+            {conexao.somenteManual
+                ? 'Resolva a causa e use "Reiniciar (mantém sessão)". Evite "Limpar e Reiniciar": parear o número de novo pesa contra ele no WhatsApp.'
+                : `Próxima tentativa automática às ${horaCurta(conexao.proximaTentativaEm) || '—'}. A espera evita que tentativas seguidas levem ao bloqueio do número.`}
+        </p>
+        <p className="text-[11px] text-gray-500 mt-2">
+            Conexões na última hora: {conexao.conexoesUltimaHora ?? '—'} de {conexao.limiteHora ?? '—'} permitidas
+        </p>
+    </div>
+);
 
 const COR = { green: 'bg-green-100 text-green-800', yellow: 'bg-yellow-100 text-yellow-800', red: 'bg-red-100 text-red-800' };
 
@@ -119,7 +142,7 @@ const WhatsAppStatusPanel = () => {
     // hard = apaga a sessão e exige novo QR. O reinício suave preserva a sessão
     // e resolve a maioria das travas — deve ser a primeira tentativa.
     const handleRestart = async (hard = false) => {
-        if (hard && !window.confirm('Isso APAGA a sessão e exigirá ler o QR Code de novo. Tentou o reinício suave antes?')) return;
+        if (hard && !window.confirm('Isso APAGA a sessão e exigirá ler o QR Code de novo. Parear o número várias vezes seguidas pesa contra ele no WhatsApp. Tentou o reinício suave antes?')) return;
         setRestarting(true);
         try {
             await apiClient.post('/whatsapp/reiniciar', { hard });
@@ -256,12 +279,19 @@ const WhatsAppStatusPanel = () => {
                              <p className="text-sm text-green-700/70 mt-1">O sistema está pronto para disparos automáticos.</p>
                              <PatchMidiaInfo patchMidia={statusData.patchMidia} />
                          </div>
+                    ) : statusData.status === 'PAUSADO' ? (
+                         <ReconexaoPausadaInfo conexao={statusData.conexao} />
                     ) : (
                          <div className="flex flex-col items-center text-gray-400">
                              <WifiOff size={48} className="mb-4 opacity-50" />
                              <p className="font-medium text-gray-500">Aguardando Microsserviço...</p>
+                             {statusData.conexao?.proximaTentativaEm && (
+                                 <p className="text-sm text-gray-600 mt-1">
+                                     Nova tentativa automática às {horaCurta(statusData.conexao.proximaTentativaEm)}
+                                 </p>
+                             )}
                              <p className="text-xs text-center mt-2 max-w-xs">
-                                 Se estiver demorando, clique em "Limpar e Reiniciar".
+                                 Se estiver demorando, use "Reiniciar (mantém sessão)". "Limpar e Reiniciar" só quando o WhatsApp pedir novo pareamento.
                              </p>
                          </div>
                     )}
