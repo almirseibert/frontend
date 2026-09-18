@@ -30,6 +30,25 @@ const Badge = ({ status }) => {
     );
 };
 
+// Correção do envio de anexos aplicada pelo microsserviço no boot (build do WA
+// Web que quebrou mídia com "Data passed to getter must include an id property").
+// Sem o campo = o serviço ainda roda uma versão anterior e precisa de deploy.
+const PatchMidiaInfo = ({ patchMidia }) => {
+    const ok = patchMidia === 'aplicado';
+    const texto = ok
+        ? 'Envio de anexos (PDF): correção ativa'
+        : patchMidia
+            ? `Envio de anexos (PDF): correção NÃO aplicada (${patchMidia})`
+            : 'Envio de anexos (PDF): serviço sem a correção — faça o deploy do serviço WhatsApp';
+    const Icon = ok ? CheckCircle : AlertTriangle;
+    return (
+        <p className={`mt-3 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${ok ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>
+            <Icon size={14} />
+            {texto}
+        </p>
+    );
+};
+
 const WhatsAppStatusPanel = () => {
     const [statusData, setStatusData] = useState({ status: 'DESCONECTADO', qr: null });
     const [loading, setLoading] = useState(true);
@@ -235,6 +254,7 @@ const WhatsAppStatusPanel = () => {
                              <CheckCircle size={64} className="mb-4 opacity-90" />
                              <p className="text-lg font-bold">Autenticado e Ativo</p>
                              <p className="text-sm text-green-700/70 mt-1">O sistema está pronto para disparos automáticos.</p>
+                             <PatchMidiaInfo patchMidia={statusData.patchMidia} />
                          </div>
                     ) : (
                          <div className="flex flex-col items-center text-gray-400">
