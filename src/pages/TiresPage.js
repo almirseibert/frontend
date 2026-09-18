@@ -440,7 +440,7 @@ const TiresPage = ({
                                     <span className="inline-flex items-center gap-1">
                                         {v._isChild && <CornerDownRight size={13} className="text-violet-400 shrink-0"/>}
                                         {v.registroInterno} - {v.tipo} - {v.marca} {v.modelo}
-                                        {v.isOutsourced && <span title="Veículo terceirizado" className="text-[9px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200 rounded-full px-1.5 py-px">3º</span>}
+                                        {!!v.isOutsourced && <span title="Veículo terceirizado" className="text-[9px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200 rounded-full px-1.5 py-px">3º</span>}
                                         {v._isChild && <span className="text-[9px] font-bold uppercase text-violet-500">Atrelado</span>}
                                     </span>
                                 </div>

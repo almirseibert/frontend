@@ -627,7 +627,7 @@ const RefuelingOrderModal = ({
                                 placeholder="Buscar veículo..."
                                 required
                             />
-                            {selectedVehicle?.isOutsourced && (
+                            {!!selectedVehicle?.isOutsourced && (
                                 <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: '#6b21a8' }}>
                                     <TerceirizadoBadge show />
                                     <span>Terceiro: {getVehicleTerceiroName(selectedVehicle, partners) || 'Sem fornecedor vinculado'}</span>

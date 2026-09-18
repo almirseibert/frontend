@@ -561,7 +561,7 @@ const VehicleModal = ({
                                             </span>
                                         </label>
                                     </div>
-                                    {formData.isOutsourced && (
+                                    {!!formData.isOutsourced && (
                                         <div className="px-3 pb-3 space-y-2.5 border-t border-purple-200 pt-3">
                                             <p className="text-[10px] text-purple-500 font-medium uppercase tracking-wide">Locador</p>
                                             <div>

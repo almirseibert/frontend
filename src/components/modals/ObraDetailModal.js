@@ -715,7 +715,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                                     <div>
                                                         <p className="font-bold text-gray-800 flex items-center gap-1.5">
                                                             {vehicle.modelo}
-                                                            {vehicle.isOutsourced && (
+                                                            {!!vehicle.isOutsourced && (
                                                                 <span title="Veículo terceirizado" className="text-[9px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200 rounded-full px-1.5 py-px">3º</span>
                                                             )}
                                                         </p>
@@ -778,7 +778,7 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                                                             <CornerDownRight size={13} className="text-violet-400 shrink-0"/>
                                                             <span className="font-bold text-violet-800">{child.registroInterno}</span>
                                                             <span className="text-gray-500">{child.modelo || child.tipo}</span>
-                                                            {child.isOutsourced && (
+                                                            {!!child.isOutsourced && (
                                                                 <span title="Veículo terceirizado" className="text-[9px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200 rounded-full px-1.5 py-px">3º</span>
                                                             )}
                                                             <span className="ml-auto text-[10px] font-bold uppercase text-violet-500">Atrelado</span>

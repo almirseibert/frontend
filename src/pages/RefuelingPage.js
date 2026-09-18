@@ -345,7 +345,7 @@ const RefuelingPage = ({
                                                     {vehicle?.registroInterno} — {vehicle?.placa}
                                                     <TerceirizadoBadge vehicle={vehicle} />
                                                 </p>
-                                                {vehicle?.isOutsourced && (
+                                                {!!vehicle?.isOutsourced && (
                                                     <p style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }}>
                                                         {getVehicleTerceiroName(vehicle, partners) || 'Terceiro sem fornecedor vinculado'}
                                                     </p>
@@ -453,7 +453,7 @@ const RefuelingPage = ({
                                                         <span>{vehicle?.registroInterno} - {vehicle?.placa}</span>
                                                         <TerceirizadoBadge vehicle={vehicle} />
                                                     </div>
-                                                    {vehicle?.isOutsourced && (
+                                                    {!!vehicle?.isOutsourced && (
                                                         <div style={{ fontSize: 11, fontWeight: 600, color: '#6b21a8' }} title="Terceiro (Locador)">
                                                             {terceiroName || 'Sem fornecedor vinculado'}
                                                         </div>

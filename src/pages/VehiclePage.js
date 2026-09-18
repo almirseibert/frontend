@@ -597,7 +597,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <span style={{ fontWeight: 700, fontSize: 13, color: '#3d3528' }}>{vehicle.registroInterno}</span>
-                            {vehicle.isOutsourced && (
+                            {!!vehicle.isOutsourced && (
                                 <span title="Veículo terceirizado" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', background: '#f3e8ff', color: '#6b21a8', border: '1px solid #e9d5ff', borderRadius: 9999, padding: '1px 6px' }}>3º</span>
                             )}
                             {vehicle.isAttachedChild && (
