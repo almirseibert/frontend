@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Truck, FileWarning } from 'lucide-react';
 import { useData, useEnsureResources } from '../../contexts/DataContext';
-import { computeContrato, getContratoMachines } from '../../utils/terceirizados';
+import { computeContrato, getContratoMachines, filtrarContratosVigentes } from '../../utils/terceirizados';
 import { getPartnerDisplayName } from '../../utils/partners';
 import apiClient from '../../services/apiClient';
 
@@ -62,8 +62,9 @@ const FichaTerceiros = ({ obraId }) => {
         terceirizadoPagamentos = [], terceiroContratos = [],
     } = useData();
 
+    // Só contratos vigentes: cancelado/concluído não compõe valor devido.
     const contratos = useMemo(
-        () => (terceiroContratos || []).filter((c) => String(c.obraId) === String(obraId)),
+        () => filtrarContratosVigentes(terceiroContratos).filter((c) => String(c.obraId) === String(obraId)),
         [terceiroContratos, obraId]
     );
 

@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext'; // Importar Auth Context
 import { formatObraNome } from '../utils/obraFormat';
 import { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
 import { getVehicleTerceiroName } from '../utils/partners';
+import { isComboioVehicle } from '../utils/vehicleRules';
 import ContextFinder from '../components/billing/ContextFinder';
 import ObraStartList from '../components/billing/ObraStartList';
 import EquipmentRail from '../components/billing/EquipmentRail';
@@ -300,7 +301,8 @@ const BillingPage = ({
                     const tipo = vehicle.tipo || '';
                     const isLight = vehicleGroups['Veículos Leves']?.includes(tipo);
 
-                    if (!isLight) {
+                    // Comboio não apura horas (ver isComboioVehicle) — fica fora do relatório.
+                    if (!isLight && !isComboioVehicle(vehicle)) {
                         vehicleMap.set(h.veiculoId, {
                             ...vehicle,
                             statusNaObra: h.dataSaida ? 'historico' : 'presente',
@@ -376,6 +378,7 @@ const BillingPage = ({
                     const v = vehicles.find(x => x.id === veiculoId);
                     if (!v) return;
                     if (vehicleGroups['Veículos Leves']?.includes(v.tipo || '')) return;
+                    if (isComboioVehicle(v)) return; // mesma regra da lista de equipamentos
                     n++;
                 });
                 out[obra.id] = n;

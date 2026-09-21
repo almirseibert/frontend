@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Truck, DollarSign, Droplet } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { computeTerceirizadoPorObra, getContratoMachines } from '../../utils/terceirizados';
+import { computeTerceirizadoPorObra, getContratoMachines, filtrarContratosVigentes } from '../../utils/terceirizados';
 import apiClient from '../../services/apiClient';
 
 const fmtBRL = (n) =>
@@ -32,7 +32,7 @@ const TerceirizadoObraResumo = ({ obraId, period, variant = 'card', hideWhenEmpt
     // O cálculo (computeTerceirizadoPorObra) permanece idêntico.
     const scopedVehicleIds = useMemo(() => {
         const ids = new Set();
-        (terceiroContratos || [])
+        filtrarContratosVigentes(terceiroContratos)
             .filter((c) => c.obraId === obraId)
             .forEach((c) => getContratoMachines(c, obras, vehicles).forEach((v) => ids.add(v.id)));
         return [...ids];

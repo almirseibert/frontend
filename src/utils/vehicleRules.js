@@ -97,6 +97,16 @@ export const computeConsumption = (unidade, leitura, litros) => {
 /** Para a unidade, valor MAIOR é melhor? (Km/L e h/L). */
 export const isHigherBetter = (unidade) => unidade === 'Km/L' || unidade === 'h/L';
 
+/**
+ * Comboio abastece a frota em campo; por desenho ele não apura horas trabalhadas
+ * (o operador usa a ComboioMobilePage, que só grava transações de abastecimento).
+ * Por isso ele fica de fora das telas de apuração de horas — senão apareceria
+ * eternamente como "Sem lançamentos".
+ * Vem do banco como TINYINT(1); toleramos número, boolean e string.
+ */
+export const isComboioVehicle = (vehicle) =>
+    vehicle?.isComboioVehicle === 1 || vehicle?.isComboioVehicle === true || vehicle?.isComboioVehicle === '1';
+
 export const extraObraOptions = ['Administração', 'Oficina', 'Pátio', 'Rampa', 'Diversos'];
 export const operationalSubGroups = ['Administrativo', 'Oficina', 'Operacional', 'Supervisor'];
 

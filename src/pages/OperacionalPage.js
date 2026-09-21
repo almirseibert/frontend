@@ -9,7 +9,7 @@ import apiClientModule from '../services/apiClient';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
-import { getAllowedReadingTypes } from '../utils/vehicleRules';
+import { getAllowedReadingTypes, isComboioVehicle } from '../utils/vehicleRules';
 import TerceirizadoBadge from '../components/ui/TerceirizadoBadge';
 
 const GAP_THRESHOLD_DAYS = 10;
@@ -114,7 +114,11 @@ const OperacionalPage = ({
     // HELPERS COMPARTILHADOS
     // ==========================================================
 
-    const isHeavyVehicle = (tipo) => !vehicleGroups['Veículos Leves']?.includes(tipo);
+    // Quem entra na apuração de horas: nem leve, nem comboio.
+    // O comboio só abastece a frota — não tem lançamento de horas a cobrar,
+    // então incluí-lo aqui geraria "Sem lançamentos" eterno.
+    const apuraHoras = (vehicle) =>
+        !!vehicle && !vehicleGroups['Veículos Leves']?.includes(vehicle.tipo) && !isComboioVehicle(vehicle);
 
     const formatDecimalToTime = (decimal) => {
         const val = parseFloat(decimal);
@@ -203,7 +207,7 @@ const OperacionalPage = ({
             const historico = obra.historicoVeiculos || [];
             const pesados = historico.filter(h => {
                 const v = vehicles.find(vv => vv.id === h.veiculoId);
-                return v && isHeavyVehicle(v.tipo);
+                return apuraHoras(v);
             });
 
             const ativos = pesados.filter(h => !h.dataSaida).length;
@@ -227,7 +231,7 @@ const OperacionalPage = ({
                 }
                 const pesadosAtivos = historico.filter(h => {
                     const v = vehicles.find(vv => vv.id === h.veiculoId);
-                    return v && isHeavyVehicle(v.tipo) && !h.dataSaida;
+                    return apuraHoras(v) && !h.dataSaida;
                 });
                 pesadosAtivos.forEach(h => {
                     const entrada = new Date(h.dataEntrada);
@@ -342,7 +346,7 @@ const OperacionalPage = ({
 
         const vehicleStats = Object.entries(vehicleHistoryMap).map(([vehicleId, periods]) => {
             const vehicle = vehicles.find(v => String(v.id) === String(vehicleId));
-            if (!vehicle || !isHeavyVehicle(vehicle.tipo)) return null;
+            if (!apuraHoras(vehicle)) return null;
 
             const sortedPeriods = [...periods].sort((a, b) => new Date(a.dataEntrada) - new Date(b.dataEntrada));
             const activePeriod = sortedPeriods.find(p => !p.dataSaida);
@@ -695,7 +699,7 @@ const OperacionalPage = ({
     // ==========================================================
 
     const machineData = useMemo(() => {
-        const heavyVehicles = vehicles.filter(v => isHeavyVehicle(v.tipo) && v.ativo !== false);
+        const heavyVehicles = vehicles.filter(v => apuraHoras(v) && v.ativo !== false);
 
         return heavyVehicles.map(vehicle => {
             let currentObra = null;

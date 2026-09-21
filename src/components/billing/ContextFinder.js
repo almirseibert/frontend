@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
 import { formatObraNome } from '../../utils/obraFormat';
+import { isComboioVehicle } from '../../utils/vehicleRules';
 
 // Campo único de entrada do Faturamento & Controle.
 // Aceita nome da obra, registro interno (RE) ou placa e devolve
@@ -73,6 +74,7 @@ const ContextFinder = ({
                     if (!v) return;
                     const isLeve = vehicleGroups['Veículos Leves']?.includes(v.tipo || '');
                     if (isLeve) return;
+                    if (isComboioVehicle(v)) return; // comboio não apura horas
                     out.push({
                         obra,
                         vehicle: v,
