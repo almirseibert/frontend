@@ -443,7 +443,6 @@ const apiClient = {
     enviarContratoAssinado: async (id, formData) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'POST', body: formData }),
     removerContratoAssinado: async (id, data) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'DELETE', body: JSON.stringify(data || {}) }),
     // Máquinas: vínculo operacional, editável mesmo com contrato assinado.
-    updateMaquinasContrato: async (id, maquinas) => apiFetch(`/terceiroContratos/${id}/maquinas`, { method: 'PUT', body: JSON.stringify({ maquinas }) }),
 
     // --- Termos aditivos (só sobre contrato assinado) ---
     // O contrato traz `vigente` (base + aditivos assinados) e a lista `aditivos`

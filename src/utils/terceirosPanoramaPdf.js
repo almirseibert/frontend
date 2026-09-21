@@ -137,7 +137,8 @@ export const gerarPanoramaPdf = (pan) => {
                 a.severidade.toUpperCase(),
                 a.titulo,
                 String(a.itens.length),
-                a.itens.map((l) => `${l.contrato.numero} (${l.terceiroNome})`).join(', '),
+                // `label` = alerta sem contrato a citar (diesel sem contrato, por terceiro × obra).
+                a.itens.map((l) => (l.label ? l.label : `${l.contrato.numero} (${l.terceiroNome})`)).join(', '),
             ]),
             styles: { fontSize: 7.5, cellPadding: 1.8, valign: 'middle' },
             headStyles: { fillColor: ROXO, fontSize: 7.5 },

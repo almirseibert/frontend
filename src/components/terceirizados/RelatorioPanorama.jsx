@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
     X, FileDown, Truck, Building2, AlertTriangle, ChevronDown, ChevronRight,
-    Wallet, Droplet, Clock, ShieldCheck, TrendingUp,
+    Wallet, Droplet, TrendingUp,
 } from 'lucide-react';
 import { buildPanorama, STATUS_LABEL } from '../../utils/terceirosPanorama';
 import { gerarPanoramaPdf } from '../../utils/terceirosPanoramaPdf';
@@ -68,9 +68,35 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
         () => buildPanorama(contratos, ctx, { partners, obras }),
         [contratos, ctx, partners, obras]);
 
-    const { kpis, porTerceiro, porObra, alertas } = pan;
-    const lider = porTerceiro[0];
+    const { kpis, porTerceiro, porObra, alertas, abertos, agruparPorTerceiro, agruparPorObra } = pan;
     const excluidos = kpis.numContratosTotal - kpis.numContratos;
+
+    // Ponto de atenção selecionado (EXCLUSIVO: um por vez). Clicar no mesmo chip
+    // desliga. Acumular filtros acharia o contrato "vencido E sem assinatura", mas
+    // deixaria a tabela vazia sem explicar por quê — esse cruzamento aparece como
+    // marcador na própria linha, que resolve o mesmo sem a tela sumir.
+    const [filtro, setFiltro] = useState(null);
+    const [vista, setVista] = useState('terceiro');   // 'terceiro' | 'obra'
+
+    const alertaAtivo = useMemo(
+        () => alertas.find((a) => a.tipo === filtro) || null, [alertas, filtro]);
+
+    // A tabela é a MESMA em qualquer filtro — reagrupada sobre o subconjunto, nunca
+    // recalculada por fora (senão o total filtrado não fecha com o total geral).
+    const { linhasTerceiro, linhasObra } = useMemo(() => {
+        const base = alertaAtivo && alertaAtivo.escopo === 'contrato'
+            ? abertos.filter((l) => alertaAtivo.itens.some((i) => i.contrato.id === l.contrato.id))
+            : abertos;
+        return {
+            linhasTerceiro: agruparPorTerceiro(base, kpis.saldo),
+            linhasObra: agruparPorObra(base),
+        };
+    }, [alertaAtivo, abertos, agruparPorTerceiro, agruparPorObra, kpis.saldo]);
+
+    const mostrandoPendencias = alertaAtivo?.escopo === 'pendencia';
+    const colunasPend = alertaAtivo?.tipo === 'cadastro-veiculo'
+        ? { a: 'Veículo', b: 'Modelo', c: 'Obras' }
+        : { a: 'Terceiro', b: 'Obra', c: 'Equip.' };
 
     const toggle = (id) => setAberto((s) => {
         const n = new Set(s);
@@ -138,24 +164,120 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
                                 sub={`${kpis.numMaquinas} equipamento(s) em operação`} />
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                            <Kpi icon={<Clock size={11} />} label="Execução física"
-                                value={fmtPct(kpis.progresso)}
-                                sub={`${fmtH(kpis.horasExecutadas)} de ${fmtH(kpis.horasContratadas)} contratadas`} />
-                            <Kpi icon={<Building2 size={11} />} label="Obras atendidas"
-                                value={kpis.numObras}
-                                sub={`por ${kpis.numTerceiros} terceiro(s)`} />
-                            <Kpi icon={<Truck size={11} />} label="Maior exposição"
-                                value={lider ? fmtPct(lider.participacao) : '—'}
-                                sub={lider ? `${lider.nome} · ${fmtBRLc(lider.saldo)}` : '—'} />
-                            <Kpi tone={alertas.some((a) => a.severidade === 'alta') ? 'red' : 'gray'}
-                                icon={<ShieldCheck size={11} />} label="Pontos de atenção"
-                                value={alertas.reduce((a, g) => a + g.itens.length, 0)}
-                                sub={`${alertas.length} categoria(s)`} />
-                        </div>
+                        {/* ── Pontos de atenção como FILTRO ──────────────────
+                            Antes eram cards no fim da página, truncados em 6 itens
+                            ("+51 outro(s)") porque não tinham para onde apontar. Como
+                            chip eles não listam nada: selecionam a tabela abaixo, que
+                            mostra tudo. Exclusivo — um por vez. */}
+                        {alertas.length > 0 && (
+                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+                                <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-gray-400 mb-2">
+                                    <AlertTriangle size={12} /> Pontos de atenção
+                                    <span className="font-normal normal-case text-gray-300">— clique para filtrar a lista</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {alertas.map((a) => {
+                                        const s2 = SEV[a.severidade] || SEV.baixa;
+                                        const on = filtro === a.tipo;
+                                        return (
+                                            <button key={a.tipo} type="button"
+                                                onClick={() => setFiltro(on ? null : a.tipo)}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition
+                                                    ${on ? `${s2.bg} ${s2.border} ${s2.text} ring-1 ring-offset-1 ring-gray-300`
+                                                         : `bg-white border-gray-200 text-gray-600 hover:bg-gray-50`}`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${s2.dot}`} />
+                                                {a.titulo}
+                                                <span className={on ? '' : 'text-gray-400'}>{a.itens.length}</span>
+                                            </button>
+                                        );
+                                    })}
+                                    {filtro && (
+                                        <button type="button" onClick={() => setFiltro(null)}
+                                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-gray-500 hover:bg-gray-100">
+                                            limpar filtro
+                                        </button>
+                                    )}
+                                </div>
+                                {alertaAtivo && (
+                                    <p className="text-[11px] text-gray-500 mt-2 pt-2 border-t border-gray-100">
+                                        {alertaAtivo.descricao}
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
-                        {/* ── Por terceiro ───────────────────────────────────── */}
-                        <Secao titulo="Exposição por terceiro" icon={<Truck size={12} />}>
+                        {/* ── Uma tabela só ──────────────────────────────────
+                            Antes eram duas tabelas empilhadas (35 terceiros + 30 obras):
+                            os mesmos contratos em dois recortes, o dobro da rolagem para
+                            a mesma informação. Agora é um alternador sobre a mesma lista,
+                            que responde ao ponto de atenção selecionado nos chips. */}
+                        <Secao
+                            titulo={mostrandoPendencias
+                                ? 'Diesel sem contrato'
+                                : vista === 'terceiro' ? 'Exposição por terceiro' : 'Onde o dinheiro está comprometido (por obra)'}
+                            icon={mostrandoPendencias
+                                ? <Droplet size={12} />
+                                : vista === 'terceiro' ? <Truck size={12} /> : <Building2 size={12} />}
+                            acao={!mostrandoPendencias && (
+                                <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+                                    {[['terceiro', 'Por terceiro'], ['obra', 'Por obra']].map(([v, rot]) => (
+                                        <button key={v} type="button" onClick={() => setVista(v)}
+                                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${vista === v ? 'bg-white text-gray-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                            {rot}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        >
+                            {filtro && (
+                                <p className="text-[11px] text-gray-500 mb-2 -mt-1">
+                                    Filtrado por <b className="text-gray-700">{alertaAtivo?.titulo}</b>{' · '}
+                                    {mostrandoPendencias
+                                        ? `${alertaAtivo.itens.length} ocorrência(s)`
+                                        : `${vista === 'terceiro' ? linhasTerceiro.length : linhasObra.length} de ${vista === 'terceiro' ? porTerceiro.length : porObra.length}`}
+                                </p>
+                            )}
+
+                            {/* Pendência não tem contrato a listar: o recorte é terceiro × obra.
+                                Lista COMPLETA — era exatamente o "+51 outro(s)" que escondia o resto. */}
+                            {mostrandoPendencias ? (
+                                <div className="overflow-x-auto -mx-1">
+                                    <table className="w-full text-xs min-w-[620px]">
+                                        <thead>
+                                            {/* Os três alertas de pendência têm recortes diferentes:
+                                                cadastro é por VEÍCULO, os outros por terceiro × obra. */}
+                                            <tr className="text-[10px] uppercase text-gray-400 border-b border-gray-100">
+                                                <th className="text-left font-bold py-2 pl-1">{colunasPend.a}</th>
+                                                <th className="text-left font-bold">{colunasPend.b}</th>
+                                                <th className="text-left font-bold">Motivo</th>
+                                                <th className="text-center font-bold">{colunasPend.c}</th>
+                                                <th className="text-right font-bold">Horas</th>
+                                                <th className="text-right font-bold pr-1">Diesel sem abater</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {alertaAtivo.itens.map((it) => (
+                                                <tr key={it.contrato.id} className="border-b border-gray-50">
+                                                    <td className="py-2 pl-1 font-semibold text-gray-700">{it.terceiroNome}</td>
+                                                    <td className="text-gray-600">{it.obraNome}</td>
+                                                    <td className="text-[10px] text-gray-500">{it.detalhe}</td>
+                                                    <td className="text-center text-gray-600">{it.contrato.numero}</td>
+                                                    <td className="text-right text-gray-600">{it.horas > 0 ? fmtH(it.horas) : '—'}</td>
+                                                    <td className="text-right font-bold text-red-600 pr-1">{it.valor > 0.01 ? fmtBRL(it.valor) : <span className="text-gray-300 font-normal">—</span>}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="border-t-2 border-gray-200 font-extrabold text-gray-700">
+                                                <td className="py-2 pl-1" colSpan={4}>Total</td>
+                                                <td className="text-right">{fmtH(alertaAtivo.itens.reduce((acc, x) => acc + x.horas, 0))}</td>
+                                                <td className="text-right text-red-700 pr-1">{fmtBRL(alertaAtivo.itens.reduce((acc, x) => acc + x.valor, 0))}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            ) : vista === 'terceiro' ? (
+                                <>
                             <div className="overflow-x-auto -mx-1">
                                 <table className="w-full text-xs min-w-[860px]">
                                     <thead>
@@ -172,7 +294,7 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {porTerceiro.map((t) => (
+                                        {linhasTerceiro.map((t) => (
                                             <React.Fragment key={t.id}>
                                                 <tr onClick={() => toggle(t.id)}
                                                     className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
@@ -248,10 +370,9 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
                             <p className="text-[10px] text-gray-400 mt-2">
                                 Clique em um terceiro para abrir os contratos. Saldo devedor = valor contratado − diesel abatido − adiantamentos.
                             </p>
-                        </Secao>
-
-                        {/* ── Por obra ───────────────────────────────────────── */}
-                        <Secao titulo="Onde o dinheiro está comprometido (por obra)" icon={<Building2 size={12} />}>
+                                </>
+                            ) : (
+                                <>
                             <div className="overflow-x-auto -mx-1">
                                 <table className="w-full text-xs min-w-[680px]">
                                     <thead>
@@ -266,7 +387,7 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {porObra.map((o) => (
+                                        {linhasObra.map((o) => (
                                             <tr key={o.id || 'sem-obra'} className="border-b border-gray-50">
                                                 <td className="py-2 pl-1">
                                                     <div className="font-semibold text-gray-700">{o.nome}</div>
@@ -283,43 +404,7 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
                                     </tbody>
                                 </table>
                             </div>
-                        </Secao>
-
-                        {/* ── Alertas ────────────────────────────────────────── */}
-                        <Secao titulo="Pontos de atenção" icon={<AlertTriangle size={12} />}>
-                            {alertas.length === 0 ? (
-                                <div className="text-xs text-gray-400 py-4 text-center">
-                                    Nenhum ponto de atenção: todos os contratos em aberto estão assinados, dentro do prazo e dentro do plano de horas.
-                                </div>
-                            ) : (
-                                <div className="grid md:grid-cols-2 gap-3">
-                                    {alertas.map((a) => {
-                                        const s = SEV[a.severidade] || SEV.baixa;
-                                        return (
-                                            <div key={a.tipo} className={`rounded-lg border p-3 ${s.bg} ${s.border}`}>
-                                                <div className={`flex items-center gap-2 text-xs font-bold ${s.text}`}>
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-                                                    {a.titulo}
-                                                    <span className="ml-auto text-[11px]">{a.itens.length}</span>
-                                                </div>
-                                                <p className="text-[10px] text-gray-500 mt-1">{a.descricao}</p>
-                                                <ul className="mt-2 space-y-0.5">
-                                                    {a.itens.slice(0, 6).map((l) => (
-                                                        <li key={l.contrato.id} className="text-[11px] text-gray-600 flex justify-between gap-2">
-                                                            <span className="truncate">
-                                                                <b>{l.contrato.numero}</b> · {l.terceiroNome} · {l.obraNome}
-                                                            </span>
-                                                            <span className="shrink-0 font-semibold">{fmtBRLc(l.r.saldo)}</span>
-                                                        </li>
-                                                    ))}
-                                                    {a.itens.length > 6 && (
-                                                        <li className="text-[10px] text-gray-400">+ {a.itens.length - 6} outro(s)</li>
-                                                    )}
-                                                </ul>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                </>
                             )}
                         </Secao>
                     </>

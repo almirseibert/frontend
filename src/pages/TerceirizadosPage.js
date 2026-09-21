@@ -11,7 +11,7 @@ import AditivoModal from '../components/modals/AditivoModal';
 import ContratoDetalhe from '../components/terceirizados/ContratoDetalhe';
 import RelatorioPanorama from '../components/terceirizados/RelatorioPanorama';
 import ObraFiltroSelect from '../components/terceirizados/ObraFiltroSelect';
-import { computeContrato, computeContratosPorTerceiro, getContratoMachines } from '../utils/terceirizados';
+import { computeContrato, computeContratosPorTerceiro, getContratoMachines, filtrarContratosVigentes } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
 
 const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -62,13 +62,20 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     // Abastecimentos ESCOPADOS às máquinas dos contratos terceirizados. O cálculo
     // do contrato (período, preço por parceiro) segue idêntico — só a origem dos
     // dados mudou (subconjunto em vez da tabela inteira).
+    // Contratos que ainda representam dinheiro. `terceiroContratos` (lista completa,
+    // com cancelados e concluídos) continua sendo usada na GESTÃO — abrir, editar,
+    // reabrir um contrato encerrado —, mas nenhuma soma de R$ desta tela passa por
+    // ela. Era essa a diferença contra o Panorama.
+    const contratosVigentes = useMemo(
+        () => filtrarContratosVigentes(terceiroContratos), [terceiroContratos]);
+
     const scopedVehicleIds = useMemo(() => {
         const ids = new Set();
-        (terceiroContratos || []).forEach((c) =>
+        contratosVigentes.forEach((c) =>
             getContratoMachines(c, obras, vehicles).forEach((v) => ids.add(v.id))
         );
         return [...ids];
-    }, [terceiroContratos, obras, vehicles]);
+    }, [contratosVigentes, obras, vehicles]);
 
     const [refuelings, setRefuelings] = useState([]);
     useEffect(() => {
@@ -127,31 +134,31 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
 
     // Nível 1 — terceiros que têm contrato, com agregados (saldo devido em destaque).
     const grupos = useMemo(() => {
-        const ids = [...new Set(terceiroContratos.map((c) => c.locadorId))];
+        const ids = [...new Set(contratosVigentes.map((c) => c.locadorId))];
         return ids
-            .map((id) => ({ terceiro: terceiroPorId.get(id) || { id, razaoSocial: '—' }, ...computeContratosPorTerceiro(id, terceiroContratos, ctx) }))
+            .map((id) => ({ terceiro: terceiroPorId.get(id) || { id, razaoSocial: '—' }, ...computeContratosPorTerceiro(id, contratosVigentes, ctx) }))
             .sort((a, b) => b.saldo - a.saldo);
-    }, [terceiroContratos, terceiroPorId, ctx]);
+    }, [contratosVigentes, terceiroPorId, ctx]);
 
     // Obras que têm contrato — opções do filtro (não faz sentido oferecer obra sem terceiro).
     const obrasComContrato = useMemo(() => {
-        const ids = [...new Set(terceiroContratos.map((c) => c.obraId).filter(Boolean))];
+        const ids = [...new Set(contratosVigentes.map((c) => c.obraId).filter(Boolean))];
         return ids
             .map((id) => ({ id, nome: obraNome(id), local: obraLocal(id) }))
             .sort((a, b) => a.nome.localeCompare(b.nome));
-    }, [terceiroContratos, obraNome, obraLocal]);
+    }, [contratosVigentes, obraNome, obraLocal]);
 
     // Com obra selecionada os agregados são RECALCULADOS sobre os contratos daquela
     // obra: filtrar só a lista mostraria o saldo do terceiro inteiro numa tela que
     // promete falar de uma obra só.
     const gruposDaObra = useMemo(() => {
         if (!obraFiltro) return grupos;
-        const doObra = terceiroContratos.filter((c) => String(c.obraId) === String(obraFiltro));
+        const doObra = contratosVigentes.filter((c) => String(c.obraId) === String(obraFiltro));
         const ids = [...new Set(doObra.map((c) => c.locadorId))];
         return ids
             .map((id) => ({ terceiro: terceiroPorId.get(id) || { id, razaoSocial: '—' }, ...computeContratosPorTerceiro(id, doObra, ctx) }))
             .sort((a, b) => b.saldo - a.saldo);
-    }, [obraFiltro, grupos, terceiroContratos, terceiroPorId, ctx]);
+    }, [obraFiltro, grupos, contratosVigentes, terceiroPorId, ctx]);
 
     const gruposFiltrados = useMemo(() => {
         const q = busca.trim().toLowerCase();
@@ -332,7 +339,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
         if (!grupoSel) return;
         setExtratoLoading(true);
         try {
-            gerarTerceiroExtratoPdf(grupoSel.terceiro, ctx, terceiroContratos, obraNome);
+            gerarTerceiroExtratoPdf(grupoSel.terceiro, ctx, contratosVigentes, obraNome);
         } catch (err) {
             setAlertMessage?.(err.message || 'Erro ao gerar extrato do terceiro.');
         } finally {

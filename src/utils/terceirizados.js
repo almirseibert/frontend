@@ -8,15 +8,47 @@
 //   Horas executadas = acompanhamento físico (progresso), NÃO viram dinheiro.
 //   saldo a pagar = valorTotal − diesel abatido − adiantamentos.
 //
-// As máquinas de um contrato são DERIVADAS (não digitadas): veículos do terceiro
-// (isOutsourced + locadorId) que passaram pela obra do contrato
-// (obra.historicoVeiculos). O diesel abatido (refuelings + saídas de comboio) e as
-// horas são filtrados por obra do contrato e pela vigência do contrato.
+// As máquinas de um contrato são DERIVADAS, não digitadas. O que liga uma hora ou
+// um litro a um contrato são quatro chaves que o próprio lançamento já carrega:
+//
+//      terceiro (vehicles.locadorId)  ×  obra do lançamento
+//    ×  subgrupo do veículo (itensContratados[].type)  ×  data dentro da vigência
+//
+// A máquina pode transitar entre obras durante a execução e estar sob dois
+// contratos vigentes ao mesmo tempo: a obra e a DATA do lançamento é que decidem
+// de onde a hora conta e de onde o diesel é abatido. Por isso o filtro é por
+// lançamento e nunca por `vehicles.obraAtualId`, que diz apenas onde a máquina
+// está hoje — usá-lo faria a mudança de obra reescrever o passado do contrato
+// anterior.
+//
+// O campo `terceiro_contratos.maquinas` (lista digitada) sobrevive só como LEGADO
+// de contratos já encerrados, para que saldo histórico não mude de valor porque o
+// modelo mudou. Ver `usaListaLegada`.
 //
 // Consumidores:
 //   1. pages/TerceirizadosPage.js                 (painel terceiro → contrato/obra → máquina)
 //   2. components/analise/TerceirizadoObraResumo   (resumo por obra)
+//   3. getPendenciasTerceirizados                  (o que NÃO caiu em contrato)
 // ============================================================================
+
+// ─── Vigência do contrato ───────────────────────────────────────────────────
+// Um contrato conta para dinheiro (valor devido, saldo, custo por obra) enquanto
+// não chega a um estado TERMINAL. `assinado` não é terminal — é uma PROMOÇÃO de
+// `ativo` (o upload do contrato assinado congela a minuta), então é o estado mais
+// firme que existe, não um encerramento.
+//
+// Espelhado no backend em `controllers/planejamentoController.js`
+// (`WHERE status NOT IN (...)`) e em `utils/terceirosCusto.js`. As duas
+// implementações precisam usar a MESMA lista: foi a divergência de escopo entre
+// elas que fez o Panorama e esta página mostrarem saldos diferentes.
+export const STATUS_ENCERRADOS = ['cancelado', 'concluido'];
+
+export const isContratoVigente = (c) =>
+    !STATUS_ENCERRADOS.includes(String(c?.status || 'ativo').toLowerCase());
+
+/** Só os contratos que ainda representam dinheiro. Use em QUALQUER soma de R$. */
+export const filtrarContratosVigentes = (lista) =>
+    (Array.isArray(lista) ? lista : []).filter(isContratoVigente);
 
 const COMBOIO_FUEL_KEY = {
     dieselS10: 'Diesel S10',
@@ -58,6 +90,22 @@ export const normalizePeriod = (period = {}) => {
 
 /** É um veículo terceirizado/locado? */
 export const isVehicleTerceirizado = (vehicle) => !!vehicle?.isOutsourced;
+
+// ─── Status: o que já aconteceu ─────────────────────────────────────────────
+// O sistema grava as DUAS grafias de concluída (com e sem acento) — o backend tem o
+// helper canônico `isConcluida` em services/comboioEstoqueService.js exatamente por
+// isso. Comparar com a string acentuada crua descartava em silêncio todo abastecimento
+// gravado sem acento: não abatia do contrato e nem aparecia como pendência.
+/** Abastecimento efetivamente consumado (aceita as duas grafias gravadas). */
+export const isRefuelingConcluida = (status) =>
+    !status || status === 'Concluída' || status === 'Concluida';
+
+// Saída de comboio bloqueada (leitura/orçamento) é PENDENTE, não consumada: abatê-la
+// cobraria do terceiro um diesel que ainda não saiu do tanque. Espelha STATUS_BLOQUEADOS.
+const COMBOIO_STATUS_BLOQUEADOS = ['BloqueadoLeitura', 'BloqueadoOrcamento'];
+/** Saída de comboio que de fato entregou combustível. */
+export const isSaidaEfetivada = (t) =>
+    t?.type === 'saida' && !COMBOIO_STATUS_BLOQUEADOS.includes(t?.status);
 
 /** Valor (R$) de um abastecimento comum, usando preço real e fallback do posto. */
 export const getRefuelingFuelValue = (refueling, partners = []) => {
@@ -107,12 +155,116 @@ export const contratoMaquinaIds = (contrato) => {
     return [];
 };
 
-/** Máquinas de um contrato: vínculo EXPLÍCITO (1 máquina : 1 contrato). */
-export const getContratoMachines = (contrato, obras = [], vehicles = []) => {
-    const ids = new Set(contratoMaquinaIds(contrato));
-    if (ids.size === 0) return [];
-    return vehicles.filter((v) => ids.has(v.id));
+// ─── Pertencimento de um lançamento a um contrato ───────────────────────────
+// A máquina NÃO é digitada no contrato. Ela é consequência de três chaves que já
+// existem no lançamento (apontamento de hora, abastecimento, saída de comboio):
+//
+//      veículo é do terceiro (isOutsourced + locadorId)
+//    E o lançamento é na OBRA do contrato
+//    E o subgrupo do veículo está entre os contratados
+//    E a data do lançamento cai na vigência (com aditivo de prazo)
+//
+// Por que por LANÇAMENTO e não pelo cadastro do veículo: `vehicles.obraAtualId`
+// diz onde a máquina está HOJE; o contrato apura um PERÍODO. Derivar pelo estado
+// atual faria a máquina sumir do contrato da obra anterior no dia em que ela se
+// mudasse, levando junto horas e diesel já apurados — o saldo de um contrato
+// encerrado mudaria sozinho. A mesma máquina pode oscilar entre duas obras com
+// contratos vigentes simultâneos: a data e a obra do lançamento é que dizem de
+// qual contrato aquela hora e aquele litro saem.
+
+/** Subgrupos contratados. Vazio = contrato sem plano por subgrupo (aceita todos). */
+export const contratoSubgrupos = (contrato) => {
+    let itens = contrato?.vigente?.itensContratados ?? contrato?.itensContratados;
+    if (typeof itens === 'string') { try { itens = JSON.parse(itens); } catch { itens = []; } }
+    if (!Array.isArray(itens)) return [];
+    return [...new Set(itens.map((i) => String(i?.type || '').trim()).filter(Boolean))];
 };
+
+// `itensContratados[].type` é um SUBGRUPO quando o tipo tem subgrupos cadastrados,
+// e o próprio TIPO quando não tem (mesma expansão do ObraModal). Por isso o casamento
+// olha os dois campos do veículo.
+const casaSubgrupo = (vehicle, type) => {
+    const t = String(type || '').trim();
+    if (!t) return false;
+    const sub = String(vehicle?.sub_tipo || '').trim();
+    if (sub) return sub === t;
+    return String(vehicle?.tipo || '').trim() === t;
+};
+
+/**
+ * O veículo é elegível a um contrato pelo CADASTRO (terceiro + subgrupo)?
+ * Não olha obra nem data — isso é do lançamento.
+ */
+export const veiculoElegivelAoContrato = (vehicle, contrato) => {
+    if (!vehicle || !contrato) return false;
+    if (!isVehicleTerceirizado(vehicle)) return false;
+    if (!vehicle.locadorId || String(vehicle.locadorId) !== String(contrato.locadorId)) return false;
+    const subs = contratoSubgrupos(contrato);
+    if (subs.length === 0) return true;      // contrato sem plano por subgrupo
+    return subs.some((t) => casaSubgrupo(vehicle, t));
+};
+
+// Contrato ENCERRADO (concluído/cancelado) que já tem a lista digitada continua
+// lendo a lista: saldo histórico não muda de valor porque o modelo mudou. Contrato
+// vigente sempre deriva — é justamente para ele que a derivação existe.
+const usaListaLegada = (contrato) =>
+    !isContratoVigente(contrato) && contratoMaquinaIds(contrato).length > 0;
+
+/**
+ * Predicado de pertencimento: o lançamento `rec` (com obraId e data) feito pelo
+ * veículo `vehicleId` conta para este contrato?
+ * `vById` é um Map(id → vehicle); `inicio`/`fim` já normalizados.
+ */
+const fazParteDoContrato = (contrato, vehicleId, recObraId, recDate, vById, inicio, fim, idsLegado) => {
+    if (!vehicleId) return false;
+    if (!inPeriod(recDate, inicio, fim)) return false;
+    // Lançamento sem obra (abastecimento de estoque, lançamento sem obra informada)
+    // não tem contrato a que pertencer — vira pendência, não some no rateio.
+    if (!recObraId || String(recObraId) !== String(contrato?.obraId)) return false;
+    if (idsLegado) return idsLegado.has(vehicleId);
+    return veiculoElegivelAoContrato(vById.get(vehicleId), contrato);
+};
+
+/**
+ * Esteve na obra do contrato em algum momento da vigência?
+ * Usa `obra.historicoVeiculos` (entrada/saída datadas) e cai no `obraAtualId`
+ * quando a obra não traz histórico carregado. Serve só para LISTAR a máquina:
+ * o que conta horas e diesel é sempre o lançamento.
+ */
+const passouPelaObra = (vehicle, contrato, obras, inicio, fim) => {
+    if (String(vehicle?.obraAtualId || '') === String(contrato?.obraId || '')) return true;
+    const obra = obras.find((o) => String(o.id) === String(contrato?.obraId));
+    const hist = Array.isArray(obra?.historicoVeiculos) ? obra.historicoVeiculos : [];
+    return hist.some((h) => {
+        if (String(h?.veiculoId) !== String(vehicle?.id)) return false;
+        const ent = toDate(h?.dataEntrada);
+        const sai = toDate(h?.dataSaida);          // null = ainda na obra
+        if (fim && ent && ent > fim) return false;
+        if (inicio && sai && sai < inicio) return false;
+        return true;
+    });
+};
+
+/**
+ * Máquinas de um contrato: DERIVADAS. Entram as elegíveis (terceiro + subgrupo)
+ * que estiveram na obra do contrato dentro da vigência — inclusive as que ainda
+ * não lançaram nada (aparecem zeradas). Quem já lançou é acrescentado em
+ * `computeContrato`, porque o lançamento é prova mais forte que a alocação.
+ */
+export const getContratoMachines = (contrato, obras = [], vehicles = []) => {
+    if (usaListaLegada(contrato)) {
+        const ids = new Set(contratoMaquinaIds(contrato));
+        return vehicles.filter((v) => ids.has(v.id));
+    }
+    const vig = contrato?.vigente || contrato || {};
+    const { inicio, fim } = normalizePeriod({
+        inicio: contrato?.vigenciaInicio,
+        fim: vig.vigenciaFim ?? contrato?.vigenciaFim,
+    });
+    return vehicles.filter((v) =>
+        veiculoElegivelAoContrato(v, contrato) && passouPelaObra(v, contrato, obras, inicio, fim));
+};
+
 
 /**
  * Calcula os números de UM contrato.
@@ -137,19 +289,20 @@ export const computeContrato = (contrato, ctx = {}) => {
     const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: vig.vigenciaFim ?? contrato?.vigenciaFim });
 
     const machines = getContratoMachines(contrato, obras, vehicles);
-    const machineIds = new Set(machines.map((v) => v.id));
+    const vById = new Map(vehicles.map((v) => [v.id, v]));
+    const idsLegado = usaListaLegada(contrato) ? new Set(contratoMaquinaIds(contrato)) : null;
+    const pertence = (vehicleId, recObraId, recDate) =>
+        fazParteDoContrato(contrato, vehicleId, recObraId, recDate, vById, inicio, fim, idsLegado);
 
     // Horas executadas — apenas acompanhamento físico.
-    // Exige MÁQUINA vinculada ao contrato E a OBRA do contrato: o contrato é firmado
-    // para uma obra específica, então hora apontada em outra obra não o executa.
-    // A máquina evita dupla contagem quando o terceiro tem vários contratos na mesma obra.
+    // O apontamento já traz obra e data: são eles que dizem a qual contrato a hora
+    // pertence. A mesma máquina pode apontar na obra A na segunda e na obra B na
+    // quarta, com dois contratos vigentes; cada dia cai no contrato certo.
     let horasExecutadas = 0;
     const horasPorMaquina = new Map();
     dailyWorkLogs.forEach((log) => {
-        if (!machineIds.has(log?.vehicleId)) return;
-        if (contrato?.obraId && log?.obraId !== contrato.obraId) return;
+        if (!pertence(log?.vehicleId, log?.obraId, recordDate(log))) return;
         if (log?.justificativaTipo) return;
-        if (!inPeriod(recordDate(log), inicio, fim)) return;
         const h = num(log.totalHours);
         horasExecutadas += h;
         horasPorMaquina.set(log.vehicleId, (horasPorMaquina.get(log.vehicleId) || 0) + h);
@@ -166,18 +319,16 @@ export const computeContrato = (contrato, ctx = {}) => {
     let diesel = 0;
 
     refuelings.forEach((r) => {
-        if (!machineIds.has(r?.vehicleId)) return;
-        if (r?.status && r.status !== 'Concluída') return;
-        if (!inPeriod(recordDate(r), inicio, fim)) return;
+        if (!isRefuelingConcluida(r?.status)) return;
+        if (!pertence(r?.vehicleId, r?.obraId, recordDate(r))) return;
         const v = getRefuelingFuelValue(r, partners);
         const l = num(r.litrosAbastecidos);
         litros += l; diesel += v;
         bump(r.vehicleId, l, v);
     });
     comboioTransactions.forEach((t) => {
-        if (t?.type !== 'saida') return;
-        if (!machineIds.has(t?.receivingVehicleId)) return;
-        if (!inPeriod(recordDate(t), inicio, fim)) return;
+        if (!isSaidaEfetivada(t)) return;
+        if (!pertence(t?.receivingVehicleId, t?.obraId, recordDate(t))) return;
         const v = getComboioSaidaFuelValue(t, comboioTransactions, partners);
         const l = num(t.liters);
         litros += l; diesel += v;
@@ -194,7 +345,18 @@ export const computeContrato = (contrato, ctx = {}) => {
     const horasContratadas = num(vig.horasContratadas);
     const progresso = horasContratadas > 0 ? horasExecutadas / horasContratadas : 0;
 
-    const equipamentos = machines.map((v) => {
+    // A lista final é a união de quem esteve alocado na obra com quem efetivamente
+    // lançou hora ou diesel no contrato. A segunda parte cobre a máquina que passou
+    // pela obra sem alocação formal registrada: ela apontou, logo ela executou.
+    const idsComLancamento = new Set([...porMaquina.keys(), ...horasPorMaquina.keys()]);
+    const todas = [...machines];
+    idsComLancamento.forEach((id) => {
+        if (todas.some((v) => v.id === id)) return;
+        const v = vById.get(id);
+        if (v) todas.push(v);
+    });
+
+    const equipamentos = todas.map((v) => {
         const m = porMaquina.get(v.id) || { litros: 0, valor: 0 };
         return { vehicle: v, litros: m.litros, diesel: m.valor, horas: horasPorMaquina.get(v.id) || 0 };
     });
@@ -212,8 +374,8 @@ export const computeContrato = (contrato, ctx = {}) => {
     const aditivosAssinados = aditivos.filter((a) => a?.status === 'assinado');
 
     return {
-        contrato, obra, machines, equipamentos, itensContratados,
-        numMaquinas: machines.length,
+        contrato, obra, machines: todas, equipamentos, itensContratados,
+        numMaquinas: todas.length,
         horasExecutadas, horasContratadas, progresso,
         valorTotal, litros, diesel, adiantamentos, saldo,
         // Aditivos: valorOriginal ≠ valorTotal quando há aditivo assinado.
@@ -232,27 +394,28 @@ export const getContratoAbastecimentos = (contrato, ctx = {}) => {
     const {
         vehicles = [], refuelings = [], comboioTransactions = [], partners = [],
     } = ctx;
-    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: contrato?.vigenciaFim });
-    const machineIds = new Set(contratoMaquinaIds(contrato));
-    if (machineIds.size === 0) return [];
+    const vig = contrato?.vigente || contrato || {};
+    const { inicio, fim } = normalizePeriod({
+        inicio: contrato?.vigenciaInicio, fim: vig.vigenciaFim ?? contrato?.vigenciaFim });
     const vById = new Map(vehicles.map((v) => [v.id, v]));
+    const idsLegado = usaListaLegada(contrato) ? new Set(contratoMaquinaIds(contrato)) : null;
+    const pertence = (vehicleId, recObraId, recDate) =>
+        fazParteDoContrato(contrato, vehicleId, recObraId, recDate, vById, inicio, fim, idsLegado);
     const out = [];
 
     refuelings.forEach((r) => {
-        if (!machineIds.has(r?.vehicleId)) return;
-        if (r?.status && r.status !== 'Concluída') return;
+        if (!isRefuelingConcluida(r?.status)) return;
         const d = recordDate(r);
-        if (!inPeriod(d, inicio, fim)) return;
+        if (!pertence(r?.vehicleId, r?.obraId, d)) return;
         out.push({
             date: d, vehicle: vById.get(r.vehicleId) || null,
             litros: num(r.litrosAbastecidos), valor: getRefuelingFuelValue(r, partners), fonte: 'posto',
         });
     });
     comboioTransactions.forEach((t) => {
-        if (t?.type !== 'saida') return;
-        if (!machineIds.has(t?.receivingVehicleId)) return;
+        if (!isSaidaEfetivada(t)) return;
         const d = recordDate(t);
-        if (!inPeriod(d, inicio, fim)) return;
+        if (!pertence(t?.receivingVehicleId, t?.obraId, d)) return;
         out.push({
             date: d, vehicle: vById.get(t.receivingVehicleId) || null,
             litros: num(t.liters), valor: getComboioSaidaFuelValue(t, comboioTransactions, partners), fonte: 'comboio',
@@ -271,15 +434,15 @@ export const getContratoAbastecimentos = (contrato, ctx = {}) => {
  */
 export const getContratoApontamentos = (contrato, ctx = {}) => {
     const { vehicles = [], dailyWorkLogs = [] } = ctx;
-    const { inicio, fim } = normalizePeriod({ inicio: contrato?.vigenciaInicio, fim: contrato?.vigenciaFim });
-    const machineIds = new Set(contratoMaquinaIds(contrato));
-    if (machineIds.size === 0) return [];
+    const vig = contrato?.vigente || contrato || {};
+    const { inicio, fim } = normalizePeriod({
+        inicio: contrato?.vigenciaInicio, fim: vig.vigenciaFim ?? contrato?.vigenciaFim });
     const vById = new Map(vehicles.map((v) => [v.id, v]));
+    const idsLegado = usaListaLegada(contrato) ? new Set(contratoMaquinaIds(contrato)) : null;
 
     return dailyWorkLogs
-        .filter((log) => machineIds.has(log?.vehicleId)
-            && (!contrato?.obraId || log?.obraId === contrato.obraId)
-            && inPeriod(recordDate(log), inicio, fim))
+        .filter((log) => fazParteDoContrato(
+            contrato, log?.vehicleId, log?.obraId, recordDate(log), vById, inicio, fim, idsLegado))
         .map((log) => ({
             date: recordDate(log),
             vehicle: vById.get(log.vehicleId) || null,
@@ -320,11 +483,8 @@ export const computeContratosPorTerceiro = (locadorId, contratos = [], ctx = {})
     list.forEach((r) => r.machines.forEach((m) => machineIds.add(m.id)));
 
     // Contratos vigentes (não cancelados/concluídos) sem o PDF assinado anexado.
-    const semAssinatura = list.filter((r) => {
-        const st = r.contrato?.status || 'ativo';
-        if (st === 'cancelado' || st === 'concluido') return false;
-        return !r.contrato?.contratoAssinadoUrl;
-    }).length;
+    const semAssinatura = list.filter((r) =>
+        isContratoVigente(r.contrato) && !r.contrato?.contratoAssinadoUrl).length;
 
     const totais = list.reduce((a, r) => ({
         valorTotal: a.valorTotal + r.valorTotal,
@@ -347,7 +507,9 @@ export const computeContratosPorTerceiro = (locadorId, contratos = [], ctx = {})
  */
 export const computeTerceirizadoPorObra = (obraId, obras = [], vehicles = [], ctx = {}) => {
     const { contratos = [] } = ctx;
-    const doObra = contratos.filter((c) => c.obraId === obraId);
+    // Cancelado/concluído não é dinheiro devido — filtro aplicado AQUI para que
+    // todo consumidor deste agregador herde a mesma regra.
+    const doObra = filtrarContratosVigentes(contratos).filter((c) => c.obraId === obraId);
     if (doObra.length === 0) return { equipamentos: [], devido: 0, combustivelAbatido: 0, saldo: 0 };
 
     const fullCtx = { ...ctx, vehicles, obras };
@@ -439,3 +601,111 @@ export const planoTrabalhoDisponivel = ({ obra, contratos = [], exceptContratoId
             ? a.type.localeCompare(b.type)
             : (a.foraDoPlano ? 1 : -1)));
 };
+
+// ============================================================================
+// Pendências — diesel e horas de terceiro que não caem em contrato nenhum
+// ============================================================================
+//
+// Com a máquina digitada, esquecer de vincular um veículo era invisível: o diesel
+// dele não abatia do contrato (saldo a pagar MAIOR, sempre a favor do terceiro) e
+// ao mesmo tempo continuava virando despesa da obra em `expenses`. O mesmo litro
+// entrava na conta duas vezes e nada aparecia na tela.
+//
+// Derivando, a superfície encolhe, mas não zera: lançamento sem obra, terceiro sem
+// contrato naquela obra/data, subgrupo não contratado, cadastro incompleto. Nenhum
+// desses pode sumir em silêncio — é dinheiro sem dono.
+
+const MOTIVOS = {
+    semObra: 'Lançamento sem obra informada',
+    semLocador: 'Veículo de terceiro sem locador no cadastro',
+    semSubgrupo: 'Veículo sem subgrupo (tipo/sub_tipo) no cadastro',
+    semContrato: 'Terceiro sem contrato vigente nesta obra na data',
+    subgrupoNaoContratado: 'Subgrupo do veículo não está no contrato da obra',
+};
+
+/**
+ * Lançamentos de veículos de terceiros que não pertencem a nenhum contrato.
+ * @returns [{ vehicle, vehicleId, motivo, obraId, litros, valor, horas, ocorrencias, ultimaData }]
+ *          ordenado pelo valor em R$ parado, do maior para o menor.
+ */
+export const getPendenciasTerceirizados = (contratos = [], ctx = {}) => {
+    const {
+        vehicles = [], dailyWorkLogs = [], refuelings = [],
+        comboioTransactions = [], partners = [],
+    } = ctx;
+
+    const vById = new Map(vehicles.map((v) => [v.id, v]));
+    const vigentes = filtrarContratosVigentes(contratos);
+    const acc = new Map();
+
+    const registrar = (vehicle, motivo, obraId, date, { litros = 0, valor = 0, horas = 0 }) => {
+        const k = `${vehicle.id}|${motivo}|${obraId || '—'}`;
+        const cur = acc.get(k) || {
+            vehicle, vehicleId: vehicle.id, motivo, obraId: obraId || null,
+            litros: 0, valor: 0, horas: 0, ocorrencias: 0, ultimaData: null,
+        };
+        cur.litros += litros; cur.valor += valor; cur.horas += horas;
+        cur.ocorrencias += 1;
+        if (date && (!cur.ultimaData || date > cur.ultimaData)) cur.ultimaData = date;
+        acc.set(k, cur);
+    };
+
+    // Por que ESTE lançamento ficou sem contrato? A resposta tem que ser acionável:
+    // "cadastre o subgrupo" e "o terceiro não tem contrato aqui" pedem coisas
+    // diferentes de quem lê a tela.
+    const diagnosticar = (vehicle, obraId, date) => {
+        if (!obraId) return MOTIVOS.semObra;
+        if (!vehicle.locadorId) return MOTIVOS.semLocador;
+        const doTerceiroNaObra = vigentes.filter((c) =>
+            String(c.locadorId) === String(vehicle.locadorId) &&
+            String(c.obraId) === String(obraId));
+        if (doTerceiroNaObra.length === 0) return MOTIVOS.semContrato;
+        // Existe contrato na obra, mas a data ou o subgrupo não casam.
+        const naData = doTerceiroNaObra.filter((c) => {
+            const vig = c.vigente || c;
+            const { inicio, fim } = normalizePeriod({
+                inicio: c.vigenciaInicio, fim: vig.vigenciaFim ?? c.vigenciaFim });
+            return inPeriod(date, inicio, fim);
+        });
+        if (naData.length === 0) return MOTIVOS.semContrato;
+        if (!vehicle.sub_tipo && !vehicle.tipo) return MOTIVOS.semSubgrupo;
+        return MOTIVOS.subgrupoNaoContratado;
+    };
+
+    // Um lançamento pertence a ALGUM contrato vigente?
+    const temDono = (vehicleId, obraId, date) => vigentes.some((c) => {
+        const vig = c.vigente || c;
+        const { inicio, fim } = normalizePeriod({
+            inicio: c.vigenciaInicio, fim: vig.vigenciaFim ?? c.vigenciaFim });
+        const idsLegado = usaListaLegada(c) ? new Set(contratoMaquinaIds(c)) : null;
+        return fazParteDoContrato(c, vehicleId, obraId, date, vById, inicio, fim, idsLegado);
+    });
+
+    const avaliar = (vehicleId, obraId, date, valores) => {
+        const vehicle = vById.get(vehicleId);
+        if (!vehicle || !isVehicleTerceirizado(vehicle)) return;
+        if (temDono(vehicleId, obraId, date)) return;
+        registrar(vehicle, diagnosticar(vehicle, obraId, date), obraId, date, valores);
+    };
+
+    refuelings.forEach((r) => {
+        if (!isRefuelingConcluida(r?.status)) return;
+        avaliar(r?.vehicleId, r?.obraId, recordDate(r), {
+            litros: num(r.litrosAbastecidos), valor: getRefuelingFuelValue(r, partners),
+        });
+    });
+    comboioTransactions.forEach((t) => {
+        if (!isSaidaEfetivada(t)) return;
+        avaliar(t?.receivingVehicleId, t?.obraId, recordDate(t), {
+            litros: num(t.liters), valor: getComboioSaidaFuelValue(t, comboioTransactions, partners),
+        });
+    });
+    dailyWorkLogs.forEach((log) => {
+        if (log?.justificativaTipo) return;
+        avaliar(log?.vehicleId, log?.obraId, recordDate(log), { horas: num(log.totalHours) });
+    });
+
+    return [...acc.values()].sort((a, b) => b.valor - a.valor || b.horas - a.horas);
+};
+
+export const PENDENCIA_MOTIVOS = MOTIVOS;

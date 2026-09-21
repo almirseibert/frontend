@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale } from 'lucide-react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale, AlertTriangle, Info } from 'lucide-react';
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
 import CurrencyInput from '../ui/CurrencyInput';
 import SearchableObraSelect from '../SearchableObraSelect';
@@ -11,11 +11,6 @@ const FOROS = ['Santa Maria', 'Lajeado'];
 const fmtBRL = (n) =>
     (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-const normalizeMaquinas = (m) => {
-    if (Array.isArray(m)) return m.filter(Boolean);
-    if (typeof m === 'string') { try { const p = JSON.parse(m); return Array.isArray(p) ? p.filter(Boolean) : []; } catch { return []; } }
-    return [];
-};
 const normalizeItens = (v) => {
     let arr = v;
     if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { arr = []; } }
@@ -54,7 +49,6 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         contratadaRepresentanteCpf: contrato?.contratadaRepresentanteCpf || '',
     });
     const [itens, setItens] = useState(() => normalizeItens(contrato?.itensContratados));
-    const [maquinas, setMaquinas] = useState(() => normalizeMaquinas(contrato?.maquinas));
     const [isSaving, setIsSaving] = useState(false);
 
     const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -84,20 +78,41 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         [terceiros]
     );
 
+    // As máquinas NÃO são escolhidas aqui: elas são derivadas de
+    // (terceiro × obra × subgrupo × data do lançamento) — ver utils/terceirizados.js.
+    // Este bloco é uma PRÉVIA do que a regra vai capturar, para o usuário conferir o
+    // cadastro antes de salvar, e não um campo de entrada.
     const maquinasDoTerceiro = useMemo(
         () => vehicles.filter((v) => v.isOutsourced && v.locadorId === form.locadorId),
         [vehicles, form.locadorId]
     );
-    const maquinasBloqueadas = useMemo(() => {
-        const set = new Set();
-        contratos.forEach((c) => {
-            if (c.id === contrato?.id) return;
-            normalizeMaquinas(c.maquinas).forEach((id) => set.add(id));
-        });
-        return set;
-    }, [contratos, contrato]);
 
-    const toggleMaquina = (id) => setMaquinas((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
+    // Subgrupo do veículo casa com um `itensContratados[].type`? (espelha casaSubgrupo)
+    const subgruposSelecionados = useMemo(
+        () => [...new Set(itens.map((i) => String(i.type || '').trim()).filter(Boolean))],
+        [itens]
+    );
+    const casaSubgrupo = useCallback((v) => {
+        if (subgruposSelecionados.length === 0) return true;   // contrato sem plano pega tudo
+        const sub = String(v?.sub_tipo || '').trim();
+        const alvo = sub || String(v?.tipo || '').trim();
+        return subgruposSelecionados.includes(alvo);
+    }, [subgruposSelecionados]);
+
+    // Prévia: máquinas do terceiro que o contrato vai capturar, separadas das que
+    // ficam de fora e por quê. "Sem subgrupo no cadastro" é o erro silencioso que
+    // mais custa dinheiro — ele tira o diesel do abatimento sem avisar ninguém.
+    const previaMaquinas = useMemo(() => {
+        const dentro = [], fora = [];
+        maquinasDoTerceiro.forEach((v) => {
+            const semSubgrupo = !String(v?.sub_tipo || '').trim() && !String(v?.tipo || '').trim();
+            const naObra = !form.obraId || String(v.obraAtualId || '') === String(form.obraId);
+            if (semSubgrupo) fora.push({ v, motivo: 'sem tipo/subgrupo no cadastro' });
+            else if (!casaSubgrupo(v)) fora.push({ v, motivo: `subgrupo "${v.sub_tipo || v.tipo}" não está no contrato` });
+            else dentro.push({ v, naObra });
+        });
+        return { dentro, fora };
+    }, [maquinasDoTerceiro, casaSubgrupo, form.obraId]);
 
     const addItem = () => setItens((c) => [...c, { type: '', hours: '', price: '' }]);
     const removeItem = (i) => setItens((c) => c.filter((_, idx) => idx !== i));
@@ -229,7 +244,6 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 contratadaRepresentanteNome: form.contratadaRepresentanteNome.trim() || null,
                 contratadaRepresentanteQualificacao: form.contratadaRepresentanteQualificacao.trim() || null,
                 contratadaRepresentanteCpf: form.contratadaRepresentanteCpf.trim() || null,
-                maquinas: maquinas.filter((id) => maquinasDoTerceiro.some((v) => v.id === id)),
                 createdBy: { userEmail: user?.email || user?.userEmail || '' },
             };
             if (contrato?.id) await apiClient.updateTerceiroContrato(contrato.id, payload);
@@ -265,7 +279,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                             <SearchableSelect
                                 items={terceirosOrdenados}
                                 value={form.locadorId}
-                                onChange={(t) => { setForm((f) => ({ ...f, locadorId: t?.id || '' })); setMaquinas([]); }}
+                                onChange={(t) => setForm((f) => ({ ...f, locadorId: t?.id || '' }))}
                                 getLabel={(t) => t.nomeFantasia || t.razaoSocial || ''}
                                 getSubLabel={(t) => (t.nomeFantasia && t.razaoSocial && t.nomeFantasia !== t.razaoSocial) ? t.razaoSocial : ''}
                                 placeholder="Buscar terceiro..."
@@ -477,28 +491,52 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         <span className="text-xl font-bold text-green-400">{fmtBRL(valorTotal)}</span>
                     </div>
 
-                    {/* Máquinas vinculadas */}
+                    {/* Máquinas — DERIVADAS, não escolhidas aqui */}
                     <div>
                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Máquinas do contrato</label>
-                        {!form.locadorId && <p className="text-[11px] text-gray-400">Selecione o terceiro para listar as máquinas.</p>}
+                        <p className="text-[11px] text-gray-500 mb-2 flex items-start gap-1">
+                            <Info size={13} className="mt-0.5 flex-shrink-0 text-gray-400" />
+                            <span>
+                                Não é preciso vincular máquina: as horas e o diesel entram neste contrato pelo
+                                <strong> terceiro</strong>, pela <strong>obra</strong> e pela <strong>data</strong> de cada
+                                lançamento. Máquina que entrar ou sair da obra depois é capturada sozinha.
+                            </span>
+                        </p>
+
+                        {!form.locadorId && <p className="text-[11px] text-gray-400">Selecione o terceiro para ver a prévia.</p>}
                         {form.locadorId && maquinasDoTerceiro.length === 0 && (
                             <p className="text-[11px] text-gray-400">Este terceiro não tem veículos marcados como terceirizados. Marque no cadastro do veículo.</p>
                         )}
-                        <div className="space-y-1 max-h-40 overflow-y-auto">
-                            {maquinasDoTerceiro.map((v) => {
-                                const bloqueada = maquinasBloqueadas.has(v.id);
-                                const checked = maquinas.includes(v.id);
-                                return (
-                                    <label key={v.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${bloqueada && !checked ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 cursor-pointer hover:bg-purple-50'}`}>
-                                        <input type="checkbox" checked={checked} disabled={bloqueada && !checked} onChange={() => toggleMaquina(v.id)} className="h-4 w-4 text-purple-600 rounded" />
+
+                        {previaMaquinas.dentro.length > 0 && (
+                            <div className="space-y-1 max-h-40 overflow-y-auto">
+                                {previaMaquinas.dentro.map(({ v, naObra }) => (
+                                    <div key={v.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white text-sm">
                                         <span className="font-medium">{v.registroInterno || v.placa}</span>
-                                        <span className="text-gray-400 text-xs">· {v.tipo}{v.modelo ? ` ${v.modelo}` : ''}</span>
-                                        {bloqueada && !checked && <span className="ml-auto text-[10px] text-gray-400">já em outro contrato</span>}
-                                    </label>
-                                );
-                            })}
-                        </div>
-                        <p className="text-[10px] text-gray-400 mt-1">Uma máquina só pode estar em um contrato — o diesel dela abate deste contrato.</p>
+                                        <span className="text-gray-400 text-xs">· {v.sub_tipo || v.tipo}{v.modelo ? ` ${v.modelo}` : ''}</span>
+                                        {!naObra && <span className="ml-auto text-[10px] text-gray-400">hoje em outra obra</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* O cadastro incompleto deixou de ser detalhe: sem subgrupo, o diesel
+                            da máquina não abate do contrato e o saldo a pagar sai maior. */}
+                        {previaMaquinas.fora.length > 0 && (
+                            <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
+                                <p className="text-[11px] font-bold text-amber-800 flex items-center gap-1 mb-1">
+                                    <AlertTriangle size={13} /> Fora deste contrato
+                                </p>
+                                {previaMaquinas.fora.map(({ v, motivo }) => (
+                                    <p key={v.id} className="text-[11px] text-amber-700">
+                                        <span className="font-medium">{v.registroInterno || v.placa}</span> — {motivo}
+                                    </p>
+                                ))}
+                                <p className="text-[10px] text-amber-600 mt-1">
+                                    O diesel dessas máquinas não vai abater deste contrato.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">

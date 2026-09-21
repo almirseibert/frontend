@@ -8,13 +8,14 @@
 //   1. Totais (contratado vigente, diesel abatido, adiantamentos, saldo devedor)
 //   2. Ranking por terceiro (quem concentra a exposição)
 //   3. Exposição por obra (onde o dinheiro está comprometido)
-//   4. Alertas (o que a direção precisa decidir: assinatura, prazo, estouro)
+//   4. Alertas (o que a direção precisa decidir: assinatura, prazo, estouro,
+//      diesel de terceiro que não abate de contrato nenhum)
 //
 // Consumidores: components/terceirizados/RelatorioPanorama.jsx e
 // utils/terceirosPanoramaPdf.js — a tela e o PDF mostram exatamente o mesmo.
 // ============================================================================
 
-import { computeContrato } from './terceirizados';
+import { computeContrato, getPendenciasTerceirizados } from './terceirizados';
 import { getPartnerDisplayName } from './partners';
 
 const toDate = (v) => {
@@ -94,8 +95,12 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
     kpis.liquidado = kpis.valorTotal > 0 ? (kpis.diesel + kpis.adiantamentos) / kpis.valorTotal : 0;
 
     // ── Ranking por terceiro ──────────────────────────────────────────────────
+    // Recebe a lista de linhas para poder ser recalculada sobre um SUBCONJUNTO
+    // (a tela filtra a tabela por ponto de atenção). A regra de agregação mora
+    // aqui uma vez só: filtrar não pode produzir soma diferente de somar.
+    const agruparPorTerceiro = (lista, saldoBase) => {
     const porTerceiroMap = new Map();
-    abertos.forEach((l) => {
+    lista.forEach((l) => {
         const cur = porTerceiroMap.get(l.terceiroId) || {
             id: l.terceiroId, nome: l.terceiroNome, razaoSocial: l.terceiroRazao,
             cnpj: partnerById.get(l.terceiroId)?.cnpj || '',
@@ -117,7 +122,7 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
         porTerceiroMap.set(l.terceiroId, cur);
     });
 
-    const porTerceiro = [...porTerceiroMap.values()]
+    return [...porTerceiroMap.values()]
         .map((t) => ({
             ...t,
             numContratos: t.linhas.length,
@@ -125,13 +130,15 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
             numMaquinas: t.maquinaIds.size,
             progresso: t.horasContratadas > 0 ? t.horasExecutadas / t.horasContratadas : 0,
             // Fatia do saldo devedor total — mede dependência de um único fornecedor.
-            participacao: kpis.saldo !== 0 ? t.saldo / kpis.saldo : 0,
+            participacao: saldoBase !== 0 ? t.saldo / saldoBase : 0,
         }))
         .sort((a, b) => b.saldo - a.saldo);
+    };
 
     // ── Exposição por obra ────────────────────────────────────────────────────
+    const agruparPorObra = (lista) => {
     const porObraMap = new Map();
-    abertos.forEach((l) => {
+    lista.forEach((l) => {
         const key = l.obraId || 'sem-obra';
         const cur = porObraMap.get(key) || {
             id: l.obraId, nome: l.obraNome,
@@ -149,14 +156,22 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
         porObraMap.set(key, cur);
     });
 
-    const porObra = [...porObraMap.values()]
+    return [...porObraMap.values()]
         .map((o) => ({ ...o, numTerceiros: o.terceiroIds.size, numMaquinas: o.maquinaIds.size }))
         .sort((a, b) => b.saldo - a.saldo);
+    };
+
+    const porTerceiro = agruparPorTerceiro(abertos, kpis.saldo);
+    const porObra = agruparPorObra(abertos);
 
     // ── Alertas (o que exige decisão) ─────────────────────────────────────────
     const alertas = [];
-    const push = (tipo, severidade, titulo, itens, descricao) => {
-        if (itens.length > 0) alertas.push({ tipo, severidade, titulo, descricao, itens });
+    // `escopo` diz o que o alerta seleciona quando vira filtro da tabela:
+    //   'contrato'  → itens são linhas de contrato; a tabela reagrupa só elas.
+    //   'pendencia' → itens são agregados terceiro × obra sem contrato nenhum,
+    //                 então a tabela troca de colunas em vez de filtrar.
+    const push = (tipo, severidade, titulo, itens, descricao, escopo = 'contrato') => {
+        if (itens.length > 0) alertas.push({ tipo, severidade, titulo, descricao, itens, escopo });
     };
 
     push('sem-assinatura', 'alta', 'Contratos sem via assinada anexada',
@@ -179,11 +194,109 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
         abertos.filter((l) => l.r.numMaquinas === 0),
         'Sem máquina vinculada não há como apurar horas nem abater diesel — o saldo fica igual ao valor cheio.');
 
+    // ── O que não caiu em contrato nenhum ────────────────────────────────────
+    // São TRÊS problemas com ações diferentes, e misturá-los produz uma lista longa
+    // onde a maioria das linhas mostra R$ 0,00 — o número que importa some no meio
+    // do que é apenas cadastro incompleto. Separados por AÇÃO:
+    //
+    //   1. cadastro do veículo    → abrir o veículo e preencher locador/subgrupo
+    //   2. diesel sem contrato    → dinheiro: não abate de ninguém e vira custo da obra
+    //   3. horas sem contrato     → execução física sem cobertura contratual
+    const pendencias = getPendenciasTerceirizados(contratos, ctx);
+
+    const ehCadastro = (pd) => /sem locador|sem subgrupo/i.test(pd.motivo);
+
+    // (1) Agrupado por VEÍCULO, não por obra: a correção é uma só, no cadastro dele.
+    // Por obra, a mesma máquina viraria 4 linhas e a lista pareceria 4 problemas.
+    const porVeiculo = new Map();
+    pendencias.filter(ehCadastro).forEach((pd) => {
+        const cur = porVeiculo.get(pd.vehicleId) || {
+            vehicle: pd.vehicle, motivo: pd.motivo,
+            obras: new Set(), valor: 0, horas: 0,
+        };
+        if (pd.obraId) cur.obras.add(pd.obraId);
+        cur.valor += pd.valor; cur.horas += pd.horas;
+        porVeiculo.set(pd.vehicleId, cur);
+    });
+    const itensCadastro = [...porVeiculo.values()]
+        .map((g) => ({
+            contrato: { id: `cad|${g.vehicle?.id}`, numero: `${g.obras.size || 1} obra(s)` },
+            terceiroNome: g.vehicle?.registroInterno || g.vehicle?.placa || g.vehicle?.id,
+            obraNome: g.vehicle?.modelo || '—',
+            label: `${g.vehicle?.registroInterno || g.vehicle?.placa || g.vehicle?.id} · ${g.motivo}`,
+            detalhe: g.motivo,
+            valor: g.valor, horas: g.horas,
+            r: { saldo: g.valor },
+        }))
+        .sort((a, b) => b.valor - a.valor || b.horas - a.horas);
+
+    push('cadastro-veiculo', 'media', 'Veículos de terceiros com cadastro incompleto', itensCadastro,
+        'Marcados como terceirizados mas sem locador ou sem subgrupo preenchido. Enquanto o '
+        + 'cadastro estiver assim, essas máquinas não entram em contrato nenhum: as horas não '
+        + 'contam o progresso e o diesel não abate de ninguém. Corrige-se no cadastro do veículo.',
+        'pendencia');
+
+    // (2) e (3) Cadastro OK, mas o lançamento não achou contrato. Aqui o recorte é
+    // terceiro × obra, porque a ação é contratual e não de cadastro.
+    const porChave = new Map();
+    pendencias.filter((pd) => !ehCadastro(pd)).forEach((pd) => {
+        const k = `${pd.vehicle?.locadorId || '—'}|${pd.obraId || '—'}`;
+        const cur = porChave.get(k) || {
+            terceiroId: pd.vehicle?.locadorId || null, obraId: pd.obraId || null,
+            valor: 0, horas: 0, maquinas: new Set(), motivos: new Set(),
+        };
+        cur.valor += pd.valor; cur.horas += pd.horas;
+        cur.maquinas.add(pd.vehicleId); cur.motivos.add(pd.motivo);
+        porChave.set(k, cur);
+    });
+
+    const montar = (g) => {
+        const terceiro = partnerById.get(g.terceiroId) || null;
+        const nome = getPartnerDisplayName(terceiro) || 'Terceiro não identificado';
+        const obraNm = obraById.get(g.obraId)?.nome || 'sem obra no lançamento';
+        return {
+            contrato: { id: `pend|${g.terceiroId}|${g.obraId}`, numero: `${g.maquinas.size} máq.` },
+            terceiroId: g.terceiroId, terceiroNome: nome, obraNome: obraNm,
+            label: `${nome} · ${obraNm}`,
+            valor: g.valor, horas: g.horas,
+            detalhe: [...g.motivos].join('; '),
+            r: { saldo: g.valor },
+        };
+    };
+
+    const grupos = [...porChave.values()];
+
+    // Piso de severidade: abaixo dele é um lançamento solto; acima, muda a conversa
+    // com o terceiro.
+    const PISO_ALTA = 5000;
+    const itensDiesel = grupos.filter((g) => g.valor > 0.01).map(montar).sort((a, b) => b.valor - a.valor);
+    const totalDiesel = itensDiesel.reduce((a, i) => a + i.valor, 0);
+    push('diesel-sem-contrato', totalDiesel >= PISO_ALTA ? 'alta' : 'media',
+        'Diesel de terceiro sem contrato que o abata', itensDiesel,
+        'Abastecimentos de veículos de terceiros que não casam com nenhum contrato vigente '
+        + '(terceiro + obra + subgrupo + data). Esse diesel não abate de saldo nenhum e continua '
+        + 'entrando como despesa da obra: paga-se o contrato cheio e o combustível por fora.',
+        'pendencia');
+
+    // Horas sem diesel no mesmo recorte: não é dinheiro saindo, é execução acontecendo
+    // sem contrato que a cubra — ou falta contrato, ou a máquina não deveria estar ali.
+    const itensHoras = grupos.filter((g) => g.valor <= 0.01 && g.horas > 0).map(montar)
+        .sort((a, b) => b.horas - a.horas);
+    push('horas-sem-contrato', 'media', 'Horas de terceiro sem contrato que as cubra', itensHoras,
+        'Máquinas de terceiros apontando horas em obras onde o terceiro não tem contrato vigente '
+        + 'para aquele subgrupo. Não há dinheiro saindo agora, mas há serviço sendo executado sem '
+        + 'cobertura contratual: ou falta cadastrar o contrato, ou a máquina não deveria estar ali.',
+        'pendencia');
+
     push('saldo-negativo', 'baixa', 'Pago além do contratado',
         abertos.filter((l) => l.r.saldo < -0.01),
         'Diesel abatido + adiantamentos ultrapassam o valor do contrato: crédito a compensar.');
 
-    return { linhas, abertos, kpis, porTerceiro, porObra, alertas };
+    return {
+        linhas, abertos, kpis, porTerceiro, porObra, alertas,
+        // A tela reagrupa sobre o subconjunto filtrado por ponto de atenção.
+        agruparPorTerceiro, agruparPorObra,
+    };
 };
 
 export const STATUS_LABEL = {

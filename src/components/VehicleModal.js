@@ -328,6 +328,17 @@ const VehicleModal = ({
             return;
         }
 
+        // Terceirizado sem locador é dado financeiro quebrado, não detalhe de cadastro:
+        // horas e diesel de um veículo de terceiro são atribuídos ao contrato por
+        // (locador × obra × subgrupo × data). Sem locador ele não entra em contrato
+        // nenhum — o diesel deixa de abater do saldo e ainda vira despesa da obra, com
+        // o mesmo litro contado duas vezes. Era o buraco que deixou dezenas de máquinas
+        // como "Terceiro não identificado" no panorama.
+        if (formData.isOutsourced && !formData.locadorId) {
+            setError('Veículo terceirizado exige a Empresa Locadora: é ela que liga as horas e o diesel ao contrato do terceiro.');
+            return;
+        }
+
         if (!isEditing || (vehicle && vehicle.registroInterno !== formData.registroInterno)) {
             const exists = vehicles.some(v => v.registroInterno === formData.registroInterno && v.id !== vehicle?.id);
             if (exists) { setError('Já existe um veículo com este registro interno.'); return; }
