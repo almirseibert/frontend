@@ -572,18 +572,18 @@ const OrdersPage = ({
             </div>
 
             <div className="bg-white rounded-xl overflow-x-auto" style={{ border: "1px solid #f0ebe3" }}>
-                <table className="w-full text-sm text-left min-w-[1100px]">
+                <table className="w-full text-sm text-left min-w-[860px]">
                     <thead className="text-xs uppercase" style={{ background: "#faf9f7", borderBottom: "1px solid #f0ebe3", color: "#9a8a78" }}>
                         <tr>
-                            <th className="p-3">Nº Ordem</th>
-                            <th className="p-3">Obra/Local</th>
-                            <th className="p-3">Veículo</th>
-                            <th className="p-3">Fornecedor</th>
-                            <th className="p-3">Func. / Op.</th>
-                            <th className="p-3">Data</th>
-                            <th className="p-3">Status</th>
-                            <th className="p-3 text-right">Valor Total</th>
-                            <th className="p-3 text-center">Ações</th>
+                            <th className="px-2 py-2.5 whitespace-nowrap">Nº Ordem</th>
+                            <th className="px-2 py-2.5">Obra/Local</th>
+                            <th className="px-2 py-2.5">Veículo</th>
+                            <th className="px-2 py-2.5">Fornecedor</th>
+                            <th className="px-2 py-2.5 whitespace-nowrap">Func. / Op.</th>
+                            <th className="px-2 py-2.5">Data</th>
+                            <th className="px-2 py-2.5">Status</th>
+                            <th className="px-2 py-2.5 text-right whitespace-nowrap">Valor Total</th>
+                            <th className="px-2 py-2.5 text-center sticky right-0 z-[1]" style={{ background: "#faf9f7", boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.12)" }}>Ações</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -607,8 +607,8 @@ const OrdersPage = ({
                             };
 
                             return (
-                                <tr key={order.id} className="hover:bg-gray-50 align-middle">
-                                    <td className="p-3 font-bold text-gray-800 whitespace-nowrap">
+                                <tr key={order.id} className="group hover:bg-gray-50 align-middle">
+                                    <td className="px-2 py-2.5 font-bold text-gray-800 whitespace-nowrap">
                                         {String(order.orderNumber || '').padStart(6, '0')}
                                         {anexosList.length > 0 && <span title={`${anexosList.length} anexo(s)`} className="inline-block ml-2 text-gray-400"><Paperclip size={12}/></span>}
                                         {/* Ordem nascida de um Relato de Ocorrência: mostra a OS do
@@ -622,27 +622,27 @@ const OrdersPage = ({
                                             </span>
                                         )}
                                     </td>
-                                    <td className="p-3">{formatObraNome(obra) || order.obraId || 'N/A'}</td>
-                                    <td className="p-3">{vehicle ? <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-mono">{vehicle.registroInterno}</span> : 'N/A'}</td>
+                                    <td className="px-2 py-2.5 max-w-[170px]"><span className="line-clamp-2" title={formatObraNome(obra) || order.obraId || ''}>{formatObraNome(obra) || order.obraId || 'N/A'}</span></td>
+                                    <td className="px-2 py-2.5">{vehicle ? <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-mono">{vehicle.registroInterno}</span> : 'N/A'}</td>
                                     {(() => {
                                         const supplierName = resolveOrderPartnerName(partners.find(p => p.id === order.supplierId), order.supplier);
-                                        return <td className="p-3 max-w-[150px] truncate" title={supplierName}>{supplierName}</td>;
+                                        return <td className="px-2 py-2.5 max-w-[140px] truncate" title={supplierName}>{supplierName}</td>;
                                     })()}
-                                    <td className="p-3 text-xs leading-tight">
+                                    <td className="px-2 py-2.5 text-xs leading-tight max-w-[170px]">
                                         <div><strong>R:</strong> {employee?.nome || 'N/A'}</div>
                                         {operator && operator.id !== employee?.id && <div className="text-gray-500 mt-0.5"><strong>Op:</strong> {operator.nome}</div>}
                                     </td>
-                                    <td className="p-3 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</td>
-                                    <td className="p-3">
+                                    <td className="px-2 py-2.5 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A'}</td>
+                                    <td className="px-2 py-2.5">
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${statusStyles[order.status] || 'bg-gray-100 text-gray-800'}`}>
                                             {order.status === 'Ativa' ? 'Liberada (Ativa)' : order.status}
                                         </span>
                                     </td>
-                                    <td className="p-3 text-right font-medium text-gray-900">
+                                    <td className="px-2 py-2.5 text-right font-medium text-gray-900 whitespace-nowrap">
                                         {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(parseFloat(order.totalValue) || 0).toFixed(2)}`}
                                     </td>
-                                    <td className="p-3">
-                                        <div className="flex items-center justify-center gap-1.5 flex-wrap w-full">
+                                    <td className="px-1.5 py-2.5 sticky right-0 bg-white group-hover:bg-gray-50" style={{ boxShadow: "-4px 0 6px -4px rgba(0,0,0,0.12)" }}>
+                                        <div className="flex items-center justify-center gap-0.5 flex-nowrap">
                                             <button onClick={() => setOrderDetailsToView(order)} title="Ver Detalhes Completos (Raio-X)" className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition border border-transparent hover:border-blue-200"><Eye size={16}/></button>
                                             <button onClick={() => handleOpenPDF(order)} title="Gerar / Visualizar PDF" className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-md transition"><FileText size={16}/></button>
 
@@ -714,6 +714,7 @@ const OrdersPage = ({
                 obras={obras}
                 partners={partners}
                 orderToEdit={editingOrder}
+                orders={activeOrders}
                 generatePDF={handleOpenPDF}
                 apiClient={apiClient}
                 reloadData={handleReloadData}
@@ -795,7 +796,7 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras, partner
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Nota Fiscal</p><p className="font-black text-blue-900">{order.invoiceNumber || 'Não informada'}</p></div>
                             <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Condição de Pagamento</p><p className="font-bold text-blue-900">{payment.type} {payment.method ? `- ${payment.method}` : ''}</p></div>
-                            <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Valor Total Autorizado</p><p className="font-black text-blue-900 text-lg">R$ {(parseFloat(order.totalValue) || 0).toFixed(2)}</p></div>
+                            <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Valor Total Autorizado</p><p className="font-black text-blue-900 text-lg">R$ {(parseFloat(order.totalValue) || 0).toFixed(2)}</p>{payment.discount?.amount > 0 && <p className="text-[11px] text-blue-700">Subtotal R$ {(parseFloat(payment.discount.subtotal) || 0).toFixed(2)} − desconto {payment.discount.type === 'percent' ? `${payment.discount.value}% ` : ''}R$ {(parseFloat(payment.discount.amount) || 0).toFixed(2)}</p>}</div>
                         </div>
                         {payment.installments && payment.installments.length > 0 && (
                             <div className="mt-3 pt-3 border-t border-blue-200">
@@ -937,7 +938,22 @@ const CloseOrderModal = ({ order, onClose, onSubmit }) => {
 // ===================================================================================
 // MODAL DE CRIAÇÃO/EDIÇÃO DE ORDEM
 // ===================================================================================
-const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees = [], obras = [], partners = [], orderToEdit, generatePDF, apiClient, reloadData }) => {
+// Soma `days` dias a uma data 'YYYY-MM-DD' (em UTC, sem efeito de fuso).
+const addDaysISO = (iso, days) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + (parseInt(days, 10) || 0));
+    return dt.toISOString().split('T')[0];
+};
+
+const parsePayment = (payment) => {
+    if (!payment) return null;
+    if (typeof payment === 'string') { try { return JSON.parse(payment); } catch (e) { return null; } }
+    return payment;
+};
+
+const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees = [], obras = [], partners = [], orders = [], orderToEdit, generatePDF, apiClient, reloadData }) => {
 
     const parsedAnexos = useMemo(() => {
         if (!orderToEdit?.anexos) return [];
@@ -968,7 +984,12 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
             unitPrice:   item.unitPrice?.toString()   || '',
             itemId:      item.itemId                  || null,
         })),
-        payment:        orderToEdit?.payment || { type: 'À vista', method: '', days: '', installments: [] },
+        payment:        parsePayment(orderToEdit?.payment) || { type: 'À vista', method: '', days: '', installments: [] },
+        // Desconto: percentual ou valor fixo — gravado dentro do JSON `payment`.
+        discount:       {
+            type:  parsePayment(orderToEdit?.payment)?.discount?.type  || 'percent',
+            value: parsePayment(orderToEdit?.payment)?.discount?.value?.toString() || '',
+        },
         observacoes:    orderToEdit?.observacoes || '',
         anexos:         parsedAnexos,
         createdBy:      orderToEdit?.createdBy || undefined,
@@ -1095,12 +1116,21 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         setFormData(prev => ({ ...prev, items: [...prev.items, newItem] }));
     };
 
-    const totalValue = useMemo(() => {
+    const subtotalValue = useMemo(() => {
         if (isPricePending) return 0;
         return formData.items.reduce((total, item) => {
             return total + ((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0));
         }, 0);
     }, [formData.items, isPricePending]);
+
+    const discountAmount = useMemo(() => {
+        const raw = parseFloat(String(formData.discount?.value || '0').replace(',', '.')) || 0;
+        if (raw <= 0 || subtotalValue <= 0) return 0;
+        const amount = formData.discount.type === 'percent' ? subtotalValue * Math.min(raw, 100) / 100 : raw;
+        return Math.round(Math.min(amount, subtotalValue) * 100) / 100;
+    }, [formData.discount, subtotalValue]);
+
+    const totalValue = Math.round((subtotalValue - discountAmount) * 100) / 100;
 
     // Parcelas
     const addInstallment = () => setFormData(p => ({
@@ -1126,9 +1156,57 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
     // valor total igualmente, com o resto dos centavos na última parcela.
     // "Acréscimo por parcela" soma um valor fixo em cada uma (ex.: taxa de boleto).
     // ------------------------------------------------------------------
-    const [installmentGen, setInstallmentGen] = useState({
-        count: '', intervalDays: '30', firstDate: '', extraPerInstallment: ''
+    // firstDate vazio = automático (data de emissão + "a cada (dias)").
+    const [installmentGen, setInstallmentGen] = useState(() => {
+        const terms = parsePayment(orderToEdit?.payment)?.terms;
+        return {
+            count:        terms?.count ? String(terms.count) : '',
+            intervalDays: terms?.intervalDays != null ? String(terms.intervalDays) : '30',
+            firstDate:    '',
+            extraPerInstallment: '',
+        };
     });
+    const genFirstDate = installmentGen.firstDate || addDaysISO(formData.date, installmentGen.intervalDays);
+
+    // Mesmo fornecedor → mesma condição de pagamento da última ordem dele.
+    // Só em ordem nova; parcelas não são copiadas (datas/valores antigos),
+    // mas o gerador já vem preenchido com nº de parcelas e intervalo.
+    const applySupplierLastPayment = (supplierId) => {
+        if (orderToEdit || !supplierId) return;
+        const last = (orders || [])
+            .filter(o => o.supplierId === supplierId && o.status !== 'Cancelada')
+            .sort((a, b) => (new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0))
+                || ((b.orderNumber || 0) - (a.orderNumber || 0)))[0];
+        const lastPay = parsePayment(last?.payment);
+        if (!lastPay?.type) return;
+
+        setFormData(prev => ({
+            ...prev,
+            payment: {
+                type: lastPay.type,
+                method: lastPay.type === 'A prazo' ? (lastPay.method || 'Boleto') : '',
+                days: '',
+                installments: [],
+            },
+        }));
+
+        if (lastPay.type === 'A prazo') {
+            const inst = Array.isArray(lastPay.installments) ? lastPay.installments : [];
+            const count = lastPay.terms?.count || inst.length || '';
+            let interval = lastPay.terms?.intervalDays;
+            if (interval == null && inst.length >= 2 && inst[0].dueDate && inst[1].dueDate) {
+                interval = Math.round((new Date(inst[1].dueDate) - new Date(inst[0].dueDate)) / 86400000);
+            } else if (interval == null && inst.length === 1 && inst[0].dueDate && last.date) {
+                interval = Math.round((new Date(inst[0].dueDate) - new Date(String(last.date).slice(0, 10))) / 86400000);
+            }
+            setInstallmentGen(g => ({
+                ...g,
+                count: count ? String(count) : g.count,
+                intervalDays: interval != null && interval >= 0 ? String(interval) : g.intervalDays,
+                firstDate: '',
+            }));
+        }
+    };
 
     const installmentsTotal = useMemo(
         () => (formData.payment.installments || []).reduce((s, i) => s + (parseFloat(i.value) || 0), 0),
@@ -1139,7 +1217,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
         const count    = parseInt(installmentGen.count, 10);
         const interval = parseInt(installmentGen.intervalDays, 10);
         const extra    = parseFloat(String(installmentGen.extraPerInstallment || '0').replace(',', '.')) || 0;
-        const base     = installmentGen.firstDate || formData.date;
+        const base     = genFirstDate;
 
         if (!count || count < 1)               { setAlertMessage('Informe quantas parcelas deseja gerar.'); return; }
         if (isNaN(interval) || interval < 0)   { setAlertMessage('Informe o intervalo (em dias) entre as parcelas.'); return; }
@@ -1169,7 +1247,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                 value:   valorFinal > 0 ? valorFinal.toFixed(2) : '',
             });
         }
-        setFormData(p => ({ ...p, payment: { ...p.payment, installments } }));
+        setFormData(p => ({ ...p, payment: { ...p.payment, installments, terms: { count, intervalDays: interval } } }));
     };
 
     // Upload de Arquivo
@@ -1242,7 +1320,12 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                 unitPrice:   isPricePending ? 0 : (parseFloat(item.unitPrice) || 0),
                 itemId:      item.itemId || null,
             })),
-            payment:        formData.payment,
+            payment:        {
+                ...formData.payment,
+                discount: discountAmount > 0
+                    ? { type: formData.discount.type, value: parseFloat(String(formData.discount.value).replace(',', '.')) || 0, amount: discountAmount, subtotal: subtotalValue }
+                    : null,
+            },
             observacoes:    formData.observacoes?.trim() || null,
             anexos:         JSON.stringify(anexosList),   // ← inclui o PDF se houver
             totalValue:     isPricePending ? 0 : totalValue,
@@ -1416,7 +1499,10 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                 <SearchableSupplierSelect
                                     partners={partners.filter(p => p.tipo_parceiro === 'fornecedor')}
                                     value={formData.supplierId}
-                                    onChange={(id, name) => setFormData({...formData, supplierId: id, supplier: name})}
+                                    onChange={(id, name) => {
+                                        setFormData(prev => ({...prev, supplierId: id, supplier: name}));
+                                        applySupplierLastPayment(id);
+                                    }}
                                 />
                             </div>
 
@@ -1539,7 +1625,32 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                     </div>
                                 )}
 
-                                <div className="mt-4 border-t pt-3">
+                                {!isPricePending && (
+                                    <div className="mt-4 border-t pt-3 flex flex-wrap items-center justify-end gap-2 text-xs">
+                                        <span className="font-bold text-gray-500 uppercase mr-auto">Subtotal: R$ {subtotalValue.toFixed(2)}</span>
+                                        <label className="font-bold text-gray-600 uppercase">Desconto</label>
+                                        <div className="flex rounded border overflow-hidden">
+                                            {[['percent', '%'], ['value', 'R$']].map(([t, lbl]) => (
+                                                <button key={t} type="button" disabled={isReadOnly}
+                                                    onClick={() => setFormData(prev => ({ ...prev, discount: { ...prev.discount, type: t } }))}
+                                                    className={`px-2 py-1 font-bold ${formData.discount.type === t ? 'bg-yellow-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
+                                                    {lbl}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <input
+                                            type="text" inputMode="decimal"
+                                            placeholder={formData.discount.type === 'percent' ? '0 %' : '0,00'}
+                                            value={formData.discount.value}
+                                            onChange={e => setFormData(prev => ({ ...prev, discount: { ...prev.discount, value: e.target.value } }))}
+                                            className="p-1.5 border rounded w-24 text-right bg-white outline-none focus:border-yellow-500"
+                                            disabled={isReadOnly}
+                                        />
+                                        {discountAmount > 0 && <span className="font-bold text-red-600">- R$ {discountAmount.toFixed(2)}</span>}
+                                    </div>
+                                )}
+
+                                <div className="mt-3 border-t pt-3">
                                     <p className={`text-right font-black text-2xl ${isPricePending ? 'text-gray-400' : 'text-green-700'}`}>
                                         <span className="text-sm font-bold text-gray-500 mr-2 uppercase">Total da Ordem:</span>
                                         {isPricePending ? 'A COTAR' : `R$ ${totalValue.toFixed(2)}`}
@@ -1558,7 +1669,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                             <input type="radio" name="paymentType" value="À vista" checked={formData.payment.type === 'À vista'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: '', installments:[]}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">À vista</span>
                                         </label>
                                         <label className="inline-flex items-center cursor-pointer font-medium">
-                                            <input type="radio" name="paymentType" value="A prazo" checked={formData.payment.type === 'A prazo'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method: formData.payment.method || 'PIX', days: '', installments: formData.payment.installments || []}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A prazo</span>
+                                            <input type="radio" name="paymentType" value="A prazo" checked={formData.payment.type === 'A prazo'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method: formData.payment.method || 'Boleto', days: '', installments: formData.payment.installments || []}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A prazo</span>
                                         </label>
                                         <label className="inline-flex items-center cursor-pointer font-medium">
                                             <input type="radio" name="paymentType" value="A confirmar" checked={formData.payment.type === 'A confirmar'} onChange={e => setFormData({...formData, payment: {type: e.target.value, method:'', days: '', installments:[]}})} className="h-4 w-4 text-yellow-600 focus:ring-yellow-500" disabled={isReadOnly}/> <span className="ml-2">A confirmar</span>
@@ -1588,11 +1699,11 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">A cada (dias)</label>
-                                                            <input type="number" min="0" placeholder="Ex: 20" value={installmentGen.intervalDays} onChange={e => setInstallmentGen(g => ({...g, intervalDays: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                            <input type="number" min="0" placeholder="Ex: 20" value={installmentGen.intervalDays} onChange={e => setInstallmentGen(g => ({...g, intervalDays: e.target.value, firstDate: ''}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">1º vencimento</label>
-                                                            <input type="date" value={installmentGen.firstDate || formData.date} onChange={e => setInstallmentGen(g => ({...g, firstDate: e.target.value}))} className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
+                                                            <input type="date" value={genFirstDate} onChange={e => setInstallmentGen(g => ({...g, firstDate: e.target.value}))} title="Calculado: data de emissão + A cada (dias). Pode ser alterado." className="p-1.5 border rounded text-xs w-full outline-none focus:border-blue-500"/>
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5" title="Valor fixo somado em cada parcela, ex.: taxa de boleto">Acréscimo/parcela</label>
