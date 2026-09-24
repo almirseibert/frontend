@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
+import { fmtBRLouTraco } from '../utils/currency';
 // ─────────────────────────────────────────────────────────────────────────────
 // Ficha da Obra — aba "Faturamento" (Fase 3) — "o que dá para cobrar"
 //
@@ -20,8 +21,8 @@ const C = {
     gold: '#9E7A42', red: '#b03828',
 };
 
-const fmtBRL = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }));
-const fmtBRLh = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const fmtBRL = (v) => fmtBRLouTraco(v);
+const fmtBRLh = (v) => fmtBRLouTraco(v);
 const fmtH   = (v) => (v == null ? '—' : `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`);
 const fmtPct = (v, dec = 0) => (v == null || Number.isNaN(v) ? '—' : `${Number(v).toFixed(dec)}%`);
 const fmtNum = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }));

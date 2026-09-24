@@ -11,6 +11,7 @@ import autoTable from 'jspdf-autotable';
 import { formatObraNome } from './obraFormat';
 import { resolveOrderPartnerName } from './partners';
 
+import { fmtBRL } from './currency';
 // createdBy/editedBy vêm do banco como JSON (objeto já parseado ou string).
 export const getCreatorEmail = (order) => {
     if (!order || !order.createdBy) return 'N/A';
@@ -121,8 +122,8 @@ export const generateOrderPDF = (order, vehicle, employee, operator, obra, logoD
     const tableBody = (order.items || []).map(item => [
         item.quantity || 0,
         item.description || '',
-        order.status !== 'Pendente de Valor' ? `R$ ${(parseFloat(item.unitPrice) || 0).toFixed(2)}` : 'A cotar',
-        order.status !== 'Pendente de Valor' ? `R$ ${((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}` : 'A cotar'
+        order.status !== 'Pendente de Valor' ? `${fmtBRL((parseFloat(item.unitPrice) || 0))}` : 'A cotar',
+        order.status !== 'Pendente de Valor' ? `${fmtBRL(((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)))}` : 'A cotar'
     ]);
 
     let finalY = infoStartY + 18;
@@ -140,7 +141,7 @@ export const generateOrderPDF = (order, vehicle, employee, operator, obra, logoD
                 doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
                 doc.text('Total Geral:', data.settings.margin.left, finalY + 8);
                 const displayTotal = order.totalValue != null ? order.totalValue : (order.items || []).reduce((sum, i) => sum + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0)), 0);
-                doc.text(`R$ ${(parseFloat(displayTotal) || 0).toFixed(2)}`, pageWidth - margin, finalY + 8, { align: 'right' });
+                doc.text(`${fmtBRL((parseFloat(displayTotal) || 0))}`, pageWidth - margin, finalY + 8, { align: 'right' });
                 finalY += 8;
             }
         }
@@ -163,8 +164,8 @@ export const generateOrderPDF = (order, vehicle, employee, operator, obra, logoD
         if (order.payment?.installments && order.payment.installments.length > 0) {
             order.payment.installments.forEach((inst, idx) => {
                 const dataFormatada = inst.dueDate ? new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A';
-                const valorFormat = (parseFloat(inst.value) || 0).toFixed(2);
-                doc.text(`${idx + 1}ª Parcela: ${dataFormatada} - R$ ${valorFormat}`, margin + 40, finalY);
+                const valorFormat = fmtBRL(inst.value);
+                doc.text(`${idx + 1}ª Parcela: ${dataFormatada} - ${valorFormat}`, margin + 40, finalY);
                 finalY += 4.5;
             });
         }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import apiClient from '../../services/apiClient';
 
+import { fmtBRL } from '../../utils/currency';
 const STATUS_CONFIG = {
     sent:    { label: 'Enviado',  color: 'green',  Icon: CheckCircle  },
     failed:  { label: 'Falhou',   color: 'red',    Icon: XCircle      },
@@ -119,7 +120,7 @@ const NotifLogTab = () => {
                                 if (p?.obra)    payloadSummary = `Obra: ${p.obra}`;
                                 if (p?.pct)     payloadSummary += ` • ${p.pct}%`;
                                 if (p?.gastoAtual && p?.orcamento)
-                                    payloadSummary += ` (R$ ${p.gastoAtual} / R$ ${p.orcamento})`;
+                                    payloadSummary += ` (${fmtBRL(p.gastoAtual)} / ${fmtBRL(p.orcamento)})`;
                             } catch { /* ignora */ }
 
                             return (

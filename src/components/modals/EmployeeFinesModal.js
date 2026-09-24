@@ -1,6 +1,7 @@
 ﻿import React from 'react';
 import { X, ShieldAlert } from 'lucide-react';
 
+import { fmtBRL } from '../../utils/currency';
 const EmployeeFinesModal = ({ employee, fines = [], onClose }) => {
     // Filtragem segura
     const employeeFines = fines.filter(f => 
@@ -41,7 +42,7 @@ const EmployeeFinesModal = ({ employee, fines = [], onClose }) => {
                                 <p className="text-xs text-gray-500 mb-2">{fine.localInfracao || 'Local não informado'}</p>
                                 
                                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
-                                    <span className="text-sm font-bold text-gray-700">R$ {parseFloat(fine.valor || 0).toFixed(2)}</span>
+                                    <span className="text-sm font-bold text-gray-700">{fmtBRL(parseFloat(fine.valor || 0))}</span>
                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
                                         fine.paymentStatus === 'Pago' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                                     }`}>

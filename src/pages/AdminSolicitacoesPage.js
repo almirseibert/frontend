@@ -13,6 +13,7 @@ import RefuelingOrderModal from '../components/modals/RefuelingOrderModal';
 import BaixaForm from '../components/refueling/BaixaForm';
 import { IaBadge, IaPainel, resumoIa, ESTADO_IA } from '../components/refueling/IaParecer';
 
+import { fmtBRL } from '../utils/currency';
 const AdminSolicitacoesPage = ({ 
     apiClient, 
     setAlertMessage, 
@@ -295,7 +296,7 @@ const AdminSolicitacoesPage = ({
     // veículo e o gasto de cada obra — nunca a tabela inteira.
     // ------------------------------------------------------------------------
     useEffect(() => {
-        const formatMoney = (val) => Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const formatMoney = fmtBRL;
 
         const veiculoIds = [...new Set((filteredSolicitacoes || []).map(s => s.veiculo_id).filter(Boolean))];
         const obraIds = [...new Set((filteredSolicitacoes || []).map(s => s.obra_id).filter(Boolean))];

@@ -10,7 +10,7 @@ import {
 import apiClient from '../services/apiClient';
 import { useData, useEnsureResources } from '../contexts/DataContext';
 
-const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+import { fmtBRL } from '../utils/currency';
 const fmtDateTime = (d) => {
     if (!d) return '';
     try { return new Date(d).toLocaleString('pt-BR'); } catch { return String(d); }

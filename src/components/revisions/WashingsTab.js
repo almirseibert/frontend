@@ -6,6 +6,7 @@ import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
 import { formatObraNome } from '../../utils/obraFormat';
 
+import { fmtBRL } from '../../utils/currency';
 const getVehicleName = (id, vehicles) => {
     const v = vehicles.find(v => String(v.id) === String(id));
     return v ? `${v.registroInterno} - ${v.placa}` : 'Não Identificado';
@@ -104,7 +105,7 @@ const WashingsTab = ({ vehicles = [], obras = [], setAlertMessage, apiClient }) 
                                         <td className="p-3 font-bold text-gray-800">{getVehicleName(item.vehicleId, vehicles)}</td>
                                         <td className="p-3">{new Date(item.dataLavagem).toLocaleDateString('pt-BR')}</td>
                                         <td className="p-3 text-xs text-gray-600 font-medium">{getObraName(item.obraId, obras)}</td>
-                                        <td className="p-3 text-red-600 font-bold">R$ {parseFloat(item.valor || 0).toFixed(2)}</td>
+                                        <td className="p-3 text-red-600 font-bold">{fmtBRL(parseFloat(item.valor || 0))}</td>
                                         <td className="p-3 text-gray-700">{pName}</td>
                                         <td className="p-3 text-gray-800 font-medium">{item.descricao || 'N/A'}</td>
                                     </tr>

@@ -7,7 +7,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { computeContratosPorTerceiro, getContratoAbastecimentos } from './terceirizados';
 
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+import { fmtBRL } from './currency';
 const fmtL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' L';
 const fmtDate = (v) => {
     if (!v) return '—';

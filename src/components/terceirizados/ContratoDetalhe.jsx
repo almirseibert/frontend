@@ -8,7 +8,7 @@ import ProtectedComponent from '../ProtectedComponent';
 import { getContratoAbastecimentos, getContratoApontamentos, agruparApontamentosPorMes } from '../../utils/terceirizados';
 import { formatObraNome } from '../../utils/obraFormat';
 
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+import { fmtBRL } from '../../utils/currency';
 const fmtH = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' h';
 const fmtL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' L';
 // Horas do PLANO: o contrato é firmado em horas fechadas, sem fração.

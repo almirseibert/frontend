@@ -15,8 +15,8 @@ import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRule
 import { getComboioTanks, toComboioTankKey } from '../../utils/fuelTypes';
 import { todayBRT, ymdBRT, withTimeBRT } from '../../utils/dateBRT';
 
+import { fmtBRL } from '../../utils/currency';
 const fmtL = (n, d = 1) => `${(Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: d })} L`;
-const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // Medidor de consumo da obra: a cor carrega a severidade, a trilha é um tom
 // claro da mesma rampa. A severidade sempre vem com texto — nunca só a cor.

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Save } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
+import { fmtBRLouTraco } from '../utils/currency';
 // ─────────────────────────────────────────────────────────────────────────────
 // Ficha da Obra — aba "Aproveitamento" (Fase 2)
 //
@@ -25,7 +26,7 @@ const C = {
     green: '#2e7d5b', red: '#b03828',
 };
 
-const fmtBRL = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }));
+const fmtBRL = (v) => fmtBRLouTraco(v);
 const fmtH   = (v) => (v == null ? '—' : `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`);
 const fmtPct = (v, dec = 0) => (v == null || Number.isNaN(v) ? '—' : `${Number(v).toFixed(dec)}%`);
 

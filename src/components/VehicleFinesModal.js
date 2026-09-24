@@ -1,6 +1,7 @@
 ﻿import React, { useMemo } from 'react';
 import { X, AlertCircle, CheckCircle, Clock, FileText, User } from 'lucide-react';
 
+import { fmtBRL } from '../utils/currency';
 // --- Modal de Multas do Veículo (Atualizado) ---
 const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => {
     
@@ -112,7 +113,7 @@ const VehicleFinesModal = ({ vehicle, fines = [], onClose }) => {
                                             <div className="text-right min-w-[100px]">
                                                 <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-0.5">Valor</p>
                                                 <p className="mak-modal-title">
-                                                    R$ {valorNumerico.toFixed(2).replace('.', ',')}
+                                                    {fmtBRL(valorNumerico)}
                                                 </p>
                                             </div>
                                         </div>

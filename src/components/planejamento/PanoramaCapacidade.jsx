@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Loader, ChevronDown, Radar, FileWarning, Wrench, ArrowRight } from 'lucide-react';
 
+import { fmtBRL as fmtBRLCompartilhado, fmtBRLCompacto } from '../../utils/currency';
 // ============================================================================
 // PANORAMA — aba do Planejamento de Obras
 //
@@ -48,17 +49,10 @@ const LIMITE_GAP = 7;
 
 const fmt = (n) => Number(n || 0).toLocaleString('pt-BR');
 
-// Valor abreviado: a direção lê ordem de grandeza, não centavo.
-const fmtBRL = (v) => {
-    const n = Number(v || 0);
-    if (!Number.isFinite(n) || n === 0) return 'R$ 0';
-    const abs = Math.abs(n);
-    if (abs >= 1e6) return `R$ ${(n / 1e6).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mi`;
-    if (abs >= 1e3) return `R$ ${Math.round(n / 1e3).toLocaleString('pt-BR')} mil`;
-    return `R$ ${Math.round(n).toLocaleString('pt-BR')}`;
-};
+// Valor abreviado só onde o valor cheio não cabe; a mantissa mantém os centavos.
+const fmtBRL = (v) => fmtBRLCompacto(v);
 
-const fmtReaisHora = (v) => (v ? `R$ ${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/h` : '—');
+const fmtReaisHora = (v) => (v ? `${fmtBRLCompartilhado(v)}/h` : '—');
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const rotuloMes = (ym) => {

@@ -11,6 +11,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatObraNome } from '../utils/obraFormat';
 
+import { fmtBRL } from '../utils/currency';
 const logoBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfmAg0KDwAbx48gAAAAHUlEQVRo3u3BAQ0AAADCoPdPbQ43oAAAAAAAAAAJAwmAAAFzJ7O5AAAAAElFTkSuQmCC";
 
 const INTERACTION_TYPES = {
@@ -20,8 +21,7 @@ const INTERACTION_TYPES = {
     issue:             { label: 'Problema',         dot: 'bg-red-500',     chip: 'bg-red-50 text-red-700 border-red-200' },
 };
 
-const formatCurrency = (val) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+const formatCurrency = fmtBRL;
 
 const formatGroupDate = (iso) => {
     const d = new Date(iso);

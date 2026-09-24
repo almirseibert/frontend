@@ -14,6 +14,7 @@ import jsPDF from 'jspdf';
 import ProtectedComponent from '../components/ProtectedComponent';
 import SearchableSelect from '../components/SearchableSelect';
 
+import { fmtBRL } from '../utils/currency';
 // ===================================================================================
 // FUNÇÃO AUXILIAR PARA FORMATAR DATAS
 // ===================================================================================
@@ -69,7 +70,7 @@ const generateFinePDF = (fineData, employee, vehicle, returnBlob = false) => {
         `Data da Infração: ${formatDate(fineData.dataInfração)}`,
         `Local: ${fineData.local || fineData.localInfracao || 'Não informado'}`,
         `Código/Descrição: ${fineData.codigoInfração || fineData.codigoInfracao || ''} - ${fineData.descricao}`,
-        `Valor da Multa: R$ ${parseFloat(fineData.valor || 0).toFixed(2).replace('.', ',')}`
+        `Valor da Multa: ${fmtBRL(parseFloat(fineData.valor || 0))}`
     ];
 
     doc.setFont("helvetica", "normal");
@@ -88,7 +89,7 @@ const generateFinePDF = (fineData, employee, vehicle, returnBlob = false) => {
         yPos += 8;
         doc.setFont("helvetica", "normal");
         
-        const textDesconto = `Declaro para os devidos fins que fui o condutor responsável pela infração acima descrita. Autorizo a empresa Frotas MAK a proceder com o desconto do valor integral desta multa (R$ ${parseFloat(fineData.valor || 0).toFixed(2).replace('.', ',')}) em minha folha de pagamento, conforme previsto no Art. 462 da CLT e no contrato de trabalho.`;
+        const textDesconto = `Declaro para os devidos fins que fui o condutor responsável pela infração acima descrita. Autorizo a empresa Frotas MAK a proceder com o desconto do valor integral desta multa (${fmtBRL(parseFloat(fineData.valor || 0))}) em minha folha de pagamento, conforme previsto no Art. 462 da CLT e no contrato de trabalho.`;
         
         const splitText = doc.splitTextToSize(textDesconto, pageWidth - (margin * 2));
         doc.text(splitText, margin, yPos);
@@ -608,7 +609,7 @@ const FinesPage = ({
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right font-bold text-gray-800 whitespace-nowrap">
-                                        R$ {(parseFloat(fine.valor) || 0).toFixed(2)}
+                                        {fmtBRL((parseFloat(fine.valor) || 0))}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2.5 py-1 text-xs font-bold rounded-full border shadow-sm ${getStatusBadge(fine.status)}`}>

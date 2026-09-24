@@ -5,6 +5,7 @@ import { getAllowedReadingTypes, getGroupForType } from '../../utils/vehicleRule
 import { getPartnerDisplayName } from '../../utils/partners';
 import SugestaoCupomIa, { parseSugestaoIa } from './SugestaoCupomIa';
 
+import { fmtBRLLitro, fmtBRL } from '../../utils/currency';
 /**
  * Formulário de confirmação de baixa (dados do cupom fiscal).
  *
@@ -70,7 +71,6 @@ const BaixaForm = ({
 
     const blockReason = readingBlock || litrosBlock || priceBlock;
 
-    const fmtBRL = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
     // --- Lookups ---
     const partnerInfo = useMemo(() => {
@@ -185,7 +185,7 @@ const BaixaForm = ({
 
         const diffPct = Math.abs(p - initialPartnerPrice) / initialPartnerPrice;
         if (diffPct > 0.25) {
-            setPriceBlock(`Preço (R$ ${p.toFixed(3)}) varia ${(diffPct * 100).toFixed(1)}% do cadastrado (R$ ${initialPartnerPrice.toFixed(3)}). Possível erro de digitação.`);
+            setPriceBlock(`Preço (${fmtBRLLitro(p)}) varia ${(diffPct * 100).toFixed(1)}% do cadastrado (${fmtBRLLitro(initialPartnerPrice)}). Possível erro de digitação.`);
         } else if (diffPct > 0.10) {
             setPriceWarning(`Preço varia ${(diffPct * 100).toFixed(1)}% do cadastrado. Confirme.`);
         }
@@ -342,9 +342,9 @@ const BaixaForm = ({
 
                 {/* Valores */}
                 <div className="bg-gray-50 border border-gray-200 rounded p-2 mb-2 text-[11px] space-y-1">
-                    <div className="flex justify-between"><span className="text-gray-500">Combustível:</span><span className="font-bold">{(parseFloat(litros) || 0).toFixed(2)} L × R$ {(parseFloat(precoUnitario) || 0).toFixed(3)} = {fmtBRL(valorCombustivel)}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Combustível:</span><span className="font-bold">{(parseFloat(litros) || 0).toFixed(2)} L × {fmtBRLLitro((parseFloat(precoUnitario) || 0))} = {fmtBRL(valorCombustivel)}</span></div>
                     {order.needsArla && (
-                        <div className="flex justify-between"><span className="text-gray-500">Arla:</span><span className="font-bold">{(parseFloat(litrosArla) || 0).toFixed(2)} L × R$ {(parseFloat(precoUnitarioArla) || 0).toFixed(3)} = {fmtBRL(valorArla)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Arla:</span><span className="font-bold">{(parseFloat(litrosArla) || 0).toFixed(2)} L × {fmtBRLLitro((parseFloat(precoUnitarioArla) || 0))} = {fmtBRL(valorArla)}</span></div>
                     )}
                     {order.outrosGeraValor && (
                         <div className="flex justify-between"><span className="text-gray-500">{order.outros || 'Outros'}:</span><span className="font-bold">{fmtBRL(valorOutros)}</span></div>
@@ -451,7 +451,7 @@ const BaixaForm = ({
             <div>
                 <label className="block text-[10px] font-bold text-gray-700 mb-0.5">
                     Preço por Litro (R$) *
-                    {initialPartnerPrice > 0 && <span className="font-normal text-gray-400 ml-1">(cadastrado: R$ {initialPartnerPrice.toFixed(3)})</span>}
+                    {initialPartnerPrice > 0 && <span className="font-normal text-gray-400 ml-1">(cadastrado: {fmtBRLLitro(initialPartnerPrice)})</span>}
                 </label>
                 <input
                     type="number"
@@ -492,7 +492,7 @@ const BaixaForm = ({
                     <div>
                         <label className="block text-[10px] font-bold text-gray-700 mb-0.5">
                             Preço por Litro Arla (R$) *
-                            {initialPartnerPriceArla > 0 && <span className="font-normal text-gray-400 ml-1">(cadastrado: R$ {initialPartnerPriceArla.toFixed(3)})</span>}
+                            {initialPartnerPriceArla > 0 && <span className="font-normal text-gray-400 ml-1">(cadastrado: {fmtBRLLitro(initialPartnerPriceArla)})</span>}
                         </label>
                         <input
                             type="number"
@@ -533,12 +533,12 @@ const BaixaForm = ({
                 </div>
                 <div className="text-[9px] text-green-700 mt-1 space-y-0.5 border-t border-green-200 pt-1">
                     <div className="flex justify-between">
-                        <span>Combustível: {(parseFloat(litros) || 0).toFixed(2)} L × R$ {(parseFloat(precoUnitario) || 0).toFixed(3)}</span>
+                        <span>Combustível: {(parseFloat(litros) || 0).toFixed(2)} L × {fmtBRLLitro((parseFloat(precoUnitario) || 0))}</span>
                         <span>{fmtBRL(valorCombustivel)}</span>
                     </div>
                     {order.needsArla && (
                         <div className="flex justify-between">
-                            <span>Arla: {(parseFloat(litrosArla) || 0).toFixed(2)} L × R$ {(parseFloat(precoUnitarioArla) || 0).toFixed(3)}</span>
+                            <span>Arla: {(parseFloat(litrosArla) || 0).toFixed(2)} L × {fmtBRLLitro((parseFloat(precoUnitarioArla) || 0))}</span>
                             <span>{fmtBRL(valorArla)}</span>
                         </div>
                     )}

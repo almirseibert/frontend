@@ -6,10 +6,9 @@ import SearchableObraSelect from '../SearchableObraSelect';
 import SearchableSelect from '../SearchableSelect';
 import { planoTrabalhoDisponivel } from '../../utils/terceirizados';
 
+import { fmtBRL } from '../../utils/currency';
 const FOROS = ['Santa Maria', 'Lajeado'];
 
-const fmtBRL = (n) =>
-    (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const normalizeItens = (v) => {
     let arr = v;

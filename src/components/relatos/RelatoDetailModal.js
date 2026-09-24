@@ -7,12 +7,13 @@ import {
 import { loadLogoDataUrl } from '../../utils/orderPdf';
 import { generateRelatoPDF, buildRelatoFileName } from './relatoPdf';
 
+import { fmtBRLouTraco } from '../../utils/currency';
 // Ficha completa do relato, na ordem das seções do formulário impresso.
 // A seção 6 ("USO EXCLUSIVO DA MANUTENÇÃO / OFICINA") é editável aqui mesmo
 // depois do fechamento — é o campo que a oficina preenche ao longo do reparo.
 
 const formatarData = (ymd) => (ymd ? new Date(`${ymd}T12:00:00`).toLocaleDateString('pt-BR') : '—');
-const formatarMoeda = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const formatarMoeda = (v) => fmtBRLouTraco(v);
 
 const Campo = ({ label, valor, className = '' }) => (
     <div className={className}>

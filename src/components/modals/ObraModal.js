@@ -7,6 +7,7 @@ import { cidadePorCodigo, cidadePorNome } from '../../utils/geo';
 import { REGIOES, regiaoPorCidade } from '../../utils/obraFormat';
 import { rankOperatorsForObra } from '../../utils/geoSuggest';
 
+import { fmtBRL } from '../../utils/currency';
 // Ciclo de vida de planejamento — transições automáticas:
 // radar (criada) → planejada (contrato de horas) → mobilização (1ª alocação) → ativa (1º lançamento de horas)
 const OBRA_FASES = [
@@ -833,7 +834,7 @@ const ObraModal = ({
                                     <DollarSign size={12}/> Valor total estimado
                                 </p>
                                 <p className="text-lg font-bold text-gray-900 leading-tight">
-                                    {totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    {fmtBRL(totalValue)}
                                 </p>
                             </div>
                         )}

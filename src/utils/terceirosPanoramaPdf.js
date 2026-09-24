@@ -7,7 +7,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { STATUS_LABEL } from './terceirosPanorama';
 
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+import { fmtBRL } from './currency';
 const fmtPct = (n) => `${((Number(n) || 0) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 const fmtH = (n) => `${Math.round(Number(n) || 0).toLocaleString('pt-BR')} h`;
 const fmtDate = (d) => (d ? d.toLocaleDateString('pt-BR') : '—');

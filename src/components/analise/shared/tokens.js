@@ -1,3 +1,4 @@
+import { fmtBRL as fmtBRLCompartilhado, fmtBRLCompacto as fmtBRLCompactoCompartilhado, fmtBRLouTraco } from '../../../utils/currency';
 // ─────────────────────────────────────────────────────────────────────────────
 // Fonte ÚNICA de verdade visual das abas de "Desempenho do negócio".
 // Antes: a aba financeira usava um objeto `C` inline e a física usava classes
@@ -25,19 +26,13 @@ export const fmtH = (v) =>
 
 export const fmtPct = (v) => (v == null ? '—' : `${Number(v).toFixed(1)}%`);
 
-export const fmtBRL = (v) =>
-    `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
+// Dinheiro sai do formatador único do sistema: máscara de moeda, duas casas.
+export const fmtBRL = fmtBRLCompartilhado;
 
-export const fmtBRLCompact = (v) => {
-    const n = Number(v) || 0;
-    const s = n < 0 ? '-' : '';
-    const a = Math.abs(n);
-    if (a >= 1_000_000) return `${s}R$ ${(a / 1_000_000).toFixed(1).replace('.', ',')}M`;
-    if (a >= 1_000) return `${s}R$ ${(a / 1_000).toFixed(0)}k`;
-    return `${s}R$ ${a.toFixed(0)}`;
-};
+// Só para eixo de gráfico e cartão estreito, onde o valor cheio não cabe.
+export const fmtBRLCompact = fmtBRLCompactoCompartilhado;
 
-export const fmtReal2 = (v) => (v == null ? '—' : `R$ ${Number(v).toFixed(2).replace('.', ',')}`);
+export const fmtReal2 = (v) => fmtBRLouTraco(v);
 
 export const fmtDateBR = (iso) => (iso ? String(iso).split('-').reverse().join('/') : '');
 

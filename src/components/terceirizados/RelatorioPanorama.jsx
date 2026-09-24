@@ -6,8 +6,8 @@ import {
 import { buildPanorama, STATUS_LABEL } from '../../utils/terceirosPanorama';
 import { gerarPanoramaPdf } from '../../utils/terceirosPanoramaPdf';
 
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const fmtBRLc = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+import { fmtBRL } from '../../utils/currency';
+const fmtBRLc = fmtBRL; // centavos sempre: era 0 casas
 const fmtH = (n) => `${Math.round(Number(n) || 0).toLocaleString('pt-BR')} h`;
 const fmtPct = (n) => `${((Number(n) || 0) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 const fmtDate = (d) => (d ? d.toLocaleDateString('pt-BR') : '—');

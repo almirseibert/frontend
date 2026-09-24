@@ -10,6 +10,7 @@ import TerceirizadoBadge, { terceirizadoPdfMark } from '../ui/TerceirizadoBadge'
 import { useData, useEnsureResources } from '../../contexts/DataContext';
 import { buildHolidaySet, isBusinessDay } from '../../utils/businessDays';
 
+import { fmtBRL } from '../../utils/currency';
 const RefuelingOrderModal = ({
     user,
     orderToEdit,
@@ -693,11 +694,11 @@ const RefuelingOrderModal = ({
                                 </h4>
                                 <div className="flex justify-between text-blue-700">
                                     <span>Gasto Combustível:</span>
-                                    <span>{obraStatus.totalGasto.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                    <span>{fmtBRL(obraStatus.totalGasto)}</span>
                                 </div>
                                 <div className="flex justify-between text-blue-700">
                                     <span>Contrato Total:</span>
-                                    <span>{obraStatus.valorContrato.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                    <span>{fmtBRL(obraStatus.valorContrato)}</span>
                                 </div>
                                 <div className="mt-1 w-full bg-blue-200 rounded-full h-1.5">
                                     <div 

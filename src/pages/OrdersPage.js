@@ -14,6 +14,7 @@ import { PasswordConfirmationModal } from '../App';
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
 import { getPartnerDisplayName, resolveOrderPartnerName } from '../utils/partners';
+import { fmtBRL } from '../utils/currency';
 // Geração do PDF e helpers de parse vivem em utils/orderPdf.js — a página de
 // Relatos de Ocorrência também precisa deles para baixar as ordens que gera.
 import {
@@ -162,7 +163,7 @@ const SmartInventorySelect = ({ onItemSelected, currentItems = [] }) => {
                                     </span>
                                 </div>
                                 <div className="text-xs text-gray-500 mt-0.5">
-                                    SKU: {item.sku} | Preço: R$ {(parseFloat(item.unitPrice) || 0).toFixed(2)}
+                                    SKU: {item.sku} | Preço: {fmtBRL((parseFloat(item.unitPrice) || 0))}
                                     {item.quantity === 0 && <span className="ml-2 text-red-600 font-bold">⚠ Zerado</span>}
                                 </div>
                             </div>
@@ -639,7 +640,7 @@ const OrdersPage = ({
                                         </span>
                                     </td>
                                     <td className="p-3 text-right font-medium text-gray-900">
-                                        {order.status === 'Pendente de Valor' ? 'A Cotar' : `R$ ${(parseFloat(order.totalValue) || 0).toFixed(2)}`}
+                                        {order.status === 'Pendente de Valor' ? 'A Cotar' : `${fmtBRL((parseFloat(order.totalValue) || 0))}`}
                                     </td>
                                     <td className="p-3">
                                         <div className="flex items-center justify-center gap-1.5 flex-wrap w-full">
@@ -795,7 +796,7 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras, partner
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Nota Fiscal</p><p className="font-black text-blue-900">{order.invoiceNumber || 'Não informada'}</p></div>
                             <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Condição de Pagamento</p><p className="font-bold text-blue-900">{payment.type} {payment.method ? `- ${payment.method}` : ''}</p></div>
-                            <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Valor Total Autorizado</p><p className="font-black text-blue-900 text-lg">R$ {(parseFloat(order.totalValue) || 0).toFixed(2)}</p></div>
+                            <div><p className="text-xs text-blue-600 font-bold uppercase mb-1">Valor Total Autorizado</p><p className="font-black text-blue-900 text-lg">{fmtBRL((parseFloat(order.totalValue) || 0))}</p></div>
                         </div>
                         {payment.installments && payment.installments.length > 0 && (
                             <div className="mt-3 pt-3 border-t border-blue-200">
@@ -803,7 +804,7 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras, partner
                                 <div className="flex gap-2 flex-wrap">
                                     {payment.installments.map((inst, idx) => (
                                         <span key={idx} className="bg-white px-2 py-1 rounded text-xs border border-blue-200 shadow-sm font-semibold text-blue-900">
-                                            {idx + 1}ª - {inst.dueDate ? new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A'} - R$ {(parseFloat(inst.value) || 0).toFixed(2)}
+                                            {idx + 1}ª - {inst.dueDate ? new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : 'N/A'} - {fmtBRL((parseFloat(inst.value) || 0))}
                                         </span>
                                     ))}
                                 </div>
@@ -835,8 +836,8 @@ const OrderDetailsModal = ({ order, onClose, vehicles, employees, obras, partner
                                         <tr key={idx} className="hover:bg-gray-50">
                                             <td className="py-2 font-bold">{item.quantity}</td>
                                             <td className="py-2">{item.description}</td>
-                                            <td className="py-2 text-right">R$ {(parseFloat(item.unitPrice)||0).toFixed(2)}</td>
-                                            <td className="py-2 text-right font-semibold">R$ {((parseFloat(item.quantity)||0) * (parseFloat(item.unitPrice)||0)).toFixed(2)}</td>
+                                            <td className="py-2 text-right">{fmtBRL((parseFloat(item.unitPrice)||0))}</td>
+                                            <td className="py-2 text-right font-semibold">{fmtBRL(((parseFloat(item.quantity)||0) * (parseFloat(item.unitPrice)||0)))}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1542,7 +1543,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                 <div className="mt-4 border-t pt-3">
                                     <p className={`text-right font-black text-2xl ${isPricePending ? 'text-gray-400' : 'text-green-700'}`}>
                                         <span className="text-sm font-bold text-gray-500 mr-2 uppercase">Total da Ordem:</span>
-                                        {isPricePending ? 'A COTAR' : `R$ ${totalValue.toFixed(2)}`}
+                                        {isPricePending ? 'A COTAR' : `${fmtBRL(totalValue)}`}
                                     </p>
                                 </div>
                             </div>
@@ -1604,7 +1605,7 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                     </button>
                                                     {!isPricePending && (
                                                         <p className="text-[10px] text-blue-700 mt-1.5 text-center">
-                                                            Total da ordem R$ {totalValue.toFixed(2)} será dividido igualmente (resto na última parcela).
+                                                            Total da ordem {fmtBRL(totalValue)} será dividido igualmente (resto na última parcela).
                                                         </p>
                                                     )}
                                                 </div>
@@ -1632,13 +1633,13 @@ const OrderModal = ({ user, onClose, setAlertMessage, vehicles = [], employees =
                                                     <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs">
                                                         <span className="font-bold text-gray-600 uppercase">Soma das parcelas:</span>
                                                         <span className={`font-black ${!isPricePending && Math.abs(installmentsTotal - totalValue) > 0.01 ? 'text-orange-600' : 'text-green-700'}`}>
-                                                            R$ {installmentsTotal.toFixed(2)}
+                                                            {fmtBRL(installmentsTotal)}
                                                         </span>
                                                     </div>
                                                 )}
                                                 {!isPricePending && formData.payment.installments?.length > 0 && Math.abs(installmentsTotal - totalValue) > 0.01 && (
                                                     <p className="text-[10px] text-orange-600 mt-1 text-right">
-                                                        Difere do total da ordem (R$ {totalValue.toFixed(2)}){installmentsTotal > totalValue ? ' — inclui acréscimos' : ''}.
+                                                        Difere do total da ordem ({fmtBRL(totalValue)}){installmentsTotal > totalValue ? ' — inclui acréscimos' : ''}.
                                                     </p>
                                                 )}
                                             </div>

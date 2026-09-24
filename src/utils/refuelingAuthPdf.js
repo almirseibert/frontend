@@ -16,6 +16,7 @@ import { resolveOrderPartnerName, getVehicleTerceiroName } from './partners';
 import { terceirizadoPdfMark } from '../components/ui/TerceirizadoBadge';
 import { fuelLabel, comboioTankLabel } from './fuelTypes';
 
+import { fmtBRL } from './currency';
 const TZ = 'America/Sao_Paulo';
 
 const isValidDbDate = (value) => {
@@ -152,7 +153,7 @@ const buildBody = (order, variant, { vehicles, partners, employees }) => {
         body.push(['Arla 32 Autorizado', order.isFillUpArla ? 'Completar Tanque' : litros(order.litrosLiberadosArla)]);
     }
     if (order.outros) {
-        body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(R$ ${parseFloat(order.outrosValor || 0).toFixed(2)})` : ''}`]);
+        body.push(['Outros Itens/Observação', `${order.outros} ${order.outrosValor ? `(${fmtBRL(parseFloat(order.outrosValor || 0))})` : ''}`]);
     }
     body.push(['Emitido por', issuerOf(order)]);
     return { title: 'Autorização de Abastecimento', body, vehicle };

@@ -14,7 +14,7 @@ import ObraFiltroSelect from '../components/terceirizados/ObraFiltroSelect';
 import { computeContrato, computeContratosPorTerceiro, getContratoMachines, filtrarContratosVigentes } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
 
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+import { fmtBRL } from '../utils/currency';
 const fmtH = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' h';
 
 // Origem do backend p/ abrir PDFs estáticos (/uploads/...), sem o sufixo /api.

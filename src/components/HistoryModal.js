@@ -2,6 +2,7 @@
 import { X, Loader, MapPin, Wrench, FileText, AlertTriangle, User, ArrowRight, Disc, Droplet, Fuel } from 'lucide-react';
 import { formatObraNome } from '../utils/obraFormat';
 
+import { fmtBRL } from '../utils/currency';
 const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] }) => {
     
     const [fetchedHistory, setFetchedHistory] = useState(null);
@@ -221,7 +222,7 @@ const HistoryModal = ({ vehicle, onClose, obras = [], apiClient, employees = [] 
                             <span className="font-bold text-red-700 flex items-center gap-1"><AlertTriangle size={12}/> Multa</span>
                             <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{startDate}</span>
                         </div>
-                        <p className="text-xs text-gray-600">R$ {details.valor} ({details.status})</p>
+                        <p className="text-xs text-gray-600">{fmtBRL(details.valor)} ({details.status})</p>
                     </div>
                  );
             default:

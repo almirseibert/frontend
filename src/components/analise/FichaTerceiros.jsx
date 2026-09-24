@@ -5,6 +5,7 @@ import { computeContrato, getContratoMachines, filtrarContratosVigentes } from '
 import { getPartnerDisplayName } from '../../utils/partners';
 import apiClient from '../../services/apiClient';
 
+import { fmtBRLouTraco } from '../../utils/currency';
 // ─────────────────────────────────────────────────────────────────────────────
 // FichaTerceiros — bloco "Terceiros nesta obra" da Ficha da Obra.
 //
@@ -36,7 +37,7 @@ const C = {
 };
 
 const fmtBRL = (v) =>
-    v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+    fmtBRLouTraco(v);
 const fmtH = (v) => `${Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`;
 const fmtData = (iso) => {
     if (!iso) return null;

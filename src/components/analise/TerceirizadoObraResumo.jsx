@@ -4,9 +4,8 @@ import { useData } from '../../contexts/DataContext';
 import { computeTerceirizadoPorObra, getContratoMachines, filtrarContratosVigentes } from '../../utils/terceirizados';
 import apiClient from '../../services/apiClient';
 
-const fmtBRL = (n) =>
-    (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+import { fmtBRL } from '../../utils/currency';
 /**
  * TerceirizadoObraResumo — resumo financeiro dos equipamentos terceirizados de
  * uma obra: valor devido ao locador, combustível fornecido (abatido) e saldo a

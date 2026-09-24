@@ -8,6 +8,7 @@ import ProtectedComponent from '../components/ProtectedComponent';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+import { fmtBRL } from '../utils/currency';
 // Normaliza e formata um CPF conforme o usuário digita: 000.000.000-00
 const formatCPF = (value) => {
     const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
@@ -683,9 +684,9 @@ const RefuelingReportModal = ({ partner, vehicles = [], comboioTransactions = []
             item.description, 
             item.fuelType,
             item.liters.toFixed(2),
-            `R$ ${item.value.toFixed(2)}`,
-            `R$ ${item.others.toFixed(2)}`,
-            `R$ ${item.total.toFixed(2)}`,
+            `${fmtBRL(item.value)}`,
+            `${fmtBRL(item.others)}`,
+            `${fmtBRL(item.total)}`,
         ]);
 
         autoTable(doc, { 
@@ -705,13 +706,13 @@ const RefuelingReportModal = ({ partner, vehicles = [], comboioTransactions = []
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
         doc.text(`Total Litros: ${totals.liters.toFixed(2)} L`, 14, finalY);
-        doc.text(`Total Combustível: R$ ${totals.value.toFixed(2)}`, 60, finalY);
-        doc.text(`Total Outros: R$ ${totals.others.toFixed(2)}`, 110, finalY);
+        doc.text(`Total Combustível: ${fmtBRL(totals.value)}`, 60, finalY);
+        doc.text(`Total Outros: ${fmtBRL(totals.others)}`, 110, finalY);
         
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(12);
         doc.setTextColor(220, 53, 69);
-        doc.text(`VALOR TOTAL: R$ ${totals.total.toFixed(2)}`, 14, finalY + 7);
+        doc.text(`VALOR TOTAL: ${fmtBRL(totals.total)}`, 14, finalY + 7);
 
         doc.save(`Relatorio_${partner.razaoSocial.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     };
@@ -801,9 +802,9 @@ const RefuelingReportModal = ({ partner, vehicles = [], comboioTransactions = []
                                         <td className="px-4 py-2">{item.description}</td>
                                         <td className="px-4 py-2">{item.fuelType}</td>
                                         <td className="px-4 py-2 text-right">{item.liters.toFixed(2)} L</td>
-                                        <td className="px-4 py-2 text-right">R$ {item.value.toFixed(2)}</td>
-                                        <td className="px-4 py-2 text-right">R$ {item.others.toFixed(2)}</td>
-                                        <td className="px-4 py-2 text-right font-bold">R$ {item.total.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-right">{fmtBRL(item.value)}</td>
+                                        <td className="px-4 py-2 text-right">{fmtBRL(item.others)}</td>
+                                        <td className="px-4 py-2 text-right font-bold">{fmtBRL(item.total)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -811,9 +812,9 @@ const RefuelingReportModal = ({ partner, vehicles = [], comboioTransactions = []
                                 <tr className="font-bold text-gray-900">
                                     <td colSpan="5" className="px-4 py-3 text-right text-sm">TOTAIS</td>
                                     <td className="px-4 py-3 text-right text-sm">{totals.liters.toFixed(2)} L</td>
-                                    <td className="px-4 py-3 text-right text-sm">R$ {totals.value.toFixed(2)}</td>
-                                    <td className="px-4 py-3 text-right text-sm">R$ {totals.others.toFixed(2)}</td>
-                                    <td className="px-4 py-3 text-right text-sm">R$ {totals.total.toFixed(2)}</td>
+                                    <td className="px-4 py-3 text-right text-sm">{fmtBRL(totals.value)}</td>
+                                    <td className="px-4 py-3 text-right text-sm">{fmtBRL(totals.others)}</td>
+                                    <td className="px-4 py-3 text-right text-sm">{fmtBRL(totals.total)}</td>
                                 </tr>
                             </tfoot>
                         </table>

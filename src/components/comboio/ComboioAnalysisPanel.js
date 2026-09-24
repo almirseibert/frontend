@@ -17,6 +17,7 @@ import { BarChart3, AlertTriangle, CheckCircle2, Table2, Loader } from 'lucide-r
 import { COMBOIO_TANKS } from '../../utils/fuelTypes';
 import { todayBRT, ymdBRT, formatDateBRT } from '../../utils/dateBRT';
 
+import { fmtBRL } from '../../utils/currency';
 const SERIES = [
     { key: 'entradas', label: 'Entradas', color: '#2a78d6' },
     { key: 'saidas', label: 'Saídas', color: '#eb6834' },
@@ -29,7 +30,6 @@ const fmtCompact = (n) => {
     if (Math.abs(v) >= 1000) return `${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
     return fmtNum(v);
 };
-const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
 const PRESETS = [
     { dias: 7, label: '7 dias' },

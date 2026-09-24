@@ -31,6 +31,7 @@ import { resolveOrderPartnerName } from '../utils/partners';
 import { fuelLabel, comboioTankLabel } from '../utils/fuelTypes';
 import { formatDateTimeBRT, formatDateBRT } from '../utils/dateBRT';
 
+import { fmtBRLLitro } from '../utils/currency';
 // Base para servir imagens de /uploads (o backend serve estático fora de /api)
 const IMG_BASE = (process.env.REACT_APP_API_URL || '').replace('/api', '');
 
@@ -557,7 +558,7 @@ const ComboioPage = ({
                                                             <div style={{ fontSize: 11, color: '#9a8a78' }}>
                                                                 {comboioTankLabel(row.fuelType)}
                                                                 {row.invoiceNumber ? ` · NF ${row.invoiceNumber}` : ''}
-                                                                {Number(row.pricePerLiter) > 0 ? ` · R$ ${Number(row.pricePerLiter).toFixed(3)}/L` : ''}
+                                                                {Number(row.pricePerLiter) > 0 ? ` · ${fmtBRLLitro(Number(row.pricePerLiter))}/L` : ''}
                                                             </div>
                                                         </>
                                                     )}

@@ -7,6 +7,7 @@ import SearchableObraSelect from '../../SearchableObraSelect';
 import apiClient from '../../../services/apiClient';
 import TerceirizadoObraResumo from '../TerceirizadoObraResumo';
 
+import { fmtBRLouTraco } from '../../../utils/currency';
 // ─── Paleta ─────────────────────────────────────────────────────────────────
 const C = {
     gold:     '#9E7A42',
@@ -29,7 +30,7 @@ const C = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmtBRL = (v) =>
-    v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
+    fmtBRLouTraco(v);
 
 const fmtPct = (v) => (v == null ? '—' : `${v.toFixed(1)}%`);
 

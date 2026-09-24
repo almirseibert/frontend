@@ -14,6 +14,7 @@ import apiClient from '../services/apiClient'; // Importa apiClient
 import ProtectedComponent from '../components/ProtectedComponent'; // Ajuste o caminho se necessário
 import SearchableSelect from '../components/SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
+import { fmtBRL } from '../utils/currency';
 // import { useAuth } from '../contexts/AuthContext'; // Removido, user vem via props
 
 // ===================================================================================
@@ -277,7 +278,7 @@ const ExpensesPage = ({
                                         Tentar usar .toFixed() em uma string causa o crash.
                                         Usamos parseFloat() para converter de volta para NÚMERO.
                                      */}
-                                     <span className="font-bold text-red-600">R$ {parseFloat(exp.amount || 0).toFixed(2)}</span>
+                                     <span className="font-bold text-red-600">{fmtBRL(parseFloat(exp.amount || 0))}</span>
                                      {exp.createdBy?.userEmail && ` (por ${exp.createdBy.userEmail.split('@')[0]})`}
                                 </p>
                             </div>

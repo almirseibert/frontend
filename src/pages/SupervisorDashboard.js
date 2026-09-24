@@ -10,16 +10,11 @@ import apiClient from '../services/apiClient';
 import ObraCard from '../components/supervisor/ObraCard';
 import AllocationForecastPage from './AllocationForecastPage';
 
+import { fmtBRL } from '../utils/currency';
 const REFRESH_INTERVAL_MS = 300000;
 
 // Toda exibição de dinheiro passa por aqui: formato brasileiro, sempre com
 // centavos — inclusive nos agregados da carteira e no PDF exportado.
-const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-});
 const STATUS_LABELS = {
     red: { label: 'Crítica', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500' },
     violet: { label: 'Atenção', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200', dot: 'bg-purple-500' },

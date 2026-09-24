@@ -12,6 +12,7 @@ import { getPartnerDisplayName } from '../../utils/partners';
 import { COMBOIO_TANKS, getComboioTanks, toComboioTankKey, getPartnerFuelPrice } from '../../utils/fuelTypes';
 import { todayBRT, ymdBRT, withTimeBRT } from '../../utils/dateBRT';
 
+import { fmtBRLLitro } from '../../utils/currency';
 const fmtL = (n) => `${(Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} L`;
 
 const ComboioEntradaOrderModal = ({
@@ -211,7 +212,7 @@ const ComboioEntradaOrderModal = ({
                         {posto && (
                             <span style={{ fontSize: 11, color: '#9a8a78' }}>
                                 {precoCadastrado > 0
-                                    ? `Preço cadastrado: R$ ${precoCadastrado.toFixed(3)}/L`
+                                    ? `Preço cadastrado: ${fmtBRLLitro(precoCadastrado)}/L`
                                     : 'Posto sem preço cadastrado para este combustível.'}
                             </span>
                         )}

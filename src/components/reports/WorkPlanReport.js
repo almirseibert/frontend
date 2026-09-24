@@ -6,6 +6,7 @@ import { SectionHeader } from './ReportComponents';
 import { formatObraNome } from '../../utils/obraFormat';
 import { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
 
+import { fmtBRL } from '../../utils/currency';
 const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipmentTypesForHours = [] }) => {
     const [pdfWorkplanSelectedObras, setPdfWorkplanSelectedObras] = useState([]);
     const [pdfWorkplanFilterStatus, setPdfWorkplanFilterStatus] = useState('ativa');
@@ -206,9 +207,9 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                             e.createdAt ? new Date(e.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'N/A', 
                             e.description,
                             e.category || 'Outros',
-                            (parseFloat(e.amount) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) 
+                            fmtBRL(e.amount) 
                         ]), 
-                        foot: [['Total', '', '', totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })]], 
+                        foot: [['Total', '', '', fmtBRL(totalDespesas)]], 
                         theme: 'striped', 
                         headStyles: { fillColor: [220, 53, 69] }, 
                         footStyles: { fontStyle: 'bold', fillColor: [105, 105, 105] } 

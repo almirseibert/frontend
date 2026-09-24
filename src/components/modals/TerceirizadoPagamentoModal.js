@@ -3,6 +3,7 @@ import CurrencyInput from '../ui/CurrencyInput';
 import { X, Loader, Save, Wallet } from 'lucide-react';
 import { getPartnerDisplayName } from '../../utils/partners';
 
+import { fmtBRL } from '../../utils/currency';
 /**
  * TerceirizadoPagamentoModal — registra um pagamento em dinheiro a um locador
  * (opcionalmente vinculado a um equipamento específico). Abate do saldo devido.
@@ -13,7 +14,6 @@ import { getPartnerDisplayName } from '../../utils/partners';
  *  pagamento     objeto existente (edição) ou null (novo)
  *  apiClient, setAlertMessage, onClose, onSaved
  */
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const TerceirizadoPagamentoModal = ({ locador, contrato, pagamento, saldo, user, apiClient, setAlertMessage, onClose, onSaved }) => {
     const [form, setForm] = useState({

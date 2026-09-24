@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GitBranch, Clock, Calendar, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import HolidaysSection from './HolidaysSection';
 
+import { fmtBRL } from '../../utils/currency';
 const WORKFLOW_MODULES = ['Despesas', 'Abastecimento', 'Ordens de Compra', 'Estoque', 'Outros'];
 const REPORT_MODULES  = ['Abastecimento', 'Obras', 'Manutenções', 'Faturamento', 'Estoque', 'Pneus', 'Multas', 'Veículos'];
 const FREQ_LABELS     = { daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal' };
@@ -69,7 +70,7 @@ const SistemaConfigTab = () => {
                     <span className="text-sm text-gray-600">{w.description || `Limite: ${w.threshold}`}</span>
                     {w.threshold && (
                       <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                        Acima de {w.module === 'Abastecimento' ? `${w.threshold}L` : `R$ ${w.threshold}`}
+                        Acima de {w.module === 'Abastecimento' ? `${w.threshold}L` : fmtBRL(w.threshold)}
                       </span>
                     )}
                   </div>

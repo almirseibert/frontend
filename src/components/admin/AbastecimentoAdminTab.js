@@ -4,6 +4,7 @@ import apiClient from '../../services/apiClient';
 import SearchableSelect from '../SearchableSelect';
 import { formatObraNome } from '../../utils/obraFormat';
 
+import { fmtBRL } from '../../utils/currency';
 const TIPO_LABEL = {
     BloqueadoLeitura:   { label: 'Leitura Inválida',   cor: 'bg-red-100 text-red-800',    icon: Gauge  },
     BloqueadoOrcamento: { label: 'Orçamento (20%)',     cor: 'bg-orange-100 text-orange-800', icon: Wallet },
@@ -348,7 +349,7 @@ const AbastecimentoAdminTab = () => {
                                 } else if (ordem.status === 'BloqueadoOrcamento') {
                                     const contrato = obra?.valorContrato ? parseFloat(obra.valorContrato) : 0;
                                     motivo = contrato > 0
-                                        ? `Contrato R$ ${contrato.toLocaleString('pt-BR', { minimumFractionDigits: 0 })} — limite 20% atingido`
+                                        ? `Contrato ${fmtBRL(contrato)} — limite 20% atingido`
                                         : 'Orçamento de combustível atingido (20%).';
                                 }
 

@@ -3,7 +3,7 @@ import { X, Loader, Save, FilePlus2, Plus, Trash2, AlertTriangle } from 'lucide-
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
 import CurrencyInput from '../ui/CurrencyInput';
 
-const fmtBRL = (n) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+import { fmtBRL } from '../../utils/currency';
 const fmtHInt = (n) => `${Math.round(Number(n) || 0).toLocaleString('pt-BR')} h`;
 const numOf = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 

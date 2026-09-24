@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, Wrench, ClipboardX, Receipt } from 'lucide-react';
 
+import { fmtBRL } from '../../utils/currency';
 const Item = ({ icon: Icon, color, children, onClick }) => (
     <button
         type="button"
@@ -15,7 +16,6 @@ const Item = ({ icon: Icon, color, children, onClick }) => (
 const AlertsCompact = ({ alerts, navigate }) => {
     if (!alerts) return null;
 
-    const fmtBRL = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
     return (
         <section className="bg-white rounded-xl border border-stone-200 p-3 px-4">

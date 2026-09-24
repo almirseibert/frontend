@@ -8,6 +8,7 @@ import SearchableExecutorSelect from './SearchableExecutorSelect';
 import CurrencyInput from '../ui/CurrencyInput';
 import { EXECUTOR_TIPOS, getGravidade } from '../../utils/relatoGravidade';
 
+import { fmtBRL } from '../../utils/currency';
 // Fechamento do relato de ocorrência, em 4 passos:
 //   1 Triagem       — quem executa cada item, o que faz, quanto custa, prazo
 //   2 Equipamento   — saída de obra e entrada em manutenção (SEMPRE perguntado)
@@ -19,7 +20,7 @@ import { EXECUTOR_TIPOS, getGravidade } from '../../utils/relatoGravidade';
 
 const hojeYmd = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const fmtData = (ymd) => (ymd ? new Date(`${ymd}T12:00:00`).toLocaleDateString('pt-BR') : '—');
-const fmtMoeda = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtMoeda = fmtBRL;
 
 const PASSOS = [
     { n: 1, titulo: 'Triagem', icone: Wrench },

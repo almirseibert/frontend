@@ -6,6 +6,7 @@ import {
 import apiClient from '../../services/apiClient';
 import HolidaysSection from './HolidaysSection';
 
+import { fmtBRL } from '../../utils/currency';
 const ALERT_FIELDS = [
   { key: 'revisionKmLimit', label: 'Intervalo de Revisão (Km)', unit: 'km', default: 10000 },
   { key: 'revisionHrLimit', label: 'Intervalo de Revisão (Hr)', unit: 'hr', default: 250 },
@@ -149,7 +150,7 @@ const ConfiguracoesTab = () => {
                     </span>
                     {w.threshold && (
                       <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                        Acima de {w.module === 'Abastecimento' ? `${w.threshold}L` : `R$ ${w.threshold}`}
+                        Acima de {w.module === 'Abastecimento' ? `${w.threshold}L` : fmtBRL(w.threshold)}
                       </span>
                     )}
                   </div>

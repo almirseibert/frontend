@@ -1,6 +1,7 @@
 import React from 'react';
 import { Clock, AlertTriangle, Users } from 'lucide-react';
 
+import { fmtBRL } from '../../utils/currency';
 // ─────────────────────────────────────────────────────────────────────────────
 // ObraCard — capa da obra na Gestão de Obras (Análise Gerencial).
 //
@@ -24,12 +25,6 @@ import { Clock, AlertTriangle, Users } from 'lucide-react';
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Valor monetário por extenso, no formato brasileiro: "R$ 1.234.567,89".
-const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-});
 
 const STATUS_ACCENT = {
     green:  'bg-emerald-500',
