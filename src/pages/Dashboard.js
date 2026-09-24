@@ -117,7 +117,7 @@ const Dashboard = ({ navigate, apiClient, setAlertMessage }) => {
 
                     <ObrasFocus
                         obras={data.obrasEmFoco || []}
-                        onNavigateAll={() => navigate && navigate('obras')}
+                        onNavigateAll={() => navigate && navigate('obras_foco')}
                     />
 
                     <RankingObras ranking={data.ranking} />

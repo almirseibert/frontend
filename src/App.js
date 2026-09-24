@@ -67,6 +67,7 @@ import { processVehiclesWithAlerts } from './utils/vehicleAlerts';
 // ==========================================
 const Dashboard                    = lazy(() => import('./pages/Dashboard'));
 const ObrasPage                    = lazy(() => import('./pages/ObrasPage'));
+const ObrasFocoPage                = lazy(() => import('./pages/ObrasFocoPage'));
 const FichaObraPage                = lazy(() => import('./pages/FichaObraPage'));
 const PlanejamentoPage             = lazy(() => import('./pages/PlanejamentoPage'));
 const PartnersPage                 = lazy(() => import('./pages/PartnersPage'));
@@ -959,6 +960,8 @@ const AppContent = () => {
                 return <VehiclePage {...commonProps} initialFilter={pageFilter} />;
             case 'obras':
                 return <ObrasPage {...commonProps} initialFilter={pageFilter} />;
+            case 'obras_foco':
+                return <ObrasFocoPage {...commonProps} />;
             case 'ficha_obra':
                 return canAccessAnaliseGerencial(user)
                     ? <FichaObraPage {...commonProps} obraId={selectedObraId} onBack={() => setCurrentPage(fichaOrigin || 'obras')} /> : <Denied />;

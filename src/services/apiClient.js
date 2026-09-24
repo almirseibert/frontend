@@ -668,6 +668,7 @@ const apiClient = {
     // --- Alertas de Inatividade ---
     getInactivityAlerts: async () => apiFetch('/inactivityAlerts'),
     getDashboardHomeSummary: async () => apiFetch('/dashboard/home-summary'),
+    getDashboardObrasFoco: async () => apiFetch('/dashboard/obras-foco'),
     createInactivityAlert: async (data) => apiFetch('/inactivityAlerts', { method: 'POST', body: JSON.stringify(data) }),
     updateInactivityAlert: async (id, data) => apiFetch(`/inactivityAlerts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteInactivityAlert: async (id) => apiFetch(`/inactivityAlerts/${id}`, { method: 'DELETE' }),

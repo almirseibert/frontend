@@ -23,7 +23,7 @@ const ObrasFocus = ({ obras = [], onNavigateAll }) => {
                 <h2 className="text-sm font-semibold text-stone-900">Obras em foco</h2>
                 {onNavigateAll && (
                     <button onClick={onNavigateAll} className="text-xs text-blue-600 hover:text-blue-800 inline-flex items-center gap-1">
-                        Ver todas <ArrowRight size={12} />
+                        Ver detalhamento <ArrowRight size={12} />
                     </button>
                 )}
             </div>
