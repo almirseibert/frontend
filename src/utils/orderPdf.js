@@ -138,6 +138,15 @@ export const generateOrderPDF = (order, vehicle, employee, operator, obra, logoD
         didDrawPage: (data) => {
             finalY = data.cursor.y;
             if (order.status !== 'Pendente de Valor') {
+                const disc = order.payment?.discount;
+                if (disc?.amount > 0) {
+                    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+                    doc.text('Subtotal:', data.settings.margin.left, finalY + 6);
+                    doc.text(fmtBRL(disc.subtotal), pageWidth - margin, finalY + 6, { align: 'right' });
+                    doc.text(`Desconto${disc.type === 'percent' ? ` (${disc.value}%)` : ''}:`, data.settings.margin.left, finalY + 11);
+                    doc.text(`- ${fmtBRL(disc.amount)}`, pageWidth - margin, finalY + 11, { align: 'right' });
+                    finalY += 10;
+                }
                 doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
                 doc.text('Total Geral:', data.settings.margin.left, finalY + 8);
                 const displayTotal = order.totalValue != null ? order.totalValue : (order.items || []).reduce((sum, i) => sum + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0)), 0);

@@ -47,6 +47,7 @@ const ComboioDistribuicaoModal = ({
     // Leitura fora da regra não impede mais o registro: a saída é salva
     // BLOQUEADA no servidor e um administrador libera. Aqui é só aviso.
     const [blockReason, setBlockReason] = useState(null);
+    const [lowReadingWarning, setLowReadingWarning] = useState(null);
     // Id gerado no cliente: se a rede cair depois do envio, o reenvio com o
     // mesmo id não duplica a distribuição.
     const [envioId, setEnvioId] = useState(novoIdEnvio);
@@ -101,19 +102,22 @@ const ComboioDistribuicaoModal = ({
         }));
     }, [selectedVehicle, obras, availableFuels, lastFuelForVehicle]);
 
-    // Validação de leitura em tempo real (mesmas regras de bloqueio do sistema).
+    // Validação de leitura em tempo real (mesmas regras do servidor). Leitura
+    // INFERIOR à atual só avisa — há abastecimentos antigos sendo lançados agora —
+    // e não altera a leitura do veículo. Salto excessivo fica aguardando o admin.
     useEffect(() => {
-        if (!selectedVehicle) { setBlockReason(null); return; }
+        if (!selectedVehicle) { setBlockReason(null); setLowReadingWarning(null); return; }
         const allowed = getAllowedReadingTypes(selectedVehicle.tipo);
         const isKm = allowed.includes('odometro');
         let reason = null;
+        let aviso = null;
 
         if (isKm && formData.odometro) {
             const current = parseFloat(formData.odometro);
             const last = parseFloat(selectedVehicle.odometro || 0);
             if (!isNaN(current) && last > 0) {
                 const limite = getGroupForType(selectedVehicle.tipo) === 'Caminhões de Trecho' ? 2000 : 1000;
-                if (current < last) reason = `Odômetro (${current}) menor que o atual (${last}).`;
+                if (current < last) aviso = `Odômetro (${current}) inferior ao atual (${last}).`;
                 else if (current - last > limite) reason = `Salto excessivo de Km (> ${limite}).`;
             }
         }
@@ -121,11 +125,12 @@ const ComboioDistribuicaoModal = ({
             const current = parseFloat(formData.horimetro);
             const last = parseFloat(selectedVehicle.horimetro || 0);
             if (!isNaN(current) && last > 0) {
-                if (current < last) reason = `Horímetro (${current}) menor que o atual (${last}).`;
+                if (current < last) aviso = `Horímetro (${current}) inferior ao atual (${last}).`;
                 else if (current - last > 50) reason = `Salto excessivo de Horas (> 50h).`;
             }
         }
         setBlockReason(reason);
+        setLowReadingWarning(aviso);
     }, [formData.odometro, formData.horimetro, selectedVehicle]);
 
     const setField = (name, value) => setFormData(prev => ({ ...prev, [name]: value }));
@@ -212,13 +217,16 @@ const ComboioDistribuicaoModal = ({
             const res = await apiClient.createComboioSaidaComFotos(payload);
             setAlertMessage(res?.bloqueada
                 ? `Abastecimento registrado, mas AGUARDANDO LIBERAÇÃO do administrador: ${res.motivoBloqueio || 'leitura fora da regra.'}`
-                : 'Abastecimento registrado com sucesso!');
+                : (res?.alertaLeitura
+                    ? `Abastecimento registrado. Atenção: ${res.alertaLeitura}`
+                    : 'Abastecimento registrado com sucesso!'));
             if (reloadData) reloadData();
 
             // Já abre a tela para um novo abastecimento.
             setFormData(emptyForm);
             setPhotos({ horimetro: null, re: null, medidorZerado: null, litragem: null });
             setBlockReason(null);
+            setLowReadingWarning(null);
             setEnvioId(novoIdEnvio());
             setStep('dados');
         } catch (error) {
@@ -297,6 +305,13 @@ const ComboioDistribuicaoModal = ({
                                         <div className="p-3 bg-red-50 border border-red-300 text-red-800 rounded-lg flex items-start gap-2 text-xs">
                                             <Lock size={16} className="flex-shrink-0 mt-0.5" />
                                             <span><strong>{blockReason}</strong> Confira a leitura. Se estiver certa, pode seguir: o abastecimento fica aguardando a liberação do administrador.</span>
+                                        </div>
+                                    )}
+
+                                    {lowReadingWarning && (
+                                        <div className="p-3 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg flex items-start gap-2 text-xs">
+                                            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                                            <span><strong>{lowReadingWarning}</strong> Confira a leitura. Se estiver certa, pode seguir: o abastecimento é registrado normalmente, mas a leitura atual do veículo não será alterada.</span>
                                         </div>
                                     )}
 

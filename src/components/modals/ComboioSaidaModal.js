@@ -131,8 +131,10 @@ const ComboioSaidaModal = ({
         ? (getAllowedReadingTypes(veiculo.tipo).includes('odometro') ? 'odometro' : 'horimetro')
         : null;
 
-    // Mesmo critério de checkLeituraBloqueada (backend). Só aviso.
-    const avisoLeitura = useMemo(() => {
+    // Mesmo critério do backend (avaliarSaida). Leitura INFERIOR à atual não
+    // bloqueia — há abastecimentos antigos sendo lançados agora — só avisa; a
+    // leitura do veículo não recua. Salto excessivo bloqueia.
+    const leituraInformada = useMemo(() => {
         if (!veiculo || !campoLeitura || veiculo.isOutsourced || veiculo.permiteMultiplosAbastecimentos) return null;
         const atual = parseFloat(form[campoLeitura]);
         const anteriorOriginal = parseFloat(transactionData?.[campoLeitura]);
@@ -140,16 +142,25 @@ const ComboioSaidaModal = ({
         if (isEditing && atual === anteriorOriginal) return null;
         const ultimo = parseFloat(veiculo[campoLeitura] || 0);
         if (!(ultimo > 0)) return null;
+        return { atual, ultimo };
+    }, [veiculo, campoLeitura, form, isEditing, transactionData]);
+
+    const alertaInferior = leituraInformada && leituraInformada.atual < leituraInformada.ultimo
+        ? `${campoLeitura === 'odometro' ? 'Odômetro' : 'Horímetro'} (${leituraInformada.atual}) inferior ao atual do veículo (${leituraInformada.ultimo}). `
+          + `O lançamento é permitido, mas o ${campoLeitura === 'odometro' ? 'odômetro' : 'horímetro'} do veículo não será alterado.`
+        : null;
+
+    const avisoLeitura = useMemo(() => {
+        if (!leituraInformada) return null;
+        const { atual, ultimo } = leituraInformada;
         if (campoLeitura === 'odometro') {
             const limite = getGroupForType(veiculo.tipo) === 'Caminhões de Trecho' ? 2000 : 1000;
-            if (atual < ultimo) return `Odômetro (${atual}) menor que o atual do veículo (${ultimo}).`;
             if (atual - ultimo > limite) return `Salto de ${atual - ultimo} Km (máximo ${limite} Km).`;
-        } else {
-            if (atual < ultimo) return `Horímetro (${atual}) menor que o atual do veículo (${ultimo}).`;
-            if (atual - ultimo > 50) return `Salto de ${(atual - ultimo).toFixed(1)} h (máximo 50 h).`;
+        } else if (atual - ultimo > 50) {
+            return `Salto de ${(atual - ultimo).toFixed(1)} h (máximo 50 h).`;
         }
         return null;
-    }, [veiculo, campoLeitura, form, isEditing, transactionData]);
+    }, [leituraInformada, campoLeitura, veiculo]);
 
     const orcamentoEstourado = !veiculo?.isOutsourced && obraStatus?.valorContrato > 0 && Number(obraStatus.percentual) >= LIMITE_ORCAMENTO;
     const vaiBloquear = !!avisoLeitura || orcamentoEstourado;
@@ -248,6 +259,12 @@ const ComboioSaidaModal = ({
                             </div>
                         </div>
                     )}
+                    {alertaInferior && (
+                        <div className="flex items-start gap-2 p-2.5 rounded-lg" style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', fontSize: 12 }}>
+                            <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                            <div>{alertaInferior}</div>
+                        </div>
+                    )}
                     {veiculo?.naoPodeCircular && (
                         <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', fontSize: 12 }}>
                             <AlertTriangle size={14} /> Veículo marcado como NÃO PODE CIRCULAR.
@@ -324,6 +341,9 @@ const ComboioSaidaModal = ({
                                     placeholder={`Atual: ${veiculo?.[campoLeitura] || 0}`}
                                 />
                                 {avisoLeitura && <span className="mak-error">{avisoLeitura}</span>}
+                                {!avisoLeitura && alertaInferior && (
+                                    <span style={{ fontSize: 11, color: '#92400e' }}>Leitura inferior à atual: o veículo não será alterado.</span>
+                                )}
                             </div>
                         )}
                         <div className="flex flex-col gap-1">
