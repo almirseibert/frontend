@@ -62,7 +62,9 @@ const EditActiveVehicleAssignmentModal = ({ assignment, vehicle, employees = [],
             await onSave(vehicle.id, assignment.id, editedData);
             onClose();
         } catch (error) {
-            // Tratado no pai
+            // O pai não trata: sem isto a recusa do backend (ex.: período
+            // sobreposto a outra obra) sumia e o modal só parava de girar.
+            setAlertMessage(error.message || 'Não foi possível salvar a alocação.');
         } finally {
             setIsSaving(false);
         }
@@ -145,6 +147,7 @@ const EditPastVehicleAssignmentModal = ({ assignment, vehicle, employees = [], o
             await onSave(vehicle.id, assignment.id, editedData);
             onClose();
         } catch (error) {
+            setAlertMessage(error.message || 'Não foi possível salvar o histórico.');
         } finally {
             setIsSaving(false);
         }

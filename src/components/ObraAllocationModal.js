@@ -5,6 +5,93 @@ import EstadiaRetroativaModal from './EstadiaRetroativaModal';
 import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions, checkReadingConsistency } from '../utils/vehicleRules';
 import SearchableSelect from './SearchableSelect';
 import { formatObraNome } from '../utils/obraFormat';
+import { diaBR, sobrepoe, estadiasDoVeiculo } from '../utils/periodosObra';
+
+const PODE_CORRIGIR_HISTORICO = ['admin', 'gerencia', 'editor', 'abastecimento', 'oficina'];
+
+// --- Período anterior do veículo ---------------------------------------------
+// Mostra onde o veículo estava antes e, se a data de entrada escolhida cair
+// dentro de outro período, trava a alocação e oferece corrigir a saída de lá
+// ali mesmo — o erro típico é a saída da obra anterior ter ficado com a data
+// do dia em que foi lançada, e não a data real.
+const PeriodoAnteriorAviso = ({ estadias, conflitos, dataEntrada, podeCorrigir, apiClient, reloadData }) => {
+    const [datas, setDatas] = useState({});
+    const [salvando, setSalvando] = useState(null);
+    const [erro, setErro] = useState('');
+
+    const salvar = async (h) => {
+        const novaSaida = datas[h.id] || dataEntrada;
+        setSalvando(h.id);
+        setErro('');
+        try {
+            // Só a data: o endpoint aceita atualização parcial e preserva operador e leituras.
+            await apiClient.updateObraHistoryEntry(h.obra.id, h.id, { dataSaida: novaSaida });
+            await reloadData();
+        } catch (e) {
+            setErro(e.message || 'Não foi possível corrigir a data de saída.');
+        } finally {
+            setSalvando(null);
+        }
+    };
+
+    if (conflitos.length === 0) {
+        const ultima = estadias[0];
+        if (!ultima) return null;
+        return (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-start gap-2 text-xs text-gray-600">
+                <History size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                <span>
+                    Última obra: <strong className="text-gray-800">{formatObraNome(ultima.obra)}</strong>
+                    {' · '}{diaBR(ultima.inicio)} a {ultima.fim ? <strong className="text-gray-800">{diaBR(ultima.fim)}</strong> : 'em aberto'}
+                </span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="rounded-lg border border-red-300 bg-red-50 p-3 space-y-2.5">
+            <p className="text-[11px] font-semibold text-red-800 uppercase tracking-wide flex items-center gap-1.5">
+                <AlertTriangle size={12} /> Conflito de datas
+            </p>
+            <p className="text-xs text-red-900">
+                Entrando em <strong>{diaBR(dataEntrada)}</strong>, o veículo ficaria em duas obras ao mesmo tempo.
+                Corrija a saída da obra anterior (a troca pode ser no mesmo dia) ou mude a data de entrada.
+            </p>
+            {conflitos.map(h => (
+                <div key={h.id} className="bg-white rounded-lg border border-red-200 p-2.5">
+                    <p className="text-xs text-gray-800">
+                        <strong>{formatObraNome(h.obra)}</strong>: {diaBR(h.inicio)} a {h.fim ? <strong>{diaBR(h.fim)}</strong> : <strong>em aberto</strong>}
+                    </p>
+                    {podeCorrigir ? (
+                        <div className="flex items-end gap-2 mt-2">
+                            <label className="flex-1 text-[11px] text-gray-600">
+                                Saída real de lá
+                                <input
+                                    type="date"
+                                    value={datas[h.id] || dataEntrada}
+                                    min={h.inicio}
+                                    onChange={e => setDatas(prev => ({ ...prev, [h.id]: e.target.value }))}
+                                    className="w-full mt-0.5 p-1.5 border rounded text-sm focus:ring-2 focus:ring-red-400 outline-none"
+                                />
+                            </label>
+                            <button
+                                type="button"
+                                onClick={() => salvar(h)}
+                                disabled={salvando === h.id}
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-xs font-bold rounded flex items-center gap-1.5"
+                            >
+                                {salvando === h.id ? <Loader className="animate-spin" size={12} /> : 'Corrigir saída'}
+                            </button>
+                        </div>
+                    ) : (
+                        <p className="text-[11px] text-gray-500 mt-1">Peça a um editor para corrigir no histórico da obra.</p>
+                    )}
+                </div>
+            ))}
+            {erro && <p className="text-xs text-red-700 font-semibold">{erro}</p>}
+        </div>
+    );
+};
 
 // --- Item do plano de trabalho que a máquina vai desempenhar ---------------
 // Três estados visuais, porque significam coisas diferentes para quem aloca:
@@ -318,6 +405,15 @@ const ObraAllocationModal = ({
 
     const currentObra = obras.find(o => o.id === vehicle.obraAtualId);
 
+    // Um veículo não fica em duas obras no mesmo dia: a nova estadia começa
+    // aberta, então colide com qualquer período ainda em curso na data de entrada.
+    const estadias = useMemo(() => estadiasDoVeiculo(obras, vehicle.id), [obras, vehicle.id]);
+    const conflitosEntrada = useMemo(() => (
+        isAllocated || !dataEntrada ? [] : estadias.filter(h => sobrepoe({ inicio: dataEntrada, fim: null }, h))
+    ), [isAllocated, dataEntrada, estadias]);
+    const temConflitoEntrada = conflitosEntrada.length > 0;
+    const podeCorrigirHistorico = PODE_CORRIGIR_HISTORICO.includes(user?.user_type?.toLowerCase());
+
     const validateRestrictions = () => {
         setRestrictionAlert(null);
         const staticIssues = checkVehicleRestrictions(vehicle, revisions);
@@ -347,6 +443,10 @@ const ObraAllocationModal = ({
         }
         if (precisaEscolherItem && !planoItemKey) {
             setAlertMessage('Escolha qual item do plano de trabalho esta máquina vai desempenhar.');
+            return;
+        }
+        if (temConflitoEntrada) {
+            setAlertMessage('A data de entrada cai dentro de outro período do veículo. Corrija a saída da obra anterior ou mude a data.');
             return;
         }
         if (!validateRestrictions()) {
@@ -534,6 +634,12 @@ const ObraAllocationModal = ({
                                             onChange={e => setDataSaida(e.target.value)}
                                             className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none"
                                         />
+                                        {/* Origem do caso ACL-7D30: a saída ficou com a data do lançamento, não a real. */}
+                                        {dataSaida === today && (
+                                            <p className="text-[11px] text-amber-700 mt-1">
+                                                Preenchida com hoje. Se o veículo saiu antes, informe a data real.
+                                            </p>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
@@ -665,6 +771,14 @@ const ObraAllocationModal = ({
                                 </div>
 
                                 {/* Data e leitura de entrada */}
+                                <PeriodoAnteriorAviso
+                                    estadias={estadias}
+                                    conflitos={conflitosEntrada}
+                                    dataEntrada={dataEntrada}
+                                    podeCorrigir={podeCorrigirHistorico}
+                                    apiClient={apiClient}
+                                    reloadData={reloadData}
+                                />
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1">
@@ -705,7 +819,7 @@ const ObraAllocationModal = ({
 
                                 <button
                                     onClick={handleAllocateClick}
-                                    disabled={isSaving || planoLoading || planoIndisponivel || (precisaEscolherItem && !planoItemKey)}
+                                    disabled={isSaving || planoLoading || planoIndisponivel || (precisaEscolherItem && !planoItemKey) || temConflitoEntrada}
                                     className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-bold rounded-lg shadow text-sm flex items-center justify-center gap-2 transition"
                                 >
                                     {isSaving ? <Loader className="animate-spin" size={16} /> : 'Confirmar Alocação'}

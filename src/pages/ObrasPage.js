@@ -11,6 +11,8 @@ import ObraModal from '../components/modals/ObraModal';
 import ObraDetailModal from '../components/modals/ObraDetailModal';
 import ManualFinishObraModal from '../components/modals/ManualFinishObraModal';
 import { formatObraNome } from '../utils/obraFormat';
+import SobreposicoesObraModal from '../components/modals/SobreposicoesObraModal';
+import { listarSobreposicoes } from '../utils/periodosObra';
 
 // Fases reais de uma obra (espelha OBRA_FASES do ObraModal) + finalizada.
 // Fonte única de verdade para rótulo e cor de cada status, evitando divergência
@@ -63,6 +65,14 @@ const ObrasPage = ({
         delete: false
     });
     const [selectedObra, setSelectedObra] = useState(null);
+
+    // Veículos em duas obras no mesmo dia (utils/periodosObra.js). Calculado das
+    // obras já carregadas: corrigiu uma data, recarregou, a lista encolhe.
+    const sobreposicoes = useMemo(() => listarSobreposicoes(obras, vehicles), [obras, vehicles]);
+    const [sobreposicoesAberto, setSobreposicoesAberto] = useState(false);
+    // Veio da lista para corrigir uma obra: ao fechar o detalhe, volta para a lista.
+    const [voltarParaSobreposicoes, setVoltarParaSobreposicoes] = useState(false);
+    const nVeiculosSobrepostos = useMemo(() => new Set(sobreposicoes.map(s => s.veiculoId)).size, [sobreposicoes]);
 
     // --- LÓGICA DE TIPOS DE EQUIPAMENTOS ---
     const derivedEquipmentTypes = useMemo(() => {
@@ -248,6 +258,22 @@ const ObrasPage = ({
                     </div>
                 </ProtectedComponent>
             </div>
+
+            {sobreposicoes.length > 0 && (
+                <ProtectedComponent requiredPermission="editor">
+                    <button
+                        type="button"
+                        onClick={() => setSobreposicoesAberto(true)}
+                        className="w-full mb-4 px-4 py-3 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 transition flex items-center gap-3 text-left"
+                    >
+                        <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+                        <span className="flex-1 text-sm text-amber-900">
+                            <strong>{nVeiculosSobrepostos} veículo(s)</strong> aparecem em duas obras ao mesmo tempo no histórico.
+                        </span>
+                        <span className="text-sm font-semibold text-amber-800 underline shrink-0">Ver lista</span>
+                    </button>
+                </ProtectedComponent>
+            )}
 
             {/* CONTROLES DE FILTRO */}
             <div className="bg-white p-4 rounded-xl mb-6" style={{ border: '1px solid #f0ebe3', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)' }}>
@@ -505,13 +531,28 @@ const ObrasPage = ({
                     user={user}
                     obra={selectedObra} 
                     vehicles={vehicles}
-                    onClose={() => closeModal('detail')} 
+                    onClose={() => {
+                        closeModal('detail');
+                        if (voltarParaSobreposicoes) { setVoltarParaSobreposicoes(false); setSobreposicoesAberto(true); }
+                    }}
                     setAlertMessage={setAlertMessage} 
                     apiClient={apiClient} 
                     reloadData={reloadData}
                     vehicleGroups={vehicleGroups}
                     equipmentTypesForHours={derivedEquipmentTypes}
                     employees={employees}
+                />
+            )}
+
+            {sobreposicoesAberto && (
+                <SobreposicoesObraModal
+                    sobreposicoes={sobreposicoes}
+                    onClose={() => setSobreposicoesAberto(false)}
+                    onAbrirObra={(obra) => {
+                        setSobreposicoesAberto(false);
+                        setVoltarParaSobreposicoes(true);
+                        openModal('detail', obra);
+                    }}
                 />
             )}
 
