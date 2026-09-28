@@ -96,13 +96,18 @@ const RefuelingOrderModal = ({
         return '';
     };
 
+    // Data e hora em Brasília. `toISOString()` é UTC: depois das 21h já é o dia
+    // seguinte.
+    const ymdBRT = (d) => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const hmsBRT = (d) => d.toLocaleTimeString('en-GB', { timeZone: 'America/Sao_Paulo', hour12: false });
+
     // --- ESTADOS ---
     const [formData, setFormData] = useState({
         vehicleId: '',
         partnerId: '',
         obraId: '',
         employeeId: '',
-        date: new Date().toISOString().split('T')[0],
+        date: ymdBRT(new Date()),
         odometro: '',
         horimetro: '',
         isFillUp: false,
@@ -124,24 +129,51 @@ const RefuelingOrderModal = ({
 
     const prevVehicleIdRef = useRef(null);
 
+    // Valores com que a edição abriu: sem mexer no campo, a data/hora e os
+    // litros da ordem NÃO são reenviados (ver handleSubmit).
+    const originalRef = useRef(null);
+
+    const isOrdemConcluida = (status) => {
+        const s = (status || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        return s === 'concluida' || s === 'confirmada';
+    };
+
     useEffect(() => {
         if (orderToEdit && orderToEdit.id && orderToEdit.id !== 'PREVIEW') {
+            // A ordem vem da API com o campo `data`; `date` é o nome antigo. Ler
+            // só `date` fazia toda edição abrir — e salvar — com a data de hoje.
+            const dataOrdem = orderToEdit.data || orderToEdit.date;
+            const dataObj = isValidDbDate(dataOrdem) ? getSafeDateObj(dataOrdem) : null;
+            // Em ordem concluída o campo de litros mostra o ABASTECIDO: é o que
+            // vale para o custo, e é o que o salvamento grava.
+            const concluida = isOrdemConcluida(orderToEdit.status);
+            const litros = concluida
+                ? (orderToEdit.litrosAbastecidos || orderToEdit.litrosLiberados)
+                : orderToEdit.litrosLiberados;
+            const litrosArla = concluida
+                ? (orderToEdit.litrosAbastecidosArla || orderToEdit.litrosLiberadosArla)
+                : orderToEdit.litrosLiberadosArla;
+            const inicial = {
+                date: dataObj ? ymdBRT(dataObj) : ymdBRT(new Date()),
+                hora: dataObj ? hmsBRT(dataObj) : null,
+                litrosLiberados: litros ? litros.toString() : '',
+                litrosLiberadosArla: litrosArla ? litrosArla.toString() : '',
+            };
+            originalRef.current = inicial;
             setFormData({
                 vehicleId: orderToEdit.vehicleId || '',
                 partnerId: orderToEdit.partnerId || '',
                 obraId: orderToEdit.obraId || '',
                 employeeId: orderToEdit.employeeId || '',
-                date: orderToEdit.date 
-                    ? getSafeDateObj(orderToEdit.date).toISOString().split('T')[0] 
-                    : new Date().toISOString().split('T')[0],
+                date: inicial.date,
                 odometro: orderToEdit.odometro?.toString() || '',
                 horimetro: orderToEdit.horimetro?.toString() || '',
                 isFillUp: orderToEdit.isFillUp || false,
-                litrosLiberados: orderToEdit.litrosLiberados?.toString() || '',
+                litrosLiberados: inicial.litrosLiberados,
                 fuelType: orderToEdit.fuelType || '',
                 needsArla: orderToEdit.needsArla || false,
                 isFillUpArla: orderToEdit.isFillUpArla || false,
-                litrosLiberadosArla: orderToEdit.litrosLiberadosArla?.toString() || '',
+                litrosLiberadosArla: inicial.litrosLiberadosArla,
                 outros: orderToEdit.outros || '',
                 outrosGeraValor: orderToEdit.outrosGeraValor || false,
                 outrosValor: orderToEdit.outrosValor?.toString() || '',
@@ -154,7 +186,7 @@ const RefuelingOrderModal = ({
                 partnerId: solicitacaoData.posto_id || '',
                 obraId: solicitacaoData.obra_id || '',
                 employeeId: solicitacaoData.funcionario_id || '',
-                date: new Date().toISOString().split('T')[0],
+                date: ymdBRT(new Date()),
                 odometro: solicitacaoData.odometro_informado?.toString() || '',
                 horimetro: solicitacaoData.horimetro_informado?.toString() || '',
                 isFillUp: !!solicitacaoData.flag_tanque_cheio,
@@ -487,11 +519,33 @@ const RefuelingOrderModal = ({
             revealAt: podeOcultar && formData.isHidden && formData.revealAt ? formData.revealAt : null
         };
 
-        const currentStatus = orderToEdit?.status ? orderToEdit.status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
-        
-        if (isEditing && (currentStatus === 'concluida' || currentStatus === 'confirmada')) {
-             payload.litrosAbastecidos = payload.litrosLiberados;
-             payload.litrosAbastecidosArla = payload.litrosLiberadosArla;
+        const original = isEditing ? originalRef.current : null;
+        if (original) {
+            // Data: sem mexer no campo, a ordem mant\u00e9m data E hora originais. Com a
+            // data trocada, mant\u00e9m a hora original \u2014 o hor\u00e1rio de quem est\u00e1
+            // editando n\u00e3o diz nada sobre o abastecimento.
+            if (formData.date === original.date) {
+                delete payload.date;
+            } else if (original.hora) {
+                payload.date = `${formData.date}T${original.hora}-03:00`;
+            }
+
+            if (isOrdemConcluida(orderToEdit.status)) {
+                // Ordem conclu\u00edda: o campo de litros \u00e9 o ABASTECIDO. S\u00f3 \u00e9 gravado
+                // se a pessoa alterou a quantidade \u2014 antes, qualquer edi\u00e7\u00e3o (NF,
+                // observa\u00e7\u00e3o) copiava o liberado por cima do abastecido, e em
+                // "completar tanque" (liberado = 0) zerava o custo da ordem.
+                if (formData.litrosLiberados !== original.litrosLiberados && payload.litrosLiberados > 0) {
+                    payload.litrosAbastecidos = payload.litrosLiberados;
+                } else {
+                    delete payload.litrosLiberados;
+                }
+                if (formData.litrosLiberadosArla !== original.litrosLiberadosArla && payload.litrosLiberadosArla > 0) {
+                    payload.litrosAbastecidosArla = payload.litrosLiberadosArla;
+                } else {
+                    delete payload.litrosLiberadosArla;
+                }
+            }
         }
 
         const partner = partners.find(p => p.id === formData.partnerId);
