@@ -46,6 +46,8 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         contratadaRepresentanteNome: contrato?.contratadaRepresentanteNome || '',
         contratadaRepresentanteQualificacao: contrato?.contratadaRepresentanteQualificacao || '',
         contratadaRepresentanteCpf: contrato?.contratadaRepresentanteCpf || '',
+        dataContratoModo: contrato?.dataContratoModo || 'atual',
+        dataContratoPersonalizada: contrato?.dataContratoPersonalizada ? String(contrato.dataContratoPersonalizada).split('T')[0] : '',
     });
     const [itens, setItens] = useState(() => normalizeItens(contrato?.itensContratados));
     const [isSaving, setIsSaving] = useState(false);
@@ -209,6 +211,12 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         if (isFechado && !(parseFloat(form.valorTotalFechado) > 0)) {
             setAlertMessage?.('Informe o valor fechado do contrato.'); return;
         }
+        if (form.dataContratoModo === 'inicio_obra' && !form.vigenciaInicio) {
+            setAlertMessage?.('Para usar a data de início do terceiro na obra, preencha "Vigência início".'); return;
+        }
+        if (form.dataContratoModo === 'personalizada' && !form.dataContratoPersonalizada) {
+            setAlertMessage?.('Informe a data personalizada do contrato.'); return;
+        }
         setIsSaving(true);
         try {
             // No modo fechado as máquinas entram com price = 0: o valor é global, as horas são só demonstrativas.
@@ -243,6 +251,8 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 contratadaRepresentanteNome: form.contratadaRepresentanteNome.trim() || null,
                 contratadaRepresentanteQualificacao: form.contratadaRepresentanteQualificacao.trim() || null,
                 contratadaRepresentanteCpf: form.contratadaRepresentanteCpf.trim() || null,
+                dataContratoModo: form.dataContratoModo,
+                dataContratoPersonalizada: form.dataContratoModo === 'personalizada' ? form.dataContratoPersonalizada : null,
                 createdBy: { userEmail: user?.email || user?.userEmail || '' },
             };
             if (contrato?.id) await apiClient.updateTerceiroContrato(contrato.id, payload);
@@ -555,6 +565,33 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Prazo de vigência (meses após a assinatura)</label>
                         <input type="number" min="1" name="prazoVigenciaMeses" value={form.prazoVigenciaMeses} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm" placeholder="6" />
                         <p className="text-[10px] text-gray-400 mt-1">Vai na cláusula de vigência como "{parseInt(form.prazoVigenciaMeses, 10) || 6} meses contados da assinatura". As datas acima são só de controle interno.</p>
+                    </div>
+
+                    {/* Data impressa no fecho da minuta ("Santa Maria, RS, <data>"). O terceiro
+                        muitas vezes já trabalha na obra antes de o contrato ser assinado. */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Data do contrato (na minuta)</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <button type="button" onClick={() => setForm((f) => ({ ...f, dataContratoModo: 'atual' }))} className={btnToggle(form.dataContratoModo === 'atual')}>
+                                Data atual
+                            </button>
+                            <button type="button" onClick={() => setForm((f) => ({ ...f, dataContratoModo: 'inicio_obra' }))} className={btnToggle(form.dataContratoModo === 'inicio_obra')}>
+                                Início do terceiro na obra
+                            </button>
+                            <button type="button" onClick={() => setForm((f) => ({ ...f, dataContratoModo: 'personalizada' }))} className={btnToggle(form.dataContratoModo === 'personalizada')}>
+                                Data personalizada
+                            </button>
+                        </div>
+                        {form.dataContratoModo === 'personalizada' && (
+                            <input type="date" name="dataContratoPersonalizada" value={form.dataContratoPersonalizada} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm mt-2" />
+                        )}
+                        <p className="text-[10px] text-gray-400 mt-1">
+                            {form.dataContratoModo === 'atual' && 'A minuta sai com a data do dia em que for gerada.'}
+                            {form.dataContratoModo === 'inicio_obra' && (form.vigenciaInicio
+                                ? <>A minuta sai datada de <span className="font-semibold">{form.vigenciaInicio.split('-').reverse().join('/')}</span> (Vigência início).</>
+                                : <span className="text-amber-600">Preencha "Vigência início" acima — é a data de início do terceiro na obra.</span>)}
+                            {form.dataContratoModo === 'personalizada' && 'A minuta sai com a data informada acima.'}
+                        </p>
                     </div>
 
                     {/* Cláusulas contratuais (parametrizáveis no PDF gerado) */}
