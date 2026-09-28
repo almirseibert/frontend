@@ -44,6 +44,17 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
     const partnerById = new Map(partners.map((p) => [p.id, p]));
     const obraById = new Map(obras.map((o) => [o.id, o]));
 
+    // Obra se identifica por NOME + ÓRGÃO CONTRATANTE: o mesmo lugar pode ter
+    // contratos distintos com clientes distintos (ex.: Mata/SEDUR e Mata/SEAPI),
+    // e só pelo nome as duas são indistinguíveis.
+    const obraRotulo = (id) => {
+        const o = obraById.get(id);
+        if (!o) return '—';
+        const orgao = String(o.orgao_contratante || '').trim();
+        if (!orgao || String(o.nome || '').toUpperCase().includes(orgao.toUpperCase())) return o.nome;
+        return `${o.nome} · ${orgao}`;
+    };
+
     // ── Linha por contrato (base de tudo) ─────────────────────────────────────
     const linhas = contratos.map((c) => {
         const r = computeContrato(c, ctx);
@@ -243,17 +254,71 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
         const k = `${pd.vehicle?.locadorId || '—'}|${pd.obraId || '—'}`;
         const cur = porChave.get(k) || {
             terceiroId: pd.vehicle?.locadorId || null, obraId: pd.obraId || null,
-            valor: 0, horas: 0, maquinas: new Set(), motivos: new Set(),
+            valor: 0, horas: 0, maquinas: new Set(), motivos: new Set(), pendencias: [],
         };
         cur.valor += pd.valor; cur.horas += pd.horas;
         cur.maquinas.add(pd.vehicleId); cur.motivos.add(pd.motivo);
+        cur.pendencias.push(pd);
         porChave.set(k, cur);
     });
+
+    // ── Detalhe ao clicar na linha ───────────────────────────────────────────
+    // Responde "quais máquinas, quais lançamentos, de quando — e contra o quê?".
+    // Por isso junta três coisas que o usuário teria de cruzar à mão: os
+    // lançamentos sem dono, os contratos vigentes do terceiro (obra + vigência) e
+    // onde a máquina esteve alocada (histórico da obra).
+    const vigentesTodos = contratos.filter(isVigente);
+    const contratosDoTerceiro = (terceiroId) => vigentesTodos
+        .filter((c) => String(c.locadorId) === String(terceiroId))
+        .map((c) => {
+            const vig = c.vigente || c;
+            return {
+                id: c.id, numero: c.numero || '—', obraId: c.obraId,
+                obraNome: obraRotulo(c.obraId),
+                inicio: toDate(c.vigenciaInicio), fim: toDate(vig.vigenciaFim ?? c.vigenciaFim),
+            };
+        });
+
+    const alocacoesDoVeiculo = (vehicleId) => obras
+        .flatMap((o) => (Array.isArray(o.historicoVeiculos) ? o.historicoVeiculos : [])
+            .filter((h) => String(h?.veiculoId) === String(vehicleId))
+            .map((h) => ({ obraId: o.id, obraNome: obraRotulo(o.id),
+                entrada: toDate(h.dataEntrada), saida: toDate(h.dataSaida) })))
+        .sort((a, b) => (a.entrada?.getTime() || 0) - (b.entrada?.getTime() || 0));
+
+    const detalharVeiculos = (pends) => {
+        const porV = new Map();
+        pends.forEach((pd) => {
+            const v = pd.vehicle || {};
+            const cur = porV.get(pd.vehicleId) || {
+                id: pd.vehicleId,
+                nome: v.registroInterno || v.placa || pd.vehicleId,
+                placa: v.placa && v.placa !== v.registroInterno ? v.placa : '',
+                subgrupo: v.sub_tipo || v.tipo || '—',
+                motivos: new Set(), valor: 0, litros: 0, horas: 0, lancamentos: [],
+                alocacoes: alocacoesDoVeiculo(pd.vehicleId),
+            };
+            cur.motivos.add(pd.motivo);
+            cur.valor += pd.valor; cur.litros += pd.litros; cur.horas += pd.horas;
+            pd.lancamentos.forEach((l) => cur.lancamentos.push({ ...l, obraNome: obraRotulo(pd.obraId) }));
+            porV.set(pd.vehicleId, cur);
+        });
+        return [...porV.values()]
+            .map((v) => {
+                const datas = v.lancamentos.map((l) => l.data).filter(Boolean).sort((a, b) => a - b);
+                return {
+                    ...v, motivos: [...v.motivos],
+                    lancamentos: v.lancamentos.sort((a, b) => (a.data?.getTime() || 0) - (b.data?.getTime() || 0)),
+                    primeira: datas[0] || null, ultima: datas[datas.length - 1] || null,
+                };
+            })
+            .sort((a, b) => b.valor - a.valor || b.horas - a.horas);
+    };
 
     const montar = (g) => {
         const terceiro = partnerById.get(g.terceiroId) || null;
         const nome = getPartnerDisplayName(terceiro) || 'Terceiro não identificado';
-        const obraNm = obraById.get(g.obraId)?.nome || 'sem obra no lançamento';
+        const obraNm = g.obraId ? obraRotulo(g.obraId) : 'sem obra no lançamento';
         return {
             contrato: { id: `pend|${g.terceiroId}|${g.obraId}`, numero: `${g.maquinas.size} máq.` },
             terceiroId: g.terceiroId, terceiroNome: nome, obraNome: obraNm,
@@ -261,6 +326,11 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
             valor: g.valor, horas: g.horas,
             detalhe: [...g.motivos].join('; '),
             r: { saldo: g.valor },
+            detalhamento: {
+                obraId: g.obraId,
+                veiculos: detalharVeiculos(g.pendencias),
+                contratos: contratosDoTerceiro(g.terceiroId),
+            },
         };
     };
 

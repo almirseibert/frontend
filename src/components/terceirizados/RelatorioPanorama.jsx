@@ -56,6 +56,124 @@ const Secao = ({ titulo, icon, children, acao }) => (
     </section>
 );
 
+const fmtDia = (d) => (d ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
+const fmtL = (n) => `${(Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} L`;
+const TIPO_LANC = { abastecimento: 'Posto', comboio: 'Comboio', horas: 'Horas' };
+
+/**
+ * Detalhe de uma pendência terceiro × obra: por máquina, cada lançamento sem dono
+ * confrontado com os contratos vigentes do terceiro. Marca em vermelho O QUE
+ * diverge — a obra (contrato em outra obra, inclusive homônima) ou a data (fora
+ * da vigência) — para a pergunta "por que não abateu?" ter resposta na tela.
+ */
+const PendenciaDetalhe = ({ det }) => {
+    const { obraId, veiculos, contratos } = det;
+    const naObra = contratos.filter((c) => String(c.obraId) === String(obraId));
+    const foraDaVigencia = (d) => naObra.length > 0 && d && !naObra.some((c) => {
+        const ini = c.inicio ? new Date(c.inicio).setHours(0, 0, 0, 0) : null;
+        const fim = c.fim ? new Date(c.fim).setHours(23, 59, 59, 999) : null;
+        return (!ini || d >= ini) && (!fim || d <= fim);
+    });
+
+    return (
+        <div className="bg-gray-50 rounded-lg border border-gray-100 p-3 space-y-3">
+            <div>
+                <div className="text-[10px] uppercase font-bold text-gray-400 mb-1">Contratos vigentes deste terceiro</div>
+                {contratos.length === 0 ? (
+                    <p className="text-[11px] text-red-600 font-semibold">Nenhum contrato vigente em obra nenhuma.</p>
+                ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                        {contratos.map((c) => {
+                            const mesma = String(c.obraId) === String(obraId);
+                            return (
+                                <span key={c.id} className={`text-[11px] px-2 py-1 rounded-md border ${mesma ? 'bg-white border-gray-200 text-gray-600' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                                    <b>{c.numero}</b> · {c.obraNome} · vigência {fmtDate(c.inicio)} → {c.fim ? fmtDate(c.fim) : 'sem término'}
+                                    {!mesma && <> · <b>outra obra</b></>}
+                                </span>
+                            );
+                        })}
+                    </div>
+                )}
+                {contratos.length > 0 && naObra.length === 0 && (
+                    <p className="text-[11px] text-red-600 mt-1.5">
+                        Os lançamentos abaixo foram feitos numa obra (nome + órgão contratante) onde
+                        este terceiro não tem contrato vigente.
+                    </p>
+                )}
+            </div>
+
+            {veiculos.map((v) => {
+                const diesel = v.lancamentos.filter((l) => l.tipo !== 'horas');
+                const horas = v.lancamentos.filter((l) => l.tipo === 'horas');
+                return (
+                    <div key={v.id} className="bg-white rounded-lg border border-gray-100 p-2.5">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <div className="text-xs">
+                                <b className="text-gray-800">{v.nome}</b>
+                                {v.placa && <span className="text-gray-400"> · {v.placa}</span>}
+                                <span className="text-gray-500"> · {v.subgrupo}</span>
+                                <div className="text-[10px] text-gray-500">{v.motivos.join('; ')}</div>
+                            </div>
+                            <div className="text-[11px] text-gray-500 text-right">
+                                {fmtDia(v.primeira)} → {fmtDia(v.ultima)}
+                                {v.horas > 0 && <> · {fmtH(v.horas)}</>}
+                                {v.valor > 0.01 && <> · <b className="text-red-600">{fmtBRL(v.valor)}</b></>}
+                            </div>
+                        </div>
+
+                        {v.alocacoes.length > 0 && (
+                            <div className="text-[10px] text-gray-500 mt-1">
+                                <span className="font-bold uppercase text-gray-400">Alocação:</span>{' '}
+                                {v.alocacoes.map((a, i) => (
+                                    <span key={i} className={String(a.obraId) === String(obraId) ? 'text-gray-700' : ''}>
+                                        {i > 0 && ' · '}{a.obraNome} {fmtDia(a.entrada)} → {a.saida ? fmtDia(a.saida) : 'atual'}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+
+                        {diesel.length > 0 && (
+                            <table className="w-full text-[11px] mt-2">
+                                <thead>
+                                    <tr className="text-[9px] uppercase text-gray-400 border-b border-gray-100">
+                                        <th className="text-left font-bold py-1">Data</th>
+                                        <th className="text-left font-bold">Origem</th>
+                                        <th className="text-left font-bold">Obra do lançamento</th>
+                                        <th className="text-right font-bold">Litros</th>
+                                        <th className="text-right font-bold">Valor</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {diesel.map((l, i) => (
+                                        <tr key={i} className="border-b border-gray-50">
+                                            <td className={`py-1 ${foraDaVigencia(l.data) ? 'text-red-600 font-bold' : 'text-gray-600'}`}>{fmtDia(l.data)}</td>
+                                            <td className="text-gray-500">{TIPO_LANC[l.tipo] || l.tipo}</td>
+                                            <td className={naObra.length === 0 ? 'text-red-600 font-semibold' : 'text-gray-600'}>{l.obraNome}</td>
+                                            <td className="text-right text-gray-600">{fmtL(l.litros)}</td>
+                                            <td className="text-right text-gray-700">{fmtBRL(l.valor)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+
+                        {horas.length > 0 && (
+                            <div className="text-[10px] text-gray-500 mt-2">
+                                <span className="font-bold uppercase text-gray-400">Apontamentos ({horas.length}):</span>{' '}
+                                {horas.map((l, i) => (
+                                    <span key={i} className={foraDaVigencia(l.data) ? 'text-red-600 font-bold' : ''}>
+                                        {i > 0 && ' · '}{fmtDia(l.data)} {Number(l.horas).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}h
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
 /**
  * Relatório-panorama de todos os contratos de terceirizados (tela cheia + PDF).
  * Não busca nada: recebe os mesmos dados que a página já tem em memória.
@@ -256,16 +374,35 @@ const RelatorioPanorama = ({ contratos, ctx, partners, obras, onClose, setAlertM
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {alertaAtivo.itens.map((it) => (
-                                                <tr key={it.contrato.id} className="border-b border-gray-50">
-                                                    <td className="py-2 pl-1 font-semibold text-gray-700">{it.terceiroNome}</td>
+                                            {alertaAtivo.itens.map((it) => {
+                                                const podeAbrir = !!it.detalhamento;
+                                                const exp = podeAbrir && aberto.has(it.contrato.id);
+                                                return (
+                                                <React.Fragment key={it.contrato.id}>
+                                                <tr onClick={podeAbrir ? () => toggle(it.contrato.id) : undefined}
+                                                    className={`border-b border-gray-50 ${podeAbrir ? 'hover:bg-gray-50 cursor-pointer' : ''}`}>
+                                                    <td className="py-2 pl-1 font-semibold text-gray-700">
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {podeAbrir && (exp ? <ChevronDown size={13} className="text-gray-400" /> : <ChevronRight size={13} className="text-gray-400" />)}
+                                                            {it.terceiroNome}
+                                                        </span>
+                                                    </td>
                                                     <td className="text-gray-600">{it.obraNome}</td>
                                                     <td className="text-[10px] text-gray-500">{it.detalhe}</td>
                                                     <td className="text-center text-gray-600">{it.contrato.numero}</td>
                                                     <td className="text-right text-gray-600">{it.horas > 0 ? fmtH(it.horas) : '—'}</td>
                                                     <td className="text-right font-bold text-red-600 pr-1">{it.valor > 0.01 ? fmtBRL(it.valor) : <span className="text-gray-300 font-normal">—</span>}</td>
                                                 </tr>
-                                            ))}
+                                                {exp && (
+                                                    <tr>
+                                                        <td colSpan={6} className="py-2 px-1">
+                                                            <PendenciaDetalhe det={it.detalhamento} />
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                                </React.Fragment>
+                                                );
+                                            })}
                                         </tbody>
                                         <tfoot>
                                             <tr className="border-t-2 border-gray-200 font-extrabold text-gray-700">

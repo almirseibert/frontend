@@ -619,14 +619,18 @@ const MOTIVOS = {
     semObra: 'Lançamento sem obra informada',
     semLocador: 'Veículo de terceiro sem locador no cadastro',
     semSubgrupo: 'Veículo sem subgrupo (tipo/sub_tipo) no cadastro',
-    semContrato: 'Terceiro sem contrato vigente nesta obra na data',
+    semContrato: 'Terceiro sem contrato vigente nesta obra',
+    foraDaVigencia: 'Lançamento fora da vigência do contrato',
     subgrupoNaoContratado: 'Subgrupo do veículo não está no contrato da obra',
 };
 
 /**
  * Lançamentos de veículos de terceiros que não pertencem a nenhum contrato.
- * @returns [{ vehicle, vehicleId, motivo, obraId, litros, valor, horas, ocorrencias, ultimaData }]
+ * @returns [{ vehicle, vehicleId, motivo, obraId, litros, valor, horas, ocorrencias,
+ *             ultimaData, lancamentos: [{ tipo, data, litros, valor, horas }] }]
  *          ordenado pelo valor em R$ parado, do maior para o menor.
+ *          `lancamentos` é a prova linha a linha: é o que a tela abre quando o
+ *          usuário pergunta "quais abastecimentos, de quando?".
  */
 export const getPendenciasTerceirizados = (contratos = [], ctx = {}) => {
     const {
@@ -638,21 +642,22 @@ export const getPendenciasTerceirizados = (contratos = [], ctx = {}) => {
     const vigentes = filtrarContratosVigentes(contratos);
     const acc = new Map();
 
-    const registrar = (vehicle, motivo, obraId, date, { litros = 0, valor = 0, horas = 0 }) => {
+    const registrar = (vehicle, motivo, obraId, date, { tipo, litros = 0, valor = 0, horas = 0 }) => {
         const k = `${vehicle.id}|${motivo}|${obraId || '—'}`;
         const cur = acc.get(k) || {
             vehicle, vehicleId: vehicle.id, motivo, obraId: obraId || null,
-            litros: 0, valor: 0, horas: 0, ocorrencias: 0, ultimaData: null,
+            litros: 0, valor: 0, horas: 0, ocorrencias: 0, ultimaData: null, lancamentos: [],
         };
         cur.litros += litros; cur.valor += valor; cur.horas += horas;
         cur.ocorrencias += 1;
         if (date && (!cur.ultimaData || date > cur.ultimaData)) cur.ultimaData = date;
+        cur.lancamentos.push({ tipo, data: date, litros, valor, horas });
         acc.set(k, cur);
     };
 
     // Por que ESTE lançamento ficou sem contrato? A resposta tem que ser acionável:
-    // "cadastre o subgrupo" e "o terceiro não tem contrato aqui" pedem coisas
-    // diferentes de quem lê a tela.
+    // "cadastre o subgrupo", "o terceiro não tem contrato aqui" e "a data está fora
+    // da vigência" pedem coisas diferentes de quem lê a tela.
     const diagnosticar = (vehicle, obraId, date) => {
         if (!obraId) return MOTIVOS.semObra;
         if (!vehicle.locadorId) return MOTIVOS.semLocador;
@@ -667,7 +672,7 @@ export const getPendenciasTerceirizados = (contratos = [], ctx = {}) => {
                 inicio: c.vigenciaInicio, fim: vig.vigenciaFim ?? c.vigenciaFim });
             return inPeriod(date, inicio, fim);
         });
-        if (naData.length === 0) return MOTIVOS.semContrato;
+        if (naData.length === 0) return MOTIVOS.foraDaVigencia;
         if (!vehicle.sub_tipo && !vehicle.tipo) return MOTIVOS.semSubgrupo;
         return MOTIVOS.subgrupoNaoContratado;
     };
@@ -691,18 +696,20 @@ export const getPendenciasTerceirizados = (contratos = [], ctx = {}) => {
     refuelings.forEach((r) => {
         if (!isRefuelingConcluida(r?.status)) return;
         avaliar(r?.vehicleId, r?.obraId, recordDate(r), {
+            tipo: 'abastecimento',
             litros: num(r.litrosAbastecidos), valor: getRefuelingFuelValue(r, partners),
         });
     });
     comboioTransactions.forEach((t) => {
         if (!isSaidaEfetivada(t)) return;
         avaliar(t?.receivingVehicleId, t?.obraId, recordDate(t), {
+            tipo: 'comboio',
             litros: num(t.liters), valor: getComboioSaidaFuelValue(t, comboioTransactions, partners),
         });
     });
     dailyWorkLogs.forEach((log) => {
         if (log?.justificativaTipo) return;
-        avaliar(log?.vehicleId, log?.obraId, recordDate(log), { horas: num(log.totalHours) });
+        avaliar(log?.vehicleId, log?.obraId, recordDate(log), { tipo: 'horas', horas: num(log.totalHours) });
     });
 
     return [...acc.values()].sort((a, b) => b.valor - a.valor || b.horas - a.horas);
