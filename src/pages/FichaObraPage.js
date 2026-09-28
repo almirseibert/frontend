@@ -257,13 +257,19 @@ const FichaObraPage = ({ obraId, onBack, obras = [], vehicles = [], setAlertMess
         const pctFisico         = f.percentualConcluido || 0;
         const valorProduzido    = temValores ? (f.totalRS || 0) : null;
 
-        // Gasto real = todas as despesas da obra (combustível já incluso em expenses).
-        // Mesma base do "total_despesas" da tela de supervisor (SUM(amount) por obra).
-        const despesasObra = (expenses || []).filter(e => String(e.obraId) === String(obraId));
-        const gastoReal = despesasObra.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+        // Gasto real = despesas da obra, com o combustível vindo da projeção
+        // (abastecimentos concluídos + comboio/manuais). A soma crua das despesas
+        // de combustível conta em dobro o mês de posto renomeado — a despesa
+        // mensal é derivada dos abastecimentos e achada pelo nome do posto.
+        // Ver frotasmak/utils/obraFinanceiro.js.
+        const custoCombustivel = Number(comb.totalCustoRS) || 0;
+        const despesasObra = (expenses || []).filter(e =>
+            String(e.obraId) === String(obraId) && e.category !== 'Combustível');
+        const gastoReal = despesasObra.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0) + custoCombustivel;
 
         // Detalhamento por categoria (mesmo agrupamento da página atual).
         const catMap = {};
+        if (custoCombustivel > 0) catMap['Combustível'] = custoCombustivel;
         despesasObra.forEach(e => {
             const cat = e.category || 'Outros';
             catMap[cat] = (catMap[cat] || 0) + (parseFloat(e.amount) || 0);
@@ -1042,9 +1048,10 @@ function DetDespesas({ d }) {
                 </div>
             </Bloco>
 
-            <Bloco titulo={`Lançamentos (${lista.length})`} nota="Data do registro da despesa no sistema.">
+            <Bloco titulo={`Lançamentos (${lista.length})`}
+                nota="Data do registro da despesa no sistema. Combustível não entra nesta lista: o detalhe está no painel de Combustível, abastecimento a abastecimento.">
                 {lista.length === 0 ? (
-                    <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhum lançamento.</p>
+                    <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhum lançamento além do combustível.</p>
                 ) : (
                     <Tabela
                         cols={[{ label: 'Data' }, { label: 'Descrição' }, { label: 'Categoria' }, { label: 'Valor', right: true }]}
@@ -1135,7 +1142,8 @@ function DetCombustivel({ d }) {
             )}
 
             <Bloco titulo={`Abastecimentos (${abast.length})`}
-                nota="O custo oficial da obra vem das despesas lançadas (inclui comboio e ajustes manuais). A conferência abaixo mostra o quanto esta lista explica desse total.">
+                nota="O custo da obra soma os abastecimentos concluídos e o combustível que não passa por abastecimento (saída de comboio, descarte, lançamentos manuais). Ordens ainda abertas aparecem na lista mas não entram no custo.">
+
                 {abast.length === 0 ? (
                     <p style={{ fontSize: 12.5, color: C.inkSub }}>Nenhum abastecimento vinculado.</p>
                 ) : (
@@ -1161,12 +1169,13 @@ function DetCombustivel({ d }) {
                     <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
                         <Stat label="Soma desta lista" value={fmtBRL(totalLista.valor)}
                             hint={`${totalLista.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L`} />
-                        <Stat label="Custo lançado em despesas" value={fmtBRL(c.totalCustoRS)} />
-                        <Stat label="Diferença"
-                            value={c.totalCustoRS != null ? fmtBRL(totalLista.valor - c.totalCustoRS) : '—'}
-                            valueColor={c.totalCustoRS != null && Math.abs(totalLista.valor - c.totalCustoRS) > 1 ? C.red : C.green}
-                            hint={c.totalCustoRS != null && Math.abs(totalLista.valor - c.totalCustoRS) <= 1
-                                ? 'a lista explica o custo' : 'há custo fora desta lista'} />
+                        {c.custoAbastecimentosRS != null && (
+                            <Stat label="Abastecimentos concluídos" value={fmtBRL(c.custoAbastecimentosRS)} />
+                        )}
+                        {c.custoOutrosRS > 0 && (
+                            <Stat label="Comboio, descarte e manuais" value={fmtBRL(c.custoOutrosRS)} />
+                        )}
+                        <Stat label="Custo de combustível da obra" value={fmtBRL(c.totalCustoRS)} />
                     </div>
                 )}
             </Bloco>
