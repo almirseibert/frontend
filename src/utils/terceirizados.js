@@ -369,18 +369,20 @@ export const computeContrato = (contrato, ctx = {}) => {
         ? itens.filter((i) => i && i.type).map((i) => ({ type: i.type, horas: num(i.hours), valorHora: num(i.price), subtotal: num(i.hours) * num(i.price) }))
         : [];
 
-    // Aditivos assinados do contrato (linha do tempo e rótulo "original R$ X").
+    // Aditivos que contam nos números (minuta ou assinado — a assinatura só trava
+    // edição). Usados na linha do tempo e no rótulo "original R$ X".
     const aditivos = Array.isArray(contrato?.aditivos) ? contrato.aditivos : [];
-    const aditivosAssinados = aditivos.filter((a) => a?.status === 'assinado');
+    const aditivosValidos = aditivos.filter((a) => a?.status === 'minuta' || a?.status === 'assinado');
+    const aditivosEmMinuta = aditivosValidos.filter((a) => a.status === 'minuta').length;
 
     return {
         contrato, obra, machines: todas, equipamentos, itensContratados,
         numMaquinas: todas.length,
         horasExecutadas, horasContratadas, progresso,
         valorTotal, litros, diesel, adiantamentos, saldo,
-        // Aditivos: valorOriginal ≠ valorTotal quando há aditivo assinado.
-        valorOriginal, aditivos, aditivosAssinados,
-        temAditivos: aditivosAssinados.length > 0,
+        // Aditivos: valorOriginal ≠ valorTotal quando há aditivo.
+        valorOriginal, aditivos, aditivosValidos, aditivosEmMinuta,
+        temAditivos: aditivosValidos.length > 0,
         vigenciaFim: vig.vigenciaFim ?? contrato?.vigenciaFim,
     };
 };

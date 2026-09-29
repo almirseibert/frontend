@@ -146,7 +146,7 @@ const FichaTerceiros = ({ obraId }) => {
                                     <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{fmtBRL(r.valorTotal)}</div>
                                     {r.temAditivos && (
                                         <div style={{ fontSize: 10.5, color: C.inkSub }}>
-                                            original {fmtBRL(r.valorOriginal)} · {r.aditivosAssinados.length} aditivo(s)
+                                            original {fmtBRL(r.valorOriginal)} · {r.aditivosValidos.length} aditivo(s)
                                         </div>
                                     )}
                                 </div>

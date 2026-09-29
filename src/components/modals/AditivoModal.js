@@ -47,6 +47,8 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
         aditivo?.novaVigenciaFim ? String(aditivo.novaVigenciaFim).split('T')[0] : '');
     const [valorDeltaFechado, setValorDeltaFechado] = useState(
         aditivo?.valorDelta != null ? String(Math.abs(Number(aditivo.valorDelta))) : '');
+    const [efeitosDesde, setEfeitosDesde] = useState(
+        aditivo?.efeitosDesde ? String(aditivo.efeitosDesde).split('T')[0] : '');
     const [justificativa, setJustificativa] = useState(aditivo?.justificativa || '');
     const [observacoes, setObservacoes] = useState(aditivo?.observacoes || '');
     const [isSaving, setIsSaving] = useState(false);
@@ -120,6 +122,7 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
             tipo, itensDelta, justificativa: justificativa.trim(),
             observacoes: observacoes.trim() || null,
             novaVigenciaFim: novaVigenciaFim || null,
+            efeitosDesde: efeitosDesde || null,
             valorDelta: fechado ? numOf(valorDeltaFechado) : undefined,
             confirmarLimite,
         };
@@ -158,7 +161,7 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
                 <div className="p-4 space-y-4">
                     <p className="text-[11px] text-gray-400">
                         O aditivo não altera o contrato original — ele registra o que muda. Os valores do contrato
-                        só mudam quando o termo aditivo assinado for enviado.
+                        passam a considerar o aditivo assim que ele é salvo.
                     </p>
 
                     {/* Quadro vigente: referência do que já está contratado. */}
@@ -276,6 +279,18 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
                                 className="w-full p-2 border rounded-lg bg-white text-sm" />
                         </div>
                     )}
+
+                    {/* Efeito retroativo: só quando informado; sem ele, vale da assinatura. */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">
+                            Efeitos retroativos desde <span className="text-gray-400 normal-case font-normal">(opcional)</span>
+                        </label>
+                        <input type="date" value={efeitosDesde} onChange={(e) => setEfeitosDesde(e.target.value)}
+                            className="w-full p-2 border rounded-lg bg-white text-sm" />
+                        <p className="text-[10px] text-gray-400 mt-1">
+                            Em branco, o termo vigora a partir da data de sua assinatura. Preencha só se as partes acordaram efeito retroativo.
+                        </p>
+                    </div>
 
                     {/* Prévia do resultado */}
                     <div className="bg-purple-50/60 border border-purple-100 rounded-lg p-3">

@@ -160,8 +160,8 @@ const ADITIVO_TIPO = {
  * Linha do tempo dos termos aditivos. Só aparece com contrato assinado — aditivo
  * pressupõe contrato vigente (a mesma regra vale no backend).
  *
- * Cada aditivo tem o mesmo ciclo do contrato: minuta → PDF → assinado. Enquanto é
- * minuta, não move nenhum número do contrato; ao virar assinado, entra no consolidado.
+ * Cada aditivo tem o mesmo ciclo do contrato: minuta → PDF → assinado. Já na minuta
+ * ele entra no consolidado (valor e horas); a assinatura só trava edição/exclusão.
  */
 const AditivosPanel = ({
     contrato, aditivos = [], loadingId,
@@ -248,7 +248,7 @@ const AditivosPanel = ({
                                     <div className="flex flex-col gap-1.5 mt-2 text-xs">
                                         <span className="text-gray-600 font-medium">
                                             {aAssinado
-                                                ? 'Remover o aditivo assinado? Ele volta a ser minuta e sai dos valores do contrato.'
+                                                ? 'Remover o documento assinado? O aditivo volta a ser minuta (segue contando nos valores do contrato).'
                                                 : 'Excluir esta minuta de aditivo?'}
                                         </span>
                                         <div className="flex items-center gap-2">
@@ -511,7 +511,9 @@ const ContratoDetalhe = ({
             {/* ===================== NÚMEROS ===================== */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <KpiCard label="Valor contrato" value={fmtBRL(r.valorTotal)} tone="gray"
-                    hint={r.temAditivos ? `original ${fmtBRL(r.valorOriginal)} · ${r.aditivosAssinados.length} aditivo(s)` : null} />
+                    hint={r.temAditivos
+                        ? `original ${fmtBRL(r.valorOriginal)} · ${r.aditivosValidos.length} aditivo(s)${r.aditivosEmMinuta > 0 ? ` · ${r.aditivosEmMinuta} em minuta` : ''}`
+                        : null} />
                 <KpiCard label="Diesel abatido" value={fmtBRL(r.diesel)} tone="blue" />
                 <KpiCard label="Pagamentos" value={fmtBRL(r.adiantamentos)} tone="gray" />
                 <KpiCard label="Saldo a pagar" value={fmtBRL(r.saldo)} tone={r.saldo > 0 ? 'red' : r.saldo < 0 ? 'blue' : 'green'} />
