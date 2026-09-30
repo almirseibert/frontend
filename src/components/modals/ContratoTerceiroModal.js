@@ -66,8 +66,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
     }, []);
 
     // Só obras de verdade no seletor de contrato: fora os centros de custo.
-    // O SearchableObraSelect já esconde obras inativas/finalizadas (includeInactive=false)
-    // e exibe o órgão contratante ao lado do nome (formatObraNome).
+    // Obras finalizadas entram (seção separada no SearchableObraSelect): contrato de
+    // terceiro pode ser formalizado retroativamente, sem reabrir a obra.
+    // O seletor exibe o órgão contratante ao lado do nome (formatObraNome).
     const obrasSelecionaveis = useMemo(
         () => obras.filter((o) => o.tipo_registro !== 'centro_custo'),
         [obras]
@@ -308,6 +309,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                     setForm((f) => ({ ...f, obraId: novaObraId }));
                                 }}
                                 placeholder="Buscar obra..."
+                                includeInactive
                                 overlay
                                 overlayTitle="Selecione a obra"
                                 storageKey="contratoTerceiro:obrasRecentes"
