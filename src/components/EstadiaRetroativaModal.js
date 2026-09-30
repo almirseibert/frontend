@@ -74,7 +74,8 @@ const EstadiaRetroativaModal = ({
             if (error.status === 409 && Array.isArray(error.data?.conflicts)) {
                 setConflitos(error.data.conflicts);
             } else {
-                const msg = error.response?.data?.error || error.message;
+                const data = error.response?.data || {};
+                const msg = [data.error || error.message, data.details].filter(Boolean).join(' — ');
                 setAlertMessage('Erro ao registrar estadia retroativa: ' + msg);
             }
         } finally {
