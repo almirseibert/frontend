@@ -87,6 +87,45 @@ const ComboioVolumeReport = ({ vehicles = [], obras = [] }) => {
                 body: result.porObra.map(o => [o.obraName || '—', fmtL(o.litros), o.qtd]),
             });
         }
+
+        if (result.transacoes?.length) {
+            let startY = doc.lastAutoTable.finalY + 12;
+            // Título não pode ficar sozinho no rodapé da página.
+            if (startY > doc.internal.pageSize.getHeight() - 30) { doc.addPage(); startY = 20; }
+            doc.setFontSize(11);
+            doc.text(`Movimentações no período (${result.transacoes.length})`, 14, startY - 3);
+            autoTable(doc, {
+                startY,
+                head: [['Data', 'Tipo', 'Status', 'Combustível', 'Destino / Origem', 'Litros']],
+                body: result.transacoes.map(t => [
+                    fmtDate(t.date),
+                    TIPO_LABEL[t.type] || t.type,
+                    t.status && t.status !== 'Concluída' ? 'Bloqueada' : 'Concluída',
+                    comboioTankLabel(t.fuelType) || '—',
+                    t.type === 'entrada'
+                        ? (t.partnerName || '—')
+                        : t.type === 'drenagem'
+                            ? `de ${t.drainingVehicleName || '—'}`
+                            : (t.receivingVehicleName || t.obraName || '—'),
+                    fmtL(t.liters),
+                ]),
+                styles: { fontSize: 8, cellPadding: 1.5 },
+                headStyles: { fontSize: 8 },
+                columnStyles: { 0: { cellWidth: 28 }, 5: { halign: 'right', cellWidth: 24 } },
+                didParseCell: (data) => {
+                    if (data.section !== 'body') return;
+                    if (data.column.index === 1) {
+                        const tipo = result.transacoes[data.row.index]?.type;
+                        data.cell.styles.fontStyle = 'bold';
+                        data.cell.styles.textColor = tipo === 'entrada' ? [21, 128, 61] : tipo === 'drenagem' ? [29, 78, 216] : [185, 28, 28];
+                    }
+                    if (data.column.index === 2 && data.cell.raw === 'Bloqueada') {
+                        data.cell.styles.fontStyle = 'bold';
+                        data.cell.styles.textColor = [185, 28, 28];
+                    }
+                },
+            });
+        }
         doc.save(`comboio_volume_${comboioNome || 'relatorio'}.pdf`);
     };
 
