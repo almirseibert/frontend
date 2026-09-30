@@ -96,7 +96,9 @@ const ObraModal = ({
             setRegiao(obra.regiao || '');
             setCidadeIbge(obra.cidade_ibge || cidadePorNome(obra.local)?.codigo_ibge || '');
 
-            setStatusObra(obra.status && obra.status !== 'finalizada' ? obra.status : 'ativa');
+            // Obra finalizada continua finalizada ao ser editada: reabrir é escolha
+            // explícita no seletor de fase, nunca efeito colateral de salvar.
+            setStatusObra(obra.status || 'ativa');
             setDataInicioPrevisto(obra.dataInicioPrevisto ? new Date(obra.dataInicioPrevisto).toISOString().split('T')[0] : '');
 
             // Restaura Contrato por Horas — prefere o plano por SUBGRUPO; legado por grupo como fallback
@@ -317,7 +319,12 @@ const ObraModal = ({
 
     const isCentroCusto = tipoRegistro === 'centro_custo';
     const temPlano = contractedItems.length > 0 || sectors.length > 0;
-    const faseAtual = OBRA_FASES.find(f => f.value === statusObra);
+    // "Finalizada" só é opção para quem já está finalizada (finalizar é pelo botão
+    // próprio, que grava a data de fim).
+    const fasesDisponiveis = obra?.status === 'finalizada'
+        ? [...OBRA_FASES, { value: 'finalizada', label: 'Finalizada' }]
+        : OBRA_FASES;
+    const faseAtual = fasesDisponiveis.find(f => f.value === statusObra);
 
     return (
         <div className="mak-modal-backdrop backdrop-blur-sm">
@@ -558,7 +565,7 @@ const ObraModal = ({
                                         onChange={(e) => setStatusObra(e.target.value)}
                                         className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
                                     >
-                                        {OBRA_FASES.map(f => (
+                                        {fasesDisponiveis.map(f => (
                                             <option key={f.value} value={f.value}>{f.label}</option>
                                         ))}
                                     </select>
