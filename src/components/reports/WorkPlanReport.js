@@ -7,9 +7,46 @@ import { formatObraNome } from '../../utils/obraFormat';
 import { terceirizadoPdfMark } from '../ui/TerceirizadoBadge';
 
 import { fmtBRL } from '../../utils/currency';
+import { todayBRT } from '../../utils/dateBRT';
+
+// Primeiro e último dia de um mês ('YYYY-MM-DD'); offset -1 = mês anterior.
+const mesRange = (offset = 0) => {
+    const [y, m] = todayBRT().split('-').map(Number);
+    const ini = new Date(Date.UTC(y, m - 1 + offset, 1));
+    const fim = new Date(Date.UTC(y, m + offset, 0));
+    return { from: ini.toISOString().slice(0, 10), to: fim.toISOString().slice(0, 10) };
+};
+
+const ymd = (v) => (v ? (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10) : '');
+
+// A obra estava ativa em algum dia de [from, to]? Início = dataInicio (derivado
+// do 1º lançamento de horas) ou, na falta, a 1ª entrada de veículo. Fim só existe
+// para obra finalizada: nas demais o dataFim é previsão, não encerramento.
+const obraAtivaNoPeriodo = (obra, from, to) => {
+    if (obra.status !== 'ativa' && obra.status !== 'finalizada') return false;
+    const entradas = (obra.historicoVeiculos || []).map(h => ymd(h.dataEntrada)).filter(Boolean).sort();
+    const inicio = ymd(obra.dataInicio) || entradas[0] || '';
+    const fim = obra.status === 'finalizada' ? ymd(obra.dataFim) : '';
+    if (!inicio && obra.status !== 'ativa') return false;
+    if (inicio && to && inicio > to) return false;
+    if (fim && from && fim < from) return false;
+    return true;
+};
 const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipmentTypesForHours = [] }) => {
     const [pdfWorkplanSelectedObras, setPdfWorkplanSelectedObras] = useState([]);
     const [pdfWorkplanFilterStatus, setPdfWorkplanFilterStatus] = useState('ativa');
+    const [periodoPreset, setPeriodoPreset] = useState('mes_atual');
+    const [periodoFrom, setPeriodoFrom] = useState(() => mesRange(0).from);
+    const [periodoTo, setPeriodoTo] = useState(() => mesRange(0).to);
+
+    const aplicarPreset = (preset) => {
+        setPeriodoPreset(preset);
+        if (preset === 'custom') return;
+        const { from, to } = mesRange(preset === 'mes_anterior' ? -1 : 0);
+        setPeriodoFrom(from);
+        setPeriodoTo(to);
+    };
+    const periodoInvalido = pdfWorkplanFilterStatus === 'periodo' && (!periodoFrom || !periodoTo || periodoFrom > periodoTo);
 
     // Helper de ordenação alfanumérica
     const sortAlphaNum = (a, b) => (a || '').toString().localeCompare((b || '').toString(), undefined, { numeric: true, sensitivity: 'base' });
@@ -17,13 +54,15 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
     const obrasToDisplay = useMemo(() => {
         if (!obras) return [];
         return obras
-            .filter(o => o.status === pdfWorkplanFilterStatus)
+            .filter(o => pdfWorkplanFilterStatus === 'periodo'
+                ? (!periodoInvalido && obraAtivaNoPeriodo(o, periodoFrom, periodoTo))
+                : o.status === pdfWorkplanFilterStatus)
             .sort((a, b) => sortAlphaNum(a.nome, b.nome));
-    }, [obras, pdfWorkplanFilterStatus]);
+    }, [obras, pdfWorkplanFilterStatus, periodoFrom, periodoTo, periodoInvalido]);
 
     useEffect(() => {
         setPdfWorkplanSelectedObras([]);
-    }, [pdfWorkplanFilterStatus]);
+    }, [pdfWorkplanFilterStatus, periodoFrom, periodoTo]);
 
     const exportWorkplanToPDF = () => {
         const doc = new jsPDF();
@@ -233,7 +272,33 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                         <select value={pdfWorkplanFilterStatus} onChange={e => setPdfWorkplanFilterStatus(e.target.value)} className="input-field">
                             <option value="ativa">Obras Ativas</option>
                             <option value="finalizada">Obras Encerradas</option>
+                            <option value="periodo">Ativas em um período</option>
                         </select>
+                        {pdfWorkplanFilterStatus === 'periodo' && (
+                            <div className="mt-3 space-y-2">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Período</label>
+                                    <select value={periodoPreset} onChange={e => aplicarPreset(e.target.value)} className="input-field">
+                                        <option value="mes_atual">Mês atual</option>
+                                        <option value="mes_anterior">Mês anterior</option>
+                                        <option value="custom">Personalizado</option>
+                                    </select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Data inicial</label>
+                                        <input type="date" value={periodoFrom} onChange={e => { setPeriodoFrom(e.target.value); setPeriodoPreset('custom'); }} className="input-field" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Data final</label>
+                                        <input type="date" value={periodoTo} onChange={e => { setPeriodoTo(e.target.value); setPeriodoPreset('custom'); }} className="input-field" />
+                                    </div>
+                                </div>
+                                {periodoInvalido
+                                    ? <p className="text-xs text-red-600">Informe um período válido (data inicial até a data final).</p>
+                                    : <p className="text-xs text-gray-500">{obrasToDisplay.length} obra(s) ativa(s) no período.</p>}
+                            </div>
+                        )}
                     </div>
                     <div className="flex-1">
                         <label className="block text-sm font-bold text-gray-700 mb-2">Selecione as Obras (Ctrl+Click)</label>
