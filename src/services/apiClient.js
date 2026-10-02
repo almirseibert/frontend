@@ -508,6 +508,17 @@ const apiClient = {
         }),
     getJornadasOperador: async (employeeId, { startDate, endDate }) =>
         apiFetch(`/analise-gerencial/jornadas/operador/${encodeURIComponent(employeeId)}?startDate=${startDate}&endDate=${endDate}`),
+    // Espelho de ponto (trilha "Ponto" das jornadas): ler o PDF não grava nada;
+    // o usuário confere na tela e só então salva.
+    lerEspelhoPonto: async (file) => {
+        const fd = new FormData();
+        fd.append('arquivo', file);
+        return apiFetch('/analise-gerencial/ponto/espelho/ler', { method: 'POST', body: fd });
+    },
+    salvarEspelhoPonto: async (payload) =>
+        apiFetch('/analise-gerencial/ponto/espelho', { method: 'POST', body: JSON.stringify(payload) }),
+    getEspelhoPonto: async (employeeId, { startDate, endDate }) =>
+        apiFetch(`/analise-gerencial/ponto/espelho/${encodeURIComponent(employeeId)}?startDate=${startDate}&endDate=${endDate}`),
     getProjecaoObra: async (obraId) =>
         apiFetch(`/analise-gerencial/projecao/${encodeURIComponent(obraId)}`),
     // Aproveitamento por obra (capacidade líquida vs. horas apontadas) — reusa o

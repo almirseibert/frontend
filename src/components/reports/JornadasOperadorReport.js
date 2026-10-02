@@ -4,6 +4,7 @@ import autoTable from 'jspdf-autotable';
 import { Clock, Printer, Loader } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
 import apiClient from '../../services/apiClient';
+import EspelhoPontoImport from './EspelhoPontoImport';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -187,7 +188,7 @@ const gerarPDF = (data) => {
     if (!data.fontesDisponiveis.ponto) {
         doc.setFontSize(8);
         doc.setTextColor(150);
-        doc.text('* Trilha "Ponto" aguardando integração — valores zerados.', margem, barrasYFim + 3);
+        doc.text('* Sem espelho de ponto lançado para o operador no período — trilha "Ponto" zerada.', margem, barrasYFim + 3);
     }
 
     // ─── Páginas: jornada por dia ───
@@ -212,7 +213,7 @@ const gerarPDF = (data) => {
             doc.text(titulo, margem, y);
             doc.setFontSize(8);
             doc.setTextColor(110);
-            doc.text(m.obraNome || '(Sem obra)', margem, y + 4);
+            doc.text(m.obraNome || (m.semEquipamento ? 'Ponto registrado, sem hora de equipamento lançada' : '(Sem obra)'), margem, y + 4);
             if (m.discrepancias.length > 0) {
                 doc.setTextColor(...COR.discrep);
                 const txt = `${m.discrepancias.length} discrep. · ${fmtMin(m.discrepancias.reduce((s, d) => s + (d.magnitude_min || 0), 0))}`;
@@ -433,6 +434,14 @@ const JornadasOperadorReport = ({ employees = [] }) => {
                 {loading ? <Loader size={16} className="animate-spin" /> : <Printer size={16} />}
                 {loading ? 'Gerando...' : 'Gerar PDF'}
             </button>
+
+            <EspelhoPontoImport
+                employees={employees}
+                employeeId={employeeId}
+                onEmployeeChange={setEmployeeId}
+                startDate={startDate}
+                endDate={endDate}
+            />
 
             {preview && preview.dias.length > 0 && (
                 <div className="mt-6 text-xs text-gray-500">
