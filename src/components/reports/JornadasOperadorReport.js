@@ -438,7 +438,6 @@ const JornadasOperadorReport = ({ employees = [] }) => {
             <EspelhoPontoImport
                 employees={employees}
                 employeeId={employeeId}
-                onEmployeeChange={setEmployeeId}
                 startDate={startDate}
                 endDate={endDate}
             />
