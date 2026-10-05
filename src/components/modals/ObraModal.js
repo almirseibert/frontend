@@ -400,7 +400,7 @@ const ObraModal = ({
                                         className="w-full p-2 border rounded focus:ring-2 focus:ring-yellow-400 outline-none bg-white"
                                     >
                                         <option value="">Selecione...</option>
-                                        {['ALUGUEL','DOAÇÃO','INCRA','MUNICÍPIO','PARTICULAR','SEAPI','SEDUR'].map(o => (
+                                        {['ALUGUEL','DOAÇÃO','INCRA','IRGA','MUNICÍPIO','PARTICULAR','SANEP','SEAPI','SEDUR'].map(o => (
                                             <option key={o} value={o}>{o}</option>
                                         ))}
                                     </select>
