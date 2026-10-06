@@ -84,6 +84,7 @@ const AbastecimentoAdminTab = () => {
             .filter(v =>
                 !(v.permiteMultiplosAbastecimentos == 1 || v.permiteMultiplosAbastecimentos === true)
                 && v.status !== 'Inativo' && v.status !== 'Sucata'
+                && v.ativo !== 0 && v.ativo !== false
             )
             .sort((a, b) => (a.registroInterno || '').localeCompare(b.registroInterno || '')),
         [vehicles]

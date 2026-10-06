@@ -309,9 +309,13 @@ const RefuelingOrderModal = ({
 
     const sortedVehicles = useMemo(() =>
         [...vehicles]
-            .filter(v => v.status !== 'Inativo' && v.status !== 'Sucata')
+            // "Inativar" na tela de Veículos grava ativo=0 sem mexer no status,
+            // então o status sozinho não basta. O veículo já gravado na ordem
+            // continua visível para a edição não perder a seleção.
+            .filter(v => v.id === formData.vehicleId
+                || (v.status !== 'Inativo' && v.status !== 'Sucata' && v.ativo !== 0 && v.ativo !== false))
             .sort((a,b) => (a.registroInterno || '').localeCompare(b.registroInterno || ''))
-    , [vehicles]);
+    , [vehicles, formData.vehicleId]);
     const sortedEmployees = useMemo(() => [...employees].sort((a,b) => (a.nome || '').localeCompare(b.nome || '')), [employees]);
     // Postos disponíveis para ordens: parceiros de tipo 'posto' E comboios internos
     // ('comboio'). Excluímos qualquer um marcado como bloqueado.
