@@ -15,6 +15,8 @@ export const C = {
     text: '#1e1a14', textMid: '#5a4e3a', textSub: '#9a8c7a',
     // Séries de dado
     receita: '#2a78d6', custo: '#eb6834',
+    // Aba Produção: frota própria × terceiros (mesmo par azul×laranja)
+    proprio: '#2a78d6', terceiro: '#eb6834',
     // Status (verde/amarelo/laranja/vermelho unificados entre as duas abas)
     green: '#16a34a', yellow: '#ca8a04', orange: '#ea580c', red: '#dc2626',
 };

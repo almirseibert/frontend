@@ -10,7 +10,7 @@ import { KpiCard, UtilBar, StateBlock, Card } from './shared/ui';
 import { downloadCSV, downloadPDF } from './shared/exportUtils';
 
 // ============================================================================
-// Aba "Visão física" (aproveitamento produtivo). Período/obra vêm do shell.
+// Aba "Produtividade física" (aproveitamento produtivo). Período/obra vêm do shell.
 // Visão sempre global (a análise por obra vive no card da obra) → obraId fixo.
 // ============================================================================
 const AproveitamentoProdutivo = ({ active = true, range, refreshKey = 0, apiClient, setAlertMessage }) => {

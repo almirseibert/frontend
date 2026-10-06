@@ -224,7 +224,7 @@ const FaturamentoHistorico = ({ obras = [], active = true, range, obraId = 'all'
     // ─── Export (paridade com a aba física) ──────────────────────────────────
     const exportRows = () => {
         const rows = [
-            ['Desempenho do negócio — Visão financeira'],
+            ['Desempenho do negócio — Produtividade financeira'],
             ['Escopo', obraNome],
             ['Período', `${fmtDateBR(startDate)} a ${fmtDateBR(endDate)}`],
             ['Lente de custo', costMode === 'simulado' ? 'Simulação' : 'Lançado'],

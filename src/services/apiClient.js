@@ -491,6 +491,10 @@ const apiClient = {
     rejeitarComprovanteSolicitacao: async (id) => apiFetch(`/solicitacoes/${id}/rejeitar-comprovante`, { method: 'PUT' }),
     getMySolicitacaoStatus: async () => apiFetch('/solicitacoes/meus-status'),
 
+    // --- Análise Gerencial — Produção do período (aba principal de Desempenho do negócio) ---
+    getProducaoPeriodo: async ({ startDate, endDate }) =>
+        apiFetch(`/analise-gerencial/producao?startDate=${startDate}&endDate=${endDate}`),
+
     // --- Análise Gerencial — Discrepâncias Operacionais ---
     getAnaliseObrasOverview: async ({ startDate, endDate }) =>
         apiFetch(`/analise-gerencial/discrepancias/obras?startDate=${startDate}&endDate=${endDate}`),
