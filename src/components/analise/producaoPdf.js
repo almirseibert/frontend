@@ -21,7 +21,6 @@ const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julh
 const W = 210, H = 297, M = 14, CW = W - 2 * M;
 const TOPO_PAGINA = 18;
 const LIMITE_RODAPE = H - 18;
-const MAX_OBRAS = 12;
 const MAX_TIPOS = 8;
 const MAX_MAQUINAS = 10;
 
@@ -183,32 +182,19 @@ export function gerarPdfProducao(data) {
     // ── Horas por obra (barras empilhadas) ───────────────────────────────────
     titulo('Horas por obra');
     legenda(W - M - 34, y - 9);
-    const topo = obrasComHoras.slice(0, MAX_OBRAS);
-    const resto = obrasComHoras.slice(MAX_OBRAS);
-    const linhasObra = resto.length
-        ? [...topo, {
-            nome: `Demais ${resto.length} obras`,
-            horasProprio: resto.reduce((s, o) => s + o.horasProprio, 0),
-            horasTerceiro: resto.reduce((s, o) => s + o.horasTerceiro, 0),
-            total: resto.reduce((s, o) => s + o.total, 0),
-            demais: true,
-        }]
-        : topo;
-    // Escala pelas obras listadas: a linha "Demais" soma dezenas de obras e,
-    // se entrasse na escala, achataria todas as barras.
-    const maxObra = Math.max(...topo.map(o => o.total), 1);
+    // Todas as obras trabalhadas no período (a diretoria quer a lista completa;
+    // a quebra de página é tratada por garantir()).
+    const maxObra = Math.max(...obrasComHoras.map(o => o.total), 1);
     const xNome = M, wNome = 62, xBarra = M + wNome + 2, wBarra = CW - wNome - 2 - 34;
-    linhasObra.forEach((o) => {
+    obrasComHoras.forEach((o) => {
         garantir(7);
-        fonte(8.5, o.demais ? 'italic' : 'normal', o.demais ? COR.mid : COR.text);
+        fonte(8.5, 'normal');
         doc.text(caber(o.nome, wNome), xNome, y + 3);
-        if (!o.demais) {
-            const wp = (wBarra * o.horasProprio) / maxObra;
-            const wt = (wBarra * o.horasTerceiro) / maxObra;
-            cor('setFillColor', COR.goldLt); doc.rect(xBarra, y, wBarra, 4, 'F');
-            cor('setFillColor', COR.proprio); doc.rect(xBarra, y, wp, 4, 'F');
-            cor('setFillColor', COR.terceiro); doc.rect(xBarra + wp, y, wt, 4, 'F');
-        }
+        const wp = (wBarra * o.horasProprio) / maxObra;
+        const wt = (wBarra * o.horasTerceiro) / maxObra;
+        cor('setFillColor', COR.goldLt); doc.rect(xBarra, y, wBarra, 4, 'F');
+        cor('setFillColor', COR.proprio); doc.rect(xBarra, y, wp, 4, 'F');
+        cor('setFillColor', COR.terceiro); doc.rect(xBarra + wp, y, wt, 4, 'F');
         fonte(8.5, 'bold');
         doc.text(fmtNum(o.total), W - M - 13, y + 3, { align: 'right' });
         const pct = o.total > 0 ? Math.round((o.horasTerceiro / o.total) * 100) : 0;
