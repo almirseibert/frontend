@@ -11,8 +11,8 @@ const RE_HORA = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 const DIAS_SEMANA = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 const MAX_DIAS = 62;
 const MAX_BYTES = 10 * 1024 * 1024;
-// Leituras simultâneas: cada uma leva ~30 s; 3 em paralelo mantém a fila andando
-// sem disparar limite de taxa na API.
+// Leituras simultâneas. A leitura direta do PDF original é imediata; a de reserva
+// (IA, para PDF sem texto) leva ~30 s, e 3 em paralelo não disparam limite de taxa.
 const LEITURAS_SIMULTANEAS = 3;
 
 const fmtDateBr = (iso) => {
@@ -132,10 +132,11 @@ const TabelaMarcacoes = ({ item, onLinha }) => {
 
 // ── Componente ───────────────────────────────────────────────────────────────
 //
-// Lança as horas do ponto: importa um ou VÁRIOS PDFs de espelho de ponto (um por
-// funcionário), lidos por IA e conferidos na tela antes de salvar, ou digita as
-// marcações do operador selecionado. O que for salvo alimenta a trilha "Ponto"
-// do relatório de jornadas.
+// Lança as horas do ponto: importa um ou VÁRIOS PDFs de espelho de ponto (cada
+// arquivo com um ou vários funcionários), conferidos na tela antes de salvar, ou
+// digita as marcações do operador selecionado. O PDF original do sistema de
+// ponto é lido direto; PDF sem texto cai na leitura por IA. O que for salvo
+// alimenta a trilha "Ponto" do relatório de jornadas.
 
 const EspelhoPontoImport = ({ employees = [], employeeId, startDate, endDate }) => {
     const fileRef = useRef(null);
@@ -163,19 +164,30 @@ const EspelhoPontoImport = ({ employees = [], employeeId, startDate, endDate }) 
             lendoRef.current.add(it.key);
             atualizar(it.key, { status: 'lendo' });
             apiClient.lerEspelhoPonto(it.file)
-                .then(r => atualizar(it.key, {
-                    status: 'pronto',
-                    arquivoNome: r.arquivoNome || it.nome,
-                    doc: { funcionario: r.funcionario, funcionarioSugerido: r.funcionarioSugerido, periodo: r.periodo },
-                    employeeId: r.funcionarioSugerido ? r.funcionarioSugerido.id : '',
-                    linhas: r.dias.map(d => ({
-                        data: d.data,
-                        texto: d.marcacoes.join(' '),
-                        observacao: d.observacao || '',
-                        horasNormais: d.horasNormais,
-                        conferir: !!d.conferir,
-                    })),
-                }))
+                .then(r => {
+                    // Um arquivo pode trazer vários funcionários: o item da fila
+                    // vira um cartão por espelho encontrado.
+                    const varios = r.espelhos.length > 1;
+                    const cartoes = r.espelhos.map((e, idx) => ({
+                        ...it,
+                        key: idx === 0 ? it.key : novaChave(),
+                        file: null,
+                        nome: varios ? `${e.funcionario.nome || `Funcionário ${idx + 1}`} — ${it.nome}` : it.nome,
+                        status: 'pronto',
+                        metodo: e.metodo,
+                        arquivoNome: r.arquivoNome || it.nome,
+                        doc: { funcionario: e.funcionario, funcionarioSugerido: e.funcionarioSugerido, periodo: e.periodo },
+                        employeeId: e.funcionarioSugerido ? e.funcionarioSugerido.id : '',
+                        linhas: e.dias.map(d => ({
+                            data: d.data,
+                            texto: d.marcacoes.join(' '),
+                            observacao: d.observacao || '',
+                            horasNormais: d.horasNormais,
+                            conferir: !!d.conferir,
+                        })),
+                    }));
+                    setItens(prev => prev.flatMap(x => (x.key === it.key ? cartoes : [x])));
+                })
                 .catch(err => atualizar(it.key, { status: 'erro', erro: err.message || 'Não foi possível ler o arquivo.' }))
                 .finally(() => { lendoRef.current.delete(it.key); });
         });
@@ -297,8 +309,9 @@ const EspelhoPontoImport = ({ employees = [], employeeId, startDate, endDate }) 
         <div className="mt-8 border-t pt-6">
             <h3 className="text-base font-bold mb-1" style={{ color: '#1e1a14' }}>Horas do ponto</h3>
             <p className="text-sm text-gray-500 mb-4">
-                Importe os PDFs dos espelhos de ponto — vários de uma vez, um arquivo por funcionário — ou digite as
-                marcações do operador selecionado. As horas salvas aparecem na trilha <strong>Ponto</strong> do relatório.
+                Importe os PDFs dos espelhos de ponto baixados do sistema de ponto — vários arquivos de uma vez, cada um
+                com um ou mais funcionários — ou digite as marcações do operador selecionado. As horas salvas aparecem
+                na trilha <strong>Ponto</strong> do relatório.
             </p>
 
             <div className="flex flex-wrap gap-2 mb-3">
@@ -325,8 +338,8 @@ const EspelhoPontoImport = ({ employees = [], employeeId, startDate, endDate }) 
                 <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-50 border rounded px-3 py-2 text-sm">
                         <div className="text-gray-600">
-                            {itens.length} arquivo(s)
-                            {contagem.lendo > 0 && <> · <Loader size={12} className="inline animate-spin" /> lendo {contagem.lendo} (≈30 s cada)</>}
+                            {itens.length} item(ns)
+                            {contagem.lendo > 0 && <> · <Loader size={12} className="inline animate-spin" /> lendo {contagem.lendo}</>}
                             {contagem.prontos > 0 && <> · {contagem.prontos} para salvar</>}
                             {contagem.salvos > 0 && <> · <span className="text-green-700">{contagem.salvos} salvo(s)</span></>}
                             {contagem.erros > 0 && <> · <span className="text-red-600">{contagem.erros} com erro</span></>}
@@ -385,6 +398,8 @@ const EspelhoPontoImport = ({ employees = [], employeeId, startDate, endDate }) 
                                                 </>
                                             )}
                                             {r && <> · {it.linhas.length} dias · {fmtMin(r.totalMin)}</>}
+                                            {it.metodo === 'ia' && <> · <span className="text-purple-700 font-semibold">lido por IA</span></>}
+                                            {it.metodo === 'texto' && <> · leitura direta</>}
                                             {it.status === 'salvo' && <span className="text-green-700"> · <CheckCircle size={11} className="inline" /> {it.salvoMsg}</span>}
                                         </div>
                                     </div>
