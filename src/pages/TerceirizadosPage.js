@@ -548,6 +548,11 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                                                         <AlertTriangle size={10} /> sem máquina
                                                     </div>
                                                 )}
+                                                {r.itensContratados.some((it) => it.consomeDe) && (
+                                                    <div className="text-[10px] text-amber-700 flex items-center gap-1 mt-0.5">
+                                                        <AlertTriangle size={10} /> máquina fora do plano
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="p-3 text-gray-500 text-xs">
                                                 <div className="flex items-center gap-1"><Building2 size={11} /> {obraNome(c.obraId)}</div>

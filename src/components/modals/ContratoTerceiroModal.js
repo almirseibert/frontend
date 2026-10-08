@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale, AlertTriangle, Info } from 'lucide-react';
+import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale, AlertTriangle, Info, ArrowRight } from 'lucide-react';
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
 import CurrencyInput from '../ui/CurrencyInput';
 import SearchableObraSelect from '../SearchableObraSelect';
@@ -14,7 +14,13 @@ const normalizeItens = (v) => {
     let arr = v;
     if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { arr = []; } }
     if (!Array.isArray(arr)) return [];
-    return arr.filter((i) => i && i.type).map((i) => ({ type: i.type, hours: i.hours != null ? String(i.hours) : '', price: i.price != null ? String(i.price) : '' }));
+    return arr.filter((i) => i && i.type).map((i) => ({
+        type: i.type,
+        hours: i.hours != null ? String(i.hours) : '',
+        price: i.price != null ? String(i.price) : '',
+        // Máquina fora do plano da obra: consome as horas de outro item do plano.
+        ...(i.consomeDe ? { foraPlano: true, consomeDe: i.consomeDe } : {}),
+    }));
 };
 
 /**
@@ -48,6 +54,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         contratadaRepresentanteCpf: contrato?.contratadaRepresentanteCpf || '',
         dataContratoModo: contrato?.dataContratoModo || 'atual',
         dataContratoPersonalizada: contrato?.dataContratoPersonalizada ? String(contrato.dataContratoPersonalizada).split('T')[0] : '',
+        foraDoPlanoJustificativa: contrato?.foraDoPlanoJustificativa || '',
     });
     const [itens, setItens] = useState(() => normalizeItens(contrato?.itensContratados));
     const [isSaving, setIsSaving] = useState(false);
@@ -133,7 +140,8 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
             obra: obraSelecionada,
             contratos,
             exceptContratoId: contrato?.id || null,
-            incluirTypes: itens.map((i) => i.type),
+            // Máquina fora do plano não vira linha do plano: ela aparece no bloco próprio.
+            incluirTypes: itens.filter((i) => !i.foraPlano).map((i) => i.type),
         }),
         [obraSelecionada, contratos, contrato, itens]
     );
@@ -143,34 +151,54 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
 
     // A presença do subgrupo em `itens` É a seleção: só o que o usuário marcar
     // entra no contrato do terceiro. Nada do plano da obra vem marcado por padrão.
-    const itemDoTipo = (type) => itens.find((i) => i.type === type) || null;
-    const isSelecionado = (type) => itens.some((i) => i.type === type);
+    const itemDoTipo = (type) => itens.find((i) => !i.foraPlano && i.type === type) || null;
+    const isSelecionado = (type) => itens.some((i) => !i.foraPlano && i.type === type);
     // Marcar NÃO preenche valor: o valor/hora da obra é o que a MAK recebe, não o
     // que o terceiro cobra. Ele aparece só como referência ao lado, e o campo
     // começa vazio de propósito.
     const toggleItemTipo = (type) => setItens((cur) => (
-        cur.some((i) => i.type === type)
-            ? cur.filter((i) => i.type !== type)
+        cur.some((i) => !i.foraPlano && i.type === type)
+            ? cur.filter((i) => i.foraPlano || i.type !== type)
             : [...cur, { type, hours: '', price: '' }]
     ));
     const setItemDoTipo = (type, field, value) => setItens((cur) => {
-        const idx = cur.findIndex((i) => i.type === type);
+        const idx = cur.findIndex((i) => !i.foraPlano && i.type === type);
         if (idx === -1) return [...cur, { type, hours: '', price: '', [field]: value }];
         return cur.map((it, i) => (i === idx ? { ...it, [field]: value } : it));
     });
 
+    // ---- Máquina fora do plano (acordo informal) -----------------------------------
+    // Às vezes se combina usar uma máquina que o plano da obra não prevê. Ela pode
+    // entrar no contrato, mas precisa indicar de qual item do plano as horas saem —
+    // o teto continua sendo o plano. O valor/hora do terceiro é livre. O contrato
+    // fica marcado permanentemente (justificativa + quem/quando registrou).
+    const itensDoPlano = useMemo(() => planoRows.filter((r) => !r.foraDoPlano), [planoRows]);
+    const tiposDoPlano = useMemo(() => new Set(itensDoPlano.map((r) => r.type)), [itensDoPlano]);
+    const substituicoes = useMemo(
+        () => itens.map((it, idx) => ({ it, idx })).filter(({ it }) => it.foraPlano),
+        [itens]
+    );
+    const temSubstituicao = substituicoes.length > 0;
+    const addSubstituicao = () => setItens((c) => [...c, { type: '', hours: '', price: '', foraPlano: true, consomeDe: '' }]);
+
+    // Horas que ESTE contrato tira de um item do plano: o próprio item + as máquinas
+    // fora do plano que consomem dele.
+    const horasNoItemDoPlano = useCallback((type) => itens
+        .filter((i) => (i.foraPlano ? i.consomeDe === type : i.type === type))
+        .reduce((a, i) => a + (parseFloat(i.hours) || 0), 0), [itens]);
+
     // Subgrupos em que as horas pedidas estouram o saldo disponível.
-    // Subgrupo FORA do plano da obra não tem saldo a controlar — é contrato legado,
-    // e o backend o ignora de propósito. Se entrasse aqui, seu saldo seria 0 e o
-    // contrato antigo ficaria impossível de salvar por uma regra que não vale para ele.
+    // Subgrupo FORA do plano da obra sem origem não tem saldo a controlar — é
+    // contrato legado, e o backend o ignora de propósito. Se entrasse aqui, seu saldo
+    // seria 0 e o contrato antigo ficaria impossível de salvar por uma regra que não
+    // vale para ele.
     const excedidos = useMemo(() => {
         if (!temPlano) return [];
-        return planoRows
-            .filter((r) => !r.foraDoPlano)
-            .map((r) => ({ r, h: parseFloat(itens.find((i) => i.type === r.type)?.hours) || 0 }))
+        return itensDoPlano
+            .map((r) => ({ r, h: horasNoItemDoPlano(r.type) }))
             .filter((x) => x.h > x.r.saldo + 1e-6)
             .map((x) => x.r);
-    }, [planoRows, itens, temPlano]);
+    }, [itensDoPlano, horasNoItemDoPlano, temPlano]);
 
     const isFechado = form.contractType === 'fechado';
     // No modo fechado as máquinas entram sem valor/hora — só a coluna de horas aparece.
@@ -196,6 +224,22 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 excedidos.map((r) => `${r.type} (saldo ${r.saldo.toLocaleString('pt-BR')} h)`).join(', ') + '.'
             );
             return;
+        }
+        if (temSubstituicao) {
+            const incompleta = substituicoes.find(({ it }) => !it.type || !it.consomeDe || !((parseFloat(it.hours) || 0) > 0));
+            if (incompleta) {
+                setAlertMessage?.('Máquina fora do plano: informe a máquina, de qual item do plano as horas serão consumidas e as horas.'); return;
+            }
+            if (!form.foraDoPlanoJustificativa.trim()) {
+                setAlertMessage?.('Informe a justificativa do acordo da máquina fora do plano de trabalho.'); return;
+            }
+            const resumo = substituicoes.map(({ it }) => `• ${it.type} consumindo ${it.hours} h de ${it.consomeDe}`).join('\n');
+            // eslint-disable-next-line no-alert
+            const ok = window.confirm(
+                'ATENÇÃO: este contrato terá máquina FORA do plano de trabalho da obra.\n\n' + resumo +
+                '\n\nAs horas saem do saldo do item indicado e o contrato ficará marcado permanentemente com este aviso. Confirmar?'
+            );
+            if (!ok) return;
         }
         if (temPlano) {
             if (itens.filter((i) => i.type).length === 0) {
@@ -223,7 +267,10 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
             // No modo fechado as máquinas entram com price = 0: o valor é global, as horas são só demonstrativas.
             const itensLimpos = itens
                 .filter((i) => i.type && (!temPlano || (parseFloat(i.hours) || 0) > 0))
-                .map((i) => ({ type: i.type, hours: parseFloat(i.hours) || 0, price: isFechado ? 0 : (parseFloat(i.price) || 0) }));
+                .map((i) => ({
+                    type: i.type, hours: parseFloat(i.hours) || 0, price: isFechado ? 0 : (parseFloat(i.price) || 0),
+                    ...(i.foraPlano && i.consomeDe ? { consomeDe: i.consomeDe } : {}),
+                }));
             // tipoMaquina: usa o digitado ou deriva dos subgrupos do plano.
             const tipoMaquina = form.tipoMaquina || (itensLimpos.length > 0 ? [...new Set(itensLimpos.map((i) => i.type))].join(', ') : null);
             // No fechado, as horas contratadas (progresso físico) somam as horas das máquinas do plano.
@@ -254,6 +301,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 contratadaRepresentanteCpf: form.contratadaRepresentanteCpf.trim() || null,
                 dataContratoModo: form.dataContratoModo,
                 dataContratoPersonalizada: form.dataContratoModo === 'personalizada' ? form.dataContratoPersonalizada : null,
+                foraDoPlanoJustificativa: temSubstituicao ? form.foraDoPlanoJustificativa.trim() : null,
                 createdBy: { userEmail: user?.email || user?.userEmail || '' },
             };
             if (contrato?.id) await apiClient.updateTerceiroContrato(contrato.id, payload);
@@ -367,7 +415,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                 <div className="space-y-2">
                                     {planoRows.map((r) => {
                                         const it = itemDoTipo(r.type);
-                                        const h = parseFloat(it?.hours) || 0;
+                                        const hProprio = parseFloat(it?.hours) || 0;
+                                        const hSubst = r.foraDoPlano ? 0 : horasNoItemDoPlano(r.type) - hProprio;
+                                        const h = hProprio + hSubst;
                                         const excede = h > r.saldo + 1e-6;
                                         const restante = r.saldo - h;
                                         const selecionado = isSelecionado(r.type);
@@ -429,6 +479,11 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                                         </>
                                                     )}
                                                 </div>
+                                                {hSubst > 0 && (
+                                                    <p className="text-[11px] text-amber-700 mt-1">
+                                                        {hSubst.toLocaleString('pt-BR')} h consumidas por máquina fora do plano (abaixo).
+                                                    </p>
+                                                )}
                                                 {excede && (
                                                     <p className="text-[11px] text-red-600 font-medium mt-1">
                                                         Excede o saldo disponível em {(h - r.saldo).toLocaleString('pt-BR')} h.
@@ -441,8 +496,92 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                         );
                                     })}
                                 </div>
+                                {/* Máquina fora do plano — exceção, com alerta e registro permanente */}
+                                <div className={`mt-3 rounded-lg border ${temSubstituicao ? 'border-amber-300 bg-amber-50' : 'border-dashed border-gray-300 bg-white'} p-3`}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className={`text-xs font-bold flex items-center gap-1 ${temSubstituicao ? 'text-amber-800' : 'text-gray-500'}`}>
+                                            <AlertTriangle size={13} /> Máquina fora do plano (acordo informal)
+                                        </span>
+                                        <button type="button" onClick={addSubstituicao} className="text-xs flex items-center gap-1 text-amber-700 hover:text-amber-900 font-bold bg-white px-2 py-1 rounded border border-amber-300 shadow-sm">
+                                            <Plus size={14} /> Adicionar
+                                        </button>
+                                    </div>
+                                    {!temSubstituicao && (
+                                        <p className="text-[11px] text-gray-400 mt-1">
+                                            Use só quando foi combinada uma máquina que não está no plano da obra. As horas dela saem do saldo de um item do plano.
+                                        </p>
+                                    )}
+                                    {temSubstituicao && (
+                                        <>
+                                            <p className="text-[11px] text-amber-800 mt-1 mb-2">
+                                                Atenção: esta máquina não está no plano de trabalho da obra. As horas serão descontadas do item indicado
+                                                e o contrato ficará <strong>marcado permanentemente</strong> com este aviso.
+                                            </p>
+                                            <div className="space-y-2">
+                                                {substituicoes.map(({ it, idx }) => {
+                                                    const origem = itensDoPlano.find((r) => r.type === it.consomeDe);
+                                                    const usadosPorOutras = new Set(itens.filter((x, j) => j !== idx && x.type).map((x) => x.type));
+                                                    const opcoes = equipmentOptions.filter((o) => !tiposDoPlano.has(o) && !usadosPorOutras.has(o));
+                                                    return (
+                                                        <div key={idx} className="bg-white p-3 rounded border border-amber-200 shadow-sm">
+                                                            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                                                                <div className="w-full sm:flex-1 min-w-0">
+                                                                    <label className="block text-[10px] font-bold text-gray-500 mb-1">Máquina do terceiro</label>
+                                                                    <select value={it.type} onChange={(e) => updateItem(idx, 'type', e.target.value)} className="w-full p-2 border rounded text-sm">
+                                                                        <option value="">Selecione...</option>
+                                                                        {it.type && !opcoes.includes(it.type) && <option value={it.type}>{it.type}</option>}
+                                                                        {opcoes.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                                                                    </select>
+                                                                </div>
+                                                                <ArrowRight size={16} className="hidden sm:block text-amber-500 mb-2.5 shrink-0" />
+                                                                <div className="w-full sm:flex-1 min-w-0">
+                                                                    <label className="block text-[10px] font-bold text-gray-500 mb-1">Consome horas de (plano)</label>
+                                                                    <select value={it.consomeDe || ''} onChange={(e) => updateItem(idx, 'consomeDe', e.target.value)} className="w-full p-2 border rounded text-sm">
+                                                                        <option value="">Selecione...</option>
+                                                                        {itensDoPlano.map((r) => (
+                                                                            <option key={r.type} value={r.type}>{r.type} — disp. {r.saldo.toLocaleString('pt-BR')} h</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                <button type="button" onClick={() => removeItem(idx)} className="p-2 text-red-400 hover:bg-red-50 rounded mb-0.5 self-end"><Trash2 size={18} /></button>
+                                                            </div>
+                                                            <div className="flex gap-2 mt-2">
+                                                                <div className={showPrice ? 'w-1/2 sm:w-32' : 'w-full sm:w-32'}>
+                                                                    <label className="block text-[10px] font-bold text-gray-500 mb-1">Horas do terceiro</label>
+                                                                    <input type="number" min="0" step="any" value={it.hours} onChange={(e) => updateItem(idx, 'hours', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0" />
+                                                                </div>
+                                                                {showPrice && (
+                                                                    <div className="w-1/2 sm:w-36">
+                                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Valor/hora do terceiro (R$)</label>
+                                                                        <CurrencyInput value={it.price} onChange={(e) => updateItem(idx, 'price', e.target.value)} className="w-full p-2 border rounded text-sm" placeholder="0,00" />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {showPrice && origem && origem.valorHoraPlano > 0 && (
+                                                                <p className="text-[11px] text-gray-400 mt-1">Valor/hora da obra para {origem.type}: {fmtBRL(origem.valorHoraPlano)} (referência — o valor do terceiro pode ser diferente).</p>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="mt-2">
+                                                <label className="block text-[10px] font-bold text-amber-800 mb-1">Justificativa do acordo (obrigatória)</label>
+                                                <textarea
+                                                    name="foraDoPlanoJustificativa"
+                                                    value={form.foraDoPlanoJustificativa}
+                                                    onChange={handleChange}
+                                                    rows={2}
+                                                    placeholder="Ex.: solicitado pelo fiscal da obra em 12/10 para serviço de drenagem"
+                                                    className="w-full p-2 border border-amber-300 rounded-lg bg-white text-sm"
+                                                />
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
                                 <p className="text-[11px] text-gray-500 mt-2">
-                                    Selecionados: <span className="font-bold text-gray-700">{itens.filter((i) => i.type).length} de {planoRows.length}</span> itens ·
+                                    Selecionados: <span className="font-bold text-gray-700">{itens.filter((i) => i.type && !i.foraPlano).length} de {planoRows.length}</span> itens
+                                    {temSubstituicao && <> + {substituicoes.length} fora do plano</>} ·
                                     total deste contrato: <span className="font-bold text-gray-700">{totalHorasItens.toLocaleString('pt-BR')} h</span>
                                     {isFechado && ' · as horas constam no contrato sem valor individual; o valor é o global fechado acima.'}
                                 </p>

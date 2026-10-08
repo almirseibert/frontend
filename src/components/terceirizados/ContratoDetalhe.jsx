@@ -464,6 +464,8 @@ const ContratoDetalhe = ({
     const matriz = useMemo(() => montarMatrizMaquinaMes(apontamentos, porMes), [apontamentos, porMes]);
     const totalAdiant = adiantamentos.reduce((a, p) => a + (Number(p.valor) || 0), 0);
     const semMaquina = (c.status || 'ativo') === 'ativo' && r.numMaquinas === 0;
+    // Máquina fora do plano da obra (acordo informal) — aviso permanente do contrato.
+    const foraDoPlano = r.itensContratados.filter((it) => it.consomeDe);
     const progressoPct = Math.max(0, Math.min(1, r.progresso || 0)) * 100;
     const horasRestantes = Math.max(0, (r.horasContratadas || 0) - (r.horasExecutadas || 0));
 
@@ -519,6 +521,27 @@ const ContratoDetalhe = ({
                 <KpiCard label="Saldo a pagar" value={fmtBRL(r.saldo)} tone={r.saldo > 0 ? 'red' : r.saldo < 0 ? 'blue' : 'green'} />
             </div>
 
+            {foraDoPlano.length > 0 && (
+                <div className="mb-4 text-xs text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
+                    <div className="flex items-start gap-1.5 font-semibold">
+                        <AlertTriangle size={14} className="mt-px shrink-0" />
+                        <span>Contrato com máquina FORA do plano de trabalho da obra (acordo informal):</span>
+                    </div>
+                    <ul className="mt-1 ml-5 list-disc">
+                        {foraDoPlano.map((it) => (
+                            <li key={it.type}><strong>{it.type}</strong> — {fmtHInt(it.horas)} consumidas do saldo de <strong>{it.consomeDe}</strong></li>
+                        ))}
+                    </ul>
+                    {c.foraDoPlanoJustificativa && (
+                        <p className="mt-1 ml-5"><span className="font-semibold">Justificativa:</span> {c.foraDoPlanoJustificativa}</p>
+                    )}
+                    {(c.foraDoPlanoRegistradoPor || c.foraDoPlanoRegistradoEm) && (
+                        <p className="mt-0.5 ml-5 text-amber-700">
+                            Registrado{c.foraDoPlanoRegistradoPor ? ` por ${c.foraDoPlanoRegistradoPor}` : ''}{c.foraDoPlanoRegistradoEm ? ` em ${fmtDateTime(c.foraDoPlanoRegistradoEm)}` : ''}.
+                        </p>
+                    )}
+                </div>
+            )}
             {semMaquina && (
                 <div className="mb-4 flex items-start gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     <AlertTriangle size={14} className="mt-px shrink-0" />
@@ -556,7 +579,12 @@ const ContratoDetalhe = ({
                                         <tbody>
                                             {r.itensContratados.map((it, i) => (
                                                 <tr key={i} className="border-b border-gray-50">
-                                                    <td className="py-2 pr-2 font-semibold text-gray-800">{it.type}</td>
+                                                    <td className="py-2 pr-2 font-semibold text-gray-800">
+                                                        {it.type}
+                                                        {it.consomeDe && (
+                                                            <span className="block text-[10px] font-medium text-amber-700">fora do plano · consome de {it.consomeDe}</span>
+                                                        )}
+                                                    </td>
                                                     <td className="py-2 px-2 text-right font-bold text-gray-800 whitespace-nowrap">{fmtHInt(it.horas)}</td>
                                                     {porValor && <td className="py-2 px-2 text-right text-gray-600 whitespace-nowrap">{fmtBRL(it.valorHora)}</td>}
                                                     {porValor && <td className="py-2 pl-2 text-right font-bold text-gray-800 whitespace-nowrap">{fmtBRL(it.subtotal)}</td>}

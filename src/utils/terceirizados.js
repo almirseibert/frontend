@@ -366,7 +366,7 @@ export const computeContrato = (contrato, ctx = {}) => {
     let itens = vig.itensContratados;
     if (typeof itens === 'string') { try { itens = JSON.parse(itens); } catch { itens = []; } }
     const itensContratados = Array.isArray(itens)
-        ? itens.filter((i) => i && i.type).map((i) => ({ type: i.type, horas: num(i.hours), valorHora: num(i.price), subtotal: num(i.hours) * num(i.price) }))
+        ? itens.filter((i) => i && i.type).map((i) => ({ type: i.type, horas: num(i.hours), valorHora: num(i.price), subtotal: num(i.hours) * num(i.price), consomeDe: i.consomeDe || null }))
         : [];
 
     // Aditivos que contam nos números (minuta ou assinado — a assinatura só trava
@@ -545,17 +545,23 @@ export const computeTerceirizadoPorObra = (obraId, obras = [], vehicles = [], ct
 // valor/hora individual.
 // ============================================================================
 
-/** Itens contratados (base + aditivos, quando houver) de um contrato, normalizados. */
+/** Itens contratados (base + aditivos, quando houver) de um contrato, normalizados.
+ *  `consomeDe` = máquina fora do plano da obra que consome horas desse item do plano. */
 export const contratoItensVigentes = (contrato) => {
     const raw = contrato?.vigente?.itensContratados ?? contrato?.itensContratados;
     let arr = raw;
     if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { arr = []; } }
     if (!Array.isArray(arr)) return [];
     return arr.filter((i) => i && i.type)
-        .map((i) => ({ type: String(i.type), hours: num(i.hours), price: num(i.price) }));
+        .map((i) => ({ type: String(i.type), hours: num(i.hours), price: num(i.price), consomeDe: i.consomeDe ? String(i.consomeDe) : null }));
 };
 
-/** Horas por subgrupo já comprometidas com terceiros numa obra, exceto um contrato. */
+/** Itens do contrato com máquina fora do plano da obra (acordo informal). */
+export const contratoItensForaDoPlano = (contrato) =>
+    contratoItensVigentes(contrato).filter((i) => i.consomeDe);
+
+/** Horas por subgrupo DO PLANO já comprometidas com terceiros numa obra, exceto um
+ *  contrato. Máquina fora do plano conta no item de origem (`consomeDe`). */
 export const horasTerceirizadasPorSubTipo = (obraId, contratos = [], exceptContratoId = null) => {
     const out = {};
     contratos.forEach((c) => {
@@ -563,7 +569,8 @@ export const horasTerceirizadasPorSubTipo = (obraId, contratos = [], exceptContr
         if (exceptContratoId && c.id === exceptContratoId) return;
         if (c.status === 'cancelado') return;
         contratoItensVigentes(c).forEach((i) => {
-            out[i.type] = (out[i.type] || 0) + i.hours;
+            const k = i.consomeDe || i.type;
+            out[k] = (out[k] || 0) + i.hours;
         });
     });
     return out;
