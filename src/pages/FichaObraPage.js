@@ -761,12 +761,12 @@ function FrotaTabela({ frota, anErro, loading, onDetalhe }) {
                         </thead>
                         <tbody>
                             {frota.linhas.map((v) => (
-                                <tr key={v.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                <tr key={v.id} style={{ borderBottom: `1px solid ${C.border}`, background: v.alocadaAtualmente === false ? C.bg : undefined }}>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                         <span style={{ fontWeight: 700, color: C.ink }}>{v.registroInterno || '—'}</span>
                                         {v.modelo && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 12 }}>{v.modelo}</span>}
                                         {v.estado === 'manutencao' && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>· em manutenção</span>}
-                                        {v.alocadaAtualmente === false && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>· já saiu</span>}
+                                        {v.alocadaAtualmente === false && <SaiuTag destino={v.obraNome} />}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 12.5, color: C.inkMid }}>{v.tipo || '—'}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, textAlign: 'right', color: C.ink }}>{fmtH(v.horas_executadas)}</td>
@@ -780,6 +780,18 @@ function FrotaTabela({ frota, anErro, loading, onDetalhe }) {
                 </div>
             )}
         </Card>
+    );
+}
+
+// Selo de máquina que já deixou a obra. Neutro de propósito (cor é exceção nesta
+// tela): o destaque vem do contorno, não do matiz.
+function SaiuTag({ destino }) {
+    const foiPara = destino && destino !== '—' ? destino : null;
+    return (
+        <span title={foiPara ? `Hoje em: ${foiPara}` : 'Não está mais alocada nesta obra'}
+            style={{ display: 'inline-block', marginLeft: 8, padding: '1px 7px', borderRadius: 9999, border: `1px solid ${C.border}`, background: C.surface, color: C.inkMid, fontSize: 10.5, fontWeight: 600, verticalAlign: 'middle' }}>
+            já saiu{foiPara ? ` → ${foiPara}` : ''}
+        </span>
     );
 }
 
@@ -872,7 +884,7 @@ function Tabela({ cols, linhas }) {
                 </thead>
                 <tbody>
                     {linhas.map((l, i) => (
-                        <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: l.fundo }}>
                             {l.celulas.map((cel, j) => (
                                 <td key={j} style={{
                                     padding: '7px 10px', fontSize: 12.5,
@@ -880,6 +892,7 @@ function Tabela({ cols, linhas }) {
                                     color: cel.cor || C.ink, fontWeight: cel.forte ? 700 : 400,
                                 }}>
                                     {cel.v}
+                                    {cel.tag}
                                     {cel.sub && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>{cel.sub}</span>}
                                 </td>
                             ))}
@@ -1206,11 +1219,14 @@ function DetFrota({ frota }) {
                         .sort((a, b) => (a.aproveitamento ?? 999) - (b.aproveitamento ?? 999))
                         .map((v) => {
                             const ociosas = Number(v.capPeriodo) > 0 ? Number(v.capPeriodo) - Number(v.horas_executadas || 0) : null;
+                            const saiu = v.alocadaAtualmente === false;
                             return {
+                                fundo: saiu ? C.bg : undefined,
                                 celulas: [
                                     {
                                         v: v.registroInterno || '—', forte: true,
-                                        sub: v.alocadaAtualmente === false ? '· já saiu' : (v.estado === 'manutencao' ? '· manutenção' : null),
+                                        tag: saiu ? <SaiuTag destino={v.obraNome} /> : null,
+                                        sub: !saiu && v.estado === 'manutencao' ? '· manutenção' : null,
                                     },
                                     { v: v.tipo || '—', cor: C.inkMid },
                                     { v: fmtH(v.horas_executadas) },

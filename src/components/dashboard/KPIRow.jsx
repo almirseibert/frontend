@@ -10,7 +10,7 @@ const DeltaPp = ({ value }) => {
     const up = value > 0;
     const Icon = up ? TrendingUp : TrendingDown;
     return (
-        <span className={up ? 'text-red-600' : 'text-emerald-600'}>
+        <span className={up ? 'text-emerald-600' : 'text-red-600'}>
             <Icon size={11} className="inline -mt-0.5 mr-0.5" />
             {up ? '+' : ''}{value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}pp vs período anterior
         </span>

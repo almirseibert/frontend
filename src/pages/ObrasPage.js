@@ -163,6 +163,19 @@ const ObrasPage = ({
         return [...set].sort((a, b) => a.localeCompare(b));
     }, [obras]);
 
+    // Equipamentos ativos = veículos alocados na obra HOJE (vehicles.obraAtualId),
+    // a mesma regra da Ficha da Obra. Contar estadias sem dataSaida no histórico
+    // inflava o número: sobram estadias abertas de quem já saiu/foi realocado.
+    const ativosPorObra = useMemo(() => {
+        const map = new Map();
+        (vehicles || []).forEach(v => {
+            if (!v.obraAtualId) return;
+            const key = String(v.obraAtualId);
+            map.set(key, (map.get(key) || 0) + 1);
+        });
+        return map;
+    }, [vehicles]);
+
     // --- FILTROS E ORDENAÇÃO ---
     const filteredObras = useMemo(() => {
         // "Abertura" = quando o registro da obra foi criado. Obras pré-ativas
@@ -172,7 +185,7 @@ const ObrasPage = ({
             const raw = o.created_at || o.dataInicio;
             return raw ? new Date(raw).getTime() : 0;
         };
-        const activeCount = (o) => (o.historicoVeiculos || []).filter(h => !h.dataSaida).length;
+        const activeCount = (o) => ativosPorObra.get(String(o.id)) || 0;
 
         // Normaliza para busca sem acento/caixa: "Candido" casa com "Cândido".
         const normalize = (s) => (s || '')
@@ -202,7 +215,7 @@ const ObrasPage = ({
                 return statusMatch && finishedMatch && searchMatch && tipoMatch && regiaoMatch && orgaoMatch;
             })
             .sort(sorters[sortBy] || sorters['nome-asc']);
-    }, [obras, filter, tipoFilter, regiaoFilter, orgaoFilter, sortBy, searchTerm, showFinished]);
+    }, [obras, ativosPorObra, filter, tipoFilter, regiaoFilter, orgaoFilter, sortBy, searchTerm, showFinished]);
 
     const exportToCSV = () => {
         if (!filteredObras || filteredObras.length === 0) {
@@ -372,7 +385,7 @@ const ObrasPage = ({
                             </thead>
                             <tbody>
                                 {filteredObras.map(obra => {
-                                    const activeCount = (obra.historicoVeiculos || []).filter(h => !h.dataSaida).length;
+                                    const activeCount = ativosPorObra.get(String(obra.id)) || 0;
                                     const isCentroCusto = obra.tipo_registro === 'centro_custo';
                                     const orgaoPendente = !isCentroCusto && !obra.orgao_contratante;
                                     const regiaoPendente = !isCentroCusto && !obra.regiao;
