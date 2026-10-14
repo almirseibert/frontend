@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { X, Loader, Save, FileText, Clock, Plus, Trash2, DollarSign, Scale, AlertTriangle, Info, ArrowRight } from 'lucide-react';
 import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRules';
 import CurrencyInput from '../ui/CurrencyInput';
@@ -123,6 +123,23 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         return { dentro, fora };
     }, [maquinasDoTerceiro, casaSubgrupo, form.obraId]);
 
+    // Modo 'inicio_obra': a minuta é datada do primeiro lançamento de horas do
+    // terceiro nesta obra (subgrupos marcados). Busca só para mostrar a prévia.
+    const subgruposChave = [...new Set(itens.map((i) => i.type).filter(Boolean))].sort().join(',');
+    const [primeiroLancamento, setPrimeiroLancamento] = useState({ loading: false, data: null });
+    useEffect(() => {
+        if (form.dataContratoModo !== 'inicio_obra' || !form.locadorId || !form.obraId || !apiClient?.getPrimeiroLancamentoTerceiro) {
+            setPrimeiroLancamento({ loading: false, data: null });
+            return undefined;
+        }
+        let ativo = true;
+        setPrimeiroLancamento({ loading: true, data: null });
+        apiClient.getPrimeiroLancamentoTerceiro({ locadorId: form.locadorId, obraId: form.obraId, subgrupos: subgruposChave ? subgruposChave.split(',') : [] })
+            .then((r) => { if (ativo) setPrimeiroLancamento({ loading: false, data: r?.data || null }); })
+            .catch(() => { if (ativo) setPrimeiroLancamento({ loading: false, data: null }); });
+        return () => { ativo = false; };
+    }, [apiClient, form.dataContratoModo, form.locadorId, form.obraId, subgruposChave]);
+
     const addItem = () => setItens((c) => [...c, { type: '', hours: '', price: '' }]);
     const removeItem = (i) => setItens((c) => c.filter((_, idx) => idx !== i));
     const updateItem = (i, field, value) => setItens((c) => c.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
@@ -187,7 +204,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         .filter((i) => (i.foraPlano ? i.consomeDe === type : i.type === type))
         .reduce((a, i) => a + (parseFloat(i.hours) || 0), 0), [itens]);
 
-    // Subgrupos em que as horas pedidas estouram o saldo disponível.
+    // Subgrupos em que as horas pedidas estouram o saldo disponível. Só conta o
+    // que este contrato realmente usa (h > 0): item desmarcado com saldo negativo
+    // (outros terceiros já estouraram) não é problema deste contrato.
     // Subgrupo FORA do plano da obra sem origem não tem saldo a controlar — é
     // contrato legado, e o backend o ignora de propósito. Se entrasse aqui, seu saldo
     // seria 0 e o contrato antigo ficaria impossível de salvar por uma regra que não
@@ -196,8 +215,8 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         if (!temPlano) return [];
         return itensDoPlano
             .map((r) => ({ r, h: horasNoItemDoPlano(r.type) }))
-            .filter((x) => x.h > x.r.saldo + 1e-6)
-            .map((x) => x.r);
+            .filter((x) => x.h > 0 && x.h > x.r.saldo + 1e-6)
+            .map((x) => ({ ...x.r, pedido: x.h }));
     }, [itensDoPlano, horasNoItemDoPlano, temPlano]);
 
     const isFechado = form.contractType === 'fechado';
@@ -218,13 +237,6 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         e.preventDefault();
         if (!form.locadorId) { setAlertMessage?.('Selecione o terceiro.'); return; }
         if (!form.obraId) { setAlertMessage?.('Selecione a obra.'); return; }
-        if (excedidos.length > 0) {
-            setAlertMessage?.(
-                'Horas acima do saldo do plano de trabalho da obra: ' +
-                excedidos.map((r) => `${r.type} (saldo ${r.saldo.toLocaleString('pt-BR')} h)`).join(', ') + '.'
-            );
-            return;
-        }
         if (temSubstituicao) {
             const incompleta = substituicoes.find(({ it }) => !it.type || !it.consomeDe || !((parseFloat(it.hours) || 0) > 0));
             if (incompleta) {
@@ -256,11 +268,18 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
         if (isFechado && !(parseFloat(form.valorTotalFechado) > 0)) {
             setAlertMessage?.('Informe o valor fechado do contrato.'); return;
         }
-        if (form.dataContratoModo === 'inicio_obra' && !form.vigenciaInicio) {
-            setAlertMessage?.('Para usar a data de início do terceiro na obra, preencha "Vigência início".'); return;
-        }
         if (form.dataContratoModo === 'personalizada' && !form.dataContratoPersonalizada) {
             setAlertMessage?.('Informe a data personalizada do contrato.'); return;
+        }
+        // Estourar o saldo do plano é permitido, mas só depois de avisar.
+        if (excedidos.length > 0) {
+            const resumo = excedidos.map((r) => `• ${r.type}: ${r.pedido.toLocaleString('pt-BR')} h pedidas, saldo ${r.saldo.toLocaleString('pt-BR')} h`).join('\n');
+            // eslint-disable-next-line no-alert
+            const ok = window.confirm(
+                'ATENÇÃO: as horas ficam ACIMA do saldo do plano de trabalho da obra.\n\n' + resumo +
+                '\n\nO total repassado a terceiros vai superar o plano. Salvar mesmo assim?'
+            );
+            if (!ok) return;
         }
         setIsSaving(true);
         try {
@@ -302,6 +321,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                 dataContratoModo: form.dataContratoModo,
                 dataContratoPersonalizada: form.dataContratoModo === 'personalizada' ? form.dataContratoPersonalizada : null,
                 foraDoPlanoJustificativa: temSubstituicao ? form.foraDoPlanoJustificativa.trim() : null,
+                confirmarExcessoPlano: excedidos.length > 0,
                 createdBy: { userEmail: user?.email || user?.userEmail || '' },
             };
             if (contrato?.id) await apiClient.updateTerceiroContrato(contrato.id, payload);
@@ -418,19 +438,19 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                         const hProprio = parseFloat(it?.hours) || 0;
                                         const hSubst = r.foraDoPlano ? 0 : horasNoItemDoPlano(r.type) - hProprio;
                                         const h = hProprio + hSubst;
-                                        const excede = h > r.saldo + 1e-6;
+                                        const excede = h > 0 && h > r.saldo + 1e-6;
                                         const restante = r.saldo - h;
                                         const selecionado = isSelecionado(r.type);
-                                        // Item do plano já esgotado por outros terceiros não pode ser marcado.
+                                        // Item do plano já esgotado por outros terceiros: pode ser marcado,
+                                        // mas fica sinalizado e o salvar pede confirmação.
                                         const semSaldo = !r.foraDoPlano && r.saldo <= 0;
                                         return (
                                             <div key={r.type} className={`p-3 rounded border shadow-sm transition ${excede ? 'bg-white border-red-300' : selecionado ? 'bg-white border-purple-300' : 'bg-gray-50 border-gray-200'}`}>
                                                 <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-                                                    <label className={`w-full sm:flex-1 min-w-0 flex items-start gap-2 ${semSaldo && !selecionado ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                                    <label className="w-full sm:flex-1 min-w-0 flex items-start gap-2 cursor-pointer">
                                                         <input
                                                             type="checkbox"
                                                             checked={selecionado}
-                                                            disabled={semSaldo && !selecionado}
                                                             onChange={() => toggleItemTipo(r.type)}
                                                             className="h-4 w-4 mt-0.5 text-purple-600 rounded shrink-0"
                                                         />
@@ -486,7 +506,7 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                                                 )}
                                                 {excede && (
                                                     <p className="text-[11px] text-red-600 font-medium mt-1">
-                                                        Excede o saldo disponível em {(h - r.saldo).toLocaleString('pt-BR')} h.
+                                                        Excede o saldo disponível em {(h - r.saldo).toLocaleString('pt-BR')} h — será pedida confirmação ao salvar.
                                                     </p>
                                                 )}
                                                 {!excede && h > 0 && !r.foraDoPlano && (
@@ -728,9 +748,15 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                         )}
                         <p className="text-[10px] text-gray-400 mt-1">
                             {form.dataContratoModo === 'atual' && 'A minuta sai com a data do dia em que for gerada.'}
-                            {form.dataContratoModo === 'inicio_obra' && (form.vigenciaInicio
-                                ? <>A minuta sai datada de <span className="font-semibold">{form.vigenciaInicio.split('-').reverse().join('/')}</span> (Vigência início).</>
-                                : <span className="text-amber-600">Preencha "Vigência início" acima — é a data de início do terceiro na obra.</span>)}
+                            {form.dataContratoModo === 'inicio_obra' && (
+                                !form.locadorId || !form.obraId ? 'Selecione o terceiro e a obra para ver a data do primeiro lançamento de horas.'
+                                : primeiroLancamento.loading ? 'Buscando o primeiro lançamento de horas…'
+                                : primeiroLancamento.data
+                                    ? <>A minuta sai datada de <span className="font-semibold">{primeiroLancamento.data.split('-').reverse().join('/')}</span> (primeiro lançamento de horas do terceiro na obra).</>
+                                    : form.vigenciaInicio
+                                        ? <span className="text-amber-600">Ainda não há lançamento de horas do terceiro nesta obra — por enquanto a minuta sai datada da Vigência início ({form.vigenciaInicio.split('-').reverse().join('/')}).</span>
+                                        : <span className="text-amber-600">Ainda não há lançamento de horas do terceiro nesta obra — a minuta só poderá ser gerada depois do primeiro lançamento (ou preencha "Vigência início").</span>
+                            )}
                             {form.dataContratoModo === 'personalizada' && 'A minuta sai com a data informada acima.'}
                         </p>
                     </div>
