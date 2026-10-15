@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
     Truck, Building2, PlusCircle, ChevronRight, ArrowLeft, Search, Clock,
-    FileDown, Loader, AlertTriangle, MapPin, FileWarning, BarChart3,
+    FileDown, Loader, AlertTriangle, FileWarning, BarChart3, ArrowUpDown,
 } from 'lucide-react';
 import { useData, useEnsureResources } from '../contexts/DataContext';
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -49,6 +49,56 @@ const KpiCard = ({ label, value, tone = 'gray' }) => {
     );
 };
 
+// Mini-barra de um contrato na listagem de terceiros. As horas são acompanhamento
+// físico (o valor é fechado): a barra mostra avanço, não dinheiro.
+const ContratoProgressoLinha = ({ r, local, obra }) => {
+    const pct = Math.max(0, Math.min(1, r.progresso || 0)) * 100;
+    return (
+        <div className="flex items-center gap-2 text-[11px] text-gray-500"
+            title={`${obra} · contrato ${r.contrato.numero}`}>
+            <span className="w-32 truncate shrink-0">{local}</span>
+            {r.horasContratadas > 0 ? (
+                <>
+                    <div className="flex-1 h-1.5 rounded-full bg-gray-100">
+                        <div className="h-full rounded-full bg-purple-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-10 text-right font-bold text-gray-700 shrink-0">{Math.round((r.progresso || 0) * 100)}%</span>
+                    <span className="w-32 text-right shrink-0 hidden md:inline">{fmtH(r.horasExecutadas)} / {fmtH(r.horasContratadas)}</span>
+                </>
+            ) : (
+                <span className="flex-1 italic text-gray-400">sem plano de horas</span>
+            )}
+        </div>
+    );
+};
+
+// Ordenações da lista de terceiros. A escolha fica salva por usuário
+// (users.ui_prefs, chave PREF_ORDENACAO). % executado = Σ horas executadas /
+// Σ horas contratadas dos contratos com plano; quem não tem plano vai para o fim.
+const PREF_ORDENACAO = 'terceirizados.ordenacao';
+const execucaoDoGrupo = (g) => {
+    const comPlano = g.contratos.filter((r) => r.horasContratadas > 0);
+    if (comPlano.length === 0) return null;
+    const exec = comPlano.reduce((a, r) => a + r.horasExecutadas, 0);
+    const contr = comPlano.reduce((a, r) => a + r.horasContratadas, 0);
+    return exec / contr;
+};
+const nomeDoGrupo = (g) => g.terceiro.nomeFantasia || g.terceiro.razaoSocial || '';
+const porExecucao = (dir) => (a, b) => {
+    const ea = execucaoDoGrupo(a), eb = execucaoDoGrupo(b);
+    if (ea == null && eb == null) return b.saldo - a.saldo;
+    if (ea == null) return 1;
+    if (eb == null) return -1;
+    return dir * (ea - eb) || b.saldo - a.saldo;
+};
+const ORDENACOES = [
+    { id: 'devemos',     label: 'Maior saldo devedor', cmp: (a, b) => b.saldo - a.saldo },
+    { id: 'contratado',  label: 'Maior valor contratado', cmp: (a, b) => b.valorTotal - a.valorTotal },
+    { id: 'mais_exec',   label: 'Mais avançados', cmp: porExecucao(-1) },
+    { id: 'menos_exec',  label: 'Menos avançados', cmp: porExecucao(1) },
+    { id: 'nome',        label: 'Nome (A–Z)', cmp: (a, b) => nomeDoGrupo(a).localeCompare(nomeDoGrupo(b), 'pt-BR') },
+];
+
 const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     // refuelings NÃO entra mais no ensure: em vez da tabela inteira (~34 MB),
     // buscamos só os abastecimentos das máquinas dos contratos (ver abaixo).
@@ -90,6 +140,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const [selectedTerceiroId, setSelectedTerceiroId] = useState(null);
     const [busca, setBusca] = useState('');
     const [obraFiltro, setObraFiltro] = useState('');   // '' = todas as obras
+    const [ordenacao, setOrdenacao] = useState('devemos');
     const [contratoModal, setContratoModal] = useState(null);   // { contrato } | { contrato: null }
     const [pagamentoModal, setPagamentoModal] = useState(null); // { contrato, locador, pagamento? }
     const [detalheId, setDetalheId] = useState(null);           // contrato.id aberto no modal de detalhe
@@ -102,6 +153,23 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const [aditivoModal, setAditivoModal] = useState(null);     // { contrato, aditivo? }
     const [aditivoLoadingId, setAditivoLoadingId] = useState(null);
     const [relatorioAberto, setRelatorioAberto] = useState(false); // panorama geral (direção)
+
+    // Ordenação preferida do usuário — carregada uma vez, salva a cada troca.
+    useEffect(() => {
+        let cancelled = false;
+        apiClient.getMySettings?.()
+            .then((s) => {
+                const salva = s?.uiPrefs?.[PREF_ORDENACAO];
+                if (!cancelled && ORDENACOES.some((o) => o.id === salva)) setOrdenacao(salva);
+            })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [apiClient]);
+
+    const handleOrdenacao = (id) => {
+        setOrdenacao(id);
+        apiClient.updateMySettings?.({ uiPrefs: { [PREF_ORDENACAO]: id } }).catch(() => {});
+    };
 
     const reload = () => { refresh?.('terceiroContratos'); refresh?.('terceirizadoPagamentos'); };
 
@@ -162,11 +230,12 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
 
     const gruposFiltrados = useMemo(() => {
         const q = busca.trim().toLowerCase();
-        if (!q) return gruposDaObra;
-        return gruposDaObra.filter((g) =>
+        const lista = !q ? gruposDaObra : gruposDaObra.filter((g) =>
             (g.terceiro.razaoSocial || '').toLowerCase().includes(q) ||
             (g.terceiro.nomeFantasia || '').toLowerCase().includes(q));
-    }, [gruposDaObra, busca]);
+        const cmp = (ORDENACOES.find((o) => o.id === ordenacao) || ORDENACOES[0]).cmp;
+        return [...lista].sort(cmp);
+    }, [gruposDaObra, busca, ordenacao]);
 
     // Indicadores do topo — sempre sobre o que está sendo exibido (respeitam o filtro).
     const resumoTopo = useMemo(() => {
@@ -421,6 +490,14 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                             value={obraFiltro}
                             onChange={setObraFiltro}
                         />
+                        <div className="relative">
+                            <ArrowUpDown size={15} className="absolute left-3 top-2.5 text-gray-400 pointer-events-none" />
+                            <select value={ordenacao} onChange={(e) => handleOrdenacao(e.target.value)}
+                                title="Ordenar terceiros"
+                                className="pl-9 pr-8 py-2 text-sm border rounded-lg bg-white text-gray-700 cursor-pointer">
+                                {ORDENACOES.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                            </select>
+                        </div>
                         <span className="text-xs text-gray-400 ml-auto">
                             {resumoTopo.numContratos} contrato(s){obraFiltro ? ' nesta obra' : ''}
                         </span>
@@ -437,13 +514,11 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     ) : (
                         <div className="bg-white rounded-xl shadow divide-y divide-gray-100">
                             {gruposFiltrados.map((g) => {
-                                const locais = [...new Set(g.obraIds.map((id) => obraLocal(id)).filter(Boolean))];
-                                const obrasLabel = g.obraIds.map((id) => obraNome(id)).join(' · ');
                                 return (
                                 <button key={g.terceiro.id} onClick={() => setSelectedTerceiroId(g.terceiro.id)}
                                     className="w-full flex items-center gap-4 p-4 hover:bg-gray-50 text-left">
                                     <Truck size={20} className="text-purple-400 shrink-0" />
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <div className="font-bold text-gray-800 truncate flex items-center gap-2">
                                             {g.terceiro.nomeFantasia || g.terceiro.razaoSocial}
                                             {g.semAssinatura > 0 && (
@@ -457,9 +532,13 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                                         <div className="text-xs text-gray-400">
                                             {g.contratos.length} contrato(s) · {g.numObras} obra(s) · {g.numMaquinas} máquina(s)
                                         </div>
-                                        <div className="text-xs text-gray-500 truncate flex items-center gap-1 mt-0.5" title={obrasLabel}>
-                                            <MapPin size={11} className="shrink-0 text-gray-400" />
-                                            {locais.length > 0 ? locais.join(' · ') : (obrasLabel || 'Local não definido')}
+                                        {/* Uma linha por contrato: execução física (horas executadas / contratadas). */}
+                                        <div className="mt-1.5 space-y-1 max-w-xl">
+                                            {g.contratos.map((r) => (
+                                                <ContratoProgressoLinha key={r.contrato.id} r={r}
+                                                    local={obraLocal(r.contrato.obraId) || obraNome(r.contrato.obraId)}
+                                                    obra={obraNome(r.contrato.obraId)} />
+                                            ))}
                                         </div>
                                     </div>
                                     <div className="ml-auto text-right shrink-0">
