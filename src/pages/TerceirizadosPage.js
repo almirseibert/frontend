@@ -13,6 +13,7 @@ import RelatorioPanorama from '../components/terceirizados/RelatorioPanorama';
 import ObraFiltroSelect from '../components/terceirizados/ObraFiltroSelect';
 import { computeContrato, computeContratosPorTerceiro, getContratoMachines, filtrarContratosVigentes } from '../utils/terceirizados';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
+import { gerarContratoExtratoPdf } from '../utils/contratoExtratoPdf';
 
 import { fmtBRL } from '../utils/currency';
 const fmtH = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' h';
@@ -416,6 +417,17 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
         }
     };
 
+    // Extrato de UM contrato — a obra individualizada (o do terceiro soma todas).
+    const handleExtratoContrato = () => {
+        if (!contratoDetalhe) return;
+        const { r, terceiro } = contratoDetalhe;
+        try {
+            gerarContratoExtratoPdf(r, terceiro, obras.find((o) => o.id === r.contrato.obraId), ctx, adiantamentosDetalhe);
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao gerar extrato do contrato.');
+        }
+    };
+
     const handleDelete = async () => {
         if (!confirmDelete) return;
         try {
@@ -676,6 +688,7 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     onRemoverAssinado={handleRemoverAssinado}
                     onVoltar={() => setDetalheId(null)}
                     onGerarPdf={handleGerarPdf}
+                    onExtrato={handleExtratoContrato}
                     onEditContrato={() => setContratoModal({ contrato: contratoDetalhe.r.contrato })}
                     onDeleteContrato={() => setConfirmDelete(contratoDetalhe.r.contrato)}
                     onNovoAdiantamento={() => setPagamentoModal({ contrato: contratoDetalhe.r.contrato, locador: contratoDetalhe.terceiro })}

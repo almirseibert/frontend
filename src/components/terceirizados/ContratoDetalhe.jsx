@@ -435,13 +435,13 @@ const DocumentoOficialPanel = ({ contrato, docs = [], loading, onEnviar, onBaixa
  *  ctx          contexto de dados (vehicles/refuelings/comboio/partners) p/ abastecimentos
  *  adiantamentos [{ id, data, valor, descricao, created_by_email }]
  *  pdfLoading   bool
- *  onVoltar, onGerarPdf, onEditContrato, onDeleteContrato
+ *  onVoltar, onGerarPdf, onExtrato, onEditContrato, onDeleteContrato
  *  onNovoAdiantamento, onEditAdiantamento(p), onDeleteAdiantamento(p)
  */
 const ContratoDetalhe = ({
     r, terceiro, obra, ctx, adiantamentos = [], pdfLoading,
     docsAssinados = [], assinadoLoading, onEnviarAssinado, onBaixarAssinado, onBaixarDocAssinado, onRemoverAssinado,
-    onVoltar, onGerarPdf, onEditContrato, onDeleteContrato,
+    onVoltar, onGerarPdf, onExtrato, onEditContrato, onDeleteContrato,
     onNovoAdiantamento, onEditAdiantamento, onDeleteAdiantamento,
     aditivoLoadingId, onNovoAditivo, onEditAditivo, onDeleteAditivo,
     onGerarAditivoPdf, onEnviarAditivoAssinado, onBaixarAditivoAssinado, onRemoverAditivoAssinado,
@@ -492,6 +492,11 @@ const ContratoDetalhe = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-1.5">
+                    <button onClick={onExtrato}
+                        title="Extrato detalhado deste contrato: horas lançadas, pagamentos e diesel"
+                        className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100">
+                        <ClipboardList size={14} /> Extrato
+                    </button>
                     <button onClick={() => onGerarPdf(c)} disabled={pdfLoading || assinado}
                         title={assinado ? 'Contrato assinado — minuta bloqueada' : 'Baixar minuta (rascunho) do contrato'}
                         className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-60">
