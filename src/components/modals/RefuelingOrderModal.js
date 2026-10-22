@@ -680,7 +680,7 @@ const RefuelingOrderModal = ({
                                 onChange={(v) => setFormData(p => ({...p, vehicleId: v?.id || ''}))}
                                 getLabel={(v) => `${v.registroInterno} - ${v.placa}${terceirizadoPdfMark(v)}`}
                                 getSubLabel={(v) => v.isOutsourced
-                                    ? `3º ${getVehicleTerceiroName(v, partners) || 'sem fornecedor'}`
+                                    ? [`3º ${getVehicleTerceiroName(v, partners) || 'sem fornecedor'}`, [v.marca, v.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ')
                                     : (v.tipo || '')}
                                 getBadge={(v) => v.naoPodeCircular ? { text: 'Não circula', color: 'bg-red-100 text-red-700' } : v.status === 'manutencao' ? { text: 'Manutenção', color: 'bg-yellow-100 text-yellow-700' } : null}
                                 placeholder="Buscar veículo..."
@@ -690,6 +690,13 @@ const RefuelingOrderModal = ({
                                 <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: '#6b21a8' }}>
                                     <TerceirizadoBadge show />
                                     <span>Terceiro: {getVehicleTerceiroName(selectedVehicle, partners) || 'Sem fornecedor vinculado'}</span>
+                                </div>
+                            )}
+                            {/* Terceiros seguem a nomenclatura ESC1, ESC2... — sem marca e
+                                modelo não dá para saber qual equipamento é. */}
+                            {selectedVehicle && (
+                                <div className="mt-1 text-[11px] text-gray-600">
+                                    Marca/Modelo: <strong className="text-gray-800">{[selectedVehicle.marca, selectedVehicle.modelo].filter(Boolean).join(' ') || 'Não cadastrado'}</strong>
                                 </div>
                             )}
                         </div>
