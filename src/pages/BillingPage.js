@@ -511,12 +511,12 @@ const BillingPage = ({
         return base.filter(matchesOwnership);
     }, [getObraVehicles, reportVehicleId, reportOwnership]);
 
-    // Os PDFs imprimem o que a tela mostra: mesmo recorte de propriedade.
+    // Os PDFs imprimem o que a tela mostra: os mesmos equipamentos da matriz
+    // (sem leves e comboio, com o recorte de propriedade), senão o total diverge.
     const reportDataScoped = useMemo(() => {
-        if (reportOwnership === 'all') return reportData;
         const ids = new Set(reportVehicles.map(v => v.id));
         return reportData.filter(l => ids.has(l.vehicleId));
-    }, [reportData, reportVehicles, reportOwnership]);
+    }, [reportData, reportVehicles]);
 
     // Retorna o funcionário que tinha a máquina na data informada,
     // consultando o histórico de alocações da obra (dataEntrada/dataSaida).
@@ -1021,35 +1021,69 @@ const BillingPage = ({
     // GERAÇÃO DE PDF
     // ===================================================================================
 
+    // Rótulo do equipamento nos PDFs. Terceiro leva a placa: o RE é interno da
+    // MAK, e quem confere com o locador identifica a máquina pela placa.
+    const pdfFrotaLabel = (v) => {
+        if (!v) return '';
+        const placa = (v.placa || '').trim();
+        const partes = [v.registroInterno, v.isOutsourced ? placa : null].filter(Boolean);
+        return `${partes.join(' · ')}${terceirizadoPdfMark(v)}`;
+    };
+
+    // Operador que mais aparece nos registros (o "dono" da máquina no período).
+    const operadorPredominante = (logs) => {
+        const contagem = new Map();
+        logs.forEach(l => {
+            if (l.employeeName) contagem.set(l.employeeName, (contagem.get(l.employeeName) || 0) + 1);
+        });
+        let melhor = null;
+        contagem.forEach((n, nome) => { if (!melhor || n > melhor.n) melhor = { nome, n }; });
+        return melhor ? melhor.nome : '';
+    };
+
     const generateDetailedPDF = async () => {
-        const doc = new jsPDF('l', 'mm', 'a4'); 
+        const doc = new jsPDF('l', 'mm', 'a4');
         const obra = obras.find(o => o.id === selectedObraId);
-        
-        let vehicleLabel = "Todos";
-        let frotaLabel = "";
-        let operatorLabel = "Diversos";
 
-        if (reportVehicleId) {
-            const v = vehicles.find(ve => ve.id === reportVehicleId);
-            if (v) {
-                vehicleLabel = `${v.tipo} ${v.marca} ${v.modelo}${terceirizadoPdfMark(v)}`;
-                frotaLabel = `${v.registroInterno}${terceirizadoPdfMark(v)}`;
-                const operators = reportDataScoped.map(d => d.employeeName).filter(Boolean);
-                if (operators.length > 0) {
-                    const mode = operators.sort((a,b) =>
-                        operators.filter(v => v===a).length - operators.filter(v => v===b).length
-                    ).pop();
-                    operatorLabel = mode;
-                }
-            }
-        }
-
+        let logoData = null;
         try {
-            const logoUrl = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
-            const logoData = await getImageDataUrl(logoUrl);
-            doc.addImage(logoData, 'PNG', 240, 10, 40, 15); 
+            const logoUrl = `${process.env.PUBLIC_URL}/mak-logo.png`;
+            logoData = await getImageDataUrl(logoUrl);
         } catch (err) {
             console.warn("Logo não carregado", err);
+        }
+
+        // Uma planilha por equipamento, na ordem da matriz. Com "Todos", as linhas
+        // de máquinas diferentes não se misturam numa tabela sem identificação.
+        const logsComHoras = reportDataScoped.filter(l => !l.justificativaTipo);
+        const secoes = reportVehicles
+            .map(v => ({
+                vehicle: vehicles.find(x => x.id === v.id) || v,
+                logs: logsComHoras
+                    .filter(l => l.vehicleId === v.id)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date)),
+            }))
+            .filter(s => s.logs.length > 0);
+
+        secoes.forEach(({ vehicle: v, logs }, idx) => {
+            if (idx > 0) doc.addPage();
+            drawDetailedSection(doc, {
+                obra,
+                logoData,
+                vehicleLabel: `${v.tipo || ''} ${v.marca || ''} ${v.modelo || ''}`.replace(/\s+/g, ' ').trim(),
+                frotaLabel: pdfFrotaLabel(v),
+                operatorLabel: operadorPredominante(logs),
+                logs,
+            });
+        });
+
+        const nomeArquivo = secoes.length === 1 ? secoes[0].vehicle.registroInterno : 'Geral';
+        doc.save(`Relatorio_Servicos_${nomeArquivo || 'Geral'}_${reportStartDate}.pdf`);
+    };
+
+    const drawDetailedSection = (doc, { obra, logoData, vehicleLabel, frotaLabel, operatorLabel, logs }) => {
+        if (logoData) {
+            try { doc.addImage(logoData, 'PNG', 240, 10, 40, 15); } catch (e) { /* segue sem logo */ }
         }
 
         doc.setFontSize(14);
@@ -1091,11 +1125,7 @@ const BillingPage = ({
         doc.setFont('helvetica', 'normal');
         doc.text(operatorLabel, 40, 52);
 
-        const sortedReportData = [...reportDataScoped]
-            .filter(log => !log.justificativaTipo)
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        const tableBody = sortedReportData.map(log => {
+        const tableBody = logs.map(log => {
             const morningHours = calculateTimeDiffDecimal(log.morningStart, log.morningEnd);
             const afternoonHours = calculateTimeDiffDecimal(log.afternoonStart, log.afternoonEnd);
             
@@ -1152,22 +1182,24 @@ const BillingPage = ({
             alternateRowStyles: { fillColor: [255, 255, 255] }
         });
 
-        const totalDecimal = reportDataScoped.filter(l => !l.justificativaTipo).reduce((acc, curr) => acc + parseFloat(curr.totalHours), 0);
+        const totalDecimal = logs.reduce((acc, curr) => acc + parseFloat(curr.totalHours || 0), 0);
         const finalY = doc.lastAutoTable.finalY + 5;
 
+        // O período pode ser semana, mês ou intervalo livre — não "mês".
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
-        doc.text("TOTAL HORAS MÊS:", 180, finalY + 5);
+        doc.text("TOTAL DO PERÍODO:", 178, finalY + 5);
         doc.setFontSize(12);
         doc.text(formatDecimalToTime(totalDecimal), 220, finalY + 5);
-
-        doc.save(`Relatorio_Servicos_${frotaLabel || 'Geral'}_${reportStartDate}.pdf`);
     };
 
     const generateSummaryPDF = () => {
         const doc = new jsPDF();
         const obra = obras.find(o => o.id === selectedObraId);
-        const vehicleInfo = reportVehicleId ? `Veículo: ${vehicles.find(v => v.id === reportVehicleId)?.registroInterno}` : 'Geral';
+        const propriedadeInfo = { own: ' (próprios)', outsourced: ' (terceiros)' }[reportOwnership] || '';
+        const vehicleInfo = reportVehicleId
+            ? `Veículo: ${pdfFrotaLabel(vehicles.find(v => v.id === reportVehicleId))}`
+            : `Geral${propriedadeInfo}`;
 
         const groupSummary = {};
         const typeSummary = {};
@@ -1187,7 +1219,12 @@ const BillingPage = ({
             const vId = log.vehicleId;
             if (!vehicleSummary[vId]) {
                 vehicleSummary[vId] = {
-                    label: `${log.registroInterno} - ${log.modelo}${terceirizadoPdfMark(vehicles.find(v => v.id === vId))}`,
+                    label: (() => {
+                        const v = vehicles.find(x => x.id === vId);
+                        return v
+                            ? `${pdfFrotaLabel(v)} - ${log.modelo || v.modelo || ''}`
+                            : `${log.registroInterno} - ${log.modelo}`;
+                    })(),
                     type: type,
                     hours: 0
                 };
@@ -1202,20 +1239,20 @@ const BillingPage = ({
 
         const groupTableData = Object.keys(groupSummary).map(group => [group, formatDecimalToTime(groupSummary[group].hours)]);
         doc.setFontSize(12);
-        doc.text("Resumo por Tipo de Veículos", 14, 30);
-        autoTable(doc, { startY: 32, head: [['Tipo', 'Horas Totais']], body: groupTableData, headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' }, theme: 'grid' });
+        doc.text("Resumo por Grupo de Equipamento", 14, 30);
+        autoTable(doc, { startY: 32, head: [['Grupo', 'Horas Totais']], body: groupTableData, headStyles: { fillColor: [50, 50, 50], textColor: [255,255,255], fontStyle: 'bold' }, theme: 'grid' });
 
         const typeTableData = Object.keys(typeSummary).map(type => [type, typeSummary[type].vehicles.size, formatDecimalToTime(typeSummary[type].hours)]);
         doc.setFontSize(12);
-        doc.text("Detalhamento por Grupo de Equipamento", 14, doc.lastAutoTable.finalY + 10);
-        autoTable(doc, { startY: doc.lastAutoTable.finalY + 12, head: [['Grupo de Equipamento', 'Qtd Veículos', 'Horas Totais']], body: typeTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
+        doc.text("Detalhamento por Tipo de Equipamento", 14, doc.lastAutoTable.finalY + 10);
+        autoTable(doc, { startY: doc.lastAutoTable.finalY + 12, head: [['Tipo de Equipamento', 'Qtd Veículos', 'Horas Totais']], body: typeTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
 
         const vehicleTableData = Object.values(vehicleSummary).sort((a, b) => a.label.localeCompare(b.label)).map(v => [v.label, v.type, formatDecimalToTime(v.hours)]);
         let finalY = doc.lastAutoTable.finalY; 
         if (finalY > 240) { doc.addPage(); finalY = 20; }
         doc.setFontSize(12);
         doc.text("Detalhamento por Equipamento", 14, finalY + 10);
-        autoTable(doc, { startY: finalY + 12, head: [['Equipamento', 'Grupo', 'Horas Totais']], body: vehicleTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
+        autoTable(doc, { startY: finalY + 12, head: [['Equipamento', 'Tipo', 'Horas Totais']], body: vehicleTableData, headStyles: { fillColor: [250, 204, 21], textColor: [0,0,0], fontStyle: 'bold' } });
 
         doc.save(`Resumo_${obra?.nome}_${reportStartDate}.pdf`);
     };

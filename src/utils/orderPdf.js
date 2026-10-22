@@ -35,7 +35,7 @@ export const loadLogoDataUrl = () => new Promise((resolve) => {
     const finish = (val) => { if (!done) { done = true; resolve(val); } };
     const logo = new Image();
     logo.crossOrigin = 'Anonymous';
-    logo.src = 'https://i.postimg.cc/pVnwyfRq/MAK-Servi-os-Logotipo.png';
+    logo.src = `${process.env.PUBLIC_URL}/mak-logo.png`;
     logo.onload = () => {
         try {
             const canvas = document.createElement('canvas');
