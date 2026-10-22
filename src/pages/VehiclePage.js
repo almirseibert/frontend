@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import ReactDOM from 'react-dom';
 import {
     HardHat, Users, Wrench, ShieldAlert, Edit, Clock, Trash2, PlusCircle,
@@ -157,7 +158,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
         type: 'todos', status: 'todos', search: '',
         group: 'todos', origem: 'proprios', locador: 'todos', showInactive: false, showSucata: false
     });
-    const [sortConfig, setSortConfig] = useState({ key: 'registroInterno', direction: 'ascending' });
+    const [sortConfig, setSortConfig] = usePersistedState('ordenacao:veiculos', { key: 'registroInterno', direction: 'ascending' });
 
     useEffect(() => {
         if (initialFilter) setFilters(prev => ({ ...prev, ...initialFilter }));

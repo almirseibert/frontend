@@ -1,4 +1,5 @@
 ﻿import React, { useState, useMemo, useEffect } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import {
     PlusCircle, Edit, Trash2, FileText, X, Loader, 
     Droplet, Truck, Fuel, Printer, ChevronDown, ChevronUp,
@@ -41,7 +42,7 @@ const PartnersPage = ({
 
     // Estados para filtro e ordenação
     const [filterText, setFilterText] = useState('');
-    const [sortConfig, setSortConfig] = useState({ key: 'razaoSocial', direction: 'ascending' });
+    const [sortConfig, setSortConfig] = usePersistedState('ordenacao:parceiros', { key: 'razaoSocial', direction: 'ascending' });
 
     // Funções de Modal
     const openModal = (p = null) => { setEditingPartner(p); setIsModalOpen(true); };

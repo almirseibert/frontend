@@ -1,4 +1,5 @@
 ﻿import React, { useState, useMemo } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import {
     PlusCircle,
     ChevronsUpDown,
@@ -126,7 +127,7 @@ const EmployeesPage = ({
 
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState('ativos');
-    const [sortConfig, setSortConfig] = useState({ key: 'nome', direction: 'ascending' });
+    const [sortConfig, setSortConfig] = usePersistedState('ordenacao:funcionarios', { key: 'nome', direction: 'ascending' });
     
     // Controle dos Modais
     const [isModalOpen, setIsModalOpen] = useState(false);

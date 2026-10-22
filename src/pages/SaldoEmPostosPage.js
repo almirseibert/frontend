@@ -2,6 +2,7 @@
 // Controle do saldo pré-pago de combustível em postos parceiros.
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import {
     Fuel, Plus, AlertTriangle, History, X, TrendingDown,
     ArrowDownCircle, ArrowUpCircle, RefreshCcw, ArrowUpDown,
@@ -427,7 +428,7 @@ const SaldoEmPostosPage = () => {
     const [extratoPartner, setExtratoPartner] = useState(null);
     const [extratoRefreshKey, setExtratoRefreshKey] = useState(0);
     const [filter, setFilter] = useState('');
-    const [sortBy, setSortBy] = useState('alert');
+    const [sortBy, setSortBy] = usePersistedState('ordenacao:saldo-postos', 'alert');
     const [showAll, setShowAll] = useState(false);
 
     const visiblePartners = useMemo(() => {

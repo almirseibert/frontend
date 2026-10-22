@@ -1,4 +1,5 @@
 ﻿import React, { useState, useMemo, useEffect } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import {
     PlusCircle,
     Edit,
@@ -370,7 +371,7 @@ const FinesPage = ({
     const [editingFine, setEditingFine] = useState(null);
     const [itemToDelete, setItemToDelete] = useState(null);
     const [filters, setFilters] = useState({ search: '', status: 'Pendente' });
-    const [sortConfig, setSortConfig] = useState({ key: 'dataInfração', direction: 'descending' });
+    const [sortConfig, setSortConfig] = usePersistedState('ordenacao:multas', { key: 'dataInfração', direction: 'descending' });
     
     const [notifyingIds, setNotifyingIds] = useState(new Set());
 

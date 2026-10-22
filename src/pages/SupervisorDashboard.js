@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import ExcavatorLoader from '../components/ui/ExcavatorLoader';
 import {
     LayoutDashboard, RefreshCw, AlertCircle, Truck,
@@ -64,7 +65,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('todos');
-    const [sortBy, setSortBy] = useState('criticidade');
+    const [sortBy, setSortBy] = usePersistedState('ordenacao:supervisor', 'criticidade');
     const [soComTerceiros, setSoComTerceiros] = useState(false);
     const [orgaoFilter, setOrgaoFilter] = useState('todos');
     // Resumo global de terceiros: vem de um endpoint próprio porque o card do

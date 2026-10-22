@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import usePersistedState from '../hooks/usePersistedState';
 import {
     PlusCircle, Download, Edit, Trash2, RefreshCw, MapPin,
     AlertTriangle, Search, CheckCircle, Archive
@@ -43,7 +44,7 @@ const ObrasPage = ({
     const [tipoFilter, setTipoFilter] = useState('todos'); // 'todos' | 'obra' | 'centro_custo'
     const [regiaoFilter, setRegiaoFilter] = useState('todas'); // 'todas' | 'Lajeado' | 'Santa Maria'
     const [orgaoFilter, setOrgaoFilter] = useState('todos'); // 'todos' | <nome do órgão>
-    const [sortBy, setSortBy] = useState('nome-asc'); // ordenação da listagem
+    const [sortBy, setSortBy] = usePersistedState('ordenacao:obras', 'nome-asc'); // ordenação da listagem
     const [searchTerm, setSearchTerm] = useState('');
     const [showFinished, setShowFinished] = useState(false); // por padrão, obras finalizadas ficam ocultas
     // Evidências ocupando espaço no servidor por obra (selo "dados no servidor").
