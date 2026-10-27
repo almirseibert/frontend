@@ -338,6 +338,16 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
     };
 
     // --- Helpers Visuais ---
+    // "Inativado por Fulano em 27/10/2026 14:32" — autoria gravada pelo backend a
+    // cada inativação/reativação. Veículos alterados antes do registro não têm.
+    const descreverAlteracaoAtivo = (vehicle) => {
+        if (!vehicle.ativoAlteradoEm) return null;
+        const d = new Date(vehicle.ativoAlteradoEm);
+        if (isNaN(d)) return null;
+        const quando = d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        return `${vehicle.ativo ? 'Reativado' : 'Inativado'} por ${vehicle.ativoAlteradoPor || 'usuário desconhecido'} em ${quando}`;
+    };
+
     const getRowStyle = (vehicle) => {
         if (vehicle.isSucata)  return 'opacity-70 hover:opacity-100 border-l-4 border-l-[#d4d4d8]';
         if (!vehicle.ativo)    return 'opacity-60 hover:opacity-100 border-l-4 border-l-[#e5e7eb]';
@@ -355,7 +365,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
             </span>
         );
         if (!vehicle.ativo) return (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-400 text-white" title="Inativo">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-400 text-white" title={descreverAlteracaoAtivo(vehicle) || 'Inativo'}>
                 <Ban size={8}/> INATIVO
             </span>
         );
@@ -610,6 +620,11 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
                             <span style={{ fontSize: 10, color: '#b0a090' }}>{vehicle.tipo}</span>
                             {renderAlertBadges(vehicle.restrictions, vehicle)}
                         </div>
+                        {!vehicle.ativo && !vehicle.isSucata && descreverAlteracaoAtivo(vehicle) && (
+                            <p style={{ fontSize: 10, color: '#9a8a78' }} className="truncate mt-0.5" title={descreverAlteracaoAtivo(vehicle)}>
+                                {descreverAlteracaoAtivo(vehicle)}
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -902,7 +917,7 @@ const [vehicleTypeConfigs, setVehicleTypeConfigs] = useState([]);
             )}
             {vehicleToToggleStatus && (
                 <PasswordConfirmationModal
-                    message={`Tem certeza que deseja ${vehicleToToggleStatus.ativo ? 'INATIVAR' : 'ATIVAR'} o veículo ${vehicleToToggleStatus.registroInterno}?${vehicleToToggleStatus.ativo ? ' Ele deixará de aparecer nas listas ativas.' : ''}`}
+                    message={`Tem certeza que deseja ${vehicleToToggleStatus.ativo ? 'INATIVAR' : 'ATIVAR'} o veículo ${vehicleToToggleStatus.registroInterno}?${vehicleToToggleStatus.ativo ? ' Ele deixará de aparecer nas listas ativas.' : ''}${descreverAlteracaoAtivo(vehicleToToggleStatus) ? ` Última alteração:${descreverAlteracaoAtivo(vehicleToToggleStatus)}.` : ''}`}
                     onConfirm={handleToggleStatus}
                     onClose={() => setVehicleToToggleStatus(null)}
                     apiClient={apiClient}

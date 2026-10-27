@@ -46,9 +46,29 @@ export const STATUS_ENCERRADOS = ['cancelado', 'concluido'];
 export const isContratoVigente = (c) =>
     !STATUS_ENCERRADOS.includes(String(c?.status || 'ativo').toLowerCase());
 
-/** Só os contratos que ainda representam dinheiro. Use em QUALQUER soma de R$. */
+/** Contratos vigentes (compromisso de horas em curso). */
 export const filtrarContratosVigentes = (lista) =>
     (Array.isArray(lista) ? lista : []).filter(isContratoVigente);
+
+// CONCLUÍDO não é mais compromisso (libera o subgrupo, sai da capacidade), mas
+// continua dono dos lançamentos até a data de conclusão e continua sendo DINHEIRO
+// enquanto houver saldo: valor final da conclusão − diesel − pagamentos. Só sai das
+// somas quando zera. Cancelado não apura nada.
+export const isContratoConcluido = (c) => String(c?.status || '').toLowerCase() === 'concluido';
+const apuraLancamentos = (c) => String(c?.status || 'ativo').toLowerCase() !== 'cancelado';
+
+/** Vigentes + concluídos: o universo que apura horas/diesel (escopo de busca de dados). */
+export const filtrarContratosApurados = (lista) =>
+    (Array.isArray(lista) ? lista : []).filter(apuraLancamentos);
+
+/**
+ * Só os contratos que ainda representam dinheiro: vigentes + concluídos com saldo
+ * a acertar. Use em QUALQUER soma de R$. Espelhado no Panorama do backend
+ * (planejamentoController: concluidosEmAberto).
+ */
+export const filtrarContratosEmAberto = (lista, ctx = {}) =>
+    filtrarContratosApurados(lista).filter((c) =>
+        !isContratoConcluido(c) || Math.abs(computeContrato(c, ctx).saldo) >= 0.01);
 
 const COMBOIO_FUEL_KEY = {
     dieselS10: 'Diesel S10',
@@ -206,9 +226,11 @@ export const veiculoElegivelAoContrato = (vehicle, contrato) => {
 
 // Contrato ENCERRADO (concluído/cancelado) que já tem a lista digitada continua
 // lendo a lista: saldo histórico não muda de valor porque o modelo mudou. Contrato
-// vigente sempre deriva — é justamente para ele que a derivação existe.
+// vigente sempre deriva — é justamente para ele que a derivação existe. Concluído
+// pelo fluxo de conclusão (conclusaoData) também deriva: o saldo final dele foi
+// apurado derivando, e trocar de regra ao concluir mudaria o número.
 const usaListaLegada = (contrato) =>
-    !isContratoVigente(contrato) && contratoMaquinaIds(contrato).length > 0;
+    !isContratoVigente(contrato) && !contrato?.conclusaoData && contratoMaquinaIds(contrato).length > 0;
 
 /**
  * Predicado de pertencimento: o lançamento `rec` (com obraId e data) feito pelo
@@ -339,7 +361,11 @@ export const computeContrato = (contrato, ctx = {}) => {
     const adiantamentos = pagamentos.reduce(
         (acc, p) => (p?.contratoId === contrato?.id ? acc + num(p.valor) : acc), 0);
 
+    // Concluído: valorTotal já é o valor final escolhido na conclusão (backend);
+    // valorContratado segue sendo o do contrato + aditivos, para comparação.
     const valorTotal = num(vig.valorTotal);
+    const valorContratado = num(vig.valorContratado ?? vig.valorTotal);
+    const conclusao = isContratoConcluido(contrato) ? (vig.conclusao || null) : null;
     const valorOriginal = num(contrato?.valorTotal);
     const saldo = valorTotal - diesel - adiantamentos;
     const horasContratadas = num(vig.horasContratadas);
@@ -380,10 +406,83 @@ export const computeContrato = (contrato, ctx = {}) => {
         numMaquinas: todas.length,
         horasExecutadas, horasContratadas, progresso,
         valorTotal, litros, diesel, adiantamentos, saldo,
+        valorContratado, conclusao,
         // Aditivos: valorOriginal ≠ valorTotal quando há aditivo.
         valorOriginal, aditivos, aditivosValidos, aditivosEmMinuta,
         temAditivos: aditivosValidos.length > 0,
         vigenciaFim: vig.vigenciaFim ?? contrato?.vigenciaFim,
+    };
+};
+
+// ─── Conclusão do contrato ──────────────────────────────────────────────────
+// O serviço pode terminar antes de bater 100% das horas. Na conclusão o usuário
+// escolhe o valor final: o contratado, o APURADO (abaixo) ou um personalizado.
+//
+// Apurado = o que as horas executadas até a data valem pelo próprio contrato:
+//   - por horas:  Σ por subgrupo de min(horas executadas, contratadas) × R$/h do item
+//   - fechado:    valor contratado × min(1, horas executadas ÷ horas contratadas)
+// O teto nas horas contratadas é deliberado: hora além do plano sem aditivo não tem
+// preço combinado. Quem quiser pagar diferente usa o valor personalizado.
+
+/** computeContrato com a janela de apuração fechada em `dataConclusao` ('AAAA-MM-DD'). */
+const computeAte = (contrato, ctx, dataConclusao) => {
+    const vig = contrato?.vigente || {};
+    const fimAtual = vig.vigenciaFim ?? contrato?.vigenciaFim;
+    const fimStr = fimAtual ? String(fimAtual).slice(0, 10) : null;
+    const fim = dataConclusao && (!fimStr || dataConclusao < fimStr) ? dataConclusao : fimAtual;
+    return computeContrato({ ...contrato, vigente: { ...vig, vigenciaFim: fim } }, ctx);
+};
+
+/**
+ * Prévia da conclusão em uma data: horas executadas até ela e o valor apurado,
+ * com o detalhamento que o modal mostra.
+ * @returns {{ r, horasExecutadas, valorContratado, valorApurado, base, linhas }}
+ *          base: 'itens' | 'proporcional' | null (sem como apurar — sem horas contratadas)
+ */
+export const calcularApuradoConclusao = (contrato, ctx = {}, dataConclusao = null) => {
+    const r = computeAte(contrato, ctx, dataConclusao);
+    const valorContratado = r.valorContratado;
+    const comPreco = r.itensContratados.filter((it) => it.valorHora > 0);
+    const fechado = contrato?.contractType === 'fechado' || (r.itensContratados.length > 0 && comPreco.length === 0);
+
+    if (fechado) {
+        if (r.horasContratadas <= 0) return { r, horasExecutadas: r.horasExecutadas, valorContratado, valorApurado: null, base: null, linhas: [] };
+        const fator = Math.min(1, r.horasExecutadas / r.horasContratadas);
+        return {
+            r, horasExecutadas: r.horasExecutadas, valorContratado,
+            valorApurado: Math.round(valorContratado * fator * 100) / 100,
+            base: 'proporcional', fator, linhas: [],
+        };
+    }
+
+    // Por horas sem plano por subgrupo: uma linha só, ao R$/h médio do contrato.
+    if (r.itensContratados.length === 0) {
+        const vHora = num(contrato?.vigente?.valorHora ?? contrato?.valorHora);
+        const horas = Math.min(r.horasExecutadas, r.horasContratadas || r.horasExecutadas);
+        return {
+            r, horasExecutadas: r.horasExecutadas, valorContratado,
+            valorApurado: Math.round(horas * vHora * 100) / 100,
+            base: 'itens',
+            linhas: [{ type: 'Contrato', horasExecutadas: r.horasExecutadas, horasContratadas: r.horasContratadas, valorHora: vHora, valor: horas * vHora }],
+        };
+    }
+
+    const horasPorItem = new Map();
+    r.equipamentos.forEach((e) => {
+        const it = r.itensContratados.find((i) => casaSubgrupo(e.vehicle, i.type));
+        if (it) horasPorItem.set(it.type, (horasPorItem.get(it.type) || 0) + e.horas);
+    });
+    const linhas = r.itensContratados.map((it) => {
+        const exec = horasPorItem.get(it.type) || 0;
+        return {
+            type: it.type, horasExecutadas: exec, horasContratadas: it.horas, valorHora: it.valorHora,
+            valor: Math.min(exec, it.horas) * it.valorHora,
+        };
+    });
+    return {
+        r, horasExecutadas: r.horasExecutadas, valorContratado,
+        valorApurado: Math.round(linhas.reduce((a, l) => a + l.valor, 0) * 100) / 100,
+        base: 'itens', linhas,
     };
 };
 
@@ -509,12 +608,12 @@ export const computeContratosPorTerceiro = (locadorId, contratos = [], ctx = {})
  */
 export const computeTerceirizadoPorObra = (obraId, obras = [], vehicles = [], ctx = {}) => {
     const { contratos = [] } = ctx;
-    // Cancelado/concluído não é dinheiro devido — filtro aplicado AQUI para que
-    // todo consumidor deste agregador herde a mesma regra.
-    const doObra = filtrarContratosVigentes(contratos).filter((c) => c.obraId === obraId);
+    // Cancelado e concluído já quitado não são dinheiro devido — filtro aplicado
+    // AQUI para que todo consumidor deste agregador herde a mesma regra.
+    const fullCtx = { ...ctx, vehicles, obras };
+    const doObra = filtrarContratosEmAberto(contratos.filter((c) => c.obraId === obraId), fullCtx);
     if (doObra.length === 0) return { equipamentos: [], devido: 0, combustivelAbatido: 0, saldo: 0 };
 
-    const fullCtx = { ...ctx, vehicles, obras };
     const results = doObra.map((c) => computeContrato(c, fullCtx));
 
     const equipMap = new Map();
@@ -648,7 +747,9 @@ export const getPendenciasTerceirizados = (contratos = [], ctx = {}) => {
     } = ctx;
 
     const vById = new Map(vehicles.map((v) => [v.id, v]));
-    const vigentes = filtrarContratosVigentes(contratos);
+    // Concluído é dono dos lançamentos até a data de conclusão (a janela já vem
+    // fechada no bloco `vigente`): eles não são pendência.
+    const vigentes = filtrarContratosApurados(contratos);
     const acc = new Map();
 
     const registrar = (vehicle, motivo, obraId, date, { tipo, litros = 0, valor = 0, horas = 0 }) => {

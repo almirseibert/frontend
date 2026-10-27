@@ -11,7 +11,8 @@ import AditivoModal from '../components/modals/AditivoModal';
 import ContratoDetalhe from '../components/terceirizados/ContratoDetalhe';
 import RelatorioPanorama from '../components/terceirizados/RelatorioPanorama';
 import ObraFiltroSelect from '../components/terceirizados/ObraFiltroSelect';
-import { computeContrato, computeContratosPorTerceiro, getContratoMachines, filtrarContratosVigentes } from '../utils/terceirizados';
+import { computeContrato, computeContratosPorTerceiro, getContratoMachines, filtrarContratosApurados, filtrarContratosEmAberto } from '../utils/terceirizados';
+import ConclusaoContratoModal from '../components/modals/ConclusaoContratoModal';
 import { gerarTerceiroExtratoPdf } from '../utils/terceiroExtratoPdf';
 import { gerarContratoExtratoPdf } from '../utils/contratoExtratoPdf';
 
@@ -113,20 +114,18 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     // Abastecimentos ESCOPADOS às máquinas dos contratos terceirizados. O cálculo
     // do contrato (período, preço por parceiro) segue idêntico — só a origem dos
     // dados mudou (subconjunto em vez da tabela inteira).
-    // Contratos que ainda representam dinheiro. `terceiroContratos` (lista completa,
-    // com cancelados e concluídos) continua sendo usada na GESTÃO — abrir, editar,
-    // reabrir um contrato encerrado —, mas nenhuma soma de R$ desta tela passa por
-    // ela. Era essa a diferença contra o Panorama.
-    const contratosVigentes = useMemo(
-        () => filtrarContratosVigentes(terceiroContratos), [terceiroContratos]);
+    // Vigentes + concluídos: o universo que apura horas/diesel. Os abastecimentos
+    // são buscados para ele — o saldo de um concluído também depende do diesel.
+    const contratosApurados = useMemo(
+        () => filtrarContratosApurados(terceiroContratos), [terceiroContratos]);
 
     const scopedVehicleIds = useMemo(() => {
         const ids = new Set();
-        contratosVigentes.forEach((c) =>
+        contratosApurados.forEach((c) =>
             getContratoMachines(c, obras, vehicles).forEach((v) => ids.add(v.id))
         );
         return [...ids];
-    }, [contratosVigentes, obras, vehicles]);
+    }, [contratosApurados, obras, vehicles]);
 
     const [refuelings, setRefuelings] = useState([]);
     useEffect(() => {
@@ -154,6 +153,8 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const [aditivoModal, setAditivoModal] = useState(null);     // { contrato, aditivo? }
     const [aditivoLoadingId, setAditivoLoadingId] = useState(null);
     const [relatorioAberto, setRelatorioAberto] = useState(false); // panorama geral (direção)
+    const [conclusaoModal, setConclusaoModal] = useState(null); // contrato a concluir
+    const [verEncerrados, setVerEncerrados] = useState(false);
 
     // Ordenação preferida do usuário — carregada uma vez, salva a cada troca.
     useEffect(() => {
@@ -178,6 +179,13 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
         vehicles, obras, dailyWorkLogs, refuelings, comboioTransactions, partners,
         pagamentos: terceirizadoPagamentos,
     }), [vehicles, obras, dailyWorkLogs, refuelings, comboioTransactions, partners, terceirizadoPagamentos]);
+
+    // Contratos que ainda representam dinheiro: vigentes + concluídos com saldo a
+    // acertar. `terceiroContratos` (lista completa) continua sendo usada na GESTÃO —
+    // abrir, editar, reabrir um contrato encerrado —, mas nenhuma soma de R$ desta
+    // tela passa por ela. Era essa a diferença contra o Panorama.
+    const contratosVigentes = useMemo(
+        () => filtrarContratosEmAberto(terceiroContratos, ctx), [terceiroContratos, ctx]);
 
     const terceiroPorId = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
     const obraNome = useMemo(() => {
@@ -258,6 +266,16 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
     const grupoSel = useMemo(
         () => grupos.find((g) => g.terceiro.id === selectedTerceiroId) || null,
         [grupos, selectedTerceiroId]);
+
+    // Encerrados do terceiro aberto que já não estão na lista (concluídos e quitados,
+    // cancelados): ficam acessíveis no fim do dossiê para consulta e reabertura.
+    const encerradosSel = useMemo(() => {
+        if (!grupoSel) return [];
+        const naLista = new Set(grupoSel.contratos.map((r) => r.contrato.id));
+        return terceiroContratos
+            .filter((c) => c.locadorId === grupoSel.terceiro.id && !naLista.has(c.id))
+            .map((c) => computeContrato(c, ctx));
+    }, [grupoSel, terceiroContratos, ctx]);
 
     const contratoDetalhe = useMemo(() => {
         if (!detalheId) return null;
@@ -425,6 +443,17 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
             gerarContratoExtratoPdf(r, terceiro, obras.find((o) => o.id === r.contrato.obraId), ctx, adiantamentosDetalhe);
         } catch (err) {
             setAlertMessage?.(err.message || 'Erro ao gerar extrato do contrato.');
+        }
+    };
+
+    const handleReabrir = async () => {
+        if (!detalheId) return;
+        try {
+            await apiClient.reabrirTerceiroContrato(detalheId);
+            setAlertMessage?.('Contrato reaberto.');
+            refresh?.('terceiroContratos');
+        } catch (err) {
+            setAlertMessage?.(err.message || 'Erro ao reabrir contrato.');
         }
     };
 
@@ -668,6 +697,32 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                             </tbody>
                         </table>
                     </div>
+
+                    {encerradosSel.length > 0 && (
+                        <div className="mt-4">
+                            <button onClick={() => setVerEncerrados((v) => !v)}
+                                className="text-xs text-gray-500 font-semibold hover:text-gray-700 flex items-center gap-1">
+                                <ChevronRight size={13} className={`transition-transform ${verEncerrados ? 'rotate-90' : ''}`} />
+                                Contratos encerrados ({encerradosSel.length})
+                            </button>
+                            {verEncerrados && (
+                                <div className="bg-white rounded-xl shadow mt-2 divide-y divide-gray-50">
+                                    {encerradosSel.map((r) => (
+                                        <button key={r.contrato.id} onClick={() => setDetalheId(r.contrato.id)}
+                                            className="w-full flex items-center gap-3 p-3 text-sm text-left hover:bg-gray-50">
+                                            <span className="font-bold text-gray-700">{r.contrato.numero}</span>
+                                            <StatusBadge status={r.contrato.status} />
+                                            <span className="text-xs text-gray-500 flex items-center gap-1 truncate"><Building2 size={11} /> {obraNome(r.contrato.obraId)}</span>
+                                            <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">
+                                                {r.conclusao ? `concluído em ${new Date(`${r.conclusao.data}T00:00:00`).toLocaleDateString('pt-BR')} · ` : ''}{fmtBRL(r.valorTotal)}
+                                            </span>
+                                            <ChevronRight size={15} className="text-gray-300 shrink-0" />
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </>
             )}
 
@@ -702,6 +757,8 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                     onEnviarAditivoAssinado={handleEnviarAditivoAssinado}
                     onBaixarAditivoAssinado={handleBaixarAditivoAssinado}
                     onRemoverAditivoAssinado={handleRemoverAditivoAssinado}
+                    onConcluir={() => setConclusaoModal(contratoDetalhe.r.contrato)}
+                    onReabrir={handleReabrir}
                 />
             )}
 
@@ -727,9 +784,22 @@ const TerceirizadosPage = ({ user, apiClient, setAlertMessage }) => {
                 <AditivoModal
                     contrato={aditivoModal.contrato}
                     aditivo={aditivoModal.aditivo}
+                    obra={obras.find((o) => o.id === aditivoModal.contrato?.obraId) || null}
+                    contratos={terceiroContratos}
                     apiClient={apiClient}
                     setAlertMessage={setAlertMessage}
                     onClose={() => setAditivoModal(null)}
+                    onSaved={() => refresh?.('terceiroContratos')}
+                />
+            )}
+
+            {conclusaoModal && (
+                <ConclusaoContratoModal
+                    contrato={conclusaoModal}
+                    ctx={ctx}
+                    apiClient={apiClient}
+                    setAlertMessage={setAlertMessage}
+                    onClose={() => setConclusaoModal(null)}
                     onSaved={() => refresh?.('terceiroContratos')}
                 />
             )}

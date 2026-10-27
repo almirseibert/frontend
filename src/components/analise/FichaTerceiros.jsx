@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Truck, FileWarning } from 'lucide-react';
 import { useData, useEnsureResources } from '../../contexts/DataContext';
-import { computeContrato, getContratoMachines, filtrarContratosVigentes } from '../../utils/terceirizados';
+import { computeContrato, getContratoMachines, filtrarContratosApurados, isContratoConcluido } from '../../utils/terceirizados';
 import { getPartnerDisplayName } from '../../utils/partners';
 import apiClient from '../../services/apiClient';
 
@@ -63,9 +63,10 @@ const FichaTerceiros = ({ obraId }) => {
         terceirizadoPagamentos = [], terceiroContratos = [],
     } = useData();
 
-    // Só contratos vigentes: cancelado/concluído não compõe valor devido.
+    // Vigentes + concluídos (cancelado não apura nada). O concluído quitado sai
+    // abaixo, depois do cálculo: é o saldo que diz se ele ainda é valor devido.
     const contratos = useMemo(
-        () => filtrarContratosVigentes(terceiroContratos).filter((c) => String(c.obraId) === String(obraId)),
+        () => filtrarContratosApurados(terceiroContratos).filter((c) => String(c.obraId) === String(obraId)),
         [terceiroContratos, obraId]
     );
 
@@ -92,10 +93,12 @@ const FichaTerceiros = ({ obraId }) => {
             vehicles, obras, dailyWorkLogs, refuelings, comboioTransactions, partners,
             pagamentos: terceirizadoPagamentos, contratos: terceiroContratos,
         };
-        return contratos.map((c) => ({
-            r: computeContrato(c, ctx),
-            terceiro: partners.find((p) => p.id === c.locadorId) || null,
-        }));
+        return contratos
+            .map((c) => ({
+                r: computeContrato(c, ctx),
+                terceiro: partners.find((p) => p.id === c.locadorId) || null,
+            }))
+            .filter((l) => !isContratoConcluido(l.r.contrato) || Math.abs(l.r.saldo) >= 0.01);
     }, [contratos, vehicles, obras, dailyWorkLogs, refuelings, comboioTransactions, partners, terceirizadoPagamentos, terceiroContratos]);
 
     if (linhas.length === 0) return null;

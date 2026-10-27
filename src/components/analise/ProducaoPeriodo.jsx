@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Clock, Users, Building2, Truck, FileDown, FileText, HardHat, AlertTriangle, ChevronDown, ChevronRight,
+    Clock, Users, Building2, Truck, FileDown, FileText, HardHat, AlertTriangle, ChevronDown, ChevronRight, History, CalendarRange, Loader,
 } from 'lucide-react';
 import { C, fmtH, fmtDateBR } from './shared/tokens';
 import { KpiCard, StateBlock, Card } from './shared/ui';
 import { downloadCSV } from './shared/exportUtils';
 import { gerarPdfProducao } from './producaoPdf';
+import EstadiaRetroativaModal from '../EstadiaRetroativaModal';
+import { useData } from '../../contexts/DataContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { getAllowedReadingTypes } from '../../utils/vehicleRules';
 
 // ============================================================================
 // Aba "Produção" (principal de Desempenho do negócio): o que foi executado no
@@ -59,13 +63,19 @@ const ProducaoPeriodo = ({ active = true, range, refreshKey = 0, apiClient, setA
     const [filtroOrigem, setFiltroOrigem] = useState('todas');
     const [todasMaquinas, setTodasMaquinas] = useState(false);
     const [avisoAberto, setAvisoAberto] = useState(false);
+    const [trechoAlocando, setTrechoAlocando] = useState(null); // linha de "horas sem alocação" virando estadia retroativa
+    const [trechoAjustando, setTrechoAjustando] = useState(null); // linha cuja correção é estender/antecipar a alocação da obra
+    const [salvandoAjuste, setSalvandoAjuste] = useState(false);
+    const [recarga, setRecarga] = useState(0);
     const lastKey = useRef(null);
+    const { vehicles, obras, employees } = useData();
+    const { isEditor } = useAuth();
 
     // Busca só quando a aba está ativa e a chave mudou (evita refetch ao alternar).
     useEffect(() => {
         if (!active) return;
         if (!range?.start || !range?.end || range.start > range.end) return;
-        const key = `${range.start}|${range.end}|${refreshKey}`;
+        const key = `${range.start}|${range.end}|${refreshKey}|${recarga}`;
         if (key === lastKey.current) return;
         lastKey.current = key;
         setLoading(true);
@@ -78,7 +88,7 @@ const ProducaoPeriodo = ({ active = true, range, refreshKey = 0, apiClient, setA
                 setAlertMessage?.('Falha ao calcular a produção do período.');
             })
             .finally(() => setLoading(false));
-    }, [active, range?.start, range?.end, refreshKey, apiClient, setAlertMessage]);
+    }, [active, range?.start, range?.end, refreshKey, recarga, apiClient, setAlertMessage]);
 
     const hasData = !!(data && data.resumo.maquinas > 0);
 
@@ -173,42 +183,54 @@ const ProducaoPeriodo = ({ active = true, range, refreshKey = 0, apiClient, setA
                     </div>
 
                     {/* ── Aviso de cadastro ──────────────────────────────── */}
-                    {(data.resumo.horasSemAlocacao > 0 || data.resumo.paradasAlocadas.proprio + data.resumo.paradasAlocadas.terceiro > 0) && (
+                    {/* Alocada sem lançar fica na Central Operacional; aqui só o
+                        que tira horas da média: lançamento em dia sem estadia. */}
+                    {data.resumo.horasSemAlocacao > 0 && (
                         <div className="rounded-xl border p-3" style={{ background: '#fefce8', borderColor: '#fde68a' }}>
                             <button onClick={() => setAvisoAberto(v => !v)} className="flex items-start gap-2 w-full text-left">
                                 <AlertTriangle size={16} style={{ color: C.yellow, marginTop: 1, flexShrink: 0 }} />
                                 <span className="flex-1" style={{ fontSize: 12, color: '#713f12' }}>
                                     <b>Cadastro afeta a média h/dia.</b>{' '}
-                                    {data.resumo.paradasAlocadas.proprio + data.resumo.paradasAlocadas.terceiro > 0 && (
-                                        <>{data.resumo.paradasAlocadas.proprio} próprias e {data.resumo.paradasAlocadas.terceiro} terceiras estão alocadas sem lançar há {data.resumo.diasParadaAlocada}+ dias úteis (desmobilizou sem desalocar?). </>
-                                    )}
-                                    {data.resumo.horasSemAlocacao > 0 && (
-                                        <>{fmtH(data.resumo.horasSemAlocacao)} foram lançadas em dias sem alocação e ficam fora da média.</>
-                                    )}
+                                    {fmtH(data.resumo.horasSemAlocacao)} foram lançadas em dias sem alocação e ficam fora da média.
+                                    {isEditor && ' Registre a estadia de cada trecho para corrigir.'}
                                 </span>
                                 {avisoAberto ? <ChevronDown size={16} style={{ color: '#713f12' }} /> : <ChevronRight size={16} style={{ color: '#713f12' }} />}
                             </button>
                             {avisoAberto && (
-                                <div className="mt-3 grid md:grid-cols-2 gap-4" style={{ fontSize: 12, color: '#713f12' }}>
-                                    <div>
-                                        <p className="font-bold mb-1">Alocadas sem lançar</p>
-                                        {data.porMaquina.filter(m => m.paradaAlocada).sort((a, b) => b.diasSemLancarNoFim - a.diasSemLancarNoFim).slice(0, 30).map(m => (
-                                            <div key={m.vehicleId} className="flex justify-between py-0.5">
-                                                <span>{nomeMaquina(m)} · {origemLabel(m)} · {m.obras.map(o => o.nome).join(' / ')}</span>
-                                                <span className="whitespace-nowrap ml-2">{m.ultimoLancamento ? `último ${fmtDateBR(m.ultimoLancamento).slice(0, 5)}` : 'nenhum lançamento'}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div>
-                                        <p className="font-bold mb-1">Horas sem alocação</p>
-                                        {data.semAlocacao.length === 0 && <p>Nenhuma.</p>}
-                                        {data.semAlocacao.slice(0, 30).map(s => (
-                                            <div key={`${s.vehicleId}|${s.obraId}`} className="flex justify-between py-0.5">
-                                                <span>{nomeMaquina(s)} · {s.obraNome}</span>
-                                                <span className="whitespace-nowrap ml-2">{fmtH(s.horas)} em {s.dias} dia(s)</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                <div className="mt-3" style={{ fontSize: 12, color: '#713f12' }}>
+                                    {data.semAlocacao.map(s => (
+                                        <div key={`${s.vehicleId}|${s.obraId}|${s.primeiroDia}`} className="flex items-center gap-3 py-1" style={{ borderTop: '1px solid #fde68a' }}>
+                                            <span className="flex-1 min-w-0">{nomeMaquina(s)} · {s.obraNome}</span>
+                                            <span className="whitespace-nowrap">
+                                                {s.primeiroDia === s.ultimoDia
+                                                    ? fmtDateBR(s.primeiroDia).slice(0, 5)
+                                                    : `${fmtDateBR(s.primeiroDia).slice(0, 5)} a ${fmtDateBR(s.ultimoDia).slice(0, 5)}`}
+                                            </span>
+                                            <span className="whitespace-nowrap text-right" style={{ width: 120 }}>{fmtH(s.horas)} em {s.dias} dia(s)</span>
+                                            {isEditor && s.acao && (
+                                                <button onClick={() => setTrechoAjustando(s)}
+                                                    className="flex items-center gap-1 px-2 py-0.5 rounded border font-semibold hover:bg-amber-100 whitespace-nowrap"
+                                                    style={{ borderColor: '#fcd34d', fontSize: 11 }}
+                                                    title="A máquina seguiu lançando na mesma obra: corrigir a alocação que já existe">
+                                                    <CalendarRange size={12} />
+                                                    {s.acao.tipo === 'estender'
+                                                        ? `Estender até ${fmtDateBR(s.acao.novaSaida).slice(0, 5)}`
+                                                        : `Antecipar para ${fmtDateBR(s.acao.novaEntrada).slice(0, 5)}`}
+                                                </button>
+                                            )}
+                                            {isEditor && (
+                                                <button onClick={() => setTrechoAlocando(s)}
+                                                    disabled={!s.obraId || !vehicles.some(v => String(v.id) === String(s.vehicleId))}
+                                                    className={s.acao
+                                                        ? 'px-1 underline whitespace-nowrap disabled:opacity-40'
+                                                        : 'flex items-center gap-1 px-2 py-0.5 rounded border font-semibold hover:bg-amber-100 disabled:opacity-40'}
+                                                    style={{ borderColor: '#fcd34d', fontSize: 11 }}
+                                                    title="Registrar a estadia retroativa só desse trecho">
+                                                    {s.acao ? 'só o trecho' : <><History size={12} /> Alocar</>}
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -389,6 +411,100 @@ const ProducaoPeriodo = ({ active = true, range, refreshKey = 0, apiClient, setA
                     </p>
                 </div>
             )}
+
+            {trechoAjustando && (() => {
+                const s = trechoAjustando;
+                const a = s.acao;
+                const dia = (d) => (d ? fmtDateBR(d) : 'em aberto');
+                const confirmar = async () => {
+                    setSalvandoAjuste(true);
+                    try {
+                        await apiClient.updateObraHistoryEntry(a.obraId, a.historyId,
+                            a.tipo === 'estender' ? { dataSaida: a.novaSaida } : { dataEntrada: a.novaEntrada });
+                        setAlertMessage?.(`Alocação de ${nomeMaquina(s)} em ${s.obraNome} ajustada.`);
+                        setTrechoAjustando(null);
+                        setRecarga(n => n + 1);
+                    } catch (err) {
+                        setAlertMessage?.(`Não foi possível ajustar a alocação: ${err.message}`);
+                    } finally {
+                        setSalvandoAjuste(false);
+                    }
+                };
+                return (
+                    <div className="mak-modal-backdrop backdrop-blur-sm">
+                        <div className="mak-modal max-w-md">
+                            <div className="p-4 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-t-xl">
+                                <h2 className="text-base font-bold flex items-center gap-2">
+                                    <CalendarRange size={17} /> {a.tipo === 'estender' ? 'Estender alocação' : 'Antecipar alocação'}
+                                </h2>
+                                <p className="text-xs opacity-90 mt-0.5">{nomeMaquina(s)} · {s.obraNome}</p>
+                            </div>
+                            <div className="p-5 space-y-3 text-sm text-gray-700">
+                                {a.tipo === 'estender' ? (
+                                    <>
+                                        <p>
+                                            Alocada de <b>{dia(a.entrada)}</b> a <b>{dia(a.saidaAtual)}</b>, mas seguiu lançando horas na obra depois disso.
+                                        </p>
+                                        <p>
+                                            A saída passa para <b>{dia(a.novaSaida)}</b>
+                                            {a.proxima && a.novaSaida === a.proxima.inicio
+                                                ? <>, quando entrou em <b>{a.proxima.obraNome}</b>.</>
+                                                : ', o último dia com lançamento na obra.'}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p>
+                                            Alocada a partir de <b>{dia(a.entradaAtual)}</b>, mas já lançava horas na obra antes.
+                                        </p>
+                                        <p>A entrada passa para <b>{dia(a.novaEntrada)}</b>, o primeiro dia com lançamento.</p>
+                                    </>
+                                )}
+                                <p className="text-xs text-gray-500">
+                                    Só a data da alocação muda — nenhuma hora lançada é alterada. Confira com quem acompanha a obra se a máquina não saiu de lá no período.
+                                </p>
+                                <div className="flex gap-3 pt-1">
+                                    <button onClick={() => setTrechoAjustando(null)} disabled={salvandoAjuste}
+                                        className="flex-1 py-2.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold rounded-lg text-sm">
+                                        Cancelar
+                                    </button>
+                                    <button onClick={confirmar} disabled={salvandoAjuste}
+                                        className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-bold rounded-lg text-sm flex items-center justify-center gap-2">
+                                        {salvandoAjuste ? <Loader className="animate-spin" size={16} /> : 'Confirmar'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {trechoAlocando && (() => {
+                const vehicle = vehicles.find(v => String(v.id) === String(trechoAlocando.vehicleId));
+                const readingType = getAllowedReadingTypes(vehicle.tipo).includes('horimetro') ? 'horimetro' : 'odometro';
+                return (
+                    <EstadiaRetroativaModal
+                        vehicle={vehicle}
+                        currentObra={obras.find(o => String(o.id) === String(vehicle.obraAtualId))}
+                        obras={obras}
+                        employees={employees}
+                        readingType={readingType}
+                        readingLabel={readingType === 'horimetro' ? 'Horímetro' : 'Odômetro'}
+                        inicial={{
+                            obraId: trechoAlocando.obraId,
+                            employeeId: trechoAlocando.operadorId,
+                            dataEntrada: trechoAlocando.primeiroDia,
+                            dataSaida: trechoAlocando.ultimoDia,
+                            observacoes: 'Horas lançadas sem alocação',
+                            horas: trechoAlocando.horas,
+                        }}
+                        onClose={() => setTrechoAlocando(null)}
+                        setAlertMessage={setAlertMessage}
+                        apiClient={apiClient}
+                        reloadData={() => setRecarga(n => n + 1)}
+                    />
+                );
+            })()}
         </div>
     );
 };

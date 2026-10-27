@@ -203,6 +203,8 @@ const apiClient = {
         apiFetch(`/obras/${obraId}/plano-itens${vehicleId ? `?vehicleId=${encodeURIComponent(vehicleId)}` : ''}`),
     deallocateVehicleFromObra: async (id, data) => apiFetch(`/vehicles/${id}/deallocate-obra`, { method: 'POST', body: JSON.stringify(data) }),
     registrarEstadiaRetroativa: async (id, data) => apiFetch(`/vehicles/${id}/estadia-retroativa`, { method: 'POST', body: JSON.stringify(data) }),
+    getLeiturasSugeridas: async (id, { de, ate, tipo, horas }) =>
+        apiFetch(`/vehicles/${id}/leituras-sugeridas?de=${de}&ate=${ate}&tipo=${tipo}${horas ? `&horas=${horas}` : ''}`),
     assignVehicleToOperational: async (id, data) => apiFetch(`/vehicles/${id}/assign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     unassignVehicleFromOperational: async (id, data) => apiFetch(`/vehicles/${id}/unassign-operational`, { method: 'POST', body: JSON.stringify(data) }),
     startVehicleMaintenance: async (id, data) => apiFetch(`/vehicles/${id}/start-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
@@ -445,6 +447,9 @@ const apiClient = {
     getContratoDocs: async (id) => apiFetch(`/terceiroContratos/${id}/docs`),
     enviarContratoAssinado: async (id, formData) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'POST', body: formData }),
     removerContratoAssinado: async (id, data) => apiFetch(`/terceiroContratos/${id}/assinado`, { method: 'DELETE', body: JSON.stringify(data || {}) }),
+    // Conclusão: { data, modo: 'original'|'apurado'|'personalizado', valorApurado?, valor?, horasExecutadas?, observacao? }
+    concluirTerceiroContrato: async (id, data) => apiFetch(`/terceiroContratos/${id}/conclusao`, { method: 'POST', body: JSON.stringify(data) }),
+    reabrirTerceiroContrato: async (id) => apiFetch(`/terceiroContratos/${id}/conclusao`, { method: 'DELETE' }),
     // Máquinas: vínculo operacional, editável mesmo com contrato assinado.
 
     // --- Termos aditivos (só sobre contrato assinado) ---

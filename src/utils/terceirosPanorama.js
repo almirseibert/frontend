@@ -71,6 +71,8 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
             obraNome: obraById.get(c.obraId)?.nome || '—',
             status: c.status || 'ativo',
             vigente: isVigente(c),
+            // Concluído com saldo a acertar: ainda é dinheiro, já não é compromisso.
+            emAberto: isVigente(c) || (c.status === 'concluido' && Math.abs(r.saldo) >= 0.01),
             assinado: !!c.contratoAssinadoUrl,
             inicio: toDate(c.vigenciaInicio),
             fim,
@@ -80,8 +82,9 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
     });
 
     // Só os contratos em aberto entram nos totais financeiros: cancelado não é
-    // obrigação e concluído já foi acertado — somá-los inflaria o saldo devedor.
-    const abertos = linhas.filter((l) => l.vigente);
+    // obrigação e concluído quitado já foi acertado — somá-los inflaria o saldo
+    // devedor. Concluído com saldo segue até zerar.
+    const abertos = linhas.filter((l) => l.emAberto);
 
     const soma = (list, pick) => list.reduce((a, l) => a + pick(l), 0);
 
@@ -177,6 +180,9 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
 
     // ── Alertas (o que exige decisão) ─────────────────────────────────────────
     const alertas = [];
+    // Alertas de execução (assinatura, prazo, horas, máquina) são de contrato em
+    // curso; concluído com saldo só pede o acerto, que já aparece no saldo.
+    const vigentesAbertos = abertos.filter((l) => l.vigente);
     // `escopo` diz o que o alerta seleciona quando vira filtro da tabela:
     //   'contrato'  → itens são linhas de contrato; a tabela reagrupa só elas.
     //   'pendencia' → itens são agregados terceiro × obra sem contrato nenhum,
@@ -186,23 +192,23 @@ export const buildPanorama = (contratos = [], ctx = {}, opts = {}) => {
     };
 
     push('sem-assinatura', 'alta', 'Contratos sem via assinada anexada',
-        abertos.filter((l) => !l.assinado),
+        vigentesAbertos.filter((l) => !l.assinado),
         'Obrigação em execução sem documento assinado no sistema — risco jurídico se houver divergência.');
 
     push('vencido', 'alta', 'Vigência vencida com saldo em aberto',
-        abertos.filter((l) => l.vencido && l.r.saldo > 0.01),
+        vigentesAbertos.filter((l) => l.vencido && l.r.saldo > 0.01),
         'O prazo terminou e ainda há valor a pagar: exige acerto final ou termo aditivo de prazo.');
 
     push('vencendo', 'media', 'Vigência terminando em até 30 dias',
-        abertos.filter((l) => l.diasRestantes !== null && l.diasRestantes >= 0 && l.diasRestantes <= 30),
+        vigentesAbertos.filter((l) => l.diasRestantes !== null && l.diasRestantes >= 0 && l.diasRestantes <= 30),
         'Decidir renovação, aditivo ou encerramento antes do vencimento.');
 
     push('estouro-horas', 'media', 'Horas executadas acima do contratado',
-        abertos.filter((l) => l.r.horasContratadas > 0 && l.r.progresso > 1.001),
+        vigentesAbertos.filter((l) => l.r.horasContratadas > 0 && l.r.progresso > 1.001),
         'A obra consumiu mais horas do que o plano contratado — sem aditivo, a hora extra não tem cobertura.');
 
     push('sem-maquina', 'media', 'Contratos sem equipamento vinculado',
-        abertos.filter((l) => l.r.numMaquinas === 0),
+        vigentesAbertos.filter((l) => l.r.numMaquinas === 0),
         'Sem máquina vinculada não há como apurar horas nem abater diesel — o saldo fica igual ao valor cheio.');
 
     // ── O que não caiu em contrato nenhum ────────────────────────────────────

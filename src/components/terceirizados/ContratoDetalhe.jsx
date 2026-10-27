@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
     FileText, FileDown, Pencil, Trash2, Loader, Clock, Wallet, Droplet, ArrowLeft,
     PlusCircle, AlertTriangle, Building2, ShieldCheck, UploadCloud, Download, History, Lock,
-    Truck, CalendarRange, Gavel, Info, ClipboardList, FilePlus2,
+    Truck, CalendarRange, Gavel, Info, ClipboardList, FilePlus2, CheckCircle2, RotateCcw,
 } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 import { getContratoAbastecimentos, getContratoApontamentos, agruparApontamentosPorMes } from '../../utils/terceirizados';
@@ -144,6 +144,68 @@ const KpiCard = ({ label, value, tone = 'gray', hint }) => {
             <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: t.text }}>{label}</div>
             <div className="text-lg font-extrabold mt-1" style={{ color: t.text }}>{value}</div>
             {hint && <div className="text-[10px] mt-0.5 opacity-70" style={{ color: t.text }}>{hint}</div>}
+        </div>
+    );
+};
+
+const MODO_CONCLUSAO = {
+    original: 'valor original do contrato',
+    apurado: 'valor apurado pelas horas executadas',
+    personalizado: 'valor personalizado',
+};
+
+/**
+ * Faixa do contrato concluído: data, como o valor final foi definido e o retrato
+ * do momento (contratado × apurado × horas). Reabrir desfaz a conclusão.
+ */
+const ConclusaoBanner = ({ conclusao, r, saldo, onReabrir }) => {
+    const [confirmando, setConfirmando] = useState(false);
+    const [reabrindo, setReabrindo] = useState(false);
+    const reabrir = async () => {
+        setReabrindo(true);
+        try { await onReabrir(); } finally { setReabrindo(false); setConfirmando(false); }
+    };
+    const quitado = Math.abs(saldo) < 0.01;
+    return (
+        <div className="mb-4 rounded-xl border border-gray-300 bg-gray-50 px-4 py-3">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="text-sm text-gray-700">
+                    <div className="flex items-center gap-1.5 font-bold text-gray-800">
+                        <CheckCircle2 size={15} className="text-gray-600 shrink-0" />
+                        Concluído em {fmtDate(conclusao.data)} pelo {MODO_CONCLUSAO[conclusao.modo] || 'valor informado'}: {fmtBRL(conclusao.valor)}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-3">
+                        {conclusao.valorContratado != null && <span>Contratado {fmtBRL(conclusao.valorContratado)}</span>}
+                        {conclusao.valorApurado != null && <span>Apurado {fmtBRL(conclusao.valorApurado)}</span>}
+                        {conclusao.horasExecutadas != null && <span>{fmtH(conclusao.horasExecutadas)} de {fmtH(r.horasContratadas)} executadas</span>}
+                    </div>
+                    {conclusao.observacao && <p className="text-xs text-gray-600 mt-1"><span className="font-semibold">Obs.:</span> {conclusao.observacao}</p>}
+                    <p className="text-[11px] text-gray-400 mt-1">
+                        {conclusao.registradaPor ? `Registrado por ${conclusao.registradaPor}` : 'Registrado'}
+                        {conclusao.registradaEm ? ` em ${fmtDateTime(conclusao.registradaEm)}` : ''}.{' '}
+                        {quitado ? 'Saldo acertado — o contrato saiu da lista de Terceirizados.' : 'Segue em Terceirizados até o saldo ser acertado.'}
+                    </p>
+                </div>
+                <ProtectedComponent requiredPermission="editor">
+                    {confirmando ? (
+                        <div className="flex flex-col items-end gap-1.5 text-xs max-w-[260px]">
+                            <span className="text-gray-600 text-right">Reabrir? O valor e a vigência voltam a ser os contratados.</span>
+                            <div className="flex gap-2">
+                                <button onClick={reabrir} disabled={reabrindo}
+                                    className="px-2.5 py-1 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-60">
+                                    {reabrindo ? <Loader size={12} className="animate-spin" /> : 'Reabrir'}
+                                </button>
+                                <button onClick={() => setConfirmando(false)} className="px-2.5 py-1 bg-gray-200 rounded-lg font-medium hover:bg-gray-300">Cancelar</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button onClick={() => setConfirmando(true)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-100">
+                            <RotateCcw size={13} /> Reabrir
+                        </button>
+                    )}
+                </ProtectedComponent>
+            </div>
         </div>
     );
 };
@@ -445,9 +507,12 @@ const ContratoDetalhe = ({
     onNovoAdiantamento, onEditAdiantamento, onDeleteAdiantamento,
     aditivoLoadingId, onNovoAditivo, onEditAditivo, onDeleteAditivo,
     onGerarAditivoPdf, onEnviarAditivoAssinado, onBaixarAditivoAssinado, onRemoverAditivoAssinado,
+    onConcluir, onReabrir,
 }) => {
     const c = r.contrato;
     const assinado = !!c.contratoAssinadoUrl;
+    const concluido = c.status === 'concluido';
+    const podeConcluir = ['ativo', 'assinado'].includes(c.status || 'ativo');
     const [aba, setAba] = useState('adiantamentos'); // 'adiantamentos' | 'abastecimentos'
 
     const abastecimentos = useMemo(() => getContratoAbastecimentos(c, ctx), [c, ctx]);
@@ -503,13 +568,20 @@ const ContratoDetalhe = ({
                         {pdfLoading ? <Loader size={14} className="animate-spin" /> : <FileDown size={14} />} Minuta
                     </button>
                     <ProtectedComponent requiredPermission="editor">
-                        <button onClick={onEditContrato} disabled={assinado}
-                            title={assinado ? 'Contrato assinado — edição bloqueada' : 'Editar contrato'}
+                        {podeConcluir && (
+                            <button onClick={onConcluir}
+                                title="Registrar o encerramento do serviço e o valor final do contrato"
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                                <CheckCircle2 size={14} /> Concluir
+                            </button>
+                        )}
+                        <button onClick={onEditContrato} disabled={assinado || concluido}
+                            title={concluido ? 'Contrato concluído — reabra para editar' : assinado ? 'Contrato assinado — edição bloqueada' : 'Editar contrato'}
                             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-40">
                             <Pencil size={14} /> Editar
                         </button>
-                        <button onClick={onDeleteContrato} disabled={assinado}
-                            title={assinado ? 'Contrato assinado — exclusão bloqueada' : 'Excluir contrato'}
+                        <button onClick={onDeleteContrato} disabled={assinado || concluido}
+                            title={concluido ? 'Contrato concluído — reabra para excluir' : assinado ? 'Contrato assinado — exclusão bloqueada' : 'Excluir contrato'}
                             className="p-2 text-red-500 rounded-lg hover:bg-red-50 disabled:opacity-40"><Trash2 size={16} /></button>
                     </ProtectedComponent>
                 </div>
@@ -517,14 +589,18 @@ const ContratoDetalhe = ({
 
             {/* ===================== NÚMEROS ===================== */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <KpiCard label="Valor contrato" value={fmtBRL(r.valorTotal)} tone="gray"
-                    hint={r.temAditivos
+                <KpiCard label={r.conclusao ? 'Valor final' : 'Valor contrato'} value={fmtBRL(r.valorTotal)} tone="gray"
+                    hint={r.conclusao
+                        ? (Math.abs(r.valorContratado - r.valorTotal) >= 0.01 ? `contratado ${fmtBRL(r.valorContratado)}` : 'igual ao contratado')
+                        : r.temAditivos
                         ? `original ${fmtBRL(r.valorOriginal)} · ${r.aditivosValidos.length} aditivo(s)${r.aditivosEmMinuta > 0 ? ` · ${r.aditivosEmMinuta} em minuta` : ''}`
                         : null} />
                 <KpiCard label="Diesel abatido" value={fmtBRL(r.diesel)} tone="blue" />
                 <KpiCard label="Pagamentos" value={fmtBRL(r.adiantamentos)} tone="gray" />
                 <KpiCard label="Saldo a pagar" value={fmtBRL(r.saldo)} tone={r.saldo > 0 ? 'red' : r.saldo < 0 ? 'blue' : 'green'} />
             </div>
+
+            {r.conclusao && <ConclusaoBanner conclusao={r.conclusao} r={r} saldo={r.saldo} onReabrir={onReabrir} />}
 
             {foraDoPlano.length > 0 && (
                 <div className="mb-4 text-xs text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
@@ -555,7 +631,7 @@ const ContratoDetalhe = ({
             )}
             {r.saldo < 0 && (
                 <div className="mb-4 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                    ⚠ Diesel + pagamentos já ultrapassaram o valor do contrato — o terceiro deve {fmtBRL(-r.saldo)} à MAK.
+                    ⚠ Diesel + pagamentos já ultrapassaram o valor {r.conclusao ? 'final' : 'do contrato'} — o terceiro deve {fmtBRL(-r.saldo)} à MAK.
                 </div>
             )}
 

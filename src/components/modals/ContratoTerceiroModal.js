@@ -810,9 +810,9 @@ const ContratoTerceiroModal = ({ contrato, terceiros = [], obras = [], vehicles 
                             <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Status</label>
                             <select name="status" value={form.status} onChange={handleChange} className="w-full p-2 border rounded-lg bg-white text-sm">
                                 <option value="ativo">Ativo</option>
-                                <option value="concluido">Concluído</option>
                                 <option value="cancelado">Cancelado</option>
                             </select>
+                            <p className="text-[10px] text-gray-400 mt-1">Para encerrar o serviço, use <span className="font-semibold">Concluir</span> na tela do contrato — lá se define o valor final.</p>
                         </div>
                     )}
 

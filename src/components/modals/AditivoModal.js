@@ -4,6 +4,7 @@ import { vehicleSubTypes, equipmentTypesForHours } from '../../utils/vehicleRule
 import CurrencyInput from '../ui/CurrencyInput';
 
 import { fmtBRL } from '../../utils/currency';
+import { planoTrabalhoDisponivel } from '../../utils/terceirizados';
 const fmtHInt = (n) => `${Math.round(Number(n) || 0).toLocaleString('pt-BR')} h`;
 const numOf = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
@@ -27,9 +28,11 @@ const TIPOS = [
  * Props:
  *  contrato   linha do contrato (com bloco `vigente` vindo da API)
  *  aditivo    aditivo em edição (minuta) ou null para novo
+ *  obra       obra do contrato — traz o plano de trabalho por subgrupo (saldo)
+ *  contratos  todos os contratos de terceiro (para descontar o já comprometido)
  *  apiClient, setAlertMessage, onClose, onSaved
  */
-const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, onClose, onSaved }) => {
+const AditivoModal = ({ contrato, aditivo = null, obra = null, contratos = [], apiClient, setAlertMessage, onClose, onSaved }) => {
     const vigente = contrato?.vigente || {};
     const itensVigentes = useMemo(
         () => (Array.isArray(vigente.itensContratados) ? vigente.itensContratados : []),
@@ -68,6 +71,28 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
         return [...new Set(opts)].sort();
     }, []);
     const opcoesLinha = tipo === 'escopo' ? equipmentOptions : itensVigentes.map((i) => i.type);
+
+    // Saldo do plano de trabalho da obra por subgrupo: plano − tudo que os contratos
+    // de terceiro (inclusive este, já com seus aditivos) comprometeram. Na edição de
+    // uma minuta, as horas dela já estão no vigente — devolvemos para não contar duas vezes.
+    const saldoPlano = useMemo(() => {
+        const rows = planoTrabalhoDisponivel({ obra, contratos });
+        const out = {};
+        rows.filter((r) => !r.foraDoPlano).forEach((r) => { out[r.type] = r.saldo; });
+        (Array.isArray(aditivo?.itensDelta) ? aditivo.itensDelta : []).forEach((i) => {
+            const k = itensVigentes.find((v) => v.type === i.type)?.consomeDe || i.type;
+            if (k in out) out[k] += numOf(i.hours);
+        });
+        return out;
+    }, [obra, contratos, aditivo, itensVigentes]);
+    // Máquina fora do plano consome do item de origem — o saldo é o dele.
+    const chaveSaldo = (type) => itensVigentes.find((i) => i.type === type)?.consomeDe || type;
+    const saldoDe = (type) => saldoPlano[chaveSaldo(type)];
+
+    // Horas que as linhas deste aditivo tiram (+) ou devolvem (−) de cada item do plano.
+    const deltaNoPlano = (type) => (usaHoras ? linhas : [])
+        .filter((l) => l.type && chaveSaldo(l.type) === chaveSaldo(type))
+        .reduce((a, l) => a + numOf(l.hours) * (negativo ? -1 : 1), 0);
 
     const precoVigente = (type) => numOf(itensVigentes.find((i) => i.type === type)?.price);
     const horasVigentes = (type) => numOf(itensVigentes.find((i) => i.type === type)?.hours);
@@ -210,8 +235,13 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
                                 </button>
                             </div>
                             <div className="space-y-2">
-                                {linhas.map((l, i) => (
-                                    <div key={i} className="flex items-end gap-2">
+                                {linhas.map((l, i) => {
+                                    const saldo = l.type ? saldoDe(l.type) : undefined;
+                                    const delta = l.type ? deltaNoPlano(l.type) : 0;
+                                    const apos = saldo != null ? saldo - delta : null;
+                                    return (
+                                    <div key={i}>
+                                    <div className="flex items-end gap-2">
                                         <div className="flex-1 min-w-0">
                                             <label className="block text-[10px] font-bold text-gray-500 mb-1">Equipamento (subgrupo)</label>
                                             <select value={l.type} onChange={(e) => updateLinha(i, 'type', e.target.value)}
@@ -246,7 +276,27 @@ const AditivoModal = ({ contrato, aditivo = null, apiClient, setAlertMessage, on
                                         <button type="button" onClick={() => removeLinha(i)}
                                             className="p-2 text-red-500 rounded-lg hover:bg-red-50 mb-0.5"><Trash2 size={15} /></button>
                                     </div>
-                                ))}
+                                    {/* Saldo do plano da obra para o subgrupo — o teto do acréscimo. */}
+                                    {l.type && usaHoras && Object.keys(saldoPlano).length > 0 && (
+                                        saldo == null ? (
+                                            <p className="text-[11px] text-gray-400 mt-1">Subgrupo fora do plano de trabalho da obra — sem saldo a controlar.</p>
+                                        ) : (
+                                            <p className="text-[11px] text-gray-500 mt-1">
+                                                Saldo no plano da obra
+                                                {chaveSaldo(l.type) !== l.type && <> (consome de {chaveSaldo(l.type)})</>}:{' '}
+                                                <span className={`font-bold ${saldo > 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtHInt(saldo)}</span>
+                                                {delta !== 0 && (
+                                                    <> · após o aditivo:{' '}
+                                                        <span className={`font-bold ${apos < 0 ? 'text-red-600' : 'text-gray-700'}`}>{fmtHInt(apos)}</span>
+                                                        {apos < 0 && <span className="text-red-600"> — excede o plano em {fmtHInt(-apos)}</span>}
+                                                    </>
+                                                )}
+                                            </p>
+                                        )
+                                    )}
+                                    </div>
+                                    );
+                                })}
                                 {linhas.length === 0 && (
                                     <p className="text-xs text-gray-400 italic">Nenhum equipamento adicionado.</p>
                                 )}
