@@ -2,7 +2,7 @@
 import { X, Loader, Edit, BarChart3, Truck, Calendar, MapPin, AlertTriangle, Clock, RefreshCw, User, ClipboardList, Trash2, CornerDownRight } from 'lucide-react';
 import ProtectedComponent from '../ProtectedComponent';
 import SearchableSelect from '../SearchableSelect';
-import { formatObraNome } from '../../utils/obraFormat';
+import { formatObraNome, OBRA_STATUS_LABEL } from '../../utils/obraFormat';
 import TerceirizadoObraResumo from '../analise/TerceirizadoObraResumo';
 
 // --- COMPONENTES AUXILIARES INTERNOS ---
@@ -495,8 +495,11 @@ const ObraDetailModal = ({ user, obra, vehicles = [], onClose, setAlertMessage, 
                         </div>
                         
                         <div className="flex items-center gap-4 mt-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${detailedObra.status === 'ativa' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                                {detailedObra.status === 'ativa' ? 'Em Andamento' : 'Finalizada'}
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                                detailedObra.status === 'ativa' ? 'bg-green-100 text-green-700'
+                                : detailedObra.status === 'finalizada' ? 'bg-gray-100 text-gray-600'
+                                : 'bg-amber-100 text-amber-700'}`}>
+                                {OBRA_STATUS_LABEL[detailedObra.status] || detailedObra.status || '—'}
                             </span>
                             <span className="text-sm font-medium border-l pl-4 border-gray-300">
                                 Contrato: {detailedObra.contractType === 'metrosQuadrados' ? 'Por Produção (m²)' : 'Por Horas'}

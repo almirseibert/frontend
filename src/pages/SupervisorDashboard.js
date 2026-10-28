@@ -101,7 +101,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
     // KPIs agregados (com camada financeira e ponderação correta)
     const aggregateKpis = useMemo(() => {
         const empty = {
-            total: 0, capacidadeTotal: 0, conclusaoPonderada: 0, criticas: 0,
+            total: 0, emMobilizacao: 0, capacidadeTotal: 0, conclusaoPonderada: 0, criticas: 0,
             receitaTotal: 0, custoTotal: 0, valorProduzido: 0, margemMediaPct: 0,
             aditivoEstourado: 0, aditivoRisco: 0,
             terceirosTotal: 0, obrasComTerceiros: 0, terceirosPct: 0,
@@ -157,6 +157,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
 
         return {
             total: obras.length,
+            emMobilizacao: obras.filter(o => o.status === 'mobilizacao').length,
             capacidadeTotal: Math.round(capacidadeTotal),
             conclusaoPonderada: Math.round(conclusaoPonderada),
             criticas,
@@ -280,7 +281,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
         doc.text('Gestão de Obras — Análise Gerencial', 40, 40);
         doc.setFontSize(9);
         doc.setTextColor(100);
-        doc.text(`Emitido em ${now} • ${aggregateKpis.total} obras ativas`, 40, 56);
+        doc.text(`Emitido em ${now} • ${aggregateKpis.total} obras${aggregateKpis.emMobilizacao > 0 ? ` (${aggregateKpis.emMobilizacao} em mobilização)` : ''}`, 40, 56);
 
         // KPIs em texto
         const kpiLine = [
@@ -301,7 +302,9 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
 
         const rows = filteredAndSorted.map(o => {
             const f = computeObraFinance(o);
-            const status = STATUS_LABELS[o.kpi?.status_cor || 'green']?.label || '—';
+            const status = o.status === 'mobilizacao'
+                ? 'Em mobilização'
+                : STATUS_LABELS[o.kpi?.status_cor || 'green']?.label || '—';
             return [
                 o.nome || '—',
                 o.orgao_contratante || '—',
@@ -399,7 +402,10 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-4 py-3 mb-3">
                 <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 tabular-nums">
                     <span className="text-sm text-slate-600">
-                        <b className="text-slate-900">{aggregateKpis.total}</b> obras ativas
+                        <b className="text-slate-900">{aggregateKpis.total}</b> obras
+                        {aggregateKpis.emMobilizacao > 0 && (
+                            <span className="text-slate-400"> · {aggregateKpis.emMobilizacao} em mobilização</span>
+                        )}
                         {aggregateKpis.criticas > 0 && (
                             <span className="text-slate-400"> · {aggregateKpis.criticas} exigem atenção</span>
                         )}
@@ -528,7 +534,7 @@ const SupervisorDashboard = ({ user, onNavigateToDetail, onNavigateToFicha }) =>
             ) : filteredAndSorted.length === 0 ? (
                 <div className="text-center py-20 text-slate-400 bg-white rounded-xl border border-slate-200">
                     <AlertCircle size={64} className="mx-auto mb-4 opacity-20" />
-                    <p className="text-lg">{obras.length === 0 ? 'Nenhuma obra ativa encontrada.' : 'Nenhuma obra corresponde aos filtros.'}</p>
+                    <p className="text-lg">{obras.length === 0 ? 'Nenhuma obra em execução ou mobilização encontrada.' : 'Nenhuma obra corresponde aos filtros.'}</p>
                     {obras.length > 0 && (
                         <button onClick={() => { setSearch(''); setStatusFilter('todos'); setSoComTerceiros(false); setOrgaoFilter('todos'); }} className="mt-3 text-blue-600 hover:underline text-sm font-bold">
                             Limpar filtros

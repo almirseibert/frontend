@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Loader, X, History, Calendar, Gauge, Building2, User, ArrowRight, AlertTriangle } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
-import { formatObraNome } from '../utils/obraFormat';
+import { formatObraNome, OBRA_STATUS_LABEL } from '../utils/obraFormat';
 
 // --- Estadia retroativa (split da alocação atual) ---
 // Registra uma passagem passada por OUTRA obra sem tirar o veículo da obra
@@ -29,7 +29,7 @@ const EstadiaRetroativaModal = ({
         obras
             .filter(o => (inicial?.obraId && String(o.id) === String(inicial.obraId))
                 || (['ativa', 'planejada', 'mobilizacao'].includes(o.status) && (!isAllocated || String(o.id) !== String(vehicle.obraAtualId))))
-            .map(o => ({ ...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}${o.status !== 'ativa' ? ' [PLANEJADA]' : ''}` }))
+            .map(o => ({ ...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}${o.status !== 'ativa' ? ` [${(OBRA_STATUS_LABEL[o.status] || o.status).toUpperCase()}]` : ''}` }))
             .sort((a, b) => (a._displayNome || '').localeCompare(b._displayNome || '')),
     [obras, vehicle.obraAtualId, isAllocated, inicial?.obraId]);
 

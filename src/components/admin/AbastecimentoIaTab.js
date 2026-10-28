@@ -105,13 +105,13 @@ const AbastecimentoIaTab = () => {
     const obrasHabilitadas = useMemo(() => parseLista(config?.obras_habilitadas), [config]);
     const veiculosHabilitados = useMemo(() => parseLista(config?.veiculos_habilitados), [config]);
 
-    // Só obras ATIVAS entram na escolha — oferecer obra encerrada é convidar a
+    // Só obras em operação (ativa ou mobilização — esta já abastece) entram na escolha — oferecer obra encerrada é convidar a
     // marcar escopo que nunca vai receber solicitação. A exceção é a obra que já
     // está marcada e encerrou depois: ela continua visível (rotulada) para poder
     // ser desmarcada, em vez de virar escopo invisível.
     const obrasVisiveis = useMemo(() => {
         const marcadas = obrasHabilitadas.map(String);
-        return obras.filter((o) => o.status === 'ativa' || marcadas.includes(String(o.id)));
+        return obras.filter((o) => ['ativa', 'mobilizacao'].includes(o.status) || marcadas.includes(String(o.id)));
     }, [obras, obrasHabilitadas]);
 
     // Terceirizado, fictício e comboio são recusados pelo portão G0 de qualquer
@@ -340,7 +340,7 @@ const AbastecimentoIaTab = () => {
                                     />
                                     <span className="text-xs text-gray-700">
                                         {formatObraNome(o) || o.nome}
-                                        {o.status !== 'ativa' && (
+                                        {!['ativa', 'mobilizacao'].includes(o.status) && (
                                             <span className="ml-1 text-[10px] font-bold text-gray-400">[encerrada]</span>
                                         )}
                                     </span>

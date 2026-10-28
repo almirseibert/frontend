@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, AlertTriangle, Users } from 'lucide-react';
+import { Clock, AlertTriangle, Users, Truck } from 'lucide-react';
 
 import { fmtBRL } from '../../utils/currency';
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +37,10 @@ const ObraCard = ({ obra, onClick }) => {
     const { kpi, nome, orgao_contratante: orgao, previsao } = obra;
 
     const status = kpi?.status_cor || 'green';
+    // Mobilização: máquina já na obra, nenhum lançamento ainda. Mostra o card
+    // completo (contrato e terceiros já valem), mas sem cor de progresso.
+    const emMobilizacao = obra.status === 'mobilizacao';
+    const accent = emMobilizacao ? 'bg-slate-300' : (STATUS_ACCENT[status] || STATUS_ACCENT.green);
     const percentual = Number(kpi?.percentual_conclusao) || 0;
     const horasContratadas = Number(kpi?.horas_contratadas) || 0;
     const horasExecutadas = Number(kpi?.horas_executadas) || 0;
@@ -68,7 +72,7 @@ const ObraCard = ({ obra, onClick }) => {
             className="bg-white rounded-xl shadow-sm border border-slate-200 cursor-pointer relative flex h-full overflow-hidden hover:shadow-md transition-shadow group"
         >
             {/* Faixa de status */}
-            <div className={`w-1 shrink-0 ${STATUS_ACCENT[status] || STATUS_ACCENT.green}`} />
+            <div className={`w-1 shrink-0 ${accent}`} />
 
             <div className="flex flex-col flex-1 min-w-0 p-4">
                 {/* ── 1. Identidade — altura reservada de 2 linhas ─────────── */}
@@ -158,7 +162,7 @@ const ObraCard = ({ obra, onClick }) => {
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                         <div
-                            className={`h-2 rounded-full transition-all duration-700 ${STATUS_ACCENT[status] || STATUS_ACCENT.green}`}
+                            className={`h-2 rounded-full transition-all duration-700 ${accent}`}
                             style={{ width: `${Math.min(percentual, 100)}%` }}
                         />
                     </div>
@@ -167,6 +171,12 @@ const ObraCard = ({ obra, onClick }) => {
                 {/* ── 4. Sinais + previsão ────────────────────────────────── */}
                 <div className="mt-auto pt-3 flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex flex-wrap gap-1.5">
+                        {emMobilizacao && (
+                            <span className="flex items-center bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 text-[10px] font-bold">
+                                <Truck size={11} className="mr-1" />
+                                Em mobilização
+                            </span>
+                        )}
                         {percentual > 90 && (
                             <span className="flex items-center bg-red-50 text-red-700 px-2 py-0.5 rounded border border-red-100 text-[10px] font-bold">
                                 <AlertTriangle size={11} className="mr-1" />
@@ -181,7 +191,7 @@ const ObraCard = ({ obra, onClick }) => {
                         )}
                     </div>
                     <span className="text-[10px] text-slate-400 shrink-0 ml-auto">
-                        {dataTermino ? `Previsão ${dataTermino}` : 'Sem previsão'}
+                        {dataTermino ? `Previsão ${dataTermino}` : emMobilizacao ? 'Aguardando 1º lançamento' : 'Sem previsão'}
                     </span>
                 </div>
             </div>

@@ -22,8 +22,9 @@ const ymd = (v) => (v ? (v instanceof Date ? v.toISOString() : String(v)).slice(
 // A obra estava ativa em algum dia de [from, to]? Início = dataInicio (derivado
 // do 1º lançamento de horas) ou, na falta, a 1ª entrada de veículo. Fim só existe
 // para obra finalizada: nas demais o dataFim é previsão, não encerramento.
+// Mobilização conta: a máquina já está lá (entrada de veículo), só falta lançar.
 const obraAtivaNoPeriodo = (obra, from, to) => {
-    if (obra.status !== 'ativa' && obra.status !== 'finalizada') return false;
+    if (!['ativa', 'mobilizacao', 'finalizada'].includes(obra.status)) return false;
     const entradas = (obra.historicoVeiculos || []).map(h => ymd(h.dataEntrada)).filter(Boolean).sort();
     const inicio = ymd(obra.dataInicio) || entradas[0] || '';
     const fim = obra.status === 'finalizada' ? ymd(obra.dataFim) : '';
@@ -271,6 +272,7 @@ const WorkPlanReport = ({ obras, vehicles, vehicleGroups, expenses = [], equipme
                         <label className="block text-sm font-bold text-gray-700 mb-2">Filtrar por Status</label>
                         <select value={pdfWorkplanFilterStatus} onChange={e => setPdfWorkplanFilterStatus(e.target.value)} className="input-field">
                             <option value="ativa">Obras Ativas</option>
+                            <option value="mobilizacao">Obras em Mobilização</option>
                             <option value="finalizada">Obras Encerradas</option>
                             <option value="periodo">Ativas em um período</option>
                         </select>

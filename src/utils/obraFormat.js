@@ -18,6 +18,17 @@ export const formatObraNome = (obra) => {
     return orgaoLimpo ? `${nome} (${orgaoLimpo})` : nome;
 };
 
+// Rótulo curto de cada fase do ciclo radar → planejada → mobilizacao → ativa →
+// finalizada. Use no lugar de `status === 'ativa' ? ... : ...`, que rotulava
+// toda obra pré-operação como "Finalizada"/"Planejada".
+export const OBRA_STATUS_LABEL = {
+    radar:       'No radar',
+    planejada:   'Planejada',
+    mobilizacao: 'Em mobilização',
+    ativa:       'Em operação',
+    finalizada:  'Finalizada',
+};
+
 // Regiões (filiais) da operação — mesmos valores do ENUM obras.regiao.
 // Fonte única para os seletores de região: cadastro de feriados municipais,
 // filial do relator no relato de ocorrência, etc.

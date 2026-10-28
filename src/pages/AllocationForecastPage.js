@@ -34,7 +34,7 @@ const AllocationForecastPage = ({ onBack }) => {
     }, [filterObra, filterTipo, allocations]);
 
     const formatDate = (dateStr) => {
-        if (!dateStr) return '-';
+        if (!dateStr) return 'Sem ritmo ainda';
         return new Date(dateStr).toLocaleDateString('pt-BR');
     };
 

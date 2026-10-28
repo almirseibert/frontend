@@ -4,7 +4,7 @@ import FinishObraModal from './FinishObraModal';
 import EstadiaRetroativaModal from './EstadiaRetroativaModal';
 import { getAllowedReadingTypes, getVehicleMainReading, checkVehicleRestrictions, checkReadingConsistency } from '../utils/vehicleRules';
 import SearchableSelect from './SearchableSelect';
-import { formatObraNome } from '../utils/obraFormat';
+import { formatObraNome, OBRA_STATUS_LABEL } from '../utils/obraFormat';
 import { diaBR, sobrepoe, estadiasDoVeiculo } from '../utils/periodosObra';
 
 const PODE_CORRIGIR_HISTORICO = ['admin', 'gerencia', 'editor', 'abastecimento', 'oficina'];
@@ -712,7 +712,7 @@ const ObraAllocationModal = ({
                                         <Building2 size={12} /> Obra Destino <span className="text-red-500">*</span>
                                     </label>
                                     <SearchableSelect
-                                        items={activeObras.map(o => ({ ...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}${o.status !== 'ativa' ? ' [PLANEJADA]' : ''}` }))}
+                                        items={activeObras.map(o => ({ ...o, _displayNome: `${formatObraNome(o)}${o.tipo_registro === 'centro_custo' ? ' (CC)' : ''}${o.status !== 'ativa' ? ` [${(OBRA_STATUS_LABEL[o.status] || o.status).toUpperCase()}]` : ''}` }))}
                                         value={obraId}
                                         onChange={(item) => setObraId(item?.id || '')}
                                         getLabel={(o) => o._displayNome || o.nome}

@@ -73,7 +73,7 @@ const SupplyOrdersReport = ({
 
     const sortedVehicles = useMemo(() => [...vehicles].sort((a, b) => sortAlphaNum(a.registroInterno, b.registroInterno)), [vehicles]);
     const sortedPartners = useMemo(() => [...partnersData].sort((a, b) => sortAlphaNum(a.razaoSocial, b.razaoSocial)), [partnersData]);
-    const sortedObras = useMemo(() => [...obras].filter(o => o.status === 'ativa').sort((a, b) => sortAlphaNum(a.nome, b.nome)), [obras]);
+    const sortedObras = useMemo(() => [...obras].filter(o => ['ativa', 'mobilizacao'].includes(o.status)).sort((a, b) => sortAlphaNum(a.nome, b.nome)), [obras]);
 
     // --- 3. Filtragem Flexível para Resolver Status ("nada funciona") ---
     const filteredOrders = useMemo(() => {
