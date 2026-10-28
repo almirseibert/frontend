@@ -1396,10 +1396,25 @@ const SolicitacaoAbastecimentoPage = ({
                                                         <p className="text-xs text-gray-500 uppercase">{req.veiculo_nome}</p>
                                                     </div>
                                                     <div className="text-right">
-                                                        <p className="font-bold text-gray-800">{req.litragem_solicitada ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
+                                                        {/* Tanque cheio é gravado como litragem 0 ("0.00" vem truthy da API) */}
+                                                        <p className="font-bold text-gray-800">{Number(req.litragem_solicitada) > 0 ? `${req.litragem_solicitada} L` : 'Cheio'}</p>
                                                         <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
                                                     </div>
                                                 </div>
+                                                {(req.ordem_numero || req.posto_nome) && (
+                                                    <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
+                                                        {req.ordem_numero && (
+                                                            <p className="text-xs text-gray-500">
+                                                                Ordem <span className="font-bold text-gray-800">Nº {String(req.ordem_numero).padStart(6, '0')}</span>
+                                                            </p>
+                                                        )}
+                                                        {req.posto_nome && (
+                                                            <p className="text-xs text-gray-500 truncate">
+                                                                Posto <span className="font-semibold text-gray-700">{req.posto_nome}</span>
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 {req.status === 'LIBERADO' && isMine && (
                                                     <div className="mt-2 bg-green-50 text-green-700 text-xs p-2 rounded flex items-center gap-1 font-bold animate-pulse">
                                                         <Camera size={12}/> Enviar Cupom Agora
