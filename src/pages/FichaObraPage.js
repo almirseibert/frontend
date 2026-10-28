@@ -319,10 +319,15 @@ const FichaObraPage = ({ obraId, onBack, obras = [], vehicles = [], setAlertMess
     const frota = useMemo(() => {
         // linhas = tudo que trabalhou na obra no período; `alocados` conta só quem
         // continua na obra hoje (o backend marca alocadaAtualmente=false em quem saiu).
-        const linhas = (analytics?.porVeiculo || []).filter(v => v.estado !== 'sucata');
+        // Terceiros vêm à parte (fora do aproveitamento, capacidade 0) e entram
+        // no fim da lista — sem eles, obra tocada só com locados parecia vazia.
+        const proprias = (analytics?.porVeiculo || []).filter(v => v.estado !== 'sucata');
+        const terceiros = analytics?.terceiros || [];
+        const linhas = [...proprias, ...terceiros];
         return {
             linhas,
             alocados: linhas.filter(v => v.alocadaAtualmente !== false).length,
+            terceirosAlocados: terceiros.filter(v => v.alocadaAtualmente !== false).length,
             jaSairam: linhas.filter(v => v.alocadaAtualmente === false).length,
             aproveitamentoMedio: analytics?.summary?.aproveitamento ?? null,
         };
@@ -737,6 +742,7 @@ function FrotaTabela({ frota, anErro, loading, onDetalhe }) {
             right={frota.linhas.length > 0 ? (
                 <span style={{ fontSize: 11.5, color: C.inkSub }}>
                     {frota.alocados} alocado{frota.alocados !== 1 ? 's' : ''}
+                    {frota.terceirosAlocados > 0 && ` (${frota.terceirosAlocados} terceiro${frota.terceirosAlocados !== 1 ? 's' : ''})`}
                     {frota.jaSairam > 0 && ` · ${frota.jaSairam} já ${frota.jaSairam === 1 ? 'saiu' : 'saíram'}`}
                     {frota.aproveitamentoMedio != null && ` · aproveitamento médio ${fmtPct(frota.aproveitamentoMedio)}`}
                 </span>
@@ -764,6 +770,7 @@ function FrotaTabela({ frota, anErro, loading, onDetalhe }) {
                                 <tr key={v.id} style={{ borderBottom: `1px solid ${C.border}`, background: v.alocadaAtualmente === false ? C.bg : undefined }}>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                         <span style={{ fontWeight: 700, color: C.ink }}>{v.registroInterno || '—'}</span>
+                                        {v.isOutsourced && <TerceiroTag placa={v.placa !== v.registroInterno ? v.placa : null} />}
                                         {v.modelo && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 12 }}>{v.modelo}</span>}
                                         {v.estado === 'manutencao' && <span style={{ color: C.inkSub, marginLeft: 6, fontSize: 11 }}>· em manutenção</span>}
                                         {v.alocadaAtualmente === false && <SaiuTag destino={v.obraNome} />}
@@ -791,6 +798,18 @@ function SaiuTag({ destino }) {
         <span title={foiPara ? `Hoje em: ${foiPara}` : 'Não está mais alocada nesta obra'}
             style={{ display: 'inline-block', marginLeft: 8, padding: '1px 7px', borderRadius: 9999, border: `1px solid ${C.border}`, background: C.surface, color: C.inkMid, fontSize: 10.5, fontWeight: 600, verticalAlign: 'middle' }}>
             já saiu{foiPara ? ` → ${foiPara}` : ''}
+        </span>
+    );
+}
+
+// Selo de equipamento terceirizado: "3º" + placa (regra dos relatórios — RE de
+// terceiro sozinho não identifica a máquina). Fora do aproveitamento, por isso
+// a linha mostra "—" no %.
+function TerceiroTag({ placa }) {
+    return (
+        <span title="Equipamento terceirizado — fora do aproveitamento da frota MAK"
+            style={{ display: 'inline-block', marginLeft: 6, padding: '1px 7px', borderRadius: 9999, border: '1px solid #e9d5ff', background: '#faf5ff', color: '#7e22ce', fontSize: 10.5, fontWeight: 700, verticalAlign: 'middle' }}>
+            3º{placa ? ` · ${placa}` : ''}
         </span>
     );
 }
@@ -1205,7 +1224,10 @@ function DetFrota({ frota }) {
             <Bloco titulo="Resumo">
                 <Stat label="Máquinas com apontamento" value={linhas.length} />
                 <Stat label="Alocadas hoje" value={frota.alocados}
-                    hint={frota.jaSairam > 0 ? `${frota.jaSairam} já ${frota.jaSairam === 1 ? 'saiu' : 'saíram'}` : null} />
+                    hint={[
+                        frota.terceirosAlocados > 0 ? `${frota.terceirosAlocados} terceiro${frota.terceirosAlocados !== 1 ? 's' : ''}` : null,
+                        frota.jaSairam > 0 ? `${frota.jaSairam} já ${frota.jaSairam === 1 ? 'saiu' : 'saíram'}` : null,
+                    ].filter(Boolean).join(' · ') || null} />
                 <Stat label="Horas lançadas" value={fmtH(totalHoras)} />
                 <Stat label="Capacidade líquida" value={fmtH(totalCap)} />
                 <Stat label="Aproveitamento médio" value={frota.aproveitamentoMedio != null ? fmtPct(frota.aproveitamentoMedio) : '—'} />
@@ -1225,7 +1247,12 @@ function DetFrota({ frota }) {
                                 celulas: [
                                     {
                                         v: v.registroInterno || '—', forte: true,
-                                        tag: saiu ? <SaiuTag destino={v.obraNome} /> : null,
+                                        tag: (v.isOutsourced || saiu) ? (
+                                            <>
+                                                {v.isOutsourced && <TerceiroTag placa={v.placa !== v.registroInterno ? v.placa : null} />}
+                                                {saiu && <SaiuTag destino={v.obraNome} />}
+                                            </>
+                                        ) : null,
                                         sub: !saiu && v.estado === 'manutencao' ? '· manutenção' : null,
                                     },
                                     { v: v.tipo || '—', cor: C.inkMid },
