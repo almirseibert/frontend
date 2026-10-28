@@ -20,6 +20,13 @@ const fmtDateTime = (d) => {
 // Postos sem crédito são pagamento à vista — não devem aparecer aqui,
 // mesmo que tenham empenho (tanque cheio aberto) ou consumo via baixa.
 const hasActivity = (row) => (Number(row.total_credited) || 0) > 0;
+// Posto quitado: já teve crédito, mas o saldo zerou e não há empenho nem
+// "encher tanque" pendente. Saldo negativo continua visível (é dívida).
+const isZerado = (row) =>
+    hasActivity(row)
+    && Math.abs(Number(row.available) || 0) < 0.005
+    && Math.abs(Number(row.total_reserved) || 0) < 0.005
+    && (Number(row.full_tank_open) || 0) === 0;
 
 // Máscara de moeda BRL: o input mantém apenas os dígitos e mostra "1.234,56".
 const digitsToBRL = (digits) => {
@@ -430,11 +437,13 @@ const SaldoEmPostosPage = () => {
     const [filter, setFilter] = useState('');
     const [sortBy, setSortBy] = usePersistedState('ordenacao:saldo-postos', 'alert');
     const [showAll, setShowAll] = useState(false);
+    const [hideZerados, setHideZerados] = usePersistedState('filtro:saldo-postos:ocultar-zerados', true);
 
     const visiblePartners = useMemo(() => {
         const q = filter.trim().toLowerCase();
         let arr = partnerFuelCredits;
         if (!showAll) arr = arr.filter(hasActivity);
+        if (hideZerados) arr = arr.filter(p => !isZerado(p));
         if (q) arr = arr.filter(p => (p.partner_name || '').toLowerCase().includes(q));
 
         const sorters = {
@@ -462,9 +471,10 @@ const SaldoEmPostosPage = () => {
             },
         };
         return [...arr].sort(sorters[sortBy] || sorters.alert);
-    }, [partnerFuelCredits, filter, sortBy, showAll]);
+    }, [partnerFuelCredits, filter, sortBy, showAll, hideZerados]);
 
-    const totalAtivos = partnerFuelCredits.filter(hasActivity).length;
+    const totalZerados = partnerFuelCredits.filter(isZerado).length;
+    const totalAtivos = partnerFuelCredits.filter(hasActivity).length - totalZerados;
     const totalGeral  = partnerFuelCredits.length;
 
     const handleSaved = () => {
@@ -487,7 +497,8 @@ const SaldoEmPostosPage = () => {
                         <Fuel size={24} className="text-yellow-500" /> Saldo em Postos
                     </h1>
                     <p className="text-sm text-slate-600 mt-1">
-                        {totalAtivos} posto(s) com saldo ou movimento ativo de {totalGeral} cadastrado(s).
+                        {totalAtivos} posto(s) com saldo ou movimento ativo de {totalGeral} cadastrado(s)
+                        {totalZerados > 0 && ` · ${totalZerados} quitado(s) com saldo zerado`}.
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -523,14 +534,20 @@ const SaldoEmPostosPage = () => {
                 </select>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
                     <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-                    Mostrar postos sem saldo
+                    Mostrar postos sem crédito lançado
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={hideZerados} onChange={(e) => setHideZerados(e.target.checked)} />
+                    Ocultar postos com saldo zerado{totalZerados > 0 ? ` (${totalZerados})` : ''}
                 </label>
             </div>
 
             {visiblePartners.length === 0 ? (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-slate-500">
                     <TrendingDown className="mx-auto mb-2 text-slate-400" size={32} />
-                    {showAll ? 'Nenhum posto encontrado.' : 'Nenhum posto com saldo ativo. Use "Adicionar crédito" para começar.'}
+                    {showAll || (hideZerados && totalZerados > 0)
+                        ? 'Nenhum posto encontrado.'
+                        : 'Nenhum posto com saldo ativo. Use "Adicionar crédito" para começar.'}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
