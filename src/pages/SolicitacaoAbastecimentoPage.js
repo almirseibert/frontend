@@ -1401,16 +1401,17 @@ const SolicitacaoAbastecimentoPage = ({
                                                         <p className="text-[10px] text-gray-500">{req.tipo_combustivel}</p>
                                                     </div>
                                                 </div>
-                                                {(req.ordem_numero || req.posto_nome) && (
+                                                {(req.ordem_numero || req.ordem_posto_nome || req.posto_nome) && (
                                                     <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
                                                         {req.ordem_numero && (
                                                             <p className="text-xs text-gray-500">
                                                                 Ordem <span className="font-bold text-gray-800">Nº {String(req.ordem_numero).padStart(6, '0')}</span>
                                                             </p>
                                                         )}
-                                                        {req.posto_nome && (
+                                                        {/* Posto da ordem prevalece: o gestor pode trocá-lo na liberação */}
+                                                        {(req.ordem_posto_nome || req.posto_nome) && (
                                                             <p className="text-xs text-gray-500 truncate">
-                                                                Posto <span className="font-semibold text-gray-700">{req.posto_nome}</span>
+                                                                Posto <span className="font-semibold text-gray-700">{req.ordem_posto_nome || req.posto_nome}</span>
                                                             </p>
                                                         )}
                                                     </div>
