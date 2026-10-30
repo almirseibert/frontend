@@ -19,6 +19,7 @@ const EVENT_LABELS = {
     cnh_vencida:            'CNH vencida',
     multa_lancada:          'Multa lançada',
     ordem_gerada:           'Ordem gerada',
+    solicitacao_abastecimento_nova: 'Solicitação (App)',
 };
 
 const fmtDate = (d) => {

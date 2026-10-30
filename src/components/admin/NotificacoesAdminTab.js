@@ -16,6 +16,7 @@ const EVENT_TYPES = [
     { id: 'obra_progresso',              label: 'Progresso da obra (30/50/70%)',        desc: 'Ao atualizar o percentual da obra.' },
     { id: 'revisao_veiculo_leve',        label: 'Revisão de veículo leve',              desc: 'Cron diário — por Km.' },
     { id: 'revisao_veiculo_pesado',      label: 'Revisão de veículo pesado',            desc: 'Cron diário — por Hr.' },
+    { id: 'solicitacao_abastecimento_nova', label: 'Nova solicitação de abastecimento (App)', desc: 'Ao operador enviar solicitação pelo App — avisa quem aprova.' },
     { id: 'ordem_gerada',                label: 'Ordem de abastecimento gerada',        desc: 'Ao criar ordem (com PDF em anexo).' },
     { id: 'multa_lancada',               label: 'Multa lançada',                        desc: 'Ao registrar multa (com PDF de ciência).' },
     { id: 'documento_veiculo_vencido',   label: 'Documento de veículo vencido',         desc: 'Cron diário.' },
