@@ -295,7 +295,13 @@ const apiClient = {
     createObra: async (data) => apiFetch('/obras', { method: 'POST', body: JSON.stringify(data) }),
     updateObra: async (id, data) => apiFetch(`/obras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteObra: async (id) => apiFetch(`/obras/${id}`, { method: 'DELETE' }),
-    finishObra: async (id, data) => apiFetch(`/obras/${id}/finish`, { method: 'PUT', body: JSON.stringify(data) }), 
+    finishObra: async (id, data) => apiFetch(`/obras/${id}/finish`, { method: 'PUT', body: JSON.stringify(data) }),
+    // Obras lidas da planilha oficial aguardando aprovação (services/planilhaObrasService.js no backend).
+    // A aprovação é o createObra com planilha_import_id.
+    getObrasPlanilha: async () => apiFetch('/obras-planilha'),
+    sincronizarObrasPlanilha: async () => apiFetch('/obras-planilha/sincronizar', { method: 'POST' }),
+    ignorarObraPlanilha: async (id) => apiFetch(`/obras-planilha/${id}/ignorar`, { method: 'POST' }),
+    vincularObraPlanilha: async (id, obraId) => apiFetch(`/obras-planilha/${id}/vincular`, { method: 'POST', body: JSON.stringify({ obraId }) }), 
     updateObraHistoryEntry: async (obraId, historyId, data) => {
         return apiFetch(`/obras/${obraId}/historico/${historyId}`, {
             method: 'PUT',

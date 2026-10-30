@@ -28,6 +28,9 @@ const ObraModal = ({
     equipmentTypesForHours = [], // Recebe a lista filtrada (derivedEquipmentTypes) do Pai (ObrasPage)
     initialTipoRegistro = 'obra',
     employees = [],
+    // Nova obra pré-preenchida com uma linha da planilha oficial (PlanilhaObrasModal).
+    // Salvar cria a obra e marca a linha como aprovada (planilha_import_id).
+    rascunho = null,
 }) => {
     // --- ESTADOS DO FORMULÁRIO ---
     const [tipoRegistro, setTipoRegistro] = useState(initialTipoRegistro); // 'obra' | 'centro_custo'
@@ -77,37 +80,38 @@ const ObraModal = ({
             .catch(() => setInternalContacts([]));
     }, []);
 
-    // --- INICIALIZAÇÃO (Modo Edição) ---
+    // --- INICIALIZAÇÃO (Modo Edição, ou nova obra pré-preenchida pela planilha) ---
     useEffect(() => {
-        if (obra) {
-            setTipoRegistro(obra.tipo_registro || 'obra');
-            setNome(obra.nome || '');
-            setResponsavel(obra.responsavel || '');
-            setResponsavelEmail(obra.responsavel_email || '');
-            setResponsavelWhatsapp(obra.responsavel_whatsapp || '');
-            setFiscal(obra.fiscal || '');
-            setContractType(obra.contractType || 'horas');
+        const o = obra || rascunho;
+        if (o) {
+            setTipoRegistro(o.tipo_registro || 'obra');
+            setNome(o.nome || '');
+            setResponsavel(o.responsavel || '');
+            setResponsavelEmail(o.responsavel_email || '');
+            setResponsavelWhatsapp(o.responsavel_whatsapp || '');
+            setFiscal(o.fiscal || '');
+            setContractType(o.contractType || 'horas');
             // Previsão de fim agora vive em dataFimPrevisto; dataFim antigo serve de fallback
-            const fimPrev = obra.dataFimPrevisto || (obra.status !== 'finalizada' ? obra.dataFim : null);
+            const fimPrev = o.dataFimPrevisto || (o.status !== 'finalizada' ? o.dataFim : null);
             setDataFim(fimPrev ? new Date(fimPrev).toISOString().split('T')[0] : '');
-            setLatitude(obra.latitude || '');
-            setLongitude(obra.longitude || '');
-            setOrgaoContratante(obra.orgao_contratante || '');
-            setRegiao(obra.regiao || '');
-            setCidadeIbge(obra.cidade_ibge || cidadePorNome(obra.local)?.codigo_ibge || '');
+            setLatitude(o.latitude || '');
+            setLongitude(o.longitude || '');
+            setOrgaoContratante(o.orgao_contratante || '');
+            setRegiao(o.regiao || '');
+            setCidadeIbge(o.cidade_ibge || cidadePorNome(o.local)?.codigo_ibge || '');
 
             // Obra finalizada continua finalizada ao ser editada: reabrir é escolha
             // explícita no seletor de fase, nunca efeito colateral de salvar.
-            setStatusObra(obra.status || 'ativa');
-            setDataInicioPrevisto(obra.dataInicioPrevisto ? new Date(obra.dataInicioPrevisto).toISOString().split('T')[0] : '');
+            setStatusObra(o.status || 'ativa');
+            setDataInicioPrevisto(o.dataInicioPrevisto ? new Date(o.dataInicioPrevisto).toISOString().split('T')[0] : '');
 
             // Restaura Contrato por Horas — prefere o plano por SUBGRUPO; legado por grupo como fallback
             const parseMaybe = (v) => (typeof v === 'string' ? JSON.parse(v) : (v || {}));
-            const horasSubParsed = parseMaybe(obra.horasContratadasPorSubTipo);
+            const horasSubParsed = parseMaybe(o.horasContratadasPorSubTipo);
             const usaSubTipo = Object.keys(horasSubParsed).length > 0;
 
-            const horasParsed = usaSubTipo ? horasSubParsed : parseMaybe(obra.horasContratadasPorTipo);
-            const valoresParsed = usaSubTipo ? parseMaybe(obra.valoresPorSubTipo) : parseMaybe(obra.valoresPorTipo);
+            const horasParsed = usaSubTipo ? horasSubParsed : parseMaybe(o.horasContratadasPorTipo);
+            const valoresParsed = usaSubTipo ? parseMaybe(o.valoresPorSubTipo) : parseMaybe(o.valoresPorTipo);
 
             const items = Object.keys(horasParsed).map(type => ({
                 type,
@@ -116,11 +120,11 @@ const ObraModal = ({
             }));
             setContractedItems(items);
 
-            setKmContratadoPrancha(obra.kmContratadoPrancha || '');
-            setValorKmPrancha(obra.valorKmPrancha || '');
+            setKmContratadoPrancha(o.kmContratadoPrancha || '');
+            setValorKmPrancha(o.valorKmPrancha || '');
 
             // Restaura Contrato por M²
-            const sectorsParsed = Array.isArray(obra.sectors) ? obra.sectors : [];
+            const sectorsParsed = Array.isArray(o.sectors) ? o.sectors : [];
             setSectors(sectorsParsed);
 
             setPlanoAberto(items.length > 0 || sectorsParsed.length > 0);
@@ -128,7 +132,7 @@ const ObraModal = ({
             // Se for nova obra, inicia limpo
             setContractedItems([]);
         }
-    }, [obra]);
+    }, [obra, rascunho]);
 
     // Opções de equipamento: expande cada grupo cobrável nos seus subgrupos;
     // grupo sem subgrupos entra como opção direta (mesma regra do backend).
@@ -304,7 +308,9 @@ const ObraModal = ({
                 await apiClient.updateObra(obra.id, payload);
                 setAlertMessage("Obra atualizada com sucesso!");
             } else {
-                await apiClient.createObra(payload);
+                await apiClient.createObra(rascunho?.planilha_import_id
+                    ? { ...payload, planilha_import_id: rascunho.planilha_import_id }
+                    : payload);
                 setAlertMessage("Obra criada com sucesso!");
             }
             reloadData();
@@ -340,7 +346,7 @@ const ObraModal = ({
                         </h2>
                         {!isCentroCusto && (
                             <span className="flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-                                {obra ? (faseAtual ? faseAtual.label.split(' (')[0] : statusObra) : 'No radar'}
+                                {(obra || rascunho) ? (faseAtual ? faseAtual.label.split(' (')[0] : statusObra) : 'No radar'}
                             </span>
                         )}
                     </div>

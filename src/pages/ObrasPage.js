@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import usePersistedState from '../hooks/usePersistedState';
 import {
     PlusCircle, Download, Edit, Trash2, RefreshCw, MapPin,
-    AlertTriangle, Search, CheckCircle, Archive
+    AlertTriangle, Search, CheckCircle, Archive, FileSpreadsheet
 } from 'lucide-react';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { canAccessAnaliseGerencial } from '../utils/permissions';
@@ -11,8 +11,10 @@ import { canAccessAnaliseGerencial } from '../utils/permissions';
 import ObraModal from '../components/modals/ObraModal'; 
 import ObraDetailModal from '../components/modals/ObraDetailModal';
 import ManualFinishObraModal from '../components/modals/ManualFinishObraModal';
-import { formatObraNome } from '../utils/obraFormat';
+import { formatObraNome, regiaoPorCidade } from '../utils/obraFormat';
+import { cidadePorNome } from '../utils/geo';
 import SobreposicoesObraModal from '../components/modals/SobreposicoesObraModal';
+import PlanilhaObrasModal from '../components/modals/PlanilhaObrasModal';
 import { listarSobreposicoes } from '../utils/periodosObra';
 
 // Fases reais de uma obra (espelha OBRA_FASES do ObraModal) + finalizada.
@@ -74,6 +76,50 @@ const ObrasPage = ({
     // Veio da lista para corrigir uma obra: ao fechar o detalhe, volta para a lista.
     const [voltarParaSobreposicoes, setVoltarParaSobreposicoes] = useState(false);
     const nVeiculosSobrepostos = useMemo(() => new Set(sobreposicoes.map(s => s.veiculoId)).size, [sobreposicoes]);
+
+    // Obras novas na planilha oficial aguardando aprovação. Recarrega quando a
+    // lista de obras muda (ex.: acabou de aprovar uma).
+    const [planilha, setPlanilha] = useState(null);
+    const [planilhaAberta, setPlanilhaAberta] = useState(false);
+    const [rascunhoPlanilha, setRascunhoPlanilha] = useState(null);
+    const carregarPlanilha = useCallback(() => {
+        apiClient?.getObrasPlanilha?.()
+            .then(setPlanilha)
+            .catch(() => { /* sem permissão / offline: sem aviso */ });
+    }, [apiClient]);
+    useEffect(() => { carregarPlanilha(); }, [carregarPlanilha, obras]);
+    const nPlanilha = planilha?.pendentes?.length || 0;
+
+    const revisarDaPlanilha = (item) => {
+        const plano = item.plano || {};
+        const cidade = cidadePorNome(item.nome.replace(/\s+\d+$/, ''));
+        setRascunhoPlanilha({
+            planilha_import_id: item.id,
+            tipo_registro: 'obra',
+            nome: item.nome,
+            fiscal: item.fiscal,
+            orgao_contratante: 'SEAPI',
+            status: 'planejada',
+            contractType: 'horas',
+            dataInicioPrevisto: item.data_inicio_prevista,
+            horasContratadasPorSubTipo: plano.horasContratadasPorSubTipo || {},
+            valoresPorSubTipo: plano.valoresPorSubTipo || {},
+            kmContratadoPrancha: plano.kmContratadoPrancha || '',
+            valorKmPrancha: plano.valorKmPrancha || '',
+            cidade_ibge: cidade?.codigo_ibge || '',
+            regiao: regiaoPorCidade(cidade) || '',
+        });
+    };
+
+    const acaoPlanilha = async (fn, msgOk) => {
+        try {
+            await fn();
+            if (msgOk) setAlertMessage(msgOk);
+            carregarPlanilha();
+        } catch (e) {
+            setAlertMessage(e.message || 'Erro ao atualizar a obra da planilha.');
+        }
+    };
 
     // --- LÓGICA DE TIPOS DE EQUIPAMENTOS ---
     const derivedEquipmentTypes = useMemo(() => {
@@ -272,6 +318,22 @@ const ObrasPage = ({
                     </div>
                 </ProtectedComponent>
             </div>
+
+            {nPlanilha > 0 && (
+                <ProtectedComponent requiredPermission="editor">
+                    <button
+                        type="button"
+                        onClick={() => setPlanilhaAberta(true)}
+                        className="w-full mb-4 px-4 py-3 rounded-xl border border-green-300 bg-green-50 hover:bg-green-100 transition flex items-center gap-3 text-left"
+                    >
+                        <FileSpreadsheet size={18} className="text-green-700 shrink-0" />
+                        <span className="flex-1 text-sm text-green-900">
+                            <strong>{nPlanilha} obra(s) nova(s)</strong> na planilha SEAPI aguardando aprovação.
+                        </span>
+                        <span className="text-sm font-semibold text-green-800 underline shrink-0">Revisar</span>
+                    </button>
+                </ProtectedComponent>
+            )}
 
             {sobreposicoes.length > 0 && (
                 <ProtectedComponent requiredPermission="editor">
@@ -536,6 +598,33 @@ const ObrasPage = ({
                     setAlertMessage={setAlertMessage}
                     equipmentTypesForHours={derivedEquipmentTypes}
                     initialTipoRegistro={selectedObra ? (selectedObra.tipo_registro || 'obra') : (tipoFilter !== 'todos' ? tipoFilter : 'obra')}
+                    employees={employees}
+                />
+            )}
+
+            {planilhaAberta && (
+                <PlanilhaObrasModal
+                    dados={planilha}
+                    obras={obras}
+                    onClose={() => setPlanilhaAberta(false)}
+                    onRevisar={revisarDaPlanilha}
+                    onIgnorar={(id) => acaoPlanilha(() => apiClient.ignorarObraPlanilha(id))}
+                    onVincular={(id, obraId) => acaoPlanilha(() => apiClient.vincularObraPlanilha(id, obraId), 'Linha da planilha vinculada à obra.')}
+                    onSincronizar={() => acaoPlanilha(() => apiClient.sincronizarObrasPlanilha())}
+                />
+            )}
+
+            {rascunhoPlanilha && (
+                <ObraModal
+                    user={user}
+                    obra={null}
+                    rascunho={rascunhoPlanilha}
+                    onClose={() => { setRascunhoPlanilha(null); carregarPlanilha(); }}
+                    apiClient={apiClient}
+                    reloadData={reloadData}
+                    setAlertMessage={setAlertMessage}
+                    equipmentTypesForHours={derivedEquipmentTypes}
+                    initialTipoRegistro="obra"
                     employees={employees}
                 />
             )}
